@@ -3,7 +3,7 @@ import { applyAcknowledgedContentSplices } from "../../src/core-port/content-pat
 import type { GraphSnapshot } from "../../src/core-port/snapshot";
 
 const snapshot: GraphSnapshot = {
-  schema_version: 6,
+  schema_version: 7,
   graph_id: "graph",
   pages: [
     {
@@ -36,6 +36,7 @@ const snapshot: GraphSnapshot = {
   ],
   tags: [],
   settings: { default_queries: [] },
+  conflicts: [],
   quarantined: [],
 };
 

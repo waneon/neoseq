@@ -76,6 +76,7 @@ export interface QuarantineRecord extends UpdateRecord {
 
 export interface OutboxRecord {
   graph_id: string;
+  /** Lowercase SHA-256 of the referenced update payload. */
   message_id: string;
   local_sequence: number;
   base_version_vector: ArrayBuffer;
@@ -86,6 +87,12 @@ export interface OutboxRecord {
 
 export interface ResolvedOutboxRecord extends OutboxRecord {
   payload: ArrayBuffer;
+}
+
+interface InspectedOutboxRecord {
+  persisted: OutboxRecord;
+  resolved: ResolvedOutboxRecord;
+  contentId: string;
 }
 
 export interface SyncStateRecord {
@@ -203,7 +210,7 @@ export class IndexedDbGraphRepository {
     graphId: string,
     payload: ArrayBuffer,
     now: string,
-    outbox?: { message_id: string; base_version_vector: ArrayBuffer },
+    outbox?: { base_version_vector: ArrayBuffer },
   ): Promise<{ local_sequence: number; checksum: string }> {
     this.hooks?.before?.("append");
     const digest = await checksum(payload);
@@ -218,6 +225,15 @@ export class IndexedDbGraphRepository {
       updateStore.index("by_checksum").get([graphId, digest]),
     );
     if (existing) {
+      if (outbox) {
+        transaction.objectStore(STORES.outbox).put({
+          graph_id: graphId,
+          message_id: digest,
+          local_sequence: existing.local_sequence,
+          base_version_vector: outbox.base_version_vector,
+          created_at: now,
+        } satisfies OutboxRecord);
+      }
       await complete(transaction);
       database.close();
       return { local_sequence: existing.local_sequence, checksum: digest };
@@ -238,7 +254,7 @@ export class IndexedDbGraphRepository {
     if (outbox) {
       transaction.objectStore(STORES.outbox).put({
         graph_id: graphId,
-        message_id: outbox.message_id,
+        message_id: digest,
         local_sequence: localSequence,
         base_version_vector: outbox.base_version_vector,
         created_at: now,
@@ -258,16 +274,92 @@ export class IndexedDbGraphRepository {
     return { local_sequence: localSequence, checksum: digest };
   }
 
+  /** Rewrites pre-v6 outbox keys before the graph is exposed to concurrent
+   * sync operations. The write transaction rechecks source rows, so two
+   * concurrent opens cannot resurrect an entry already migrated by the other. */
+  async normalizeOutbox(graphId: string): Promise<void> {
+    const inspected = await this.inspectOutbox(graphId);
+    if (inspected.every(({ persisted, contentId }) => persisted.message_id === contentId)) return;
+
+    const database = await openDatabase();
+    const transaction = database.transaction([STORES.outbox, STORES.updates], "readwrite");
+    const store = transaction.objectStore(STORES.outbox);
+    const updateStore = transaction.objectStore(STORES.updates);
+    const live: InspectedOutboxRecord[] = [];
+    for (const candidate of inspected) {
+      const current = await request<OutboxRecord | undefined>(
+        store.get([graphId, candidate.persisted.message_id]),
+      );
+      if (!current || !sameOutboxGeneration(current, candidate.persisted)) continue;
+      if (current.payload) {
+        if (!sameBytes(current.payload, candidate.resolved.payload)) continue;
+      } else {
+        const update = await request<UpdateRecord | undefined>(
+          updateStore.get([graphId, current.local_sequence]),
+        );
+        if (
+          !update ||
+          update.checksum !== candidate.contentId ||
+          !sameBytes(update.payload, candidate.resolved.payload)
+        ) {
+          continue;
+        }
+      }
+      live.push({ ...candidate, persisted: current });
+    }
+    for (const candidate of live) {
+      if (candidate.persisted.message_id !== candidate.contentId) {
+        store.delete([graphId, candidate.persisted.message_id]);
+      }
+    }
+    for (const candidate of live) {
+      const existing = await request<OutboxRecord | undefined>(
+        store.get([graphId, candidate.contentId]),
+      );
+      if (!existing) store.put({ ...candidate.persisted, message_id: candidate.contentId });
+    }
+    await complete(transaction);
+    database.close();
+
+    const normalized = await this.inspectOutbox(graphId);
+    if (normalized.some(({ persisted, contentId }) => persisted.message_id !== contentId)) {
+      throw new StorageError(
+        "storage_corrupt",
+        "outbox changed while its content identity was being normalized",
+        false,
+      );
+    }
+  }
+
   async outbox(graphId: string): Promise<ResolvedOutboxRecord[]> {
+    const inspected = await this.inspectOutbox(graphId);
+    for (const { persisted, contentId } of inspected) {
+      if (persisted.message_id !== contentId) {
+        throw new StorageError(
+          "storage_corrupt",
+          "outbox content identity was not normalized before use",
+          false,
+        );
+      }
+    }
+    return inspected.map(({ resolved }) => resolved);
+  }
+
+  private async inspectOutbox(graphId: string): Promise<InspectedOutboxRecord[]> {
     const database = await openDatabase();
     const transaction = database.transaction([STORES.outbox, STORES.updates], "readonly");
     const records = await request<OutboxRecord[]>(
       transaction.objectStore(STORES.outbox).index("by_graph").getAll(graphId),
     );
     const updateStore = transaction.objectStore(STORES.updates);
-    const resolved: ResolvedOutboxRecord[] = [];
+    const candidates: Array<{
+      record: OutboxRecord;
+      payload: ArrayBuffer;
+      storedChecksum?: string;
+    }> = [];
     for (const record of records.sort(bySequence)) {
       let payload = record.payload;
+      let storedChecksum: string | undefined;
       if (!payload) {
         const update = await request<UpdateRecord | undefined>(
           updateStore.get([graphId, record.local_sequence]),
@@ -281,12 +373,30 @@ export class IndexedDbGraphRepository {
           );
         }
         payload = update.payload;
+        storedChecksum = update.checksum;
       }
-      resolved.push({ ...record, payload });
+      candidates.push({ record, payload, storedChecksum });
     }
     await complete(transaction);
     database.close();
-    return resolved;
+
+    const inspected: InspectedOutboxRecord[] = [];
+    for (const { record, payload, storedChecksum } of candidates) {
+      const digest = await checksum(payload);
+      if (storedChecksum !== undefined && storedChecksum !== digest) {
+        throw new StorageError(
+          "storage_corrupt",
+          `outbox update ${record.local_sequence} checksum does not match its payload`,
+          false,
+        );
+      }
+      inspected.push({
+        persisted: record,
+        resolved: { ...record, message_id: digest, payload },
+        contentId: digest,
+      });
+    }
+    return inspected;
   }
 
   async acknowledge(graphId: string, messageId: string): Promise<void> {
@@ -593,7 +703,6 @@ export class IndexedDbGraphRepository {
     historyEpoch: number,
     baseVersionVector: ArrayBuffer,
     rebasedTail: ArrayBuffer,
-    messageId: string,
     schemaVersion: number,
     now: string,
   ): Promise<void> {
@@ -642,7 +751,7 @@ export class IndexedDbGraphRepository {
       } satisfies UpdateRecord);
       outboxStore.put({
         graph_id: graphId,
-        message_id: messageId,
+        message_id: tailDigest,
         local_sequence: localSequence,
         base_version_vector: baseVersionVector,
         created_at: now,
@@ -830,4 +939,23 @@ export async function validChecksum(expected: string, payload: ArrayBuffer): Pro
 
 function bySequence(left: { local_sequence: number }, right: { local_sequence: number }): number {
   return left.local_sequence - right.local_sequence;
+}
+
+function sameOutboxGeneration(left: OutboxRecord, right: OutboxRecord): boolean {
+  return (
+    left.graph_id === right.graph_id &&
+    left.message_id === right.message_id &&
+    left.local_sequence === right.local_sequence &&
+    left.created_at === right.created_at &&
+    sameBytes(left.base_version_vector, right.base_version_vector) &&
+    sameBytes(left.payload, right.payload)
+  );
+}
+
+function sameBytes(left: ArrayBuffer | undefined, right: ArrayBuffer | undefined): boolean {
+  if (!left || !right) return left === right;
+  if (left.byteLength !== right.byteLength) return false;
+  const leftBytes = new Uint8Array(left);
+  const rightBytes = new Uint8Array(right);
+  return leftBytes.every((value, index) => value === rightBytes[index]);
 }

@@ -3,12 +3,14 @@ use domain::GraphId;
 use graph_core::checksum;
 use serde::Serialize;
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
+use sync_protocol::ContentId;
 use thiserror::Error;
 
 const DATABASE_MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0001_initial.sql"),
     include_str!("../migrations/0002_graph_catalog.sql"),
     include_str!("../migrations/0003_graph_quota.sql"),
+    include_str!("../migrations/0004_update_content_identity.sql"),
 ];
 pub const DATABASE_SCHEMA_VERSION: i32 = DATABASE_MIGRATIONS.len() as i32;
 const MAX_RETAINED_RECEIPTS: usize = 4_096;
@@ -146,9 +148,17 @@ impl GraphLoad {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CommitOutcome {
-    pub cursor: u64,
-    pub inserted: bool,
+pub enum CommitOutcome {
+    Inserted { cursor: u64 },
+    Duplicate { cursor: u64 },
+}
+
+impl CommitOutcome {
+    pub fn cursor(self) -> u64 {
+        match self {
+            Self::Inserted { cursor } | Self::Duplicate { cursor } => cursor,
+        }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -163,8 +173,8 @@ pub enum StoreError {
     InvalidMembershipRole,
     #[error("graph byte quota exceeded")]
     QuotaExceeded,
-    #[error("message id was already committed with different bytes")]
-    MessageConflict,
+    #[error("update content id does not match its bytes")]
+    InvalidUpdateIdentity,
     #[error("graph identifier is already in use")]
     GraphAlreadyExists,
     #[error("history epoch changed while checkpoint was being installed")]
@@ -197,11 +207,13 @@ pub trait GraphStore: Send + Sync + 'static {
 
     async fn load_graph(&self, graph_id: &GraphId) -> Result<GraphLoad, StoreError>;
 
+    /// Commits one content-addressed update. Typed spelling is necessary but
+    /// implementations must also verify the identity against `bytes`.
     async fn commit_update(
         &self,
         graph_id: &GraphId,
         account_id: &str,
-        message_id: &str,
+        content_id: &ContentId,
         bytes: &[u8],
     ) -> Result<CommitOutcome, StoreError>;
 
@@ -604,7 +616,7 @@ impl GraphStore for PgStore {
             return Err(StoreError::Corrupt("checkpoint history epoch mismatch"));
         }
         let update_rows = sqlx::query(
-            "SELECT cursor, checksum, payload
+            "SELECT cursor, message_id, payload
              FROM graph_update
              WHERE graph_id = $1 AND cursor > $2 ORDER BY cursor",
         )
@@ -615,9 +627,10 @@ impl GraphStore for PgStore {
         let mut updates = Vec::with_capacity(update_rows.len());
         for update in update_rows {
             let bytes: Vec<u8> = update.try_get("payload")?;
-            let expected: String = update.try_get("checksum")?;
-            if checksum(&bytes) != expected {
-                return Err(StoreError::Corrupt("update checksum mismatch"));
+            let content_id = ContentId::new(update.try_get::<String, _>("message_id")?)
+                .map_err(|_| StoreError::Corrupt("invalid update content identity"))?;
+            if !content_id.matches(&bytes) {
+                return Err(StoreError::Corrupt("update content identity mismatch"));
             }
             updates.push(StoredUpdate {
                 cursor: as_u64(update.try_get("cursor")?)?,
@@ -639,9 +652,12 @@ impl GraphStore for PgStore {
         &self,
         graph_id: &GraphId,
         account_id: &str,
-        message_id: &str,
+        content_id: &ContentId,
         bytes: &[u8],
     ) -> Result<CommitOutcome, StoreError> {
+        if !content_id.matches(bytes) {
+            return Err(StoreError::InvalidUpdateIdentity);
+        }
         let mut transaction = self.pool.begin().await?;
         // Authorization and graph quota are checked under the same graph lock as
         // the durable insert, closing the revoke/check-of-use race.
@@ -663,27 +679,23 @@ impl GraphStore for PgStore {
         {
             return Err(StoreError::ReadOnly);
         }
-        let digest = checksum(bytes);
-        if let Some(row) = sqlx::query(
-            "SELECT cursor, checksum FROM graph_update
-             WHERE graph_id = $1 AND message_id = $2
-             UNION ALL
-             SELECT cursor, checksum FROM graph_update_receipt
-             WHERE graph_id = $1 AND message_id = $2
-             LIMIT 1",
+        let prior_cursor: Option<i64> = sqlx::query_scalar(
+            "SELECT MIN(cursor) FROM (
+                 SELECT cursor FROM graph_update
+                 WHERE graph_id = $1 AND message_id = $2
+                 UNION ALL
+                 SELECT cursor FROM graph_update_receipt
+                 WHERE graph_id = $1 AND message_id = $2
+             ) AS durable_identity",
         )
         .bind(graph_id.as_str())
-        .bind(message_id)
-        .fetch_optional(&mut *transaction)
-        .await?
-        {
-            if row.try_get::<String, _>("checksum")? != digest {
-                return Err(StoreError::MessageConflict);
-            }
+        .bind(content_id.as_str())
+        .fetch_one(&mut *transaction)
+        .await?;
+        if let Some(cursor) = prior_cursor {
             transaction.commit().await?;
-            return Ok(CommitOutcome {
-                cursor: as_u64(row.try_get("cursor")?)?,
-                inserted: false,
+            return Ok(CommitOutcome::Duplicate {
+                cursor: as_u64(cursor)?,
             });
         }
         let quota = as_u64(row.try_get("byte_quota")?)?;
@@ -696,14 +708,13 @@ impl GraphStore for PgStore {
         }
         let cursor: i64 = sqlx::query_scalar(
             "INSERT INTO graph_update(
-                graph_id, message_id, account_id, checksum, payload, size_bytes
-             ) VALUES ($1, $2, $3, $4, $5, $6)
+                graph_id, message_id, account_id, payload, size_bytes
+             ) VALUES ($1, $2, $3, $4, $5)
              RETURNING cursor",
         )
         .bind(graph_id.as_str())
-        .bind(message_id)
+        .bind(content_id.as_str())
         .bind(account_id)
-        .bind(&digest)
         .bind(bytes)
         .bind(as_i64(bytes.len() as u64)?)
         .fetch_one(&mut *transaction)
@@ -725,9 +736,8 @@ impl GraphStore for PgStore {
         )
         .await?;
         transaction.commit().await?;
-        Ok(CommitOutcome {
+        Ok(CommitOutcome::Inserted {
             cursor: as_u64(cursor)?,
-            inserted: true,
         })
     }
 
@@ -803,8 +813,8 @@ impl GraphStore for PgStore {
         .await?;
         sqlx::query(
             "INSERT INTO graph_update_receipt(
-                graph_id, message_id, checksum, cursor, received_at
-             ) SELECT graph_id, message_id, checksum, cursor, received_at
+                graph_id, message_id, cursor, received_at
+             ) SELECT graph_id, message_id, cursor, received_at
                FROM graph_update WHERE graph_id = $1 AND cursor <= $2
              ON CONFLICT(graph_id, message_id) DO NOTHING",
         )

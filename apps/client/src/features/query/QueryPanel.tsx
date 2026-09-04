@@ -1,9 +1,9 @@
 // A query, and the answer it stands for.
 //
-// One way to say it. The **builder** writes a plan, compiled here into the SPARQL
-// the core runs, with every user value travelling as a bound parameter so "due
-// today" stays true tomorrow. SPARQL is the executable artifact and stays
-// readable — `Show SPARQL` is a disclosure on every query — but it is not an
+// One way to say it. The **builder** writes a plan that the core lowers directly
+// to logical algebra, so "due today" stays true tomorrow without a text
+// round-trip. Generated SPARQL stays readable — `Show SPARQL` is a disclosure on
+// every query — but it is a compatibility artifact, not an executable authority or
 // authoring surface: a second grammar for one document is a second product, and
 // the one thing it could say that the builder cannot is not worth a reader
 // meeting a text box where a question belongs. A document written by an older
@@ -59,7 +59,7 @@ import {
   Table2Icon,
   Trash2Icon,
 } from "lucide-react";
-import type { QueryEntityRef } from "../../generated/core-port";
+import type { AuthoredQueryRequest, QueryEntityRef } from "../../generated/core-port";
 import type { Command, QueryOwnerRef } from "../../core-port/commands";
 import type {
   OutlineOwner,
@@ -89,12 +89,7 @@ import { newQueryDocument } from "../../entities/query-document";
 import { isSettledStatus, TASK_STATUS_KEY } from "../../entities/tasks";
 import { taskMomentDue } from "../tasks/moment-presentation";
 import { canonicalEntityName, nextAvailableEntityName } from "../../entities/names";
-import {
-  compileEntityProjection,
-  compilePlan,
-  isCompilerVariable,
-  planBindings,
-} from "../../entities/query-compile";
+import { isCompilerVariable, planProjection, QUERY_LANGUAGE } from "../../entities/query-compile";
 import {
   inferOrderSemantics,
   orderSemanticsForColumn,
@@ -238,9 +233,8 @@ function QueryPanelSurface({
   // selection is local even while it may shape the selected view itself.
   const [localViewId, setLocalViewId] = useState<string | null>(null);
   const seedViews = useMemo<QueryView[]>(() => {
-    const compiled = seedPlan ? compilePlan(seedPlan) : null;
     return newQueryDocument(
-      compiled?.source ?? "",
+      "",
       seedPlan ? { version: QUERY_PLAN_VERSION, payload: encodePlan(seedPlan) } : null,
     ).views;
   }, [seedPlan]);
@@ -256,6 +250,7 @@ function QueryPanelSurface({
         : null,
     [activeView.definition.plan],
   );
+  const unsupportedPlan = activeView.definition.plan != null && storedPlan === null;
   const storedPayload = storedPlan ? encodePlan(storedPlan) : null;
   const incomingPlan = storedPlan ?? (document ? null : (seedPlan ?? null));
   const incomingPlanRef = useLatest(incomingPlan);
@@ -320,23 +315,14 @@ function QueryPanelSurface({
   // block list back into a query-cell list while its own request is in flight.
   const canonicalBlockView = activeView.kind === "list" && plan?.subject === "block";
 
-  const compiled = useMemo(() => (plan ? compilePlan(plan) : null), [plan]);
-  const executionCompiled = useMemo(
-    () => (canonicalBlockView && plan ? compileEntityProjection(plan) : compiled),
-    [canonicalBlockView, compiled, plan],
+  const projection = useMemo(
+    () => (plan ? planProjection(plan, canonicalBlockView ? "entities" : "view") : null),
+    [canonicalBlockView, plan],
   );
-  const runtime = useMemo(
-    () => ({ graphId: state.snapshot.graph_id, today: todayLocalDate() }),
-    [state.snapshot.graph_id],
-  );
+  const today = useMemo(() => todayLocalDate(), [state.snapshot.graph_id]);
   // A built query runs from the plan in hand, so a result follows an edit
   // without waiting for the write that persists it. Without a plan there is only
   // the stored source, which still runs.
-  const runSource = executionCompiled ? executionCompiled.source : source;
-  const runBindings = useMemo(
-    () => (executionCompiled ? planBindings(executionCompiled.parameters, runtime) : {}),
-    [executionCompiled, runtime],
-  );
   const outputId = useId();
   const builderId = useId();
   const [resultsOpen, setResultsOpen] = useState(() =>
@@ -345,15 +331,29 @@ function QueryPanelSurface({
   useEffect(() => {
     setResultsOpen(queryResultsAreOpen(session.graphId, viewExecutionKey));
   }, [session.graphId, viewExecutionKey]);
-  const request = useMemo(
-    () => ({
-      language: activeView.definition.language,
-      source: runSource,
-      bindings: runBindings,
-    }),
-    [activeView.definition.language, runBindings, runSource],
+  const request = useMemo<AuthoredQueryRequest | null>(
+    () =>
+      plan
+        ? {
+            kind: "built",
+            plan,
+            today,
+            projection: canonicalBlockView ? "entities" : "view",
+          }
+        : unsupportedPlan
+          ? null
+          : {
+              kind: "raw_sparql",
+              language: QUERY_LANGUAGE,
+              source,
+            },
+    [canonicalBlockView, plan, source, today, unsupportedPlan],
   );
-  const { result, error, loading, run } = useQueryAnswer(viewExecutionKey, request);
+  const { result, error, loading, run } = useQueryAnswer(
+    viewExecutionKey,
+    request,
+    unsupportedPlan ? message("query.unsupportedPlan") : null,
+  );
 
   const execute = (command: (target: QueryOwnerRef) => Command): Promise<void> =>
     session.execute(command(owner)).then(() => undefined);
@@ -391,13 +391,12 @@ function QueryPanelSurface({
       .execute(next.length === 1 ? next[0] : { type: "batch", commands: next })
       .then(() => undefined);
   };
-  const saveDefinition = useLatest((payload: string, compiledSource: string) =>
+  const saveDefinition = useLatest((payload: string) =>
     writeDefinition((target) => ({
       type: "set_query_plan",
       owner: target,
       view_id: activeView.id,
       plan: { version: QUERY_PLAN_VERSION, payload },
-      source: compiledSource,
     })).catch((cause: unknown) => notify.failure(message("failure.saveQuery"), cause)),
   );
 
@@ -405,16 +404,15 @@ function QueryPanelSurface({
   // one at all for a seed nobody has touched, which is what lets a tag page be
   // opened, read, and left without writing anything.
   useEffect(() => {
-    if (!plan || !compiled || !canEditDefinition || !shaped.current) return;
+    if (!plan || !canEditDefinition || !shaped.current) return;
     const payload = encodePlan(plan);
     if (payload === storedPayload) return;
     const timer = window.setTimeout(() => {
-      void saveDefinition.current(payload, compiled.source);
+      void saveDefinition.current(payload);
     }, PLAN_SAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
   }, [
     canEditDefinition,
-    compiled,
     activeView.id,
     viewExecutionKey,
     plan,
@@ -465,7 +463,7 @@ function QueryPanelSurface({
   const cellContext = useMemo<CellContext>(
     () => ({
       snapshot: state.snapshot,
-      subjectVariable: executionCompiled?.subjectVariable ?? null,
+      subjectVariable: projection?.subjectVariable ?? null,
       message,
       formatDate: formatJournalDate,
       formatTime: formatTimeOfDay,
@@ -477,7 +475,7 @@ function QueryPanelSurface({
     }),
     [
       state.snapshot,
-      executionCompiled?.subjectVariable,
+      projection?.subjectVariable,
       message,
       formatJournalDate,
       formatTimeOfDay,
@@ -490,7 +488,7 @@ function QueryPanelSurface({
   const resultEditor = useQueryResultEditor({
     session,
     state,
-    enabled: Boolean(plan && executionCompiled?.subjectVariable) && !readonly,
+    enabled: Boolean(plan && projection?.subjectVariable) && !readonly,
     message,
   });
 
@@ -586,26 +584,27 @@ function QueryPanelSurface({
     () =>
       plan
         ? planSummary(plan, { snapshot: state.snapshot, message, formatDate: formatJournalDate })
-        : { lead: "SPARQL", detail: null },
-    [plan, state.snapshot, message, formatJournalDate],
+        : unsupportedPlan
+          ? { lead: message("query.unsupportedPlan"), detail: null }
+          : { lead: "SPARQL", detail: null },
+    [plan, state.snapshot, message, formatJournalDate, unsupportedPlan],
   );
 
   if (!document && !seedPlan) return null;
 
   const report = (cause: unknown) => notify.failure(message("failure.saveQuery"), cause);
 
-  const definitionInHand =
-    plan && compiled
-      ? ({
-          source: compiled.source,
-          language: activeView.definition.language,
-          plan: { version: QUERY_PLAN_VERSION, payload: encodePlan(plan) },
-        } as const)
-      : activeView.definition;
+  const definitionInHand = plan
+    ? ({
+        source: "",
+        language: activeView.definition.language,
+        plan: { version: QUERY_PLAN_VERSION, payload: encodePlan(plan) },
+      } as const)
+    : activeView.definition;
 
   /** A view switch is a save boundary: a pending debounce must not lose a draft. */
   const flushDefinition = async () => {
-    if (!canEditDefinition || !plan || !compiled) return;
+    if (!canEditDefinition || !plan) return;
     const payload = encodePlan(plan);
     if (document && payload === storedPayload) return;
     shaped.current = true;
@@ -614,7 +613,6 @@ function QueryPanelSurface({
       owner: target,
       view_id: activeView.id,
       plan: { version: QUERY_PLAN_VERSION, payload },
-      source: compiled.source,
     }));
   };
 
@@ -1288,11 +1286,11 @@ function QueryPanelSurface({
         />
       )}
 
-      {/* What actually runs: the plan's compilation, or the hand-written source
-          of a query whose editor is not on this surface. */}
+      {/* Rust-derived compatibility SPARQL, or the hand-written source when this
+          document has no typed plan. It is never the built query's authority. */}
       {showSource && (
         <pre className="query-compiled" data-testid="query-compiled">
-          <code>{runSource}</code>
+          <code>{source}</code>
         </pre>
       )}
 

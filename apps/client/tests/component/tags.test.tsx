@@ -15,7 +15,7 @@ import {
 async function mountTagged() {
   const harness = await mountAt(`/g/${GRAPH_ID}/p/home`);
   const { session } = harness;
-  await harness.settle(async () => {
+  const blockId = await harness.settle(async () => {
     await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
     await session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
     await session.execute({
@@ -24,26 +24,28 @@ async function mountTagged() {
       key: "builtin.task-status",
       value: { type: "string", value: "todo" },
     });
-    await session.execute({
+    const inserted = await session.execute({
       type: "insert_block",
       owner: { kind: "page", id: "home" },
       parent: null,
       index: 0,
       markdown: "existing status",
     });
+    if (!inserted.created_block) throw new Error("insert_block did not return a block ID");
+    return inserted.created_block;
   });
   await waitFor(() => expect(screen.getByTestId("page-title")).toHaveValue("Home"));
-  return harness;
+  return { ...harness, blockId };
 }
 
 describe("first-class tags and tag defaults", () => {
   it("copies defaults on tag but never overwrites existing block values", async () => {
-    const { session } = await mountTagged();
+    const { session, blockId } = await mountTagged();
     const user = userEvent.setup();
     // The block already tracks its own status.
     await session.execute({
       type: "set_property",
-      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: blockId },
       key: "builtin.task-status",
       value: { type: "string", value: "doing" },
     });
@@ -65,11 +67,11 @@ describe("first-class tags and tag defaults", () => {
   });
 
   it("materializes missing defaults and supports chip removal", async () => {
-    const { session } = await mountTagged();
+    const { session, blockId } = await mountTagged();
     const user = userEvent.setup();
     await session.execute({
       type: "add_tag",
-      entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      entity: { kind: "block", owner: { kind: "page", id: "home" }, id: blockId },
       tag_id: "project",
     });
 
@@ -88,10 +90,10 @@ describe("first-class tags and tag defaults", () => {
   });
 
   it("removes a deleted tag from hydrated blocks but keeps copied defaults", async () => {
-    const { session } = await mountTagged();
+    const { session, blockId } = await mountTagged();
     await session.execute({
       type: "add_tag",
-      entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      entity: { kind: "block", owner: { kind: "page", id: "home" }, id: blockId },
       tag_id: "project",
     });
     expect(await screen.findByTestId("tag-chip")).toHaveTextContent("#Project");
@@ -235,11 +237,11 @@ describe("the # tag menu in a block", () => {
   });
 
   it("marks a tag the block already has and accepting it only removes the token", async () => {
-    const { session } = await mountTagged();
+    const { session, blockId } = await mountTagged();
     const user = userEvent.setup();
     await session.execute({
       type: "add_tag",
-      entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      entity: { kind: "block", owner: { kind: "page", id: "home" }, id: blockId },
       tag_id: "project",
     });
     const textarea = await screen.findByLabelText("Block text");
@@ -472,24 +474,27 @@ describe("the tags screen", () => {
 
 async function mountTagPage() {
   const harness = await mountAt(`/g/${GRAPH_ID}/t/project`);
-  await harness.settle(async () => {
+  const blockId = await harness.settle(async () => {
     await harness.session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
     await harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
-    await harness.session.execute({
+    const inserted = await harness.session.execute({
       type: "insert_block",
       owner: { kind: "page", id: "home" },
       parent: null,
       index: 0,
       markdown: "ship the thing",
     });
+    const blockId = inserted.created_block;
+    if (!blockId) throw new Error("insert_block did not return a block ID");
     await harness.session.execute({
       type: "add_tag",
-      entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      entity: { kind: "block", owner: { kind: "page", id: "home" }, id: blockId },
       tag_id: "project",
     });
+    return blockId;
   });
   await screen.findByTestId("tag-title");
-  return harness;
+  return { ...harness, blockId };
 }
 
 /** The tag document, or `undefined` while the page is still only a seed. */
@@ -537,15 +542,20 @@ describe("a tag's own page", () => {
       expect.stringContaining("#Project"),
     );
     const request = port.queryRequests.at(-1);
-    expect(Object.values(request?.query.bindings ?? {}).map((term) => term.value)).toContain(
-      `urn:neoseq:entity:${GRAPH_ID}:tag:project`,
-    );
+    expect(request?.query).toMatchObject({
+      kind: "built",
+      plan: {
+        where: {
+          children: [{ value: { type: "tag", value: "project" } }],
+        },
+      },
+    });
     // Reading a tag is a read: the seed becomes a document only when shaped.
     expect(tagQuery(session)).toBeUndefined();
   });
 
   it("keeps an empty default visible and materializes its empty field", async () => {
-    const { session } = await mountTagPage();
+    const { session, blockId } = await mountTagPage();
     await session.execute({
       type: "ensure_property",
       owner: { kind: "tag_default", tag_id: "project" },
@@ -560,7 +570,7 @@ describe("a tag's own page", () => {
 
     await session.execute({
       type: "add_tag",
-      entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      entity: { kind: "block", owner: { kind: "page", id: "home" }, id: blockId },
       tag_id: "project",
     });
     const inherited = session

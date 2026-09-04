@@ -8,6 +8,7 @@ import type {
   QueryPlanDocument,
   QueryView,
   OutlineOwner,
+  QueryOwner,
 } from "./snapshot";
 import type { OutlineFragment } from "./fragment";
 import { randomUUID } from "@/lib/crypto";
@@ -24,11 +25,7 @@ export type PropertyOwnerRef =
   /** What the tag copies onto whatever it is added to. */
   | { kind: "tag_default"; tag_id: string };
 
-export type QueryOwnerRef =
-  | { kind: "page"; id: string }
-  | { kind: "block"; owner: OutlineOwner; id: string }
-  | { kind: "tag"; tag_id: string }
-  | { kind: "graph_default"; default_query_id: string };
+export type QueryOwnerRef = QueryOwner;
 
 interface OutlineItemInput {
   depth: number;
@@ -161,9 +158,7 @@ export type Command =
       owner: QueryOwnerRef;
       view_id: string;
       plan: QueryPlanDocument;
-      source: string;
     }
-  | { type: "clear_query_plan"; owner: QueryOwnerRef; view_id: string }
   | { type: "put_query_view"; owner: QueryOwnerRef; view: QueryView }
   | { type: "remove_query_view"; owner: QueryOwnerRef; view_id: string }
   | { type: "set_query_default_view"; owner: QueryOwnerRef; view_id: string }
@@ -184,7 +179,6 @@ export interface CommandResult {
   created_page: string | null;
   created_block: string | null;
   created_tag: string | null;
-  changed: boolean;
   history_effect: HistoryEffect | null;
 }
 

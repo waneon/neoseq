@@ -34,24 +34,48 @@ afterEach(() => {
 });
 
 describe("failure copy", () => {
-  it("turns a core message into a sentence under a verb the user recognises", () => {
-    const input = failureToast(
-      "Couldn’t indent that block",
-      new CorePortFailure({
-        code: "internal",
-        message: "first sibling cannot be indented",
-        retryable: false,
-      }),
-    );
-    expect(input).toEqual({
-      tone: "danger",
-      title: "Couldn’t indent that block",
-      detail: "First sibling cannot be indented.",
-      key: "Couldn’t indent that block internal",
-    });
-  });
+  it.each([
+    {
+      code: "page_name_conflict",
+      reason: "A page with that name already exists.",
+      misleadingDiagnostic: "tag name already exists",
+    },
+    {
+      code: "tag_name_conflict",
+      reason: "A tag with that name already exists.",
+      misleadingDiagnostic: "page name already exists",
+    },
+    {
+      code: "first_sibling_indent",
+      reason: "First sibling cannot be indented.",
+      misleadingDiagnostic: "root block cannot be outdented",
+    },
+    {
+      code: "root_block_outdent",
+      reason: "A root block cannot be outdented.",
+      misleadingDiagnostic: "first sibling cannot be indented",
+    },
+  ] as const)(
+    "selects the $code reason by code, independent of diagnostic wording",
+    ({ code, reason, misleadingDiagnostic }) => {
+      const diagnosticVariants = ["completely new diagnostic wording", misleadingDiagnostic];
 
-  it("falls back to the code's own wording when the core sends no message", () => {
+      for (const diagnostic of diagnosticVariants) {
+        const input = failureToast(
+          "Couldn’t complete that command",
+          new CorePortFailure({ code, message: diagnostic, retryable: false }),
+        );
+        expect(input).toEqual({
+          tone: "danger",
+          title: "Couldn’t complete that command",
+          detail: reason,
+          key: `Couldn’t complete that command ${code}`,
+        });
+      }
+    },
+  );
+
+  it("uses the code's localized wording when the diagnostic is empty", () => {
     const input = failureToast(
       "Couldn’t undo",
       new CorePortFailure({ code: "command_timeout", message: "", retryable: true }),

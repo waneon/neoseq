@@ -49,7 +49,7 @@ Dangling page references are valid so offline merge and soft deletion do not
 cause data loss. Presentation resolves them to a deleted/missing-page
 placeholder.
 
-The property registry is a separately versioned domain contract; registry v3 is
+The property registry is a separately versioned domain contract; registry v9 is
 the checked-in current contract. Each built-in key maps to `shape`, optional
 semantic `ordering`, and `placements`. Shape composes cardinality with an atomic value type or a
 schema/version-tagged document and, for strings, any/suggested/closed choices. Placements map page, block, tag
@@ -105,15 +105,13 @@ destination, but never operation order or undo-group controls. The pure outline
 model and these structural planners live together in `core/outline.rs`.
 
 The runtime prepares a non-batch, non-history command once before opening its
-transaction.
-The private `PreparedCommand` owns its semantic event, history plan, and any
-authoritative outline, tag-detach, or fragment-resolution plan. For an
-individual command, validation, history navigation, and mutation therefore do
-not repeat an expensive structural read or disagree about the state against
-which one intent was accepted. A batch first validates its complete sequence on
-a disposable fork. Because structural IDs generated there are document-local,
-only portable history scope crosses the fork boundary; each step resolves its
-plan against the live result of the prior step during the one live transaction.
+transaction. Preparation lowers intent to an immutable `NormalizedTransition`
+whose typed operations derive the semantic event, write footprint, timestamps,
+history plan, and result shape. Mutation does not interpret `Command` again.
+Structural planning and fragment resolution are transition inputs fixed against
+the accepted document revision. A batch prepares its complete sequence on an
+isolated evolving candidate and commits one outer transaction; generated CRDT
+IDs never escape as portable authority.
 
 `split_block` is the Enter gesture's atomic boundary. A leading split creates
 an empty sibling before the target and leaves the target `BlockId`, content,
@@ -129,13 +127,13 @@ canonical inline content without an inserted separator, and adopts the source's
 children after its own. The source identity and metadata are deleted. Validation,
 mutation, and undo cover the complete text-and-tree change atomically.
 
-Live regular page names and live tag names are unique in separate graph-scoped
-namespaces. Comparison trims and collapses whitespace and applies Unicode
-lowercasing; commands preserve the submitted display form. Snapshot open and
-ensure, rename, and restore validate the relevant namespace. A remote update is first applied to a
-deep document fork and rejected without mutating canonical state if it would
-introduce a name collision. A future sync transport must surface that semantic
-conflict for user resolution rather than retrying it as a transient failure.
+Local commands keep live regular page names and live tag names unique in
+separate graph-scoped namespaces. Comparison trims and collapses whitespace and
+applies Unicode lowercasing; commands preserve the submitted display form. A
+remote update is first applied to a deep document fork, but a duplicate produced
+by valid concurrent commands is preserved. Snapshot projection emits a typed
+conflict containing the canonical name and every stable participant ID; rename
+or delete resolves it through ordinary domain semantics.
 
 Idempotency is scoped to an open runtime: a bounded result cache prevents
 duplicate submission after a bridge timeout. After restart, the client
@@ -147,7 +145,7 @@ Page/block content and tag membership are explicit node fields. Extensible
 features use well-known properties rather than new persisted fields:
 
 - `tag_refs: Set<TagId>` provides graph-scoped tagging outside properties;
-- `builtin.query: Document<neoseq.query/v1>` defines an executable query and its
+- `builtin.query: Document<neoseq.query/v2>` defines an executable query and its
   shared saved result views;
 - `builtin.task-status: String` represents states such as `todo`, `doing`, and `done`;
 - `builtin.task-scheduled: Date`, `builtin.task-deadline: Date`, and `builtin.task-priority: String`
@@ -256,6 +254,18 @@ explicit `Unchanged` save outcome and never borrows a receipt from another
 update. CorePort adapters preserve this post-mutation stage as `dirty_unsaved`
 (`storage_full` remains the actionable special case), rather than exposing a
 repository cause that a client could mistake for a pre-mutation rejection.
+Command results contain only identity and history metadata. Update bytes, and
+their `SavedLocally`/`Unchanged` runtime projection, are the sole change
+authority used for persistence, client revisions, and reconciliation.
+The runtime publishes the exact pending bytes immediately after authoritative
+mutation, before touching the disposable query index. An index update failure
+therefore invalidates only the index; it cannot erase durability responsibility
+or reverse command success, and the next query rebuilds from canonical state.
+
+Pending publication is a sum of local `{SemanticEvent, CommandId}` and remote
+import, so a remote write cannot accidentally carry local semantic metadata.
+The serialized event spelling remains stable, but arbitrary strings are not a
+core state.
 
 The core exposes full snapshots for history-preserving interchange and shallow
 GC checkpoints for coordinated retention. Platform code may install a shallow

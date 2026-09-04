@@ -9,7 +9,8 @@
 import type {
   CorePort,
   CorePortError,
-  SparqlQueryRequest,
+  CommandResult,
+  AuthoredQueryRequest,
   SparqlQueryResult,
   RecoveryDto,
   StorageCapabilitiesDto,
@@ -29,9 +30,9 @@ import {
   type RemoteSyncState,
   type SyncAgentPort,
 } from "../features/sync/SyncAgent";
-import type { BlockContentSplice, Command, CommandResult } from "./commands";
+import type { BlockContentSplice, Command } from "./commands";
 import { envelope } from "./commands";
-import type { GraphSnapshot, GraphSummary, OutlineOwner, OutlineSnapshot } from "./snapshot";
+import type { GraphSnapshot, OutlineOwner } from "./snapshot";
 import { EMPTY_SNAPSHOT, mergeOutline, mergeSummary, outlineOwnerKey } from "./snapshot";
 import { applyAcknowledgedContentSplices } from "./content-patch";
 import { acquireLease, type Lease, type LeaseMode } from "./lease";
@@ -169,7 +170,7 @@ export class GraphSession {
       this.patch({
         status: "ready",
         ...accessFor(remoteReadonly, this.lease.mode, hasServerBase),
-        snapshot: mergeSummary(opened.summary as GraphSummary),
+        snapshot: mergeSummary(opened.summary),
         capabilities: opened.capabilities ?? null,
         recovery: opened.recovery,
       });
@@ -259,7 +260,7 @@ export class GraphSession {
   }
 
   /** Executes against the published derived index after prior mutations settle. */
-  query(query: SparqlQueryRequest): Promise<SparqlQueryResult> {
+  query(query: AuthoredQueryRequest): Promise<SparqlQueryResult> {
     return this.queue.then(async () => {
       if (this.state.status !== "ready") {
         throw new CorePortFailure({
@@ -332,10 +333,18 @@ export class GraphSession {
         response.save_status.status === "saved_locally"
           ? { kind: "saved", sequence: response.save_status.local_sequence }
           : stableSave;
-      const result = response.result as CommandResult;
+      const changed = response.save_status.status === "saved_locally";
+      const result = response.result;
+      if (!changed) {
+        // Duplicate replays and semantic no-ops carry useful cached result
+        // metadata, but cannot invalidate any canonical client projection.
+        this.patch({ save });
+        await this.syncAgent?.wake();
+        return result;
+      }
       const content = contentSplices(command);
       const patched =
-        content && result.changed
+        content && changed
           ? applyAcknowledgedContentSplices(this.state.snapshot, content.owner, content.splices)
           : content
             ? this.state.snapshot
@@ -344,11 +353,11 @@ export class GraphSession {
         this.patch({
           snapshot: patched,
           save,
-          revision: this.state.revision + Number(result.changed),
-          canonicalRevision: this.state.canonicalRevision + Number(result.changed),
+          revision: this.state.revision + Number(changed),
+          canonicalRevision: this.state.canonicalRevision + Number(changed),
         });
       } else {
-        await this.reconcile(save, commandReconcileScope(command, result), result.changed);
+        await this.reconcile(save, commandReconcileScope(command, result), changed);
       }
       await this.syncAgent?.wake();
       return result;
@@ -435,7 +444,7 @@ export class GraphSession {
     const hydratedOutlines = new Set(this.state.hydratedOutlines);
     hydratedOutlines.add(key);
     this.patch({
-      snapshot: mergeOutline(this.state.snapshot, response.outline as OutlineSnapshot),
+      snapshot: mergeOutline(this.state.snapshot, response.outline),
       hydratedOutlines,
       revision: this.state.revision + 1,
     });
@@ -453,7 +462,7 @@ export class GraphSession {
     let snapshot = this.state.snapshot;
     for (const owner of missing) {
       const response = await this.port.readOutline({ graph_handle: this.handle, owner });
-      snapshot = mergeOutline(snapshot, response.outline as OutlineSnapshot);
+      snapshot = mergeOutline(snapshot, response.outline);
     }
     const hydratedOutlines = new Set(this.state.hydratedOutlines);
     for (const owner of missing) hydratedOutlines.add(outlineOwnerKey(owner));
@@ -476,7 +485,7 @@ export class GraphSession {
       // A failed event poll falls through to the authoritative re-read below.
     }
     const read = await this.port.read({ graph_handle: this.handle });
-    let snapshot = mergeSummary(read.summary as GraphSummary, this.state.snapshot);
+    let snapshot = mergeSummary(read.summary, this.state.snapshot);
     const ownersToRead =
       scope.kind === "all-hydrated-outlines"
         ? [...this.state.hydratedOutlines].map(parseOutlineKey)
@@ -488,7 +497,7 @@ export class GraphSession {
     for (const owner of ownersToRead) {
       if (!outlineExists(snapshot, owner)) continue;
       const response = await this.port.readOutline({ graph_handle: this.handle, owner });
-      snapshot = mergeOutline(snapshot, response.outline as OutlineSnapshot);
+      snapshot = mergeOutline(snapshot, response.outline);
     }
     const hydratedOutlines = new Set(
       [...this.state.hydratedOutlines].filter((key) =>
@@ -516,16 +525,7 @@ export class GraphSession {
         graph_handle: this.handle,
         after_cursor: this.cursor,
       });
-      if (
-        batch.resync_required ||
-        batch.events.some(
-          (event) =>
-            typeof event === "object" &&
-            event !== null &&
-            "source" in event &&
-            event.source === "remote",
-        )
-      ) {
+      if (batch.resync_required || batch.events.some((event) => event.source === "remote")) {
         return false;
       }
       this.cursor = batch.next_cursor;
@@ -610,7 +610,6 @@ function commandReconcileScope(command: Command, result?: CommandResult): Reconc
     case "set_query_source":
     case "splice_query_source":
     case "set_query_plan":
-    case "clear_query_plan":
     case "put_query_view":
     case "remove_query_view":
     case "set_query_default_view":
@@ -637,7 +636,6 @@ function commandReconcileScope(command: Command, result?: CommandResult): Reconc
     case "undo":
     case "redo":
       if (!result) return { kind: "all-hydrated-outlines" };
-      if (!result.changed) return { kind: "summary" };
       if (!result.history_effect) {
         throw new Error("changed history command omitted its effect");
       }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import type { GraphSession } from "../../core-port/session";
-import type { SparqlQueryRequest, SparqlQueryResult } from "../../generated/core-port";
+import type { AuthoredQueryRequest, SparqlQueryResult } from "../../generated/core-port";
 import { useI18n } from "../../i18n";
 import { failureReason } from "../notify/errors";
 import { useSession, useSessionSelector } from "../shell/session-context";
@@ -99,7 +99,7 @@ export class QueryExecutionStore {
     owner: string,
     signature: string,
     canonicalRevision: number,
-    request: SparqlQueryRequest,
+    request: AuthoredQueryRequest,
     options: { force?: boolean } = {},
   ): Promise<void> {
     const entry = this.entry(owner);
@@ -204,7 +204,7 @@ export function queryExecutionStore(session: GraphSession): QueryExecutionStore 
   return store;
 }
 
-export function queryExecutionSignature(request: SparqlQueryRequest): string {
+export function queryExecutionSignature(request: AuthoredQueryRequest | null): string {
   return JSON.stringify(canonical(request));
 }
 
@@ -254,7 +254,11 @@ export interface QueryAnswer {
   run: (force?: boolean) => void;
 }
 
-export function useQueryAnswer(key: string, request: SparqlQueryRequest): QueryAnswer {
+export function useQueryAnswer(
+  key: string,
+  request: AuthoredQueryRequest | null,
+  unavailableError: string | null = null,
+): QueryAnswer {
   const session = useSession();
   const revision = useSessionSelector((state) => state.canonicalRevision);
   const { message } = useI18n();
@@ -262,12 +266,13 @@ export function useQueryAnswer(key: string, request: SparqlQueryRequest): QueryA
   const signature = useMemo(() => queryExecutionSignature(request), [request]);
   // A blank source is a query nobody has written yet, not a parse failure — it
   // stays quietly at "not run" instead of opening on an error.
-  const executable = request.source.trim().length > 0;
+  const executable =
+    request !== null && (request.kind === "built" || request.source.trim().length > 0);
 
   const snapshot = useQueryExecution(store, key, signature, revision);
   const run = useCallback(
     (force = false) => {
-      if (!executable) {
+      if (!executable || request === null) {
         store.clear(key);
         return;
       }
@@ -302,7 +307,12 @@ export function useQueryAnswer(key: string, request: SparqlQueryRequest): QueryA
 
   return {
     result: executable ? snapshot.result : null,
-    error: executable && snapshot.error !== null ? failureReason(snapshot.error, message) : null,
+    error:
+      request === null
+        ? unavailableError
+        : executable && snapshot.error !== null
+          ? failureReason(snapshot.error, message)
+          : null,
     loading: executable && snapshot.loading,
     run,
   };

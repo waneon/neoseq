@@ -51,10 +51,10 @@ export interface QueryView {
 }
 
 /**
- * The builder's structured description of a query, stored beside the SPARQL it
- * compiled to. `payload` holds the authoring grammar in
- * `entities/query-plan.ts`; a version this build does not know keeps the block
- * on its source instead of the builder.
+ * The builder's authoritative query representation. `payload` holds the
+ * generated CorePort grammar; projected source is only a core-derived
+ * explanation. An unknown version remains unsupported and is never executed
+ * as raw source.
  */
 export interface QueryPlanDocument {
   version: number;
@@ -82,8 +82,21 @@ export interface DefaultQuerySnapshot {
 }
 
 export interface GraphSettings {
+  /** Bounded `(position, id)` projection; overflow remains canonical conflict data. */
   default_queries: DefaultQuerySnapshot[];
 }
+
+export type QueryOwner =
+  | { kind: "page"; id: string }
+  | { kind: "block"; owner: OutlineOwner; id: string }
+  | { kind: "tag"; tag_id: string }
+  | { kind: "graph_default"; default_query_id: string };
+
+/** Collaborative text whose complete value may exceed a local byte budget. */
+export type TextTarget =
+  | { kind: "page_title"; page_id: string }
+  | { kind: "block_content"; owner: OutlineOwner; block_id: string }
+  | { kind: "query_source"; owner: QueryOwner; view_id: string };
 
 export type PropertyValue =
   | { type: "number"; value: number }
@@ -160,6 +173,25 @@ export interface TagSnapshot {
 
 type TagSummary = Omit<TagSnapshot, "blocks">;
 
+/** A valid collaborative state that needs an explicit user choice to resolve. */
+export type GraphConflict =
+  | { kind: "duplicate_page_name"; canonical_name: string; page_ids: string[] }
+  | { kind: "duplicate_tag_name"; canonical_name: string; tag_ids: string[] }
+  | { kind: "default_query_overflow"; overflow_ids: string[] }
+  | { kind: "query_view_overflow"; owner: QueryOwner; overflow_ids: string[] }
+  | {
+      kind: "query_default_view_unavailable";
+      owner: QueryOwner;
+      requested_view_id: string;
+      fallback_view_id: string;
+    }
+  | {
+      kind: "text_limit_exceeded";
+      target: TextTarget;
+      actual_bytes: number;
+      limit: number;
+    };
+
 export interface GraphSummary {
   schema_version: number;
   graph_id: string;
@@ -167,6 +199,7 @@ export interface GraphSummary {
   page_directory?: PageDirectoryEntry[];
   tags: TagSummary[];
   settings: GraphSettings;
+  conflicts: GraphConflict[];
   quarantined: string[];
 }
 
@@ -177,16 +210,18 @@ export interface GraphSnapshot {
   page_directory?: PageDirectoryEntry[];
   tags: TagSnapshot[];
   settings: GraphSettings;
+  conflicts: GraphConflict[];
   quarantined: string[];
 }
 
 export const EMPTY_SNAPSHOT: GraphSnapshot = {
-  schema_version: 6,
+  schema_version: 7,
   graph_id: "",
   pages: [],
   page_directory: [],
   tags: [],
   settings: { default_queries: [] },
+  conflicts: [],
   quarantined: [],
 };
 

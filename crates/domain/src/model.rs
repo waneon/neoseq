@@ -33,13 +33,31 @@ pub enum PropertyOwner {
 /// The thing whose query document is being edited. Graph default queries are
 /// not properties, but they deliberately share the same document and commands
 /// as page, block, and tag queries.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum QueryOwner {
     Page { id: PageId },
     Block { owner: OutlineOwner, id: BlockId },
     Tag { tag_id: TagId },
     GraphDefault { default_query_id: DefaultQueryId },
+}
+
+/// Stable identity of collaborative text governed by a local byte budget.
+/// The text itself remains canonical when concurrent edits cross that budget.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TextTarget {
+    PageTitle {
+        page_id: PageId,
+    },
+    BlockContent {
+        owner: OutlineOwner,
+        block_id: BlockId,
+    },
+    QuerySource {
+        owner: QueryOwner,
+        view_id: QueryViewId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -251,11 +269,6 @@ pub enum Command {
         owner: QueryOwner,
         view_id: QueryViewId,
         plan: QueryPlan,
-        source: String,
-    },
-    ClearQueryPlan {
-        owner: QueryOwner,
-        view_id: QueryViewId,
     },
     PutQueryView {
         owner: QueryOwner,
@@ -356,6 +369,8 @@ pub struct QueryViewOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueryDefinition {
+    /// Authoritative only when `plan` is absent. Switching a Built definition
+    /// to Raw requires `SetQuerySource`, which replaces this value explicitly.
     pub source: String,
     pub language: String,
     #[serde(default)]
@@ -442,7 +457,6 @@ pub struct CommandResult {
     pub created_page: Option<PageId>,
     pub created_block: Option<BlockId>,
     pub created_tag: Option<TagId>,
-    pub changed: bool,
     pub history_effect: Option<HistoryEffect>,
 }
 
@@ -459,19 +473,6 @@ pub struct HistoryEffect {
     pub scope: HistoryScope,
     pub affected_outlines: Vec<OutlineOwner>,
     pub reveal: Option<EntityId>,
-}
-
-impl CommandResult {
-    pub fn unchanged(command_id: CommandId) -> Self {
-        Self {
-            command_id,
-            created_page: None,
-            created_block: None,
-            created_tag: None,
-            changed: false,
-            history_effect: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -523,6 +524,11 @@ pub struct GraphSnapshot {
     pub page_directory: Vec<PageDirectoryEntry>,
     pub tags: Vec<TagSnapshot>,
     pub settings: GraphSettings,
+    /// Deterministic, merge-preserving semantic conflicts. These are valid
+    /// collaborative states, not corrupt records, and remain visible until a
+    /// user resolves the underlying values.
+    #[serde(default)]
+    pub conflicts: Vec<GraphConflict>,
     pub quarantined: Vec<String>,
 }
 
@@ -535,7 +541,53 @@ pub struct GraphSummary {
     pub page_directory: Vec<PageDirectoryEntry>,
     pub tags: Vec<TagSummary>,
     pub settings: GraphSettings,
+    #[serde(default)]
+    pub conflicts: Vec<GraphConflict>,
     pub quarantined: Vec<String>,
+}
+
+/// A semantic disagreement produced by otherwise valid concurrent edits.
+///
+/// Unlike `quarantined`, a conflict never makes the graph unreadable. Stable
+/// entity IDs preserve every participant; the UI may resolve the conflicting
+/// attribute with an ordinary command.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum GraphConflict {
+    DuplicatePageName {
+        canonical_name: String,
+        page_ids: Vec<PageId>,
+    },
+    DuplicateTagName {
+        canonical_name: String,
+        tag_ids: Vec<TagId>,
+    },
+    /// Concurrently valid creations exceeded the bounded visible projection.
+    /// The entries remain canonical data and are promoted deterministically
+    /// when an earlier default query is deleted.
+    DefaultQueryOverflow { overflow_ids: Vec<DefaultQueryId> },
+    /// More than the locally permitted number of views survived a merge. The
+    /// named views remain in the query document and are promoted when an
+    /// earlier visible view is removed.
+    QueryViewOverflow {
+        owner: QueryOwner,
+        overflow_ids: Vec<QueryViewId>,
+    },
+    /// The selected view was concurrently removed or fell outside the visible
+    /// window. Readers use the named deterministic fallback without rewriting
+    /// the canonical selection.
+    QueryDefaultViewUnavailable {
+        owner: QueryOwner,
+        requested_view_id: QueryViewId,
+        fallback_view_id: QueryViewId,
+    },
+    /// Concurrent text edits crossed a local resource budget. The complete
+    /// CRDT text remains canonical; consumers enforce the budget before use.
+    TextLimitExceeded {
+        target: TextTarget,
+        actual_bytes: usize,
+        limit: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -549,6 +601,9 @@ pub struct PageDirectoryEntry {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct GraphSettings {
+    /// The first bounded window in canonical `(position, id)` order. Entries
+    /// beyond the local creation limit remain stored and are named by
+    /// [`GraphConflict::DefaultQueryOverflow`].
     pub default_queries: Vec<DefaultQuerySnapshot>,
 }
 

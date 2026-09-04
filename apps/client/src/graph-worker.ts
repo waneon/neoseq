@@ -9,13 +9,17 @@ import { CORE_PORT_VERSION } from "./generated/core-port";
 import { SCHEMA_VERSION } from "./generated/graph-schema";
 import type {
   CloseGraphRequest,
+  CommandResult,
   CorePortError,
+  GraphEvent,
+  GraphEventKind,
   ExecuteRequest,
   GraphLocatorDto,
   OpenGraphRequest,
   QueryRequest,
   ReadOutlineRequest,
   ReadRequest,
+  SemanticEvent,
   SubscribeRequest,
 } from "./generated/core-port";
 import {
@@ -28,24 +32,18 @@ import {
 } from "./persistence";
 import { TestIndexedDbGraphRepository, type FaultPoint } from "./testing/test-persistence";
 import { randomUUID } from "@/lib/crypto";
+import { isCorePortError, normalizeWasmFailure } from "./core-port/wasm-failure";
 
 interface Message {
   id: number;
   operation: string;
   payload: unknown;
 }
-interface EventRecord {
-  cursor: number;
-  source: "local" | "remote";
-  kind: Record<string, unknown>;
-}
 interface PendingWrite {
   payload: ArrayBuffer;
-  semantic: string;
+  semantic: SemanticEvent;
   commandId: string;
-  result: unknown;
   createdAt: string;
-  messageId: string;
   baseVersionVector: ArrayBuffer;
 }
 interface OpenState {
@@ -54,7 +52,7 @@ interface OpenState {
   replicaId: number;
   core: WasmGraphCore;
   repository: IndexedDbGraphRepository;
-  events: EventRecord[];
+  events: GraphEvent[];
   nextCursor: number;
   pending?: PendingWrite;
   remote: boolean;
@@ -241,6 +239,7 @@ async function openGraph(request: OpenGraphRequest) {
     );
   }
   const recovery = await recover(repository, storageKey, request.locator.graph_id, metadata);
+  await repository.normalizeOutbox(storageKey);
   const state: OpenState = {
     graphId: request.locator.graph_id,
     storageKey,
@@ -422,25 +421,21 @@ async function execute(request: ExecuteRequest) {
   const baseVersionVector = ownedBuffer(state.core.versionVector());
   const raw = state.core.executeJson(JSON.stringify(request.command), now());
   const execution = JSON.parse(raw) as {
-    result: unknown;
-    semantic: string;
-    duplicate: boolean;
+    result: CommandResult;
+    semantic: SemanticEvent;
   };
   const update = ownedBuffer(state.core.takeUpdate());
-  if (execution.duplicate || update.byteLength === 0) {
+  if (update.byteLength === 0) {
     return {
       result: execution.result,
       save_status: { status: "unchanged" },
     };
   }
-  const command = request.command as { command_id?: string };
   const pending: PendingWrite = {
     payload: update,
     semantic: execution.semantic,
-    commandId: command.command_id ?? "",
-    result: execution.result,
+    commandId: request.command.command_id,
     createdAt: now(),
-    messageId: randomUUID(),
     baseVersionVector,
   };
   state.pending = pending;
@@ -465,7 +460,6 @@ async function persistPending(state: OpenState) {
     pending.createdAt,
     state.remote
       ? {
-          message_id: pending.messageId,
           base_version_vector: pending.baseVersionVector,
         }
       : undefined,
@@ -535,9 +529,7 @@ function query(request: QueryRequest) {
   try {
     return { result: JSON.parse(state.core.queryJson(JSON.stringify(request.query))) };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const budget = message.toLowerCase().includes("budget");
-    throw failure(budget ? "query_budget_exceeded" : "invalid_query", message, false);
+    throw normalizeWasmFailure(error, "invalid_query");
   }
 }
 
@@ -778,7 +770,7 @@ async function syncImport(payload: { graph_handle: string; bytes: ArrayBuffer | 
   state.core.validateUpdate(bytes);
   const receipt = await state.repository.appendUpdate(state.storageKey, ownedBuffer(bytes), now());
   state.core.importUpdate(bytes);
-  push(state, "remote", { type: "semantic", name: "remote_import" });
+  push(state, "remote", { type: "remote_imported" });
   push(state, "remote", { type: "saved_locally", ...receipt });
   return receipt;
 }
@@ -821,12 +813,11 @@ async function syncReplace(payload: {
     payload.history_epoch,
     serverVersionVector,
     rebasedTail,
-    randomUUID(),
     SCHEMA_VERSION,
     now(),
   );
   state.core = candidate;
-  push(state, "remote", { type: "semantic", name: "history_epoch_replaced" });
+  push(state, "remote", { type: "remote_imported" });
   return null;
 }
 
@@ -849,6 +840,14 @@ async function testControl(payload: Record<string, unknown>) {
     case "corrupt_update":
       return repository
         .corruptUpdate(String(payload.graph_id), Number(payload.sequence))
+        .then(() => null);
+    case "swap_outbox_keys":
+      return repository
+        .swapOutboxKeys(
+          String(payload.graph_id),
+          String(payload.first_id),
+          String(payload.second_id),
+        )
         .then(() => null);
     case "quarantine_count":
       return repository.quarantineCount(String(payload.graph_id));
@@ -903,7 +902,7 @@ function requireState(handle: string): OpenState {
   return state;
 }
 
-function push(state: OpenState, source: "local" | "remote", kind: Record<string, unknown>) {
+function push(state: OpenState, source: GraphEvent["source"], kind: GraphEventKind) {
   state.events.push({ cursor: state.nextCursor++, source, kind });
   while (state.events.length > 64) state.events.shift();
 }
@@ -916,35 +915,11 @@ function normalizeError(error: unknown): CorePortError {
   if (error instanceof StorageError)
     return { code: error.code, message: error.message, retryable: error.retryable };
   if (isCorePortError(error)) return error;
-  return failure("internal", error instanceof Error ? error.message : String(error), false);
-}
-
-function isCorePortError(error: unknown): error is CorePortError {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    "message" in error &&
-    "retryable" in error
-  );
+  return normalizeWasmFailure(error, "internal");
 }
 
 function archiveFailure(error: unknown): CorePortError {
-  const message = error instanceof Error ? error.message : String(error);
-  const diagnostic = message.toLowerCase();
-  if (diagnostic.includes("size limit") || diagnostic.includes("too large")) {
-    return failure("archive_too_large", message, false);
-  }
-  if (diagnostic.includes("checksum")) {
-    return failure("archive_checksum_mismatch", message, false);
-  }
-  if (diagnostic.includes("unsupported archive")) {
-    return failure("unsupported_archive", message, false);
-  }
-  if (diagnostic.includes("unsupported schema")) {
-    return failure("unsupported_schema", message, false);
-  }
-  return failure("invalid_archive", message, false);
+  return normalizeWasmFailure(error, "invalid_archive");
 }
 
 function ownedBuffer(value: Uint8Array): ArrayBuffer {

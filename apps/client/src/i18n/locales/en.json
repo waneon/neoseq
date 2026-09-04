@@ -455,6 +455,7 @@
   "query.summaryMore": "+{count} more",
   "query.summaryNone": "none of: {conditions}",
   "query.summaryQuoted": "“{value}”",
+  "query.unsupportedPlan": "This query was created by a newer or incompatible version of Neoseq.",
   "query.uniqueRows": "Unique rows",
   "query.valueLabel": "Value",
   "query.valuePlaceholder": "Value",

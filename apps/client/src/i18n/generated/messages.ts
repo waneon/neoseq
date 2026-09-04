@@ -449,6 +449,7 @@ export interface MessageArgumentMap {
   "query.summaryNone": { readonly "conditions": string | number };
   "query.summaryQuoted": { readonly "value": string | number };
   "query.uniqueRows": undefined;
+  "query.unsupportedPlan": undefined;
   "query.valueLabel": undefined;
   "query.valuePlaceholder": undefined;
   "query.view": undefined;

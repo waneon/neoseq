@@ -3,12 +3,12 @@
 ## Canonical Graph
 
 Each graph maps to one Loro document and is an independent storage, export, and
-synchronization unit. The current document schema is v6 and has four roots:
+synchronization unit. The current document schema is v7 and has four roots:
 
 ```text
 meta: Map
   graph_id: string
-  schema_version: 6
+  schema_version: 7
 pages: Map<PageId, PageMap>
 tags: Map<TagId, TagRecord>
 graph_settings: Map
@@ -17,11 +17,12 @@ graph_settings: Map
 ```
 
 The Loro document plus its verified update/checkpoint history is the only
-canonical representation. RDF triples, text caches, query plans, and session UI
-state are disposable projections. Shared query documents are canonical graph
-data whether an entity property or graph setting owns them.
+canonical representation. RDF triples, text caches, logical/evaluator query
+plans, and session UI state are disposable projections. A shared query document
+and its authored `QueryPlan` are canonical graph data whether an entity property
+or graph setting owns them.
 
-This pre-release build accepts schema v6 exactly. Recovery validates the Base
+This pre-release build accepts schema v7 exactly. Recovery validates the Base
 and complete Tail against current invariants before exposing the graph. There is
 no older-schema reader, migration registry, minimum-writer marker, or lazy
 repair path.
@@ -30,9 +31,12 @@ repair path.
 
 Graph settings are shared configuration whose identity is the graph rather than
 an entity. Each live default query is a stable map entry with a title, numeric
-position, deletion tombstone, and direct `neoseq.query` document map. The live
-list is bounded to eight and ordered by position with ID as a deterministic tie
-break. Query-document commands use a distinct `QueryOwner`; page, block, and tag
+position, deletion tombstone, and direct `neoseq.query` document map. Local
+creation admits at most eight live entries. Concurrent branches may exceed that
+number: every entry remains canonical, while projection publishes the first
+eight in `(position, id)` order and reports the remainder as a typed conflict.
+Deleting an earlier entry promotes the next one deterministically.
+Query-document commands use a distinct `QueryOwner`; page, block, and tag
 variants resolve to `builtin.query`, while `graph_default` resolves directly to
 this map entry.
 
@@ -59,8 +63,10 @@ The page root's content is a regular page title. Journal display titles derive
 from `builtin.journal-date`. New journal IDs derive deterministically from graph
 ID and date; a portable graph copy keeps existing journal IDs and resolves a day
 by that semantic property before deriving an ID.
-Regular page names are unique after whitespace normalization and Unicode
-lowercasing. Stable IDs, not names, are identity.
+Local commands keep regular page names unique after whitespace normalization
+and Unicode lowercasing. Stable IDs, not names, are identity. Concurrent
+duplicates are preserved and reported with all participating IDs rather than
+causing an otherwise valid merge to fail.
 
 Each tag record likewise owns metadata, defaults, and a direct
 `outline: MovableTree<NodeData>`. The tag is the owner; there is no backing page,
@@ -81,15 +87,17 @@ Structural commands validate the entire proposed change before mutation.
 
 ## Tags and Properties
 
-Tags are independent graph entities keyed by `TagId` and have a unique live
-name namespace. Page and block `tag_refs` carry membership explicitly. Tag
+Tags are independent graph entities keyed by `TagId`; local commands maintain
+their live-name namespace, while concurrent duplicates are typed conflicts.
+Page and block `tag_refs` carry membership explicitly. Tag
 deletion keeps the tag record as a tombstone but removes its ID from every node
 in the same transaction. Snapshot projection exposes only references to live
 tags, quarantining stale or concurrently merged dangling IDs.
 
-A property bag maps each validated key to a stable field marker. Atomic fields
-own zero or more stable value slots; the marker records type and cardinality so
-clearing values preserves an empty field. Atomic values are:
+A property bag maps each validated key to one regular Loro map. This child is a
+field generation: its immutable shape records type and cardinality, while its
+shape-specific payload preserves an empty field even when it contains no value.
+Atomic values are:
 
 - finite number;
 - string;
@@ -97,12 +105,21 @@ clearing values preserves an empty field. Atomic values are:
 - checkbox/boolean;
 - local date.
 
-Schema-owned document fields instead own a mergeable map below a document slot.
-`builtin.query` stores each stable-ID result view as its own map, with a nested
-definition whose source is `Text`. Definition and presentation edits therefore
-merge within one view without replacing the document or touching sibling views.
-Removing any property deletes its marker and all atomic slots or document
-containers owned by the key.
+Each field child contains `shape` and exactly the corresponding payload: an
+optional atomic `single`, a mergeable `set` map keyed by value identity, or a
+schema-owned mergeable `document` map. `builtin.query` stores each stable-ID
+result view as its own map below `document`, with a nested definition whose
+source is `Text`. Definition and presentation edits therefore merge within one
+view without replacing the field generation or touching sibling views.
+
+The outer property entry is the sole presence and generation authority.
+Removing a property deletes only that reference, so concurrent operations on
+the detached child are inert. Recreation inserts a fresh child and cannot expose
+payload from the removed generation. If replicas concurrently create an absent
+key, same-key regular-container arbitration chooses one complete child—shape
+and initial payload—rather than combining them. This also means same-shape first
+creations do not union their initial values; fine-grained payload edits merge
+only after a generation is shared.
 
 [`../contracts/property-registry.json`](../contracts/property-registry.json) is
 the v9 authority for built-in shapes, semantic ordering, placements, and `user` versus `core`
@@ -124,19 +141,22 @@ pages whose membership it removes. `created-at` never changes.
 
 ## Validation and Merge
 
-The runtime validates these invariants before publishing state:
+The runtime validates these structural invariants before publishing state:
 
 - the stored graph ID and schema version match the opened graph;
 - every visible block is reachable exactly once from its page or tag tree;
 - no visible hierarchy cycle exists;
-- regular page and tag names are unique in their separate namespaces;
+- page and tag names have readable representations;
 - properties and tag records have valid encodings;
 - published page and block tag memberships resolve to live tag records.
 
-Local commands are preflighted against current state. Remote updates are first
-applied to a fork and are published only if the merged snapshot passes the same
-validation. Loro determines concurrent text, map, and tree merge outcomes;
-timestamps are user metadata, not ordering authorities.
+Local commands additionally enforce semantic and admission constraints such as
+name uniqueness and bounded collection creation. Remote updates are first
+applied to a fork and are published when the merged document remains
+structurally readable. Merge-reachable aggregate disagreements are normalized
+by deterministic projection and exposed as typed `GraphConflict` values; they
+are not remote-update failures. Loro determines concurrent text, map, and tree
+merge outcomes; timestamps are user metadata, not ordering authorities.
 
 ## Repository Contract
 
@@ -158,6 +178,9 @@ Appending an update and advancing `next_sequence` is one storage transaction.
 The SHA-256 checksum is also an idempotency key: retrying exact bytes after an
 ambiguous after-commit failure returns the prior sequence instead of duplicating
 the update.
+
+For a remote Tail record, this same lowercase 64-hex digest is its outbox key and
+the sync v6 `message_id`; there is no independently generated transport UUID.
 
 A successful core mutation remains pending until append commits. While pending,
 the runtime rejects another mutation and clean close; retry uses the same bytes.
@@ -237,11 +260,18 @@ physical keys. Recovery selects Tail rows with the
 `[graph_id, local_sequence]` primary
 key range after the chosen Base rather than loading graph history and filtering
 it in memory. Each graph append updates metadata and inserts the update in one
-transaction. For a remote graph, that transaction also inserts an outbox message
-ID, causal base, and local sequence. Incremental outbox records reference the
+transaction. For a remote graph, that transaction also inserts the update
+checksum as the outbox `message_id`, together with its causal base and local
+sequence. Incremental outbox records reference the
 update row instead of duplicating its payload. There is no sequence-zero
 bootstrap: initial remote state is installed as a server-approved Base, not
 transported as an update.
+
+Opening a graph verifies each referenced Tail checksum against its payload.
+Before exposing the graph, a serialized write transaction rechecks and rewrites
+pending records from the preceding protocol generation from their arbitrary
+transport ID to that checksum. A concurrent acknowledgement or replacement
+cannot be resurrected, and no unverified record can cross the v6 wire boundary.
 
 Portable import generates a new graph and replica ID outside the archive, then
 prepares a validated shallow clone. Local import installs it directly. Remote
@@ -250,7 +280,7 @@ metadata, checkpoint, history epoch, and server-Base marker in one IndexedDB
 transaction. Both paths require the target graph to be absent, so installation
 is complete or absent.
 
-Acknowledgement removes the matching outbox record. A referenced Tail row stays
+Acknowledgement removes the outbox record matching that content ID. A referenced Tail row stays
 pinned until acknowledgement and is deleted only when the fallback Base no
 longer needs it.
 Storage capability `usage_bytes` reports logical bytes owned by this graph—Base,

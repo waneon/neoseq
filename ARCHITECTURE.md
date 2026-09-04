@@ -44,7 +44,7 @@ focused design boundaries under [`designs/`](designs/).
 flowchart LR
     UI[React UI] --> Session[GraphSession]
     UI --> Directory[Repository + graph directory]
-    Session --> Port[CorePort v3]
+    Session --> Port[CorePort v4]
     Session --> Agent[SyncAgent]
     Port --> Worker[Web Worker adapter]
     Worker --> Core[Rust/Wasm graph core]
@@ -71,8 +71,11 @@ persistence test boundary, not a shipped application shell.
 
 - `domain` owns IDs, property definitions and values, commands, and invariants.
   It has no dependency on Loro, storage, transport, or UI frameworks.
-- `graph-core` owns one graph runtime, Loro projection, transactions, local
-  history, persistence coordination, remote-update import, and events.
+- `graph-core` owns the causal Loro document boundary, the interactive replica
+  machine, deterministic projections, transactions, local history, persistence
+  coordination, remote-update import, and events. Its server graph excludes
+  interactive history, command caches, projection, and query execution state
+  by construction.
 - `graph-archive` owns the versioned, bounded portable container and manifest;
   it does not choose repository identity or interpret graph semantics.
 - `query` owns Loro-to-RDF projection, indexing, constrained SPARQL planning,
@@ -81,8 +84,8 @@ persistence test boundary, not a shipped application shell.
 - `platform-native` supplies the headless CorePort and SQLite adapter used for
   parity and recovery verification.
 - `apps/client` owns interaction, navigation, browser-local preferences,
-  localization, error presentation, responsive UI, and the query builder that
-  authors SPARQL for the profile `query` executes.
+  localization, error presentation, responsive UI, and the query-builder UI.
+  The typed plan compiler and executable query semantics live in Rust.
 - `apps/dashboard` is a separately built operational Web app for server account and
   session administration. It does not load the graph core or graph data.
 - `sync-protocol` owns the versioned, size-bounded binary envelope shared by
@@ -98,6 +101,7 @@ persistence test boundary, not a shipped application shell.
 
 Detailed contracts:
 
+- [Representation and invariants](architectures/representation.md)
 - [Core and domain](architectures/core.md)
 - [CRDT data and local persistence](architectures/data.md)
 - [Graph archives](architectures/graph-archive.md)
@@ -117,7 +121,7 @@ Detailed contracts:
 
 ## CorePort
 
-The asynchronous CorePort v3 contract has seven operations. Every graph locator
+The asynchronous CorePort v4 contract has seven operations. Every graph locator
 contains a client repository ID and the graph ID assigned within that
 repository:
 
@@ -126,7 +130,7 @@ open_graph(locator) -> graph_handle + graph_summary
 execute(graph_handle, command) -> command_result + saved receipt | unchanged
 read(graph_handle) -> graph_summary
 read_outline(graph_handle, page_or_tag_owner) -> outline_view
-query(graph_handle, sparql_request) -> select_result | ask_result
+query(graph_handle, built_plan | raw_sparql) -> select_result | ask_result
 subscribe(graph_handle, cursor) -> graph_events
 close_graph(graph_handle)
 ```
@@ -149,12 +153,15 @@ CorePort.
   explicit tag references. Block content may contain stable page-reference
   atoms whose current-title source is a projection. A tag outline does not
   implicitly tag its blocks.
-- Page and tag names are unique in separate normalized graph-wide namespaces.
+- Local commands preserve unique page and tag names in separate normalized
+  namespaces. Concurrent duplicates remain valid causal data and appear as
+  deterministic typed conflicts until an ordinary rename resolves them.
 - New journal IDs derive deterministically from graph ID and local date. A
   portable copy retains existing journal IDs and resolves them by semantic date.
-- A property field is either an atomic single/set or a schema-owned CRDT
-  document. Empty atomic fields are first-class; repeated values and document
-  children have stable identities and independent merge granularity.
+- A property key names one regular child-map generation containing its shape
+  and single, set, or document payload. Removing the outer reference makes
+  edits to the old generation inert; payload edits merge only after replicas
+  share that generation. Empty fields remain first-class.
 - [`contracts/property-registry.json`](contracts/property-registry.json) is the
   current v9 registry shared by core and client. Property keys have exactly two
   levels: application-defined `builtin.<name>` and graph-level user-defined
@@ -178,22 +185,25 @@ CorePort.
   their surfaces retain separate structural controllers. Contextual commands
   resolve the most recently focused block target before falling back to a page.
 
-One user intent becomes one prepared domain command, one Loro transaction, one
-local undo item, one durable update, and one semantic event. Preparation validates
-an individual change and fixes its structural plan and history metadata before
-mutation. A batch validates its complete ordered sequence on a fork, then resolves
-each live step against the result of the prior step because fork-generated CRDT IDs
-are not portable. An update is reported saved only after the repository append
+One user intent lowers once to a typed normalized transition, then becomes one
+Loro transaction, one local undo item, one durable update, and one semantic
+event. The transition is the common source of mutation, affected entities,
+timestamps, history, result shape, and event semantics. A batch prepares its
+ordered sequence against an isolated evolving candidate, then commits one outer
+transaction. An update is reported saved only after the repository append
 commits; a failed append holds the exact bytes for retry and blocks additional
 mutation.
 
 ## Local Write Flow
 
 1. The UI submits a domain command with an idempotency key.
-2. `GraphRuntime` validates and applies one Loro transaction.
-3. The repository appends the binary update durably.
-4. The RDF index publishes a complete revision for the new Loro frontier.
-5. Subscribers receive semantic graph and durability events.
+2. `GraphRuntime` validates and applies one Loro transaction, immediately
+   retaining its exact update bytes as pending durability work.
+3. The disposable RDF index advances to that frontier or is invalidated for a
+   lazy rebuild; either outcome leaves the pending bytes intact.
+4. The repository appends the binary update durably.
+5. Only then does the port report `saved_locally` and publish semantic and
+   durability events.
 
 For a remote graph, the local update and its outbox record commit in the same
 IndexedDB transaction. `SyncAgent` sends outbox entries in sequence, removes
@@ -237,7 +247,7 @@ into one referenced Tail/outbox record.
   purpose-specific opaque session. A client session may be remembered on one
   browser for a fixed 30 days; Admin sessions remain short-lived and ephemeral.
   Passwords never enter browser storage, graph data, or sync data.
-- The v4 remote protocol is not end-to-end encrypted; E2EE requires
+- The remote protocol is not end-to-end encrypted; E2EE requires
   a separate opaque-log and key-management design.
 
 ## Repository Shape

@@ -1,5 +1,5 @@
-import { FakeCorePort } from "../../src/core-port/testing/fake-core-port";
 import { GraphSession } from "../../src/core-port/session";
+import { WasmTestPort } from "./wasm-test-port";
 
 /** A fresh module instance stands in for another tab: each tab keeps its own
  * lease table and speaks to the others only over the BroadcastChannel. */
@@ -31,13 +31,13 @@ describe("graph lease lifecycle", () => {
       value: { request },
     });
 
-    const discardedPort = new FakeCorePort();
+    const discardedPort = new WasmTestPort();
     const discardedOpen = vi.spyOn(discardedPort, "openGraph");
     const discarded = new GraphSession("test-graph", discardedPort);
     const firstOpen = discarded.open();
     const firstClose = discarded.close();
 
-    const activePort = new FakeCorePort();
+    const activePort = new WasmTestPort();
     const active = new GraphSession("test-graph", activePort);
     const secondOpen = active.open();
 
@@ -82,13 +82,13 @@ describe("graph lease lifecycle", () => {
       configurable: true,
       value: undefined,
     });
-    const firstPort = new FakeCorePort();
+    const firstPort = new WasmTestPort();
     const firstOpen = vi.spyOn(firstPort, "openGraph");
     const first = new GraphSession("peer-identity", firstPort);
     await first.open();
     await first.close();
 
-    const secondPort = new FakeCorePort();
+    const secondPort = new WasmTestPort();
     const secondOpen = vi.spyOn(secondPort, "openGraph");
     const second = new GraphSession("peer-identity", secondPort);
     await second.open();
@@ -102,7 +102,7 @@ describe("graph lease lifecycle", () => {
       configurable: true,
       value: undefined,
     });
-    const port = new FakeCorePort();
+    const port = new WasmTestPort();
     const closeGraph = vi.spyOn(port, "closeGraph");
     const session = new GraphSession("single-close", port);
     await session.open();

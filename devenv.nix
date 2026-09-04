@@ -272,6 +272,7 @@ in
       after = [
         "contracts:check"
         "i18n:check"
+        "wasm:build-dev"
       ];
     };
 

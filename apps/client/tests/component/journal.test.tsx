@@ -3,6 +3,7 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import { findJournalPage } from "../../src/core-port/snapshot";
 import { todayLocalDate } from "../../src/entities/journal";
 import { GRAPH_ID, mountAt } from "./harness";
 
@@ -11,7 +12,7 @@ describe("journal and navigation", () => {
     const { session } = await mountAt(`/g/${GRAPH_ID}/journal`);
     const today = todayLocalDate();
     await waitFor(() => {
-      const page = session.getState().snapshot.pages.find((p) => p.id === `journal-${today}`);
+      const page = findJournalPage(session.getState().snapshot, today);
       expect(page).toBeDefined();
     });
     expect(screen.getByTestId("journal-title")).toBeInTheDocument();
@@ -21,9 +22,7 @@ describe("journal and navigation", () => {
   it("opens a specific journal date from the route", async () => {
     const { session } = await mountAt(`/g/${GRAPH_ID}/journal/2026-01-15`);
     await waitFor(() => {
-      expect(session.getState().snapshot.pages.some((p) => p.id === "journal-2026-01-15")).toBe(
-        true,
-      );
+      expect(findJournalPage(session.getState().snapshot, "2026-01-15")).toBeDefined();
     });
     expect(screen.getByTestId("journal-title")).toHaveTextContent("January 15, 2026");
   });

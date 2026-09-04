@@ -10,6 +10,7 @@ use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
+use sync_protocol::ContentId;
 
 const MAX_RETAINED_RECEIPTS: usize = 4_096;
 
@@ -42,7 +43,7 @@ struct MemoryGraph {
     checkpoint: MemoryCheckpoint,
     prior_checkpoint: Option<MemoryCheckpoint>,
     updates: Vec<MemoryUpdate>,
-    receipts: HashMap<String, (String, u64)>,
+    receipts: HashMap<ContentId, u64>,
     memberships: HashMap<String, MemoryMembership>,
     membership_version: u64,
 }
@@ -57,8 +58,7 @@ struct MemoryCheckpoint {
 #[derive(Clone)]
 struct MemoryUpdate {
     cursor: u64,
-    message_id: String,
-    checksum: String,
+    message_id: ContentId,
     bytes: Vec<u8>,
 }
 
@@ -182,8 +182,8 @@ fn memory_load(graph: &MemoryGraph) -> Result<GraphLoad, StoreError> {
         .iter()
         .filter(|update| update.cursor > graph.checkpoint.included_cursor)
         .map(|update| {
-            if checksum(&update.bytes) != update.checksum {
-                return Err(StoreError::Corrupt("update checksum mismatch"));
+            if !update.message_id.matches(&update.bytes) {
+                return Err(StoreError::Corrupt("update content identity mismatch"));
             }
             Ok(StoredUpdate {
                 cursor: update.cursor,
@@ -248,9 +248,12 @@ impl GraphStore for MemoryStore {
         &self,
         graph_id: &GraphId,
         account_id: &str,
-        message_id: &str,
+        content_id: &ContentId,
         bytes: &[u8],
     ) -> Result<CommitOutcome, StoreError> {
+        if !content_id.matches(bytes) {
+            return Err(StoreError::InvalidUpdateIdentity);
+        }
         let mut state = self.inner.lock().expect("memory store mutex");
         if !state.available {
             return Err(StoreError::Unavailable("injected outage"));
@@ -275,24 +278,14 @@ impl GraphStore for MemoryStore {
         if let Some(update) = graph
             .updates
             .iter()
-            .find(|update| update.message_id == message_id)
+            .find(|update| &update.message_id == content_id)
         {
-            if update.checksum != checksum(bytes) {
-                return Err(StoreError::MessageConflict);
-            }
-            return Ok(CommitOutcome {
+            return Ok(CommitOutcome::Duplicate {
                 cursor: update.cursor,
-                inserted: false,
             });
         }
-        if let Some((stored_checksum, cursor)) = graph.receipts.get(message_id) {
-            if stored_checksum != &checksum(bytes) {
-                return Err(StoreError::MessageConflict);
-            }
-            return Ok(CommitOutcome {
-                cursor: *cursor,
-                inserted: false,
-            });
+        if let Some(cursor) = graph.receipts.get(content_id) {
+            return Ok(CommitOutcome::Duplicate { cursor: *cursor });
         }
         let next_used = graph
             .used_bytes
@@ -303,8 +296,7 @@ impl GraphStore for MemoryStore {
         }
         graph.updates.push(MemoryUpdate {
             cursor: next_cursor,
-            message_id: message_id.to_owned(),
-            checksum: checksum(bytes),
+            message_id: content_id.clone(),
             bytes: bytes.to_vec(),
         });
         graph.used_bytes = next_used;
@@ -312,9 +304,8 @@ impl GraphStore for MemoryStore {
         if fault == Some(FaultPoint::AfterCommit) {
             return Err(StoreError::Unavailable("injected after commit"));
         }
-        Ok(CommitOutcome {
+        Ok(CommitOutcome::Inserted {
             cursor: next_cursor,
-            inserted: true,
         })
     }
 
@@ -365,21 +356,17 @@ impl GraphStore for MemoryStore {
                 graph
                     .receipts
                     .entry(update.message_id.clone())
-                    .or_insert((update.checksum.clone(), update.cursor));
+                    .or_insert(update.cursor);
             }
             if update.cursor > prior.included_cursor {
                 retained.push(update);
             }
         }
         if graph.receipts.len() > MAX_RETAINED_RECEIPTS {
-            let mut cursors = graph
-                .receipts
-                .values()
-                .map(|(_, cursor)| *cursor)
-                .collect::<Vec<_>>();
+            let mut cursors = graph.receipts.values().copied().collect::<Vec<_>>();
             cursors.sort_unstable_by(|left, right| right.cmp(left));
             let minimum = cursors[MAX_RETAINED_RECEIPTS - 1];
-            graph.receipts.retain(|_, (_, cursor)| *cursor >= minimum);
+            graph.receipts.retain(|_, cursor| *cursor >= minimum);
         }
         graph.history_epoch = next_epoch;
         graph.schema_version = schema_version;

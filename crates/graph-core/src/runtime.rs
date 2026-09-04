@@ -1,39 +1,14 @@
 use crate::{AppendReceipt, CoreError, GraphChangeSet, GraphCore, StorageErrorKind};
 use domain::{
     CommandEnvelope, CommandResult, GraphSnapshot, GraphSummary, OutlineOwner, OutlineSnapshot,
+    SemanticEvent,
 };
-use query::{GraphIndex, QueryError, QueryRequest, QueryResult};
+use query::{AuthoredQueryRequest, GraphIndex, QueryError, QueryRequest, QueryResult};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use thiserror::Error;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum EventSource {
-    Local,
-    Remote,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum GraphEventKind {
-    Semantic {
-        name: String,
-        command_id: String,
-    },
-    SavedLocally {
-        local_sequence: u64,
-        checksum: String,
-    },
-    RemoteImported,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GraphEvent {
-    pub cursor: u64,
-    pub source: EventSource,
-    pub kind: GraphEventKind,
-}
+pub use domain::{EventSource, GraphEvent, GraphEventKind};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
@@ -111,21 +86,31 @@ pub enum RuntimePersistence {
 /// native and Wasm targets.
 pub struct GraphRuntime<R: GraphRepository, C: Clock> {
     core: GraphCore,
-    index: GraphIndex,
+    /// A query index is disposable: presence means it represents `core`'s
+    /// current frontier, while absence means it must be rebuilt before use.
+    index: Option<GraphIndex>,
     repository: R,
     clock: C,
     events: VecDeque<GraphEvent>,
     event_capacity: usize,
     next_cursor: u64,
     pending: Option<PendingWrite>,
+    #[cfg(test)]
+    fail_next_index_update: bool,
 }
 
 struct PendingWrite {
     update: Vec<u8>,
     created_at: String,
-    source: EventSource,
-    semantic: String,
-    command_id: Option<String>,
+    event: PendingEvent,
+}
+
+enum PendingEvent {
+    Local {
+        semantic: SemanticEvent,
+        command_id: String,
+    },
+    Remote,
 }
 
 impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
@@ -145,13 +130,15 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
         )?;
         Ok(Self {
             core,
-            index,
+            index: Some(index),
             repository,
             clock,
             events: VecDeque::new(),
             event_capacity,
             next_cursor: 1,
             pending: None,
+            #[cfg(test)]
+            fail_next_index_update: false,
         })
     }
 
@@ -160,18 +147,22 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
         let now = self.clock.now();
         let command_id = command.command_id.to_string();
         let execution = self.core.execute(command, &now)?;
-        apply_index_changes(&self.core, &mut self.index, &execution.changes)?;
-        let persistence = if !execution.duplicate && !execution.update.is_empty() {
+        let persistence = if execution.update.is_empty() {
+            self.advance_index(&execution.changes);
+            RuntimePersistence::Unchanged
+        } else {
+            // `core.execute` has already changed authoritative memory. Retain
+            // its exact bytes before touching any disposable derived state.
             self.pending = Some(PendingWrite {
                 update: execution.update,
                 created_at: now,
-                source: EventSource::Local,
-                semantic: execution.semantic,
-                command_id: Some(command_id),
+                event: PendingEvent::Local {
+                    semantic: execution.semantic,
+                    command_id,
+                },
             });
+            self.advance_index(&execution.changes);
             RuntimePersistence::Appended(self.persist_pending()?)
-        } else {
-            RuntimePersistence::Unchanged
         };
         Ok(RuntimeExecution {
             result: execution.result,
@@ -182,14 +173,14 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
     pub fn import_remote(&mut self, update: &[u8]) -> Result<(), RuntimeError> {
         self.require_clean()?;
         let changes = self.core.import_remote_with_changes(update)?;
-        apply_index_changes(&self.core, &mut self.index, &changes)?;
+        // Import has already changed authoritative memory. Persistence must be
+        // recoverable even if projection or index maintenance fails next.
         self.pending = Some(PendingWrite {
             update: update.to_vec(),
             created_at: self.clock.now(),
-            source: EventSource::Remote,
-            semantic: "RemoteImported".to_owned(),
-            command_id: None,
+            event: PendingEvent::Remote,
         });
+        self.advance_index(&changes);
         self.persist_pending().map(|_| ())
     }
 
@@ -205,9 +196,17 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
         Ok(self.core.outline_snapshot(owner)?)
     }
 
-    pub fn query(&self, request: QueryRequest) -> Result<QueryResult, RuntimeError> {
+    pub fn query(&mut self, request: QueryRequest) -> Result<QueryResult, RuntimeError> {
         self.require_clean()?;
-        Ok(self.index.execute(request)?)
+        Ok(self.index()?.execute(request)?)
+    }
+
+    pub fn query_authored(
+        &mut self,
+        request: AuthoredQueryRequest,
+    ) -> Result<QueryResult, RuntimeError> {
+        self.require_clean()?;
+        Ok(self.index()?.execute_authored(request)?)
     }
 
     pub fn subscribe(&self, after_cursor: u64) -> EventBatch {
@@ -278,6 +277,36 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
         }
     }
 
+    /// Advances the derived index only when one is currently materialized.
+    /// Taking it before work makes every error atomic from readers' point of
+    /// view: a partially advanced index is never published.
+    fn advance_index(&mut self, changes: &GraphChangeSet) {
+        let Some(mut index) = self.index.take() else {
+            return;
+        };
+        #[cfg(test)]
+        if std::mem::take(&mut self.fail_next_index_update) {
+            return;
+        }
+        if apply_index_changes(&self.core, &mut index, changes).is_ok() {
+            self.index = Some(index);
+        }
+    }
+
+    fn index(&mut self) -> Result<&GraphIndex, RuntimeError> {
+        if self.index.is_none() {
+            self.index = Some(GraphIndex::from_units(
+                self.core.graph_id().clone(),
+                self.core.frontier(),
+                self.core.index_units()?,
+            )?);
+        }
+        Ok(self
+            .index
+            .as_ref()
+            .expect("query index initialized immediately above"))
+    }
+
     fn persist_pending(&mut self) -> Result<AppendReceipt, RuntimeError> {
         let pending = self.pending.as_ref().expect("pending write checked above");
         let receipt = self
@@ -291,20 +320,27 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
             .pending
             .take()
             .expect("pending write remains available");
-        match pending.source {
-            EventSource::Local => self.push(
-                EventSource::Local,
-                GraphEventKind::Semantic {
-                    name: pending.semantic,
-                    command_id: pending.command_id.unwrap_or_default(),
-                },
-            ),
-            EventSource::Remote => {
-                self.push(EventSource::Remote, GraphEventKind::RemoteImported);
+        let source = match pending.event {
+            PendingEvent::Local {
+                semantic,
+                command_id,
+            } => {
+                self.push(
+                    EventSource::Local,
+                    GraphEventKind::Semantic {
+                        name: semantic,
+                        command_id,
+                    },
+                );
+                EventSource::Local
             }
-        }
+            PendingEvent::Remote => {
+                self.push(EventSource::Remote, GraphEventKind::RemoteImported);
+                EventSource::Remote
+            }
+        };
         self.push(
-            pending.source,
+            source,
             GraphEventKind::SavedLocally {
                 local_sequence: receipt.local_sequence,
                 checksum: receipt.checksum.clone(),
@@ -359,6 +395,16 @@ mod tests {
     use super::*;
     use crate::{AppendReceipt, checksum};
     use domain::{Command, CommandId, GraphId, PageId};
+
+    #[test]
+    fn semantic_events_keep_the_contracts_pascal_case_spelling() {
+        for event in domain::SEMANTIC_EVENTS {
+            assert_eq!(
+                serde_json::to_string(event).unwrap(),
+                format!("\"{}\"", event.as_str())
+            );
+        }
+    }
 
     #[derive(Debug, Clone)]
     struct InMemoryUpdate {
@@ -445,7 +491,13 @@ mod tests {
         let EventBatch::Events { events, .. } = runtime.subscribe(4) else {
             panic!("expected retained events");
         };
-        assert!(matches!(events[0].kind, GraphEventKind::Semantic { .. }));
+        assert!(matches!(
+            events[0].kind,
+            GraphEventKind::Semantic {
+                name: SemanticEvent::PageEnsured,
+                ..
+            }
+        ));
         assert!(matches!(
             events[1].kind,
             GraphEventKind::SavedLocally {
@@ -514,7 +566,7 @@ mod tests {
     #[error("injected append failure")]
     struct InjectedFailure;
 
-    #[derive(Default)]
+    #[derive(Debug, Default)]
     struct FailingRepository {
         fail: bool,
         records: Vec<Vec<u8>>,
@@ -577,10 +629,151 @@ mod tests {
         let EventBatch::Events { events, .. } = runtime.subscribe(0) else {
             panic!("events expected after durable retry");
         };
-        assert!(matches!(events[0].kind, GraphEventKind::Semantic { .. }));
+        assert!(matches!(
+            events[0].kind,
+            GraphEventKind::Semantic {
+                name: SemanticEvent::PageEnsured,
+                ..
+            }
+        ));
         assert!(matches!(
             events[1].kind,
             GraphEventKind::SavedLocally { .. }
+        ));
+    }
+
+    fn page_exists_query(title: &str) -> QueryRequest {
+        QueryRequest {
+            language: query::QUERY_LANGUAGE.into(),
+            source: format!("ASK {{ ?page <{}content> {title:?} }}", query::NEO_NS),
+            bindings: Default::default(),
+            budget: Default::default(),
+        }
+    }
+
+    #[test]
+    fn failed_index_update_cannot_erase_pending_local_durability() {
+        let graph = GraphId::new("runtime-index-local-failure").unwrap();
+        let mut runtime = new_runtime(
+            &graph,
+            FailingRepository {
+                fail: true,
+                records: Vec::new(),
+            },
+            8,
+        );
+        runtime.fail_next_index_update = true;
+
+        assert!(matches!(
+            runtime.execute(envelope(&graph, 1)),
+            Err(RuntimeError::DirtyUnsaved {
+                kind: StorageErrorKind::Busy,
+                ..
+            })
+        ));
+        assert!(runtime.is_dirty_unsaved());
+        assert!(runtime.index.is_none());
+        assert!(matches!(
+            runtime.execute(envelope(&graph, 2)),
+            Err(RuntimeError::DirtyUnsaved { .. })
+        ));
+        assert!(matches!(
+            runtime.query(page_exists_query("Page 1")),
+            Err(RuntimeError::DirtyUnsaved { .. })
+        ));
+
+        runtime.repository_mut().fail = false;
+        runtime.retry_pending().unwrap();
+        assert_eq!(runtime.repository().records.len(), 1);
+        assert!(matches!(
+            runtime.query(page_exists_query("Page 1")).unwrap(),
+            QueryResult::Ask { value: true, .. }
+        ));
+        assert!(runtime.index.is_some());
+    }
+
+    #[test]
+    fn failed_index_update_does_not_reject_a_durable_local_command() {
+        let graph = GraphId::new("runtime-index-disposable").unwrap();
+        let mut runtime = new_runtime(&graph, InMemoryRepository::default(), 8);
+        runtime.fail_next_index_update = true;
+
+        assert!(matches!(
+            runtime.execute(envelope(&graph, 1)).unwrap().persistence,
+            RuntimePersistence::Appended(_)
+        ));
+        assert!(!runtime.is_dirty_unsaved());
+        assert!(runtime.index.is_none());
+        assert_eq!(runtime.repository().updates.len(), 1);
+        assert!(matches!(
+            runtime.query(page_exists_query("Page 1")).unwrap(),
+            QueryResult::Ask { value: true, .. }
+        ));
+    }
+
+    #[test]
+    fn failed_index_update_cannot_erase_pending_remote_durability() {
+        let graph = GraphId::new("runtime-index-remote-failure").unwrap();
+        let mut runtime = new_runtime(
+            &graph,
+            FailingRepository {
+                fail: true,
+                records: Vec::new(),
+            },
+            8,
+        );
+        let snapshot = runtime.core().export_snapshot().unwrap();
+        let mut remote = GraphCore::from_snapshot(graph.clone(), 2, &snapshot).unwrap();
+        let update = remote
+            .execute(envelope(&graph, 1), "remote-now")
+            .unwrap()
+            .update;
+        runtime.fail_next_index_update = true;
+
+        assert!(matches!(
+            runtime.import_remote(&update),
+            Err(RuntimeError::DirtyUnsaved {
+                kind: StorageErrorKind::Busy,
+                ..
+            })
+        ));
+        assert!(runtime.is_dirty_unsaved());
+        assert!(runtime.index.is_none());
+        assert!(matches!(
+            runtime.import_remote(&update),
+            Err(RuntimeError::DirtyUnsaved { .. })
+        ));
+        assert!(matches!(
+            runtime.query(page_exists_query("Page 1")),
+            Err(RuntimeError::DirtyUnsaved { .. })
+        ));
+
+        runtime.repository_mut().fail = false;
+        runtime.retry_pending().unwrap();
+        assert_eq!(runtime.repository().records, vec![update]);
+        assert!(matches!(
+            runtime.query(page_exists_query("Page 1")).unwrap(),
+            QueryResult::Ask { value: true, .. }
+        ));
+    }
+
+    #[test]
+    fn dirty_runtime_cannot_close_after_index_and_storage_failures() {
+        let graph = GraphId::new("runtime-index-close-failure").unwrap();
+        let mut runtime = new_runtime(
+            &graph,
+            FailingRepository {
+                fail: true,
+                records: Vec::new(),
+            },
+            8,
+        );
+        runtime.fail_next_index_update = true;
+        assert!(runtime.execute(envelope(&graph, 1)).is_err());
+
+        assert!(matches!(
+            runtime.close(),
+            Err(RuntimeError::DirtyUnsaved { .. })
         ));
     }
 }

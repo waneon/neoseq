@@ -4,15 +4,17 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { openFakeSession } from "../../src/core-port/testing/fake-core-port";
+import { openWasmSession } from "./wasm-test-port";
 import { SaveStatus } from "../../src/features/shell/SaveStatus";
 
 describe("save status", () => {
   it("preserves the last durable sequence when a command is unchanged", async () => {
-    const { session } = await openFakeSession();
+    const { session } = await openWasmSession();
 
     await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
     const stableSave = session.getState().save;
+    const stableRevision = session.getState().revision;
+    const stableCanonicalRevision = session.getState().canonicalRevision;
     expect(stableSave).toEqual({ kind: "saved", sequence: 1 });
 
     const unchanged = await session.execute({
@@ -21,13 +23,15 @@ describe("save status", () => {
       title: "Home",
     });
 
-    expect(unchanged.changed).toBe(false);
+    expect(unchanged).not.toHaveProperty("changed");
     expect(session.getState().save).toEqual(stableSave);
+    expect(session.getState().revision).toBe(stableRevision);
+    expect(session.getState().canonicalRevision).toBe(stableCanonicalRevision);
     await session.close();
   });
 
   it("tracks saved → unsaved → retried states", async () => {
-    const { session, port } = await openFakeSession();
+    const { session, port } = await openWasmSession();
     const user = userEvent.setup();
     const View = () => (
       <SaveStatus save={session.getState().save} onRetry={() => void session.retry()} />
@@ -52,7 +56,7 @@ describe("save status", () => {
   });
 
   it("labels storage-full failures distinctly", async () => {
-    const { session, port } = await openFakeSession();
+    const { session, port } = await openWasmSession();
     const View = () => <SaveStatus save={session.getState().save} onRetry={() => {}} />;
     const { rerender } = render(<View />);
     session.subscribe(() => rerender(<View />));

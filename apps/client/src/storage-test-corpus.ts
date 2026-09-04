@@ -1,10 +1,10 @@
 import { CORE_PORT_VERSION } from "./generated/core-port";
-import type { OpenGraphRequest } from "./generated/core-port";
+import type { CommandEnvelope, OpenGraphRequest } from "./generated/core-port";
 import { SCHEMA_VERSION } from "./generated/graph-schema";
 import golden from "../../../fixtures/core-port/current.json";
 import { CorePortFailure } from "./core-worker";
 import { TestCoreWorker } from "./test-core-worker";
-import { randomUUID } from "@/lib/crypto";
+import { randomUUID, sha256Hex } from "@/lib/crypto";
 
 interface Snapshot {
   schema_version: number;
@@ -25,7 +25,7 @@ function openRequest(graph: string, peer: number): OpenGraphRequest {
   };
 }
 
-function ensurePage(graph: string, commandId: string, pageId: string) {
+function ensurePage(graph: string, commandId: string, pageId: string): CommandEnvelope {
   return {
     graph_id: graph,
     command_id: commandId,
@@ -33,7 +33,12 @@ function ensurePage(graph: string, commandId: string, pageId: string) {
   };
 }
 
-function renamePage(graph: string, commandId: string, pageId: string, title: string) {
+function renamePage(
+  graph: string,
+  commandId: string,
+  pageId: string,
+  title: string,
+): CommandEnvelope {
   return {
     graph_id: graph,
     command_id: commandId,
@@ -88,6 +93,14 @@ export async function runIndexedDbPersistenceCorpus() {
   assert(
     duplicate.save_status.status === "unchanged",
     "a duplicate must not borrow a later update receipt",
+  );
+  assert(
+    JSON.stringify(duplicate.result) === JSON.stringify(saved.result),
+    "a duplicate must return its cached identity metadata",
+  );
+  assert(
+    !("changed" in (duplicate.result as object)),
+    "command metadata must not duplicate save-status change authority",
   );
   const noOp = await creator.execute({
     graph_handle: opened.graph_handle,
@@ -177,7 +190,7 @@ export async function runIndexedDbPersistenceCorpus() {
     timeout_ms: 1_000,
   });
   assert(
-    (firstSessionUndo.result as { changed: boolean }).changed,
+    firstSessionUndo.save_status.status === "saved_locally",
     "first edit after reopen was not undoable",
   );
   const restoredAfterUndo = await historyReopened.read({
@@ -211,7 +224,7 @@ export async function runIndexedDbPersistenceCorpus() {
     timeout_ms: 1_000,
   });
   assert(
-    !(oldSessionUndo.result as { changed: boolean }).changed,
+    oldSessionUndo.save_status.status === "unchanged",
     "reopen exposed durable Tail as undoable history",
   );
   await historyDurable.execute({
@@ -229,7 +242,7 @@ export async function runIndexedDbPersistenceCorpus() {
     timeout_ms: 1_000,
   });
   assert(
-    (currentSessionUndo.result as { changed: boolean }).changed,
+    currentSessionUndo.save_status.status === "saved_locally",
     "new-session edit was not undoable",
   );
   const afterUndo = await historyDurable.read({ graph_handle: durableHistory.graph_handle });
@@ -288,7 +301,7 @@ export async function runWorkerCorePortCorpus() {
     "a canonical command built an unused query index",
   );
   const read = await worker.read({ graph_handle: opened.graph_handle });
-  assert((read.summary as Snapshot).schema_version === 6, "worker read did not return schema v6");
+  assert((read.summary as Snapshot).schema_version === 7, "worker read did not return schema v7");
   const outline = await worker.readOutline({
     graph_handle: opened.graph_handle,
     owner: { kind: "page", id: "home" },
@@ -300,6 +313,7 @@ export async function runWorkerCorePortCorpus() {
   const queried = await worker.query({
     graph_handle: opened.graph_handle,
     query: {
+      kind: "raw_sparql",
       language: "sparql-1.1/neoseq-v1",
       source: "PREFIX neo: <urn:neoseq:vocab:v1:> SELECT ?page WHERE { ?page a neo:Page }",
     },
@@ -320,12 +334,15 @@ export async function runWorkerCorePortCorpus() {
     subscription.events.length === 2 && !subscription.resync_required,
     "worker subscription transcript differs",
   );
-  const eventTypes = subscription.events.map(
-    (event) => (event as { kind: { type: string } }).kind.type,
-  );
+  const eventTypes = subscription.events.map((event) => event.kind.type);
   assert(
     JSON.stringify(eventTypes) === JSON.stringify(golden.transcript.subscribe),
     "worker event types differ from golden",
+  );
+  assert(
+    subscription.events[0]?.kind.type === "semantic" &&
+      subscription.events[0].kind.name === "PageEnsured",
+    "worker semantic event lost its typed PascalCase spelling",
   );
   await expectCode(
     worker.execute({
@@ -549,6 +566,15 @@ export async function runRemoteOutboxCorpus() {
   assert(referenced.outbox_bytes === 0, "incremental outbox duplicated update payload bytes");
   const queued = await writer.nextOutbox(opened.graph_handle);
   assert(queued?.bytes.length, "outbox update bytes are missing");
+  assert(
+    queued.message_id === (await sha256Hex(new Uint8Array(queued.bytes))),
+    "outbox key must be the update content ID",
+  );
+  const retried = await writer.nextOutbox(opened.graph_handle);
+  assert(
+    retried?.message_id === queued.message_id,
+    "retry changed the identity of unchanged update bytes",
+  );
   const encoded = await writer.encodeSyncMessage({
     Update: {
       history_epoch: queued.history_epoch,
@@ -579,11 +605,15 @@ export async function runRemoteOutboxCorpus() {
     timeout_ms: 1_000,
   });
   assert(
-    !(rebaseUndo.result as { changed: boolean }).changed,
+    rebaseUndo.save_status.status === "unchanged",
     "history replacement exposed replayed intent as undoable",
   );
   const rebased = await writer.nextOutbox(opened.graph_handle);
   assert(rebased?.history_epoch === 1, "rebased outbox retained a stale epoch");
+  assert(
+    rebased.message_id === (await sha256Hex(new Uint8Array(rebased.bytes))),
+    "history rebase did not derive its outbox key from the rebased Tail",
+  );
   const replacedStats = await writer.storageStats(graph);
   assert(replacedStats.update_count === 1, "rebased intent was not normalized to one tail row");
   assert(replacedStats.outbox_bytes === 0, "rebased outbox duplicated its tail payload");
@@ -612,11 +642,103 @@ export async function runRemoteOutboxCorpus() {
   await restarted.closeGraph({ graph_handle: reopened.graph_handle });
   await restarted.deleteGraph(graph);
   restarted.terminate();
+
+  const legacyGraph = graphId("remote-outbox-v5");
+  const legacyWriter = new TestCoreWorker();
+  const legacyOpen = await legacyWriter.openGraph(openRequest(legacyGraph, 273));
+  const legacyBase = await legacyWriter.gcCheckpoint(legacyOpen.graph_handle);
+  await legacyWriter.configureSync(legacyOpen.graph_handle);
+  await legacyWriter.replaceRemote(
+    legacyOpen.graph_handle,
+    legacyBase.checkpoint,
+    0,
+    legacyBase.version_vector,
+  );
+  const legacyFirst = await legacyWriter.execute({
+    graph_handle: legacyOpen.graph_handle,
+    command: ensurePage(legacyGraph, "legacy-first", "legacy-first"),
+    timeout_ms: 1_000,
+  });
+  const legacySecond = await legacyWriter.execute({
+    graph_handle: legacyOpen.graph_handle,
+    command: ensurePage(legacyGraph, "legacy-second", "legacy-second"),
+    timeout_ms: 1_000,
+  });
+  assert(
+    legacyFirst.save_status.status === "saved_locally" &&
+      legacySecond.save_status.status === "saved_locally",
+    "legacy outbox fixture updates were not durable",
+  );
+  await legacyWriter.swapOutboxKeys(
+    legacyGraph,
+    legacyFirst.save_status.checksum,
+    legacySecond.save_status.checksum,
+  );
+  legacyWriter.terminate();
+
+  const migratedWriter = new TestCoreWorker();
+  const concurrentMigrator = new TestCoreWorker();
+  const [migratedOpen, concurrentOpen] = await Promise.all([
+    migratedWriter.openGraph(openRequest(legacyGraph, 274)),
+    concurrentMigrator.openGraph(openRequest(legacyGraph, 275)),
+  ]);
+  await Promise.all([
+    migratedWriter.configureSync(migratedOpen.graph_handle),
+    concurrentMigrator.configureSync(concurrentOpen.graph_handle),
+  ]);
+  const migratedFirst = await migratedWriter.nextOutbox(migratedOpen.graph_handle);
+  assert(
+    migratedFirst?.message_id === legacyFirst.save_status.checksum,
+    "v5 key swap did not recover the first update content ID",
+  );
+  const concurrentlyMigratedFirst = await concurrentMigrator.nextOutbox(
+    concurrentOpen.graph_handle,
+  );
+  assert(
+    concurrentlyMigratedFirst?.message_id === legacyFirst.save_status.checksum,
+    "concurrent v5 migration did not converge on the first content ID",
+  );
+  concurrentMigrator.terminate();
+  await migratedWriter.acknowledgeOutbox(migratedOpen.graph_handle, migratedFirst.message_id);
+  const migratedSecond = await migratedWriter.nextOutbox(migratedOpen.graph_handle);
+  assert(
+    migratedSecond?.message_id === legacySecond.save_status.checksum,
+    "v5 key swap did not recover the second update content ID",
+  );
+  await migratedWriter.acknowledgeOutbox(migratedOpen.graph_handle, migratedSecond.message_id);
+  await migratedWriter.closeGraph({ graph_handle: migratedOpen.graph_handle });
+  await migratedWriter.deleteGraph(legacyGraph);
+  migratedWriter.terminate();
+
+  const corruptGraph = graphId("remote-outbox-corrupt");
+  const corruptWriter = new TestCoreWorker();
+  const corruptOpen = await corruptWriter.openGraph(openRequest(corruptGraph, 276));
+  const corruptBase = await corruptWriter.gcCheckpoint(corruptOpen.graph_handle);
+  await corruptWriter.configureSync(corruptOpen.graph_handle);
+  await corruptWriter.replaceRemote(
+    corruptOpen.graph_handle,
+    corruptBase.checkpoint,
+    0,
+    corruptBase.version_vector,
+  );
+  await corruptWriter.execute({
+    graph_handle: corruptOpen.graph_handle,
+    command: ensurePage(corruptGraph, "corrupt-outbox", "corrupt-outbox"),
+    timeout_ms: 1_000,
+  });
+  const corruptQueued = await corruptWriter.nextOutbox(corruptOpen.graph_handle);
+  assert(corruptQueued, "corrupt-outbox fixture did not create a Tail record");
+  await corruptWriter.corruptUpdate(corruptGraph, corruptQueued.local_sequence);
+  await expectCode(corruptWriter.nextOutbox(corruptOpen.graph_handle), "storage_corrupt");
+  await corruptWriter.closeGraph({ graph_handle: corruptOpen.graph_handle });
+  await corruptWriter.deleteGraph(corruptGraph);
+  corruptWriter.terminate();
   return {
     durable_retry: true,
     protocol_codec: true,
     epoch_rebased: true,
     checkpoint_tail_resync: true,
     acknowledged: true,
+    corrupt_identity_rejected: true,
   };
 }

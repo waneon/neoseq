@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { MemoryRouter } from "react-router";
 import { findPage } from "../../src/core-port/snapshot";
 import { resetAppSettingsCache, setEditorKeymap } from "../../src/entities/settings";
-import { openFakeSession } from "../../src/core-port/testing/fake-core-port";
+import { openWasmSession } from "./wasm-test-port";
 import { Outliner } from "../../src/features/outline/Outliner";
 import { SessionContext } from "../../src/features/shell/session-context";
 import { HistoryProvider } from "../../src/features/history/context";
@@ -671,7 +671,7 @@ describe("outliner keyboard commands", () => {
   });
 
   it("keeps rapid input focused while a pending row adopts its real block id", async () => {
-    const { session, port } = await openFakeSession("pending-handoff");
+    const { session, port } = await openWasmSession("pending-handoff");
     await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
     await session.execute({
       type: "insert_block",

@@ -1,9 +1,8 @@
 // Turns a rejected CorePort command into something a person can read.
 //
-// The core speaks in codes and lowercase fragments ("this graph is opened
-// read-only in this tab"). The UI owes the user a sentence that names the verb
-// that failed, and the reason underneath it — never a raw code, and never a
-// bare "Error".
+// The core speaks in stable codes and diagnostic messages. The UI owes the user
+// a sentence that names the verb that failed, and a localized reason underneath
+// it — never a raw code, diagnostic wording, or bare "Error".
 
 import { CorePortFailure } from "../../core-worker";
 import type { CorePortError, CorePortErrorCode } from "../../generated/core-port";
@@ -19,10 +18,14 @@ import type { ToastInput } from "./store";
 const SAVE_SLOT_OWNS: ReadonlySet<CorePortErrorCode> = new Set(["dirty_unsaved", "storage_full"]);
 const DEFAULT_MESSAGE = createLocaleRuntime("en").message;
 
-/** Used only when the core sends a code with no message of its own. */
-const FALLBACK = {
+/** The localized reason selected by each stable CorePort error code. */
+const REASON_BY_CODE = {
   unsupported_contract: "error.unsupportedContract",
   invalid_request: "error.invalidRequest",
+  page_name_conflict: "error.pageNameConflict",
+  tag_name_conflict: "error.tagNameConflict",
+  first_sibling_indent: "error.firstSiblingIndent",
+  root_block_outdent: "error.rootBlockOutdent",
   invalid_archive: "error.invalidArchive",
   unsupported_archive: "error.unsupportedArchive",
   archive_too_large: "error.archiveTooLarge",
@@ -80,18 +83,5 @@ export function failureReason(error: unknown, message: MessageFunction = DEFAULT
 }
 
 function reasonFor(detail: CorePortError | null, message: MessageFunction): string {
-  const diagnostic = detail?.message.toLowerCase() ?? "";
-  if (diagnostic.includes("first sibling cannot be indented")) {
-    return message("error.firstSiblingIndent");
-  }
-  if (diagnostic.includes("root block cannot be outdented")) {
-    return message("error.rootBlockOutdent");
-  }
-  if (diagnostic.includes("page name already exists")) {
-    return message("error.pageNameConflict");
-  }
-  if (diagnostic.includes("tag name already exists")) {
-    return message("error.tagNameConflict");
-  }
-  return message(FALLBACK[detail?.code ?? "internal"]);
+  return message(REASON_BY_CODE[detail?.code ?? "internal"]);
 }

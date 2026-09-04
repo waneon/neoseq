@@ -246,8 +246,9 @@ on a tag target for defaults.
 
 The query projection remains a view over the well-known `builtin.query`
 document. The outline's `/` menu creates it through `set_query_plan`, and the
-mounted query block owns every later edit: the builder writes plan and compiled
-source together, the SPARQL escape hatch splices source, saved views and their
+mounted query block owns every later edit: the builder writes only the
+authoritative plan and the Rust core derives its compatibility source; the
+SPARQL escape hatch splices raw source and clears the plan. Saved views and their
 column layout go through document-specific commands, and the block's own menu
 removes the property. Task facts retain their own chips, which open the same
 picker.

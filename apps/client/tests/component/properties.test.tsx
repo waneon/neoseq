@@ -115,10 +115,13 @@ describe("property picker", () => {
     await user.click(within(picker).getByTestId("property-set"));
     await waitFor(() => expect(screen.getByTestId("prop-user.count")).toHaveTextContent("7"));
 
-    await user.click(screen.getByTestId("prop-user.when"));
-    expect(
-      within(await screen.findByTestId("property-picker")).getByLabelText("Pick a date"),
-    ).toHaveValue("2026-08-03");
+    // The strip is deliberately bounded, so reach a field outside its first
+    // page through the complete picker instead of assuming storage order.
+    await user.click(screen.getByRole("button", { name: "+1 more" }));
+    picker = await screen.findByTestId("property-picker");
+    await user.type(within(picker).getByLabelText("Property key"), "when");
+    await user.click(within(picker).getByRole("option", { name: /when/ }));
+    expect(within(picker).getByLabelText("Pick a date")).toHaveValue("2026-08-03");
     await user.keyboard("{Escape}");
     picker = await screen.findByTestId("property-picker");
     await user.click(within(picker).getByRole("option", { name: /link/ }));
@@ -205,14 +208,19 @@ describe("property picker", () => {
   it("proposes and immediately applies a natural task moment with recurrence", async () => {
     const { session } = await mountPage();
     const user = userEvent.setup();
-    await session.execute({
+    const inserted = await session.execute({
       type: "insert_block",
       owner: { kind: "page", id: "home" },
       parent: null,
       index: 0,
       markdown: "stand-up",
     });
-    const owner = { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" } as const;
+    if (!inserted.created_block) throw new Error("insert_block did not return a block ID");
+    const owner = {
+      kind: "block",
+      owner: { kind: "page", id: "home" },
+      id: inserted.created_block,
+    } as const;
     await session.execute({
       type: "set_property",
       owner,
@@ -256,14 +264,19 @@ describe("property picker", () => {
   it("preserves an uninterpreted recurrence while only the moment changes", async () => {
     const { session } = await mountPage();
     const user = userEvent.setup();
-    await session.execute({
+    const inserted = await session.execute({
       type: "insert_block",
       owner: { kind: "page", id: "home" },
       parent: null,
       index: 0,
       markdown: "opaque cadence",
     });
-    const owner = { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" } as const;
+    if (!inserted.created_block) throw new Error("insert_block did not return a block ID");
+    const owner = {
+      kind: "block",
+      owner: { kind: "page", id: "home" },
+      id: inserted.created_block,
+    } as const;
     await session.execute({
       type: "set_properties",
       owner,
@@ -533,16 +546,21 @@ describe("property picker", () => {
   it("changes and removes a status from the inline control's own menu", async () => {
     const { session } = await mountPage();
     const user = userEvent.setup();
-    await session.execute({
+    const inserted = await session.execute({
       type: "insert_block",
       owner: { kind: "page", id: "home" },
       parent: null,
       index: 0,
       markdown: "task",
     });
+    if (!inserted.created_block) throw new Error("insert_block did not return a block ID");
     await session.execute({
       type: "set_property",
-      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      owner: {
+        kind: "block",
+        owner: { kind: "page", id: "home" },
+        id: inserted.created_block,
+      },
       key: "builtin.task-status",
       value: { type: "string", value: "todo" },
     });

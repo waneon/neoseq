@@ -2,9 +2,9 @@ use domain::GraphId;
 use futures_util::{SinkExt, StreamExt};
 use graph_core::{GraphCore, SCHEMA_VERSION};
 use neoseq_server::{
-    AccountPatch, AccountStatus, AppState, CreateGraphOutcome, GraphAdmin, GraphRole, GraphStore,
-    IdentityService, Metrics, NewGraph, PgIdentity, PgStore, RoomConfig, ServerRole,
-    SessionPurpose, StoreError, router,
+    AccountPatch, AccountStatus, AppState, CommitOutcome, CreateGraphOutcome, GraphAdmin,
+    GraphRole, GraphStore, IdentityService, Metrics, NewGraph, PgIdentity, PgStore, RoomConfig,
+    ServerRole, SessionPurpose, StoreError, router,
 };
 use std::{
     sync::Arc,
@@ -330,7 +330,7 @@ async fn postgres_schema_persistence_and_authorization() {
         .unwrap();
     let update = sync_protocol::Update {
         history_epoch: 0,
-        message_id: "postgres-message".into(),
+        message_id: sync_protocol::ContentId::for_bytes(&execution.update),
         base_version_vector: before,
         bytes: execution.update,
     };
@@ -353,8 +353,12 @@ async fn postgres_schema_persistence_and_authorization() {
         )
         .await
         .unwrap();
-    assert!(!duplicate.inserted);
-    assert_eq!(duplicate.cursor, durable_cursor);
+    assert_eq!(
+        duplicate,
+        CommitOutcome::Duplicate {
+            cursor: durable_cursor
+        }
+    );
     assert!(matches!(
         store
             .commit_update(
@@ -364,11 +368,16 @@ async fn postgres_schema_persistence_and_authorization() {
                 b"different bytes",
             )
             .await,
-        Err(StoreError::MessageConflict)
+        Err(StoreError::InvalidUpdateIdentity)
     ));
     assert!(matches!(
         store
-            .commit_update(&graph_id, &viewer.account_id, "viewer-write", &update.bytes)
+            .commit_update(
+                &graph_id,
+                &viewer.account_id,
+                &update.message_id,
+                &update.bytes,
+            )
             .await,
         Err(StoreError::ReadOnly)
     ));
@@ -435,8 +444,12 @@ async fn postgres_schema_persistence_and_authorization() {
         )
         .await
         .unwrap();
-    assert!(!compacted_duplicate.inserted);
-    assert_eq!(compacted_duplicate.cursor, durable_cursor);
+    assert_eq!(
+        compacted_duplicate,
+        CommitOutcome::Duplicate {
+            cursor: durable_cursor
+        }
+    );
 
     store
         .revoke_membership(&graph_id, &owner.account_id, &editor.account_id)
@@ -460,19 +473,114 @@ async fn postgres_schema_persistence_and_authorization() {
     );
 
     PgStore::from_pool(store.pool().clone()).await.unwrap();
-    sqlx::query("UPDATE neoseq_schema_version SET version = 4 WHERE singleton = TRUE")
+    sqlx::query("UPDATE neoseq_schema_version SET version = 5 WHERE singleton = TRUE")
         .execute(store.pool())
         .await
         .unwrap();
     assert!(matches!(
         PgStore::from_pool(store.pool().clone()).await,
         Err(StoreError::SchemaMismatch {
-            found: 4,
-            required: 3
+            found: 5,
+            required: 4
         })
     ));
     sqlx::query("UPDATE graph SET byte_quota = 67108864 WHERE graph_id = $1")
         .bind(graph_id.as_str())
+        .execute(store.pool())
+        .await
+        .unwrap();
+    sqlx::query(
+        "ALTER TABLE graph_update_receipt
+         DROP CONSTRAINT graph_update_receipt_content_identity",
+    )
+    .execute(store.pool())
+    .await
+    .unwrap();
+    sqlx::query("ALTER TABLE graph_update_receipt ADD COLUMN checksum TEXT")
+        .execute(store.pool())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE graph_update_receipt SET checksum = message_id")
+        .execute(store.pool())
+        .await
+        .unwrap();
+    sqlx::query("ALTER TABLE graph_update_receipt ALTER COLUMN checksum SET NOT NULL")
+        .execute(store.pool())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE graph_update_receipt SET message_id = 'legacy-random-id'")
+        .execute(store.pool())
+        .await
+        .unwrap();
+    let swapped_receipt_id_a = sync_protocol::ContentId::for_bytes(b"legacy-receipt-key-swap-a");
+    let swapped_receipt_id_b = sync_protocol::ContentId::for_bytes(b"legacy-receipt-key-swap-b");
+    sqlx::query(
+        "INSERT INTO graph_update_receipt(
+             graph_id, message_id, checksum, cursor, received_at
+         ) VALUES
+             ($1, $3, $2, $4, NOW()),
+             ($1, $2, $3, $5, NOW())",
+    )
+    .bind(graph_id.as_str())
+    .bind(swapped_receipt_id_a.as_str())
+    .bind(swapped_receipt_id_b.as_str())
+    .bind(durable_cursor as i64 + 1)
+    .bind(durable_cursor as i64 + 2)
+    .execute(store.pool())
+    .await
+    .unwrap();
+    sqlx::query("ALTER TABLE graph_update DROP CONSTRAINT graph_update_content_identity")
+        .execute(store.pool())
+        .await
+        .unwrap();
+    sqlx::query("ALTER TABLE graph_update ADD COLUMN checksum TEXT")
+        .execute(store.pool())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE graph_update SET checksum = message_id")
+        .execute(store.pool())
+        .await
+        .unwrap();
+    sqlx::query("ALTER TABLE graph_update ALTER COLUMN checksum SET NOT NULL")
+        .execute(store.pool())
+        .await
+        .unwrap();
+    let swapped_payload_a = b"legacy-key-swap-a";
+    let swapped_payload_b = b"legacy-key-swap-b";
+    let swapped_id_a = sync_protocol::ContentId::for_bytes(swapped_payload_a);
+    let swapped_id_b = sync_protocol::ContentId::for_bytes(swapped_payload_b);
+    sqlx::query(
+        "INSERT INTO graph_update(
+             graph_id, message_id, account_id, checksum, payload, size_bytes
+         ) VALUES
+             ($1, 'legacy-duplicate-a', $2, $3, $4, $5),
+             ($1, 'legacy-duplicate-b', $2, $3, $4, $5),
+             ($1, $7, $2, $6, $8, $9),
+             ($1, $6, $2, $7, $10, $11)",
+    )
+    .bind(graph_id.as_str())
+    .bind(&editor.account_id)
+    .bind(update.message_id.as_str())
+    .bind(&update.bytes)
+    .bind(update.bytes.len() as i64)
+    .bind(swapped_id_a.as_str())
+    .bind(swapped_id_b.as_str())
+    .bind(swapped_payload_a.as_slice())
+    .bind(swapped_payload_a.len() as i64)
+    .bind(swapped_payload_b.as_slice())
+    .bind(swapped_payload_b.len() as i64)
+    .execute(store.pool())
+    .await
+    .unwrap();
+    let used_before_legacy_duplicates: i64 =
+        sqlx::query_scalar("SELECT used_bytes FROM graph WHERE graph_id = $1")
+            .bind(graph_id.as_str())
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    sqlx::query("UPDATE graph SET used_bytes = used_bytes + $2 WHERE graph_id = $1")
+        .bind(graph_id.as_str())
+        .bind((update.bytes.len() * 2 + swapped_payload_a.len() + swapped_payload_b.len()) as i64)
         .execute(store.pool())
         .await
         .unwrap();
@@ -488,6 +596,81 @@ async fn postgres_schema_persistence_and_authorization() {
             .await
             .unwrap();
     assert_eq!(migrated_quota, 1_073_741_824);
+    let migrated_receipt: String = sqlx::query_scalar(
+        "SELECT message_id FROM graph_update_receipt
+         WHERE graph_id = $1 AND message_id = $2",
+    )
+    .bind(graph_id.as_str())
+    .bind(update.message_id.as_str())
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(migrated_receipt, update.message_id.as_str());
+    let migrated_swapped_receipts: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM graph_update_receipt
+         WHERE graph_id = $1 AND message_id IN ($2, $3)",
+    )
+    .bind(graph_id.as_str())
+    .bind(swapped_receipt_id_a.as_str())
+    .bind(swapped_receipt_id_b.as_str())
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(migrated_swapped_receipts, 2);
+    let migrated_updates: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM graph_update
+         WHERE graph_id = $1 AND message_id = $2",
+    )
+    .bind(graph_id.as_str())
+    .bind(update.message_id.as_str())
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(migrated_updates, 0);
+    let migrated_swapped_updates: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM graph_update
+         WHERE graph_id = $1 AND message_id IN ($2, $3)",
+    )
+    .bind(graph_id.as_str())
+    .bind(swapped_id_a.as_str())
+    .bind(swapped_id_b.as_str())
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(migrated_swapped_updates, 2);
+    let redundant_identity_columns: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name IN ('graph_update', 'graph_update_receipt')
+           AND column_name = 'checksum'",
+    )
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(redundant_identity_columns, 0);
+    let used_after_content_migration: i64 =
+        sqlx::query_scalar("SELECT used_bytes FROM graph WHERE graph_id = $1")
+            .bind(graph_id.as_str())
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        used_after_content_migration,
+        used_before_legacy_duplicates
+            + swapped_payload_a.len() as i64
+            + swapped_payload_b.len() as i64
+    );
+    sqlx::query("UPDATE graph_update SET payload = $3 WHERE graph_id = $1 AND message_id = $2")
+        .bind(graph_id.as_str())
+        .bind(swapped_id_a.as_str())
+        .bind(b"forged-payload".as_slice())
+        .execute(store.pool())
+        .await
+        .unwrap();
+    assert!(matches!(
+        store.load_graph(&graph_id).await,
+        Err(StoreError::Corrupt("update content identity mismatch"))
+    ));
     sqlx::query("DELETE FROM graph WHERE graph_id = $1")
         .bind(graph_id.as_str())
         .execute(store.pool())

@@ -11,6 +11,15 @@ export class TestCoreWorker extends CoreWorker {
     return this.request("test_control", { action: "corrupt_update", graph_id: graphId, sequence });
   }
 
+  swapOutboxKeys(graphId: string, firstId: string, secondId: string): Promise<void> {
+    return this.request("test_control", {
+      action: "swap_outbox_keys",
+      graph_id: graphId,
+      first_id: firstId,
+      second_id: secondId,
+    });
+  }
+
   quarantineCount(graphId: string): Promise<number> {
     return this.request("test_control", { action: "quarantine_count", graph_id: graphId });
   }

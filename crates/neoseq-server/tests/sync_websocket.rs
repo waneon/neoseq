@@ -83,7 +83,8 @@ async fn authenticated_binary_websocket_syncs_and_acknowledges() {
     let welcome = receive_wire(&mut socket).await;
     assert!(matches!(welcome, Message::Welcome(_)));
 
-    let (_, update) = client_update(&fixture.snapshot, 2, "create-a", "message-a", "page-a", "A");
+    let (_, update) = client_update(&fixture.snapshot, 2, "create-a", "page-a", "A");
+    let update_id = update.message_id.clone();
     socket
         .send(WsMessage::Binary(
             encode(
@@ -97,7 +98,7 @@ async fn authenticated_binary_websocket_syncs_and_acknowledges() {
         .unwrap();
     match receive_wire(&mut socket).await {
         Message::Ack(ack) => {
-            assert_eq!(ack.message_id, "message-a");
+            assert_eq!(ack.message_id, update_id);
             assert!(ack.server_cursor > 0);
         }
         other => panic!("expected durable ack, got {other:?}"),

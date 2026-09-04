@@ -5,7 +5,7 @@ import { mergeSummary } from "../../src/core-port/snapshot";
 describe("graph summary projection", () => {
   it("rematerializes every hydrated reference when a page title changes", () => {
     const current: GraphSnapshot = {
-      schema_version: 6,
+      schema_version: 7,
       graph_id: "graph",
       pages: [
         {
@@ -38,6 +38,7 @@ describe("graph summary projection", () => {
       ],
       tags: [],
       settings: { default_queries: [] },
+      conflicts: [],
       quarantined: [],
     };
     const summary: GraphSummary = {
@@ -72,7 +73,7 @@ describe("graph summary projection", () => {
       children: [],
     };
     const current: GraphSnapshot = {
-      schema_version: 6,
+      schema_version: 7,
       graph_id: "graph",
       pages: [
         {
@@ -86,6 +87,7 @@ describe("graph summary projection", () => {
       page_directory: [{ id: "home", title: "Home", journal_date: null, deleted: false }],
       tags: [],
       settings: { default_queries: [] },
+      conflicts: [],
       quarantined: [],
     };
     const summary: GraphSummary = {

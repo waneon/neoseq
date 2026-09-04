@@ -7,14 +7,23 @@ use thiserror::Error;
 pub const REGISTRY_VERSION: u32 = 9;
 pub const QUERY_PROPERTY_KEY: &str = "builtin.query";
 pub const QUERY_DOCUMENT_SCHEMA: &str = "neoseq.query";
+/// Public query-document shape version. Current storage writers encode query
+/// authority in an atomic discriminated `plan_state` register; readers retain
+/// compatibility with the earlier v2 `plan_version` + `plan` pair.
 pub const QUERY_DOCUMENT_VERSION: u32 = 2;
 pub const QUERY_LANGUAGE: &str = "sparql-1.1/neoseq-v1";
 pub const QUERY_PLAN_LIMIT: usize = 32_768;
+/// Maximum source accepted by a local query edit or raw-query execution.
+/// Concurrent text may merge beyond it and is then projected as a conflict.
+pub const MAX_QUERY_SOURCE_BYTES: usize = 65_536;
+/// Maximum number of query views published from one collaborative document.
+/// Concurrent overflow remains canonical data and is projected as a conflict.
+pub const MAX_QUERY_VIEWS: usize = 32;
 /// How many columns one saved view may order by. A reader who needs a ninth
 /// tie-breaker needs a different query, not a longer list.
 pub const QUERY_VIEW_SORT_LIMIT: usize = 8;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PropertyType {
     Number,
@@ -25,7 +34,7 @@ pub enum PropertyType {
     Document,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Cardinality {
     Single,
@@ -167,13 +176,11 @@ pub struct PropertyDocumentHeader {
 
 /// The builder's structured description of a query.
 ///
-/// `source` stays the executable artifact: the core parses, plans, and runs
-/// SPARQL and nothing else. A plan is the *authoring* representation the query
-/// builder writes that source from, kept beside it so reopening a query reopens
-/// the builder rather than a wall of SPARQL. Its `payload` grammar therefore
-/// belongs to the authoring layer, and the domain owns only what makes the
-/// document well-formed: a JSON object, within bounds, carrying its own version
-/// so a client that does not understand it can fall back to editing the source.
+/// A present plan is the sole execution authority; `source` is its derived,
+/// ejectable explanation and is never an implicit raw fallback. A query with no
+/// plan executes its source directly. The plan's `payload` grammar belongs to
+/// the query layer, while the domain owns only what makes the envelope
+/// well-formed: a JSON object, within bounds, carrying its own version.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueryPlan {
     pub version: u32,
@@ -238,116 +245,145 @@ impl PropertyDocument {
     }
 
     pub fn validate(&self) -> Result<(), PropertyError> {
+        self.validate_structure()?;
+        for view in &self.views {
+            if view.definition.source.len() > MAX_QUERY_SOURCE_BYTES {
+                return Err(PropertyError::StringTooLong);
+            }
+        }
+        Ok(())
+    }
+
+    /// Validates the bounded document exposed at command and projection
+    /// boundaries. The raw collaborative map is totalized into this shape
+    /// before calling this method.
+    pub fn validate_structure(&self) -> Result<(), PropertyError> {
         if self.schema != QUERY_DOCUMENT_SCHEMA || self.version != QUERY_DOCUMENT_VERSION {
             return Err(PropertyError::UnsupportedDocument {
                 schema: self.schema.clone(),
                 version: self.version,
             });
         }
-        if self.views.is_empty() || self.views.len() > 32 {
+        if self.views.is_empty() || self.views.len() > MAX_QUERY_VIEWS {
             return Err(PropertyError::InvalidDocument(
                 "query document must contain between 1 and 32 views".to_owned(),
             ));
         }
         let mut ids = std::collections::BTreeSet::new();
         for view in &self.views {
-            if view.definition.language != QUERY_LANGUAGE {
-                return Err(PropertyError::InvalidDocument(
-                    "unsupported query language".to_owned(),
-                ));
-            }
-            if view.definition.source.len() > 65_536 {
-                return Err(PropertyError::StringTooLong);
-            }
-            if let Some(plan) = &view.definition.plan {
-                plan.validate()?;
-            }
+            view.validate_structure()?;
             if !ids.insert(view.id.clone()) {
                 return Err(PropertyError::InvalidDocument(
                     "duplicate query view id".to_owned(),
                 ));
-            }
-            if view.name.is_empty() || view.name.len() > 128 {
-                return Err(PropertyError::InvalidDocument(
-                    "invalid query view name".to_owned(),
-                ));
-            }
-            if view.columns.len() > 128
-                || view.columns.iter().any(|column| {
-                    column.variable.is_empty()
-                        || column.variable.len() > 128
-                        || column.variable.chars().any(char::is_control)
-                })
-            {
-                return Err(PropertyError::InvalidDocument(
-                    "invalid query view column selection".to_owned(),
-                ));
-            }
-            let mut variables = std::collections::BTreeSet::new();
-            if view
-                .columns
-                .iter()
-                .any(|column| !variables.insert(column.variable.as_str()))
-            {
-                return Err(PropertyError::InvalidDocument(
-                    "duplicate query view column".to_owned(),
-                ));
-            }
-            // A sort names a result variable, and each term is bounded exactly
-            // as a column selection is. A term is not required to name a
-            // variable the view lists: a query that has since dropped a column
-            // keeps the order it had, and simply stops applying it. One variable
-            // may appear once — ordering by the same column twice says nothing
-            // the first term did not already say.
-            if view.options.sort.len() > QUERY_VIEW_SORT_LIMIT {
-                return Err(PropertyError::InvalidDocument(
-                    "too many query view sort terms".to_owned(),
-                ));
-            }
-            let mut sorted = std::collections::BTreeSet::new();
-            for sort in &view.options.sort {
-                if sort.variable.is_empty()
-                    || sort.variable.len() > 128
-                    || sort.variable.chars().any(char::is_control)
-                {
-                    return Err(PropertyError::InvalidDocument(
-                        "invalid query view sort variable".to_owned(),
-                    ));
-                }
-                if !sorted.insert(sort.variable.as_str()) {
-                    return Err(PropertyError::InvalidDocument(
-                        "duplicate query view sort variable".to_owned(),
-                    ));
-                }
-            }
-            if view.options.list_sort.len() > QUERY_VIEW_SORT_LIMIT {
-                return Err(PropertyError::InvalidDocument(
-                    "too many query list sort terms".to_owned(),
-                ));
-            }
-            let mut sorted_fields = std::collections::BTreeSet::new();
-            for sort in &view.options.list_sort {
-                if sort.field.is_empty()
-                    // A property key may itself occupy 128 bytes; its stable
-                    // `property:` field prefix still has to fit.
-                    || sort.field.len() > 256
-                    || sort.field.chars().any(char::is_control)
-                {
-                    return Err(PropertyError::InvalidDocument(
-                        "invalid query list sort field".to_owned(),
-                    ));
-                }
-                if !sorted_fields.insert(sort.field.as_str()) {
-                    return Err(PropertyError::InvalidDocument(
-                        "duplicate query list sort field".to_owned(),
-                    ));
-                }
             }
         }
         if !ids.contains(&self.default_view_id) {
             return Err(PropertyError::InvalidDocument(
                 "default query view does not exist".to_owned(),
             ));
+        }
+        Ok(())
+    }
+}
+
+impl QueryView {
+    /// Validates one independently stored view for a local write.
+    pub fn validate(&self) -> Result<(), PropertyError> {
+        self.validate_structure()?;
+        if self.definition.source.len() > MAX_QUERY_SOURCE_BYTES {
+            return Err(PropertyError::StringTooLong);
+        }
+        Ok(())
+    }
+
+    /// Validates the atomic view fields while leaving the mergeable source
+    /// byte budget to projection and execution policy.
+    pub fn validate_structure(&self) -> Result<(), PropertyError> {
+        if self.definition.language != QUERY_LANGUAGE {
+            return Err(PropertyError::InvalidDocument(
+                "unsupported query language".to_owned(),
+            ));
+        }
+        if let Some(plan) = &self.definition.plan {
+            plan.validate()?;
+        }
+        let view = self;
+        if view.name.is_empty() || view.name.len() > 128 {
+            return Err(PropertyError::InvalidDocument(
+                "invalid query view name".to_owned(),
+            ));
+        }
+        if view.columns.len() > 128
+            || view.columns.iter().any(|column| {
+                column.variable.is_empty()
+                    || column.variable.len() > 128
+                    || column.variable.chars().any(char::is_control)
+            })
+        {
+            return Err(PropertyError::InvalidDocument(
+                "invalid query view column selection".to_owned(),
+            ));
+        }
+        let mut variables = std::collections::BTreeSet::new();
+        if view
+            .columns
+            .iter()
+            .any(|column| !variables.insert(column.variable.as_str()))
+        {
+            return Err(PropertyError::InvalidDocument(
+                "duplicate query view column".to_owned(),
+            ));
+        }
+        // A sort names a result variable, and each term is bounded exactly
+        // as a column selection is. A term is not required to name a
+        // variable the view lists: a query that has since dropped a column
+        // keeps the order it had, and simply stops applying it. One variable
+        // may appear once — ordering by the same column twice says nothing
+        // the first term did not already say.
+        if view.options.sort.len() > QUERY_VIEW_SORT_LIMIT {
+            return Err(PropertyError::InvalidDocument(
+                "too many query view sort terms".to_owned(),
+            ));
+        }
+        let mut sorted = std::collections::BTreeSet::new();
+        for sort in &view.options.sort {
+            if sort.variable.is_empty()
+                || sort.variable.len() > 128
+                || sort.variable.chars().any(char::is_control)
+            {
+                return Err(PropertyError::InvalidDocument(
+                    "invalid query view sort variable".to_owned(),
+                ));
+            }
+            if !sorted.insert(sort.variable.as_str()) {
+                return Err(PropertyError::InvalidDocument(
+                    "duplicate query view sort variable".to_owned(),
+                ));
+            }
+        }
+        if view.options.list_sort.len() > QUERY_VIEW_SORT_LIMIT {
+            return Err(PropertyError::InvalidDocument(
+                "too many query list sort terms".to_owned(),
+            ));
+        }
+        let mut sorted_fields = std::collections::BTreeSet::new();
+        for sort in &view.options.list_sort {
+            if sort.field.is_empty()
+                // A property key may itself occupy 128 bytes; its stable
+                // `property:` field prefix still has to fit.
+                || sort.field.len() > 256
+                || sort.field.chars().any(char::is_control)
+            {
+                return Err(PropertyError::InvalidDocument(
+                    "invalid query list sort field".to_owned(),
+                ));
+            }
+            if !sorted_fields.insert(sort.field.as_str()) {
+                return Err(PropertyError::InvalidDocument(
+                    "duplicate query list sort field".to_owned(),
+                ));
+            }
         }
         Ok(())
     }

@@ -5,24 +5,25 @@ CorePort snapshots, query projection, and clients.
 
 ## Two Property Shapes
 
-A property bag is a key-unique collection of `PropertyField` values. A field has
-a stable marker containing its key, value type, and cardinality. Its value is
-one of two shapes:
+A property bag projects to a key-unique collection of `PropertyField` values.
+Each stored key selects one regular Loro map: a field generation whose immutable
+shape records its value type and cardinality. Its payload is one of two shapes:
 
-- an atomic single or set containing finite numbers, strings, page references,
-  checkboxes, or local dates;
+- an atomic single register or mergeable set containing finite numbers,
+  strings, page references, checkboxes, or local dates;
 - a single schema-owned document whose internal CRDT containers define its
   merge granularity.
 
-Atomic fields retain the v1 DTO shape:
+Non-document fields retain the v1 DTO shape:
 
 ```text
 PropertyField { key, value_type, cardinality, values: PropertyValue[] }
 ```
 
 Field presence and value presence are independent for atomic properties.
-`values: []` is a present empty field; absence of the marker means the property
-is absent. A single field has zero or one value and a set has distinct values.
+`values: []` is a present empty field; absence of the generation at that key
+means the property is absent. A single field has zero or one value and a set has
+distinct values.
 
 A document snapshot is carried as one tagged `PropertyValue` across CorePort,
 but it is not stored as one JSON value. It includes `schema` and `version` so
@@ -35,7 +36,7 @@ properties; they may remove the complete field.
 [`../contracts/property-registry.json`](../contracts/property-registry.json)
 defines shape, semantic ordering, placement, write access, and clipboard copy
 policy. Portable fields cross an outline clipboard fragment; lifecycle fields
-regenerate on the new node and deleted markers are omitted. Ordering is
+regenerate on the new node and deletion fields are omitted. Ordering is
 separate from presentation: `choice_order` makes the declared string choices an
 ordered domain while localized labels and picker placement remain client concerns.
 Known built-ins have a compiled
@@ -118,14 +119,17 @@ default view ID. Each view owns both its executable definition and its
 presentation. Its canonical Loro layout is:
 
 ```text
-d:builtin.query: Map
-  schema, version, default_view_id
-  views: Map<QueryViewId, Map>
-    name, kind, position, columns, options, deleted
-    definition: Map
-      language
-      source: Text
-      plan_version, plan      (optional; the builder's authoring payload)
+properties: Map
+  builtin.query: Map          (regular field generation)
+    shape: { value_type: document, cardinality: single }
+    document: Map
+      schema, version, default_view_id
+      views: Map<QueryViewId, Map>
+        name, kind, position, columns, options, deleted
+        definition: Map
+          language
+          source: Text
+          plan_state: String  (atomic Raw | Built(QueryPlan) register)
 ```
 
 Source edits name a view, use Unicode splice commands, and merge as collaborative
@@ -135,13 +139,22 @@ making concurrent inserts deterministic. Removing a view writes its `deleted`
 marker, so edits to its other fields do not implicitly resurrect it; removing
 the default selects the first remaining ordered view in the same transaction.
 
-`plan` is the query builder's structured description of one view's query, stored
-beside that view's compiled SPARQL. The domain validates only that it is a bounded
-JSON object carrying its own version; the authoring grammar belongs to the
-client, and a version a reader does not understand simply leaves that block on
-its source. Setting a plan writes it and its compiled source in one transaction,
-and writing source by hand clears the plan, so a stored plan always describes
-what runs in that view. Query documents require the current v2 shape.
+`plan_state` is one discriminated LWW register, so concurrent Built/Raw and
+Built/Built writes cannot combine fields from different intents. Its Built
+state owns the query builder's typed description and is the sole authority
+whenever the current Rust core understands its version. Its explicit Raw state
+prevents an older plan from resurfacing. Readers accept the legacy
+`plan_version` + `plan` pair only when `plan_state` is absent; all new
+definitions and authored writes emit the register.
+
+The core validates the generated grammar, lowers it directly for execution, and derives
+provenance-marked SPARQL at projection as an explanation artifact. Every
+plan-bearing document command passes through that normalization boundary;
+caller-supplied source cannot disagree with the plan. `SetQuerySource`
+atomically selects Raw while replacing its source; source splices are valid only
+after that explicit transition. An unknown plan version retains its last raw
+source for inspection but is not executed as raw SPARQL. Query documents require
+the current v2 public shape.
 
 `columns` is a table-only per-view ordered list of `{variable, hidden, width}`
 records. `options` carries common density, table wrapping, a table `sort` of
@@ -163,7 +176,10 @@ policy comes from the owner and registry. A tag owns two bags and they are
 different targets: `tag` is the tag's own metadata — what the tag _is_, including
 its query — and `tag_default` is what the tag copies onto whatever it is added
 to. Document schemas add semantic commands; the query document currently supports
-source set/splice, plan set/clear, view put/remove, and default-view selection.
+source set/splice, plan set, view put/remove, and default-view selection. A
+built query becomes raw only through an explicit source replacement carrying
+the raw source to execute; there is no plan-clear operation with ambiguous
+fallback semantics.
 One user intent remains one Loro transaction, undo item, durable update, and
 semantic event. A bounded, flat `batch` command composes ordinary commands when
 one intent crosses property or entity boundaries; it validates every step on a
@@ -174,16 +190,40 @@ effect, because a tag belongs to no page.
 Tag defaults materialize only schemas whose registry contract allows copying.
 The query document has a tag-metadata placement and no tag-default placement: a
 tag may ask a question of its own, and no tag copies a query onto a block.
-Atomic defaults copy their complete marker and current values only when the
-target key is absent; removing a tag or later changing its defaults is not
-retroactive.
+Atomic defaults copy their complete field generation and current payload only
+when the target key is absent; removing a tag or later changing its defaults is
+not retroactive.
 
 ## Storage, Projection, and State Boundaries
 
-Atomic fields use one marker plus separate single/set slots. Document fields use
-one marker plus a schema-owned mergeable container. Snapshot decoding joins
-them and quarantines malformed or contract-invalid data. Removing a field
-deletes its marker and all atomic or document storage below that key.
+The canonical layout gives a bag exactly one outer entry per property:
+
+```text
+PropertyBag: Map
+  <PropertyKey>: Map           (regular child; field generation)
+    shape: { value_type, cardinality }
+    single: PropertyValue      (non-document Single; optional)
+    set: Map<ValueHash, PropertyValue>
+    document: Map              (Document/Single; schema-owned)
+```
+
+Only the payload named by the immutable shape is present. The outer child
+reference is both presence and generation authority; snapshot decoding validates
+only the selected generation and quarantines a malformed or contract-invalid
+one. A single payload is an atomic register, a set merges by value identity, and
+a document defines its finer merge granularity below `document`.
+
+Removing a property deletes only its outer reference. Concurrent edits inside
+the detached child remain causally harmless because they cannot restore that
+reference. Explicit recreation inserts a fresh regular child and therefore a
+fresh generation; no payload from the removed generation can reappear.
+
+Concurrent creation while the key is absent is an atomic identity choice. Loro's
+same-key regular-container arbitration selects one whole child, including its
+shape and initial payload, so incompatible shapes cannot form a hybrid field.
+The same rule applies when both creations have the same shape: one initial
+payload loses rather than merging. Fine-grained value or document edits merge
+only after both replicas share the same field generation.
 
 RDF always emits property presence. Atomic values emit typed predicates.
 Document values are not recursively converted to RDF; each schema must opt into

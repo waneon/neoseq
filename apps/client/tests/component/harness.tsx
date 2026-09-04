@@ -1,4 +1,4 @@
-// Component test harness: real GraphSession over the in-memory FakeCorePort,
+// Component test harness: real GraphSession over the Rust/Wasm core,
 // mounted inside the app's route shape so router hooks resolve.
 
 import {
@@ -15,7 +15,7 @@ import type userEvent from "@testing-library/user-event";
 import { createMemoryRouter, Outlet, RouterProvider } from "react-router";
 import { useMemo, type ReactElement, type ReactNode } from "react";
 import { GraphSession } from "../../src/core-port/session";
-import { FakeCorePort, openFakeSession } from "../../src/core-port/testing/fake-core-port";
+import { openWasmSession, WasmTestPort } from "./wasm-test-port";
 import { resetAppSettingsCache } from "../../src/entities/settings";
 import { resetQueryDisclosure } from "../../src/features/query/presentation";
 import { queryExecutionStore } from "../../src/features/query/execution";
@@ -50,7 +50,7 @@ afterEach(async () => {
 
 export interface Harness {
   session: GraphSession;
-  port: FakeCorePort;
+  port: WasmTestPort;
   view: RenderResult;
   router: ReturnType<typeof createMemoryRouter>;
   /** Runs optional work and flushes its query answers in one React interaction. */
@@ -109,7 +109,7 @@ export async function mountAt(initialPath: string, custom?: ReactElement): Promi
   // changed one must not leak it into the next mount.
   resetAppSettingsCache();
   resetQueryDisclosure();
-  const { session, port } = await openFakeSession(GRAPH_ID);
+  const { session, port } = await openWasmSession(GRAPH_ID);
   openSessions.add(session);
   // GraphSession is an external store. Production receives its notifications
   // from Worker promises; component tests must mark that same boundary as a

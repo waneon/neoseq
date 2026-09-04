@@ -1,7 +1,7 @@
 mod support;
 
 use domain::GraphId;
-use neoseq_server::{GraphStore, RoomConfig};
+use neoseq_server::{CommitOutcome, GraphStore, RoomConfig};
 use support::*;
 use sync_protocol::{Limits, WelcomePayload};
 
@@ -38,10 +38,10 @@ async fn replica_without_server_base_is_forced_onto_the_authoritative_checkpoint
 async fn duplicate_and_reordered_updates_converge_after_room_eviction() {
     let fixture = fixture(RoomConfig::default());
     let graph_id = GraphId::new(GRAPH).unwrap();
-    let (mut client_a, update_a) =
-        client_update(&fixture.snapshot, 2, "create-a", "message-a", "page-a", "A");
-    let (mut client_b, update_b) =
-        client_update(&fixture.snapshot, 3, "create-b", "message-b", "page-b", "B");
+    let (mut client_a, update_a) = client_update(&fixture.snapshot, 2, "create-a", "page-a", "A");
+    let (mut client_b, update_b) = client_update(&fixture.snapshot, 3, "create-b", "page-b", "B");
+    let update_a_id = update_a.message_id.clone();
+    let update_b_id = update_b.message_id.clone();
     let mut a = fixture
         .manager
         .open(&graph_id, "a", OWNER, 0, &fixture.base_version)
@@ -63,8 +63,8 @@ async fn duplicate_and_reordered_updates_converge_after_room_eviction() {
         .submit_update(&b, update_b.clone())
         .await
         .unwrap();
-    assert_ack(&mut b_rx, "message-b").await;
-    let received_b = assert_update(&mut a_rx, "message-b").await;
+    assert_ack(&mut b_rx, &update_b_id).await;
+    let received_b = assert_update(&mut a_rx, &update_b_id).await;
     client_a.import_remote(&received_b.bytes).unwrap();
 
     fixture
@@ -72,13 +72,13 @@ async fn duplicate_and_reordered_updates_converge_after_room_eviction() {
         .submit_update(&a, update_a.clone())
         .await
         .unwrap();
-    assert_ack(&mut a_rx, "message-a").await;
-    let received_a = assert_update(&mut b_rx, "message-a").await;
+    assert_ack(&mut a_rx, &update_a_id).await;
+    let received_a = assert_update(&mut b_rx, &update_a_id).await;
     client_b.import_remote(&received_a.bytes).unwrap();
 
     // Idempotent retry gets the original durable cursor and is not fanned out.
     fixture.manager.submit_update(&a, update_a).await.unwrap();
-    assert_ack(&mut a_rx, "message-a").await;
+    assert_ack(&mut a_rx, &update_a_id).await;
     assert!(receive(&mut b_rx).await.is_none());
     assert_eq!(fixture.store.update_count(&graph_id), 2);
 
@@ -122,8 +122,7 @@ async fn reconnect_receives_checkpoint_when_incremental_delta_exceeds_limit() {
     };
     let fixture = fixture(config);
     let graph_id = GraphId::new(GRAPH).unwrap();
-    let (client, update) =
-        client_update(&fixture.snapshot, 2, "create-a", "message-a", "page-a", "A");
+    let (client, update) = client_update(&fixture.snapshot, 2, "create-a", "page-a", "A");
     fixture
         .store
         .commit_update(&graph_id, OWNER, &update.message_id, &update.bytes)
@@ -155,14 +154,7 @@ async fn reconnect_receives_checkpoint_when_incremental_delta_exceeds_limit() {
 async fn history_epoch_rotation_keeps_one_fallback_generation_before_reclaim() {
     let fixture = fixture(RoomConfig::default());
     let graph_id = GraphId::new(GRAPH).unwrap();
-    let (client, update) = client_update(
-        &fixture.snapshot,
-        2,
-        "rotate",
-        "rotate-message",
-        "page-a",
-        "A",
-    );
+    let (client, update) = client_update(&fixture.snapshot, 2, "rotate", "page-a", "A");
     let committed = fixture
         .store
         .commit_update(&graph_id, OWNER, &update.message_id, &update.bytes)
@@ -174,7 +166,7 @@ async fn history_epoch_rotation_keeps_one_fallback_generation_before_reclaim() {
         .install_checkpoint(
             &graph_id,
             0,
-            committed.cursor,
+            committed.cursor(),
             graph_core::SCHEMA_VERSION,
             &checkpoint,
             &client.version_vector(),
@@ -190,7 +182,7 @@ async fn history_epoch_rotation_keeps_one_fallback_generation_before_reclaim() {
         .install_checkpoint(
             &graph_id,
             1,
-            committed.cursor,
+            committed.cursor(),
             graph_core::SCHEMA_VERSION,
             &checkpoint,
             &client.version_vector(),
@@ -206,8 +198,12 @@ async fn history_epoch_rotation_keeps_one_fallback_generation_before_reclaim() {
         .commit_update(&graph_id, OWNER, &update.message_id, &update.bytes)
         .await
         .unwrap();
-    assert_eq!(duplicate.cursor, committed.cursor);
-    assert!(!duplicate.inserted);
+    assert_eq!(
+        duplicate,
+        CommitOutcome::Duplicate {
+            cursor: committed.cursor()
+        }
+    );
 
     let mut opened = fixture
         .manager

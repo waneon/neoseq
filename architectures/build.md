@@ -87,6 +87,10 @@ named database.
 - generated contract and locale drift checks;
 - TypeScript and component tests.
 
+The component-test task depends on the development Wasm binding because its
+CorePort adapter runs the production graph core rather than a TypeScript domain
+double.
+
 Treefmt is the single formatting boundary. It delegates Rust, Nix, Web and
 document formats, TOML, and shell scripts to pinned language-native formatters.
 Generated sources remain owned by their generators, and lockfiles remain owned

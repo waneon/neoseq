@@ -13,7 +13,7 @@ use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
 };
-use sync_protocol::{Message, Update, WelcomePayload};
+use sync_protocol::{ContentId, Message, Update, WelcomePayload};
 use tokio::{
     sync::mpsc,
     time::{Duration, timeout},
@@ -196,7 +196,6 @@ pub fn client_update(
     snapshot: &[u8],
     peer: u64,
     command_id: &str,
-    message_id: &str,
     page_id: &str,
     title: &str,
 ) -> (GraphCore, Update) {
@@ -220,7 +219,7 @@ pub fn client_update(
         core,
         Update {
             history_epoch: 0,
-            message_id: message_id.to_owned(),
+            message_id: ContentId::for_bytes(&execution.update),
             base_version_vector,
             bytes: execution.update,
         },
@@ -234,23 +233,26 @@ pub async fn receive(receiver: &mut mpsc::Receiver<Message>) -> Option<Message> 
         .flatten()
 }
 
-pub async fn assert_ack(receiver: &mut mpsc::Receiver<Message>, message_id: &str) -> u64 {
+pub async fn assert_ack(receiver: &mut mpsc::Receiver<Message>, content_id: &ContentId) -> u64 {
     match receive(receiver).await {
         Some(Message::Ack(ack)) => {
-            assert_eq!(ack.message_id, message_id);
+            assert_eq!(&ack.message_id, content_id);
             ack.server_cursor
         }
-        other => panic!("expected ack for {message_id}, got {other:?}"),
+        other => panic!("expected ack for {content_id}, got {other:?}"),
     }
 }
 
-pub async fn assert_update(receiver: &mut mpsc::Receiver<Message>, message_id: &str) -> Update {
+pub async fn assert_update(
+    receiver: &mut mpsc::Receiver<Message>,
+    content_id: &ContentId,
+) -> Update {
     match receive(receiver).await {
         Some(Message::Update(update)) => {
-            assert_eq!(update.message_id, message_id);
+            assert_eq!(&update.message_id, content_id);
             update
         }
-        other => panic!("expected update for {message_id}, got {other:?}"),
+        other => panic!("expected update for {content_id}, got {other:?}"),
     }
 }
 

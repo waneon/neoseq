@@ -10,7 +10,7 @@ import {
   stringValue,
   type PropertyDocument,
 } from "../../src/core-port/snapshot";
-import { compilePlan, momentTimeVariable } from "../../src/entities/query-compile";
+import { DERIVED_SOURCE_PROVENANCE, momentTimeVariable } from "../../src/entities/query-compile";
 import { decodePlan, tagPlan } from "../../src/entities/query-plan";
 import { resetAppSettingsCache, setEditorKeymap } from "../../src/entities/settings";
 import { chooseFromMenu, GRAPH_ID, mountAt } from "./harness";
@@ -24,17 +24,40 @@ import {
 import { PageView } from "../../src/features/page/PageView";
 import { QueryPanel } from "../../src/features/query/QueryPanel";
 
-async function mountPage(custom?: ReactElement): Promise<Harness> {
+interface PageHarness extends Harness {
+  queryBlockId: string;
+}
+
+interface ResultHarness extends PageHarness {
+  resultBlockId: string;
+}
+
+function createdBlock(result: { created_block: string | null }): string {
+  if (!result.created_block) throw new Error("insert_block returned no block id");
+  return result.created_block;
+}
+
+async function mountPage(custom?: ReactElement): Promise<PageHarness> {
   const harness = await mountAt(`/g/${GRAPH_ID}/p/home`, custom);
+  // Most builder tests describe the question, not a live graph answer. Make
+  // that fixture boundary explicit now that the test port otherwise runs the
+  // real query engine.
+  harness.port.queryResult = {
+    kind: "select",
+    variables: [],
+    rows: [],
+    revision: 0,
+    frontier: "query-builder-empty",
+  };
   await harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
-  await harness.session.execute({
+  const inserted = await harness.session.execute({
     type: "insert_block",
     owner: { kind: "page", id: "home" },
     parent: null,
     index: 0,
     markdown: "",
   });
-  return harness;
+  return { ...harness, queryBlockId: createdBlock(inserted) };
 }
 
 function storedQuery(harness: Harness): PropertyDocument | undefined {
@@ -115,6 +138,45 @@ async function createQuery(harness: Harness): Promise<void> {
 }
 
 describe("the query builder", () => {
+  it("does not disguise an unsupported stored plan as raw SPARQL", async () => {
+    const document: PropertyDocument = {
+      schema: "neoseq.query",
+      version: 2,
+      default_view_id: "all",
+      views: [
+        {
+          id: "all",
+          name: "All",
+          definition: {
+            language: "sparql-1.1/neoseq-v1",
+            source: "SELECT * WHERE {}",
+            plan: { version: 2, payload: '{"version":2,"future":true}' },
+          },
+          kind: "table",
+          position: 0,
+          columns: [],
+          options: { compact: false, wrap: false, sort: [], list_sort: [] },
+        },
+      ],
+    };
+    const harness = await mountAt(
+      `/g/${GRAPH_ID}/custom`,
+      <QueryPanel
+        binding={{
+          kind: "presented",
+          owner: { kind: "page", id: "home" },
+          document,
+        }}
+        executionKey="future-plan"
+        variant="page"
+        label="Future query"
+      />,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("newer or incompatible version");
+    expect(harness.port.queryRequests).toHaveLength(0);
+  });
+
   it("adopts a new seed when the same surface moves to another owner", async () => {
     const harness = await mountAt(`/g/${GRAPH_ID}/custom`, <SeededQuerySwitcher />);
     await harness.session.execute({ type: "ensure_tag", tag_id: "tag-a", name: "Alpha" });
@@ -135,7 +197,7 @@ describe("the query builder", () => {
     await waitFor(() => expect(screen.getByTestId("qb-value")).toHaveTextContent("Beta"));
   });
 
-  it("is what `/` creates, and it saves a plan beside its compiled SPARQL", async () => {
+  it("is what `/` creates, and lets the core derive its compatibility SPARQL", async () => {
     const harness = await mountPage();
     await createQuery(harness);
 
@@ -146,14 +208,12 @@ describe("the query builder", () => {
     );
     expect(plan?.subject).toBe("block");
     expect(plan?.columns.map((column) => column.id)).toEqual(["text", "page"]);
-    // The source is the executable artifact and it is always the plan's output.
-    expect(document.views[0].definition.source).toContain("?q_subject a neo:Block .");
-    expect(document.views[0].definition.source).toContain("LIMIT 100");
+    expect(document.views[0].definition.source.startsWith(DERIVED_SOURCE_PROVENANCE)).toBe(true);
     // The block text keeps no trace of the command that built it.
     expect(await screen.findByLabelText("Block text")).toHaveValue("");
   });
 
-  it("turns a condition a person chose into the SPARQL the core runs", async () => {
+  it("persists a condition as a typed plan and a derived explanation", async () => {
     const harness = await mountPage();
     await createQuery(harness);
     const user = userEvent.setup();
@@ -164,12 +224,10 @@ describe("the query builder", () => {
     await chooseFromMenu(user, within(condition).getByTestId("qb-value"), "Doing");
 
     await waitFor(() => {
-      expect(storedDefinition(harness)?.source).toContain(
-        "?q_subject prop:builtin.task-status ?q_p0 .",
-      );
+      const plan = decodePlan(storedDefinition(harness)!.plan!.payload, 1);
+      expect(plan?.where.children).toHaveLength(1);
     });
-    const plan = decodePlan(storedDefinition(harness)!.plan!.payload, 1);
-    expect(plan?.where.children).toHaveLength(1);
+    expect(storedDefinition(harness)?.source.startsWith(DERIVED_SOURCE_PROVENANCE)).toBe(true);
   });
 
   it("carries a nested alternative into the plan", async () => {
@@ -192,8 +250,7 @@ describe("the query builder", () => {
       expect(group?.kind === "group" && group.match).toBe("any");
       expect(group?.kind === "group" && group.children).toHaveLength(2);
     });
-    // Alternatives reach the row through EXISTS, never through UNION.
-    expect(storedDefinition(harness)?.source).toMatch(/EXISTS \{[\s\S]*\|\|[\s\S]*EXISTS \{/);
+    expect(storedDefinition(harness)?.source.startsWith(DERIVED_SOURCE_PROVENANCE)).toBe(true);
   });
 
   // The sentence asks; it does not lay out. What an answer shows and which way it
@@ -227,7 +284,7 @@ describe("the query builder", () => {
       // A relation with many values folds into one cell by default.
       expect(tags?.aggregate).toBe("list");
     });
-    expect(storedDefinition(harness)?.source).toContain("GROUP_CONCAT");
+    expect(storedDefinition(harness)?.source.startsWith(DERIVED_SOURCE_PROVENANCE)).toBe(true);
 
     // Nothing else asks for it, so switching it off takes it out of the query
     // rather than merely out of this table.
@@ -284,7 +341,7 @@ describe("the query builder", () => {
 
     await user.click(await screen.findByRole("menuitem", { name: "Show SPARQL" }));
     expect(await screen.findByTestId("query-compiled")).toHaveTextContent(
-      "?q_subject a neo:Block .",
+      DERIVED_SOURCE_PROVENANCE,
     );
     expect(storedDefinition(harness)?.plan).toBeTruthy();
     expect(screen.getByTestId("query-builder")).toBeInTheDocument();
@@ -323,6 +380,15 @@ describe("the query builder", () => {
     await createQuery(harness);
     const user = userEvent.setup();
 
+    const inserted = await harness.session.execute({
+      type: "insert_block",
+      owner: { kind: "page", id: "home" },
+      parent: null,
+      index: 1,
+      markdown: "",
+    });
+    const resultBlockId = createdBlock(inserted);
+
     harness.port.queryResult = {
       kind: "select",
       variables: ["q_subject", "text"],
@@ -330,8 +396,12 @@ describe("the query builder", () => {
         {
           q_subject: {
             kind: "iri",
-            value: "urn:neoseq:entity:test-graph:block:b-2",
-            entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-2" },
+            value: `urn:neoseq:entity:${GRAPH_ID}:block:${resultBlockId}`,
+            entity: {
+              kind: "block",
+              owner: { kind: "page", id: "home" },
+              id: resultBlockId,
+            },
           },
           text: {
             kind: "literal",
@@ -341,8 +411,14 @@ describe("the query builder", () => {
         },
       ],
       revision: 7,
-      frontier: "fake-7",
+      frontier: "fixture-7",
     };
+    await harness.session.execute({
+      type: "edit_markdown",
+      owner: { kind: "page", id: "home" },
+      block_id: resultBlockId,
+      markdown: "Ship the builder",
+    });
 
     const conditions = screen.getByTestId("query-conditions-trigger");
     // The phrase is the name of the control that opens the editor that wrote it,
@@ -408,9 +484,20 @@ describe("query result views", () => {
   async function withResult(
     markdown = "Ship the builder",
     custom?: ReactElement,
-  ): Promise<Harness> {
+  ): Promise<ResultHarness> {
     const harness = await mountPage(custom);
     await createQuery(harness);
+    // The core chooses block identities. Insert first to learn that identity,
+    // then make the final edit after installing the query answer so ordinary
+    // canonical invalidation observes the injected row.
+    const inserted = await harness.session.execute({
+      type: "insert_block",
+      owner: { kind: "page", id: "home" },
+      parent: null,
+      index: 1,
+      markdown: "Preparing result",
+    });
+    const resultBlockId = createdBlock(inserted);
     harness.port.queryResult = {
       kind: "select",
       variables: ["q_subject", "text", "page"],
@@ -418,8 +505,12 @@ describe("query result views", () => {
         {
           q_subject: {
             kind: "iri",
-            value: "urn:neoseq:entity:test-graph:block:b-2",
-            entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-2" },
+            value: `urn:neoseq:entity:${GRAPH_ID}:block:${resultBlockId}`,
+            entity: {
+              kind: "block",
+              owner: { kind: "page", id: "home" },
+              id: resultBlockId,
+            },
           },
           text: {
             kind: "literal",
@@ -434,24 +525,20 @@ describe("query result views", () => {
         },
       ],
       revision: 4,
-      frontier: "fake-4",
+      frontier: "fixture-4",
     };
-    // The query block is b-1; b-2 is the canonical result edited through the
-    // projection. Setting the fake result before this command makes its normal
-    // canonical invalidation run the query with the row in place.
     await harness.session.execute({
-      type: "insert_block",
+      type: "edit_markdown",
       owner: { kind: "page", id: "home" },
-      parent: null,
-      index: 1,
+      block_id: resultBlockId,
       markdown,
     });
-    return harness;
+    return { ...harness, resultBlockId };
   }
 
-  function resultBlock(harness: Harness) {
+  function resultBlock(harness: ResultHarness) {
     const page = findPage(harness.session.getState().snapshot, "home");
-    return page ? findBlock(page, "b-2") : undefined;
+    return page ? findBlock(page, harness.resultBlockId) : undefined;
   }
 
   function dragColumn(handle: HTMLElement, from: number, to: number): void {
@@ -592,7 +679,11 @@ describe("query result views", () => {
     const firstDefinition = structuredClone(storedQuery(harness)!.views[0].definition);
     await harness.session.execute({
       type: "put_query_view",
-      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      owner: {
+        kind: "block",
+        owner: { kind: "page", id: "home" },
+        id: harness.queryBlockId,
+      },
       view: {
         id: "second",
         name: "Second",
@@ -653,7 +744,7 @@ describe("query result views", () => {
   it("keeps a header sort in the saved view, so the order survives a reload", async () => {
     const harness = await withResult();
     const user = userEvent.setup();
-    const savedSort = () => storedQuery(harness)?.views[0]?.options.sort;
+    const savedSort = () => storedQuery(harness)?.views[0]?.options.sort ?? [];
 
     const table = await screen.findByTestId("query-table");
     // The heading *is* the sort control, so its name is the column's name.
@@ -699,8 +790,12 @@ describe("query result views", () => {
       rows: ["high", undefined, "low", "medium"].map((priority) => ({
         q_subject: {
           kind: "iri" as const,
-          value: "urn:neoseq:entity:test-graph:block:b-2",
-          entity: { kind: "block" as const, owner: { kind: "page", id: "home" }, id: "b-2" },
+          value: `urn:neoseq:entity:${GRAPH_ID}:block:${harness.resultBlockId}`,
+          entity: {
+            kind: "block" as const,
+            owner: { kind: "page", id: "home" },
+            id: harness.resultBlockId,
+          },
         },
         ...(priority
           ? {
@@ -713,14 +808,17 @@ describe("query result views", () => {
           : {}),
       })),
       revision: 5,
-      frontier: "fake-5",
+      frontier: "fixture-5",
     };
     await harness.session.execute({
       type: "set_query_plan",
-      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      owner: {
+        kind: "block",
+        owner: { kind: "page", id: "home" },
+        id: harness.queryBlockId,
+      },
       view_id: "all",
       plan: { version: 1, payload: JSON.stringify(nextPlan) },
-      source: compilePlan(nextPlan).source,
     });
     const table = await screen.findByTestId("query-table");
     const user = userEvent.setup();
@@ -742,6 +840,14 @@ describe("query result views", () => {
 
   it("orders list rows by canonical filter fields outside the table projection", async () => {
     const harness = await withResult("Zulu");
+    const inserted = await harness.session.execute({
+      type: "insert_block",
+      owner: { kind: "page", id: "home" },
+      parent: null,
+      index: 2,
+      markdown: "Alpha",
+    });
+    const alphaBlockId = createdBlock(inserted);
     harness.port.queryResult = {
       kind: "select",
       variables: ["q_subject", "text", "page"],
@@ -749,8 +855,12 @@ describe("query result views", () => {
         {
           q_subject: {
             kind: "iri",
-            value: "urn:neoseq:entity:test-graph:block:b-2",
-            entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-2" },
+            value: `urn:neoseq:entity:${GRAPH_ID}:block:${harness.resultBlockId}`,
+            entity: {
+              kind: "block",
+              owner: { kind: "page", id: "home" },
+              id: harness.resultBlockId,
+            },
           },
           text: {
             kind: "literal",
@@ -766,8 +876,12 @@ describe("query result views", () => {
         {
           q_subject: {
             kind: "iri",
-            value: "urn:neoseq:entity:test-graph:block:b-3",
-            entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-3" },
+            value: `urn:neoseq:entity:${GRAPH_ID}:block:${alphaBlockId}`,
+            entity: {
+              kind: "block",
+              owner: { kind: "page", id: "home" },
+              id: alphaBlockId,
+            },
           },
           text: {
             kind: "literal",
@@ -782,24 +896,21 @@ describe("query result views", () => {
         },
       ],
       revision: 6,
-      frontier: "fake-6",
+      frontier: "fixture-6",
     };
     await harness.session.execute({
-      type: "insert_block",
-      owner: { kind: "page", id: "home" },
-      parent: null,
-      index: 2,
-      markdown: "Alpha",
-    });
-    await harness.session.execute({
       type: "set_property",
-      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-2" },
+      owner: {
+        kind: "block",
+        owner: { kind: "page", id: "home" },
+        id: harness.resultBlockId,
+      },
       key: "user.owner",
       value: { type: "string", value: "Zoe" },
     });
     await harness.session.execute({
       type: "set_property",
-      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-3" },
+      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: alphaBlockId },
       key: "user.owner",
       value: { type: "string", value: "Ada" },
     });
@@ -855,7 +966,7 @@ describe("query result views", () => {
   it("accumulates an order across headings and lets the panel reorder it", async () => {
     const harness = await withResult();
     const user = userEvent.setup();
-    const savedSort = () => storedQuery(harness)?.views[0]?.options.sort;
+    const savedSort = () => storedQuery(harness)?.views[0]?.options.sort ?? [];
 
     const table = await screen.findByTestId("query-table");
     await user.click(within(table).getByRole("button", { name: "Text", exact: true }));
@@ -928,7 +1039,11 @@ describe("query result views", () => {
     const current = storedQuery(harness)!.views[0]!;
     await harness.session.execute({
       type: "put_query_view",
-      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      owner: {
+        kind: "block",
+        owner: { kind: "page", id: "home" },
+        id: harness.queryBlockId,
+      },
       view: {
         ...current,
         columns: current.columns.map((column) =>
@@ -977,11 +1092,15 @@ describe("query result views", () => {
 
   it("renders a block result from its canonical snapshot through the shared block presentation", async () => {
     const harness = await withResult("Stale RDF text");
-    const owner = { kind: "block" as const, owner: { kind: "page", id: "home" }, id: "b-2" };
+    const owner = {
+      kind: "block" as const,
+      owner: { kind: "page" as const, id: "home" },
+      id: harness.resultBlockId,
+    };
     await harness.session.execute({
       type: "edit_markdown",
       owner: { kind: "page", id: "home" },
-      block_id: "b-2",
+      block_id: harness.resultBlockId,
       markdown: "Canonical **block** text",
     });
     await harness.session.execute({
@@ -1019,10 +1138,13 @@ describe("query result views", () => {
     };
     await harness.session.execute({
       type: "set_query_plan",
-      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      owner: {
+        kind: "block",
+        owner: { kind: "page", id: "home" },
+        id: harness.queryBlockId,
+      },
       view_id: "all",
       plan: { version: 1, payload: JSON.stringify(aggregatePlan) },
-      source: compilePlan(aggregatePlan).source,
     });
     const nestedPlan = storedDefinition(harness)!.plan!;
     await harness.session.execute({
@@ -1030,16 +1152,14 @@ describe("query result views", () => {
       owner,
       view_id: "all",
       plan: nestedPlan,
-      source: storedDefinition(harness)!.source,
     });
 
     const user = userEvent.setup();
     const hostQuery = screen.getAllByTestId("query-block")[0];
     await chooseFromMenu(user, within(hostQuery).getByTestId("query-view-trigger"), "List");
     await waitFor(() => {
-      const executed = harness.port.queryRequests.at(-1)?.query.source ?? "";
-      expect(executed).toContain("SELECT ?q_subject WHERE");
-      expect(executed).not.toContain("GROUP_CONCAT");
+      const executed = harness.port.queryRequests.at(-1)?.query;
+      expect(executed).toMatchObject({ kind: "built", projection: "entities" });
     });
     const row = within(await within(hostQuery).findByTestId("query-list")).getByTestId(
       "query-list-row",
@@ -1325,8 +1445,12 @@ describe("query result views", () => {
         {
           q_subject: {
             kind: "iri",
-            value: "urn:neoseq:entity:test-graph:block:b-2",
-            entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-2" },
+            value: `urn:neoseq:entity:${GRAPH_ID}:block:${harness.resultBlockId}`,
+            entity: {
+              kind: "block",
+              owner: { kind: "page", id: "home" },
+              id: harness.resultBlockId,
+            },
           },
           text: {
             kind: "literal",
@@ -1346,14 +1470,17 @@ describe("query result views", () => {
         },
       ],
       revision: 6,
-      frontier: "fake-6",
+      frontier: "fixture-6",
     };
     await harness.session.execute({
       type: "set_query_plan",
-      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      owner: {
+        kind: "block",
+        owner: { kind: "page", id: "home" },
+        id: harness.queryBlockId,
+      },
       view_id: "all",
       plan: { version: 1, payload: JSON.stringify(nextPlan) },
-      source: compilePlan(nextPlan).source,
     });
 
     const table = await screen.findByTestId("query-table");
@@ -1397,8 +1524,12 @@ describe("query result views", () => {
         {
           q_subject: {
             kind: "iri",
-            value: "urn:neoseq:entity:test-graph:block:b-2",
-            entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-2" },
+            value: `urn:neoseq:entity:${GRAPH_ID}:block:${harness.resultBlockId}`,
+            entity: {
+              kind: "block",
+              owner: { kind: "page", id: "home" },
+              id: harness.resultBlockId,
+            },
           },
           text: {
             kind: "literal",
@@ -1413,14 +1544,17 @@ describe("query result views", () => {
         },
       ],
       revision: 5,
-      frontier: "fake-5",
+      frontier: "fixture-5",
     };
     await harness.session.execute({
       type: "set_query_plan",
-      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      owner: {
+        kind: "block",
+        owner: { kind: "page", id: "home" },
+        id: harness.queryBlockId,
+      },
       view_id: "all",
       plan: { version: 1, payload: JSON.stringify(nextPlan) },
-      source: compilePlan(nextPlan).source,
     });
     const user = userEvent.setup();
     // The table projects the selected empty cell as an editing affordance.
@@ -1438,7 +1572,11 @@ describe("query result views", () => {
 
     await harness.session.execute({
       type: "set_property",
-      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-2" },
+      owner: {
+        kind: "block",
+        owner: { kind: "page", id: "home" },
+        id: harness.resultBlockId,
+      },
       key: "builtin.task-status",
       value: { type: "string", value: "todo" },
     });
@@ -1480,11 +1618,15 @@ describe("query result views", () => {
       variables: ["q_subject", "text", "page"],
       rows: [],
       revision: 6,
-      frontier: "fake-6",
+      frontier: "fixture-6",
     };
     await harness.session.execute({
       type: "set_property",
-      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-2" },
+      owner: {
+        kind: "block",
+        owner: { kind: "page", id: "home" },
+        id: harness.resultBlockId,
+      },
       key: "user.pin-check",
       value: { type: "string", value: "changed" },
     });

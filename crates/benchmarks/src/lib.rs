@@ -48,6 +48,7 @@ pub fn snapshot(block_count: usize) -> GraphSnapshot {
         page_directory: Vec::new(),
         tags,
         settings: GraphSettings::default(),
+        conflicts: Vec::new(),
         quarantined: Vec::new(),
     }
 }

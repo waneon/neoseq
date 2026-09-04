@@ -49,11 +49,11 @@ async fn structured_telemetry_excludes_content_credentials_and_raw_updates() {
         &fixture.snapshot,
         2,
         "private-command",
-        "private-message",
         "private-page",
         "Secret note text that must not enter telemetry",
     );
     let raw_update_hex = hex::encode(&update.bytes);
+    let update_id = update.message_id.clone();
     let mut opened = fixture
         .manager
         .open(
@@ -72,13 +72,13 @@ async fn structured_telemetry_excludes_content_credentials_and_raw_updates() {
         .submit_update(&opened, update)
         .await
         .unwrap();
-    assert_ack(&mut receiver, "private-message").await;
+    assert_ack(&mut receiver, &update_id).await;
 
     let output = String::from_utf8(bytes.lock().expect("capture mutex").clone()).unwrap();
     assert!(output.contains("durable update accepted"));
     for secret in [
         "Secret note text that must not enter telemetry",
-        "private-message",
+        update_id.as_str(),
         "private-command",
         GRAPH,
         OWNER,

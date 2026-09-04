@@ -2,16 +2,16 @@
 use crate::FaultPoint;
 use crate::{SqliteGraphRepository, SqliteRepositoryError};
 use domain::{
-    CORE_PORT_VERSION, CloseGraphRequest, CloseGraphResponse, CommandEnvelope, CorePortError,
-    CorePortErrorCode, ExecuteRequest, ExecuteResponse, GraphId, OpenGraphRequest,
-    OpenGraphResponse, OutlineOwner, QueryRequestDto, QueryResponseDto, ReadOutlineRequest,
-    ReadOutlineResponse, ReadRequest, ReadResponse, RecoveryDto, SaveStatusDto,
-    StorageCapabilitiesDto, SubscribeRequest, SubscribeResponse,
+    CORE_PORT_VERSION, CloseGraphRequest, CloseGraphResponse, CorePortError, CorePortErrorCode,
+    ExecuteRequest, ExecuteResponse, GraphId, OpenGraphRequest, OpenGraphResponse, QueryRequestDto,
+    QueryResponseDto, ReadOutlineRequest, ReadOutlineResponse, ReadRequest, ReadResponse,
+    RecoveryDto, SaveStatusDto, StorageCapabilitiesDto, SubscribeRequest, SubscribeResponse,
 };
 use graph_core::{
     EventBatch, GraphLocator, GraphRuntime, InMemoryClock, LocalGraphRepository, RecoveryError,
     RuntimeError, RuntimePersistence, SCHEMA_VERSION, StorageErrorKind, recover_graph,
 };
+use query::AuthoredQueryRequest;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -95,8 +95,7 @@ impl NativeCorePort {
                 )
                 .map_err(map_storage_error)?;
         }
-        let summary = serde_json::to_value(core.summary().map_err(map_core_error)?)
-            .map_err(map_json_error)?;
+        let summary = core.summary().map_err(map_core_error)?;
         let capabilities = repository.capabilities();
         let runtime = GraphRuntime::from_core(
             core,
@@ -131,10 +130,10 @@ impl NativeCorePort {
                 true,
             ));
         }
-        let command: CommandEnvelope =
-            serde_json::from_value(request.command).map_err(map_json_error)?;
         let runtime = self.runtime_mut(&request.graph_handle)?;
-        let execution = runtime.execute(command).map_err(map_runtime_error)?;
+        let execution = runtime
+            .execute(request.command)
+            .map_err(map_runtime_error)?;
         let save_status = match execution.persistence {
             RuntimePersistence::Appended(receipt) => {
                 compact_after_append(runtime);
@@ -146,7 +145,7 @@ impl NativeCorePort {
             RuntimePersistence::Unchanged => SaveStatusDto::Unchanged,
         };
         Ok(ExecuteResponse {
-            result: serde_json::to_value(execution.result).map_err(map_json_error)?,
+            result: execution.result,
             save_status,
         })
     }
@@ -156,30 +155,26 @@ impl NativeCorePort {
             .runtime_mut(&request.graph_handle)?
             .read_summary()
             .map_err(map_runtime_error)?;
-        Ok(ReadResponse {
-            summary: serde_json::to_value(summary).map_err(map_json_error)?,
-        })
+        Ok(ReadResponse { summary })
     }
 
     pub fn read_outline(
         &mut self,
         request: ReadOutlineRequest,
     ) -> Result<ReadOutlineResponse, CorePortError> {
-        let owner: OutlineOwner = serde_json::from_value(request.owner).map_err(map_json_error)?;
         let outline = self
             .runtime_mut(&request.graph_handle)?
-            .read_outline(&owner)
+            .read_outline(&request.owner)
             .map_err(map_runtime_error)?;
-        Ok(ReadOutlineResponse {
-            outline: serde_json::to_value(outline).map_err(map_json_error)?,
-        })
+        Ok(ReadOutlineResponse { outline })
     }
 
     pub fn query(&mut self, request: QueryRequestDto) -> Result<QueryResponseDto, CorePortError> {
-        let query = serde_json::from_value(request.query).map_err(map_json_error)?;
+        let query: AuthoredQueryRequest =
+            serde_json::from_value(request.query).map_err(map_json_error)?;
         let result = self
             .runtime_mut(&request.graph_handle)?
-            .query(query)
+            .query_authored(query)
             .map_err(map_runtime_error)?;
         Ok(QueryResponseDto {
             result: serde_json::to_value(result).map_err(map_json_error)?,
@@ -198,11 +193,7 @@ impl NativeCorePort {
                 events,
                 next_cursor,
             } => Ok(SubscribeResponse {
-                events: events
-                    .into_iter()
-                    .map(serde_json::to_value)
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(map_json_error)?,
+                events,
                 next_cursor,
                 resync_required: false,
             }),
@@ -354,6 +345,10 @@ fn map_core_error(error: graph_core::CoreError) -> CorePortError {
     let code = match error {
         graph_core::CoreError::WrongGraph { .. } => CorePortErrorCode::WrongGraph,
         graph_core::CoreError::UnsupportedSchema(_) => CorePortErrorCode::UnsupportedSchema,
+        graph_core::CoreError::PageNameConflict { .. } => CorePortErrorCode::PageNameConflict,
+        graph_core::CoreError::TagNameConflict { .. } => CorePortErrorCode::TagNameConflict,
+        graph_core::CoreError::FirstSiblingIndent => CorePortErrorCode::FirstSiblingIndent,
+        graph_core::CoreError::RootBlockOutdent => CorePortErrorCode::RootBlockOutdent,
         _ => CorePortErrorCode::InvalidRequest,
     };
     port_error(code, &error.to_string(), false)
@@ -415,6 +410,42 @@ fn port_error(code: CorePortErrorCode, message: &str, retryable: bool) -> CorePo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn named_command_rejections_have_stable_codes() {
+        let page_id = domain::PageId::new("page").unwrap();
+        let tag_id = domain::TagId::new("tag").unwrap();
+        let cases = [
+            (
+                graph_core::CoreError::PageNameConflict {
+                    name: "Same".to_owned(),
+                    existing: page_id,
+                },
+                CorePortErrorCode::PageNameConflict,
+            ),
+            (
+                graph_core::CoreError::TagNameConflict {
+                    name: "Same".to_owned(),
+                    existing: tag_id,
+                },
+                CorePortErrorCode::TagNameConflict,
+            ),
+            (
+                graph_core::CoreError::FirstSiblingIndent,
+                CorePortErrorCode::FirstSiblingIndent,
+            ),
+            (
+                graph_core::CoreError::RootBlockOutdent,
+                CorePortErrorCode::RootBlockOutdent,
+            ),
+        ];
+
+        for (error, expected) in cases {
+            let mapped = map_core_error(error);
+            assert_eq!(mapped.code, expected);
+            assert!(!mapped.retryable);
+        }
+    }
 
     #[test]
     fn dirty_write_preserves_the_pending_stage_and_retryability() {

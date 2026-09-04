@@ -455,6 +455,7 @@
   "query.summaryMore": "외 {count}개",
   "query.summaryNone": "{conditions} 중 하나도 아님",
   "query.summaryQuoted": "“{value}”",
+  "query.unsupportedPlan": "이 쿼리는 더 새롭거나 호환되지 않는 Neoseq 버전에서 작성되었습니다.",
   "query.uniqueRows": "중복 제거",
   "query.valueLabel": "값",
   "query.valuePlaceholder": "값",

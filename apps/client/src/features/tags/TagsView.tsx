@@ -946,7 +946,10 @@ function useTagUsage(): Map<string, number> {
   const session = useSession();
   const canonicalRevision = useSessionSelector((state) => state.canonicalRevision);
   const store = queryExecutionStore(session);
-  const request = useMemo(() => ({ language: LANGUAGE, source: USAGE_SOURCE, bindings: {} }), []);
+  const request = useMemo(
+    () => ({ kind: "raw_sparql" as const, language: LANGUAGE, source: USAGE_SOURCE, bindings: {} }),
+    [],
+  );
   const signature = useMemo(() => queryExecutionSignature(request), [request]);
   const execution = useQueryExecution(store, USAGE_OWNER, signature, canonicalRevision);
 

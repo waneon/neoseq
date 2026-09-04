@@ -1,7 +1,9 @@
 //! Versioned, size-bounded binary protocol shared by sync clients and the server.
 
 use domain::GraphId;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use sha2::{Digest, Sha256};
+use std::fmt;
 use thiserror::Error;
 
 pub mod generated {
@@ -14,6 +16,8 @@ pub use generated::wire::*;
 pub const WIRE_VERSION: u16 = 1;
 pub const HEADER_LEN: usize = 10;
 pub const DEFAULT_MAX_GRAPH_BYTES: u32 = 1024 * 1024 * 1024;
+/// Canonical wire/storage identity of an update: lowercase SHA-256 hex.
+pub const CONTENT_ID_HEX_LEN: usize = 64;
 const MAGIC: [u8; 4] = *b"NSQP";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -76,7 +80,8 @@ pub enum WelcomePayload {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Update {
     pub history_epoch: u64,
-    pub message_id: String,
+    /// Content-addressed transport identity; must match `bytes`.
+    pub message_id: ContentId,
     pub base_version_vector: Vec<u8>,
     pub bytes: Vec<u8>,
 }
@@ -84,7 +89,8 @@ pub struct Update {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Ack {
     pub history_epoch: u64,
-    pub message_id: String,
+    /// The acknowledged update's content identity.
+    pub message_id: ContentId,
     pub server_cursor: u64,
 }
 
@@ -155,7 +161,76 @@ impl ProtocolError {
     }
 }
 
+/// Canonical identity shared by an update, its outbox entry, and its durable
+/// receipt. Its serialized representation is lowercase SHA-256 hex.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(transparent)]
+pub struct ContentId(String);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[error("content id must be lowercase SHA-256 hex")]
+pub struct ContentIdError;
+
+impl ContentId {
+    pub fn new(value: impl Into<String>) -> Result<Self, ContentIdError> {
+        let value = value.into();
+        if is_content_id(&value) {
+            Ok(Self(value))
+        } else {
+            Err(ContentIdError)
+        }
+    }
+
+    pub fn for_bytes(bytes: &[u8]) -> Self {
+        Self(hex::encode(Sha256::digest(bytes)))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn matches(&self, bytes: &[u8]) -> bool {
+        self == &Self::for_bytes(bytes)
+    }
+}
+
+impl fmt::Display for ContentId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for ContentId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::new(value).map_err(serde::de::Error::custom)
+    }
+}
+
+fn is_content_id(value: &str) -> bool {
+    value.len() == CONTENT_ID_HEX_LEN
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn validate_update_identity(message: &Message) -> Result<(), ProtocolError> {
+    if let Message::Update(update) = message
+        && !update.message_id.matches(&update.bytes)
+    {
+        return Err(ProtocolError::new(
+            ErrorCode::InvalidUpdate,
+            "update content id does not match its bytes",
+        ));
+    }
+    Ok(())
+}
+
 pub fn encode(message: &Message, max_frame_bytes: usize) -> Result<Vec<u8>, ProtocolError> {
+    validate_update_identity(message)?;
     let payload = postcard::to_allocvec(message).map_err(|_| {
         ProtocolError::new(ErrorCode::InvalidMessage, "message could not be encoded")
     })?;
@@ -204,8 +279,10 @@ pub fn decode(frame: &[u8], max_frame_bytes: usize) -> Result<Message, ProtocolE
             "frame length mismatch",
         ));
     }
-    postcard::from_bytes(&frame[HEADER_LEN..])
-        .map_err(|_| ProtocolError::new(ErrorCode::MalformedFrame, "invalid message payload"))
+    let message = postcard::from_bytes(&frame[HEADER_LEN..])
+        .map_err(|_| ProtocolError::new(ErrorCode::MalformedFrame, "invalid message payload"))?;
+    validate_update_identity(&message)?;
+    Ok(message)
 }
 
 pub fn validate_message(message: &Message, limits: Limits) -> Result<(), ProtocolError> {
@@ -222,10 +299,7 @@ pub fn validate_message(message: &Message, limits: Limits) -> Result<(), Protoco
             }
         }
         Message::Update(update) => {
-            if update.message_id.is_empty()
-                || update.message_id.len() > 128
-                || update.base_version_vector.len() > 16_384
-            {
+            if update.base_version_vector.len() > 16_384 {
                 return Err(ProtocolError::new(
                     ErrorCode::InvalidMessage,
                     "invalid update metadata",
@@ -237,6 +311,7 @@ pub fn validate_message(message: &Message, limits: Limits) -> Result<(), Protoco
                     "update exceeds negotiated limit",
                 ));
             }
+            validate_update_identity(message)?;
         }
         Message::Presence(presence) => {
             if presence.payload.len() > limits.max_presence_bytes as usize {
@@ -399,13 +474,76 @@ mod tests {
         };
         let update = Message::Update(Update {
             history_epoch: 0,
-            message_id: "m1".into(),
+            message_id: ContentId::for_bytes(&[0; 3]),
             base_version_vector: Vec::new(),
             bytes: vec![0; 3],
         });
         assert_eq!(
             validate_message(&update, limits).unwrap_err().code,
             ErrorCode::UpdateTooLarge
+        );
+    }
+
+    #[test]
+    fn update_identity_is_canonical_and_bound_to_bytes() {
+        let bytes = b"content-addressed update".to_vec();
+        let identity = ContentId::for_bytes(&bytes);
+        assert_eq!(identity.as_str().len(), CONTENT_ID_HEX_LEN);
+        assert!(identity.matches(&bytes));
+        assert_eq!(serde_json::to_value(&identity).unwrap(), identity.as_str());
+        assert_eq!(
+            ContentId::for_bytes(b"abc").as_str(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+
+        let message = Message::Update(Update {
+            history_epoch: 0,
+            message_id: identity.clone(),
+            base_version_vector: Vec::new(),
+            bytes: bytes.clone(),
+        });
+        let frame = encode(&message, 1024).unwrap();
+        assert_eq!(decode(&frame, 1024).unwrap(), message);
+
+        let mut noncanonical_frame = frame.clone();
+        let identity_offset = noncanonical_frame
+            .windows(CONTENT_ID_HEX_LEN)
+            .position(|window| window == identity.as_str().as_bytes())
+            .expect("encoded update contains its content ID");
+        noncanonical_frame[identity_offset] = b'A';
+        assert_eq!(
+            decode(&noncanonical_frame, 1024).unwrap_err().code,
+            ErrorCode::MalformedFrame
+        );
+
+        let mut altered_frame = frame;
+        *altered_frame.last_mut().unwrap() ^= 1;
+        assert_eq!(
+            decode(&altered_frame, 1024).unwrap_err().code,
+            ErrorCode::InvalidUpdate
+        );
+
+        let uppercase = "A".repeat(CONTENT_ID_HEX_LEN);
+        assert_eq!(uppercase.len(), CONTENT_ID_HEX_LEN);
+        assert_eq!(ContentId::new(&uppercase), Err(ContentIdError));
+        assert!(serde_json::from_value::<ContentId>(uppercase.into()).is_err());
+        assert_eq!(ContentId::new("a".repeat(63)), Err(ContentIdError));
+
+        let mismatched = Message::Update(Update {
+            history_epoch: 0,
+            message_id: identity,
+            base_version_vector: Vec::new(),
+            bytes: b"different bytes".to_vec(),
+        });
+        assert_eq!(
+            validate_message(&mismatched, Limits::default())
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidUpdate
+        );
+        assert_eq!(
+            encode(&mismatched, 1024).unwrap_err().code,
+            ErrorCode::InvalidUpdate
         );
     }
 

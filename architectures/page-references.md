@@ -46,7 +46,8 @@ before applying one Loro transaction and history item.
 Reference marks use `ExpandType::None`. A valid mark covers exactly one reserved
 object-replacement character and carries one valid `PageId`. Invalid remote or
 forward data is quarantined and never becomes a reference projection or query
-fact. Schema v6 is required so every writer preserves the reserved atom.
+fact. The current schema requires every writer to preserve the reserved atom;
+this representation was introduced in schema v6 and remains part of schema v7.
 
 ## Derived Consumers
 

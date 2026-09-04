@@ -501,12 +501,16 @@ async fn create_graph(
             "invalid graph name\n",
         ));
     }
-    let core = graph_core::GraphCore::new(graph_id.clone(), SERVER_GRAPH_PEER_ID, "server:create")
-        .map_err(|_| ApiError::message(StatusCode::BAD_REQUEST, "invalid graph id\n"))?;
-    let snapshot = core
+    let graph = graph_core::server::ServerGraph::new(
+        graph_id.clone(),
+        SERVER_GRAPH_PEER_ID,
+        "server:create",
+    )
+    .map_err(|_| ApiError::message(StatusCode::BAD_REQUEST, "invalid graph id\n"))?;
+    let snapshot = graph
         .export_snapshot()
         .map_err(|_| ApiError::status(StatusCode::INTERNAL_SERVER_ERROR))?;
-    let version_vector = core.version_vector();
+    let version_vector = graph.version_vector();
     let checkpoint_checksum = graph_core::checksum(&snapshot);
     let outcome = state
         .store
@@ -559,8 +563,12 @@ async fn create_seeded_graph(
     }
     let validation_graph_id = graph_id.clone();
     let validated = tokio::task::spawn_blocking(move || {
-        graph_core::GraphCore::from_snapshot(validation_graph_id, SERVER_GRAPH_PEER_ID, &checkpoint)
-            .map(|core| (checkpoint, core.version_vector()))
+        graph_core::server::ServerGraph::from_checkpoint(
+            validation_graph_id,
+            SERVER_GRAPH_PEER_ID,
+            &checkpoint,
+        )
+        .map(|graph| (checkpoint, graph.version_vector()))
     })
     .await;
     let (checkpoint, version_vector) = match validated {
@@ -1176,10 +1184,10 @@ fn room_error_message(error: &RoomError) -> Message {
             false,
             "graph byte quota exceeded",
         ),
-        RoomError::Store(StoreError::MessageConflict) => (
+        RoomError::Store(StoreError::InvalidUpdateIdentity) => (
             ErrorCode::InvalidUpdate,
             false,
-            "message id conflicts with durable update",
+            "update content id is invalid",
         ),
         RoomError::Store(StoreError::StaleHistory) | RoomError::StaleHistory => (
             ErrorCode::StaleHistory,

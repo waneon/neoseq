@@ -1,12 +1,48 @@
 // What a query *says*, in the vocabulary the product already uses.
 //
-// SPARQL is the executable artifact; a plan is the authoring representation the
-// builder writes it from, and it is stored beside the source so reopening a
-// query reopens the builder. Everything here is pure data plus the rules that
-// decide which operators a field admits — no React, no session, no SPARQL.
-// `query-compile.ts` turns a plan into source and run-time parameters.
+// A built plan is both the authoring representation and the CorePort input. Its
+// generated SPARQL is a readable explanation artifact, never a
+// second executable authority. Everything here is pure data plus the rules that
+// decide which operators a field admits — no React or session state.
 
 import type { GraphSnapshot, PropertyValueType } from "../core-port/snapshot";
+import type {
+  BuiltQueryPlan,
+  PlanAggregate,
+  PlanColumn,
+  PlanColumnSource,
+  PlanCondition,
+  PlanField,
+  PlanGroup,
+  PlanMatch,
+  PlanNode,
+  PlanOperator,
+  PlanSubject,
+  PlanValue,
+} from "../generated/core-port";
+import {
+  PLAN_ANY_OF_MAX,
+  PLAN_LIMIT_MAX,
+  PLAN_MAX_CONDITIONS,
+  PLAN_MAX_DEPTH,
+  QUERY_PLAN_VERSION,
+} from "../generated/core-port";
+export { PLAN_ANY_OF_MAX, PLAN_LIMIT_MAX, PLAN_MAX_CONDITIONS, PLAN_MAX_DEPTH, QUERY_PLAN_VERSION };
+export type {
+  PlanAggregate,
+  PlanColumn,
+  PlanColumnSource,
+  PlanCondition,
+  PlanField,
+  PlanGroup,
+  PlanMatch,
+  PlanNode,
+  PlanOperator,
+  PlanRelativeDate,
+  PlanScalar,
+  PlanSubject,
+  PlanValue,
+} from "../generated/core-port";
 import { FAVOURITE_ORDER_KEY } from "./favourites";
 import {
   cardinalityOf,
@@ -16,124 +52,15 @@ import {
   valueTypeOf,
 } from "./properties";
 
-export const QUERY_PLAN_VERSION = 1;
-
-/** What the query looks for. Each answer is one `rdf:type` in the projection. */
-export type PlanSubject = "block" | "page" | "tag";
-
 export const PLAN_SUBJECTS: PlanSubject[] = ["block", "page", "tag"];
-
-/**
- * Where a condition or column reads from. `content` is the subject's own text —
- * a block's Markdown, a page's title, a tag's name — because that is the one
- * field every subject has.
- */
-export type PlanField =
-  | { kind: "content" }
-  | { kind: "property"; key: string }
-  | { kind: "tag" }
-  | { kind: "page" }
-  | { kind: "ancestor" }
-  | { kind: "sibling_index" };
 
 export type PlanFieldKind = PlanField["kind"];
 
 /** Stable identity shared by the condition picker and canonical list ordering. */
 export type QueryFieldId = Exclude<PlanFieldKind, "property"> | `property:${string}`;
 
-export type PlanOperator =
-  | "contains"
-  | "not_contains"
-  | "starts_with"
-  | "ends_with"
-  | "equals"
-  | "not_equals"
-  | "any_of"
-  | "lt"
-  | "lte"
-  | "gt"
-  | "gte"
-  | "between"
-  | "is_true"
-  | "is_false"
-  | "is_set"
-  | "is_empty";
-
-/**
- * A relative day, resolved against the reader's own today every time the query
- * runs. Storing the offset rather than the date is what makes “due this week”
- * still mean this week next week.
- */
-export interface PlanRelativeDate {
-  unit: "day" | "week" | "month";
-  offset: number;
-}
-
-export type PlanScalar =
-  | { type: "text"; value: string }
-  | { type: "number"; value: number }
-  | { type: "date"; value: string }
-  | { type: "relative"; value: PlanRelativeDate }
-  | { type: "page"; value: string }
-  | { type: "tag"; value: string };
-
-/** `list` is the operand of `is any of`; it expands into one scalar per member. */
-export type PlanValue = PlanScalar | { type: "list"; values: string[] };
-
-export interface PlanCondition {
-  id: string;
-  kind: "condition";
-  field: PlanField;
-  op: PlanOperator;
-  value?: PlanValue;
-  /** The upper bound of `between`. */
-  value2?: PlanValue;
-}
-
-/** `all` is AND, `any` is OR, `none` is “not one of these”. */
-export type PlanMatch = "all" | "any" | "none";
-
-export interface PlanGroup {
-  id: string;
-  kind: "group";
-  match: PlanMatch;
-  children: PlanNode[];
-}
-
-export type PlanNode = PlanCondition | PlanGroup;
-
-export type PlanColumnSource =
-  | { kind: "subject" }
-  | { kind: "content" }
-  | { kind: "page" }
-  | { kind: "property"; key: string }
-  | { kind: "tags" }
-  | { kind: "parent" }
-  | { kind: "sibling_index" };
-
-export type PlanAggregate = "list" | "count" | "sum" | "avg" | "min" | "max";
-
-export interface PlanColumn {
-  id: string;
-  source: PlanColumnSource;
-  /** A name the user typed. Absent means “call it what the product calls it”. */
-  label?: string;
-  aggregate?: PlanAggregate;
-}
-
-export interface QueryPlan {
-  version: number;
-  subject: PlanSubject;
-  where: PlanGroup;
-  columns: PlanColumn[];
-  limit: number;
-  distinct: boolean;
-}
-
-export const PLAN_LIMIT_MAX = 1000;
-export const PLAN_ANY_OF_MAX = 32;
-export const PLAN_MAX_CONDITIONS = 64;
-export const PLAN_MAX_DEPTH = 4;
+/** The generated CorePort contract is the cross-language plan grammar. */
+export type QueryPlan = BuiltQueryPlan;
 
 let sequence = 0;
 
@@ -499,7 +426,12 @@ export function appendNode(root: PlanGroup, groupId: string, node: PlanNode): Pl
  * aside rather than shadowing one.
  */
 export function columnVariable(column: PlanColumn): string {
-  const cleaned = column.id.replace(/[^a-zA-Z0-9_]/g, "_");
+  // Iterate Unicode scalars, as Rust does. JavaScript's regex replacement
+  // visits the two UTF-16 surrogates of an astral character separately and
+  // would otherwise give the UI and the logical compiler different variables.
+  const cleaned = [...column.id]
+    .map((character) => (/^[a-zA-Z0-9_]$/.test(character) ? character : "_"))
+    .join("");
   if (!/^[a-zA-Z]/.test(cleaned) || cleaned.startsWith("q_")) return `c_${cleaned}`;
   return cleaned;
 }

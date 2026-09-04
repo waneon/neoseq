@@ -13,8 +13,8 @@ commands remain canonical state but are not undoable in the new session.
 
 ## Contract
 
-`CommandResult.history_effect` is present only for a changed undo or redo and
-contains:
+`CommandResult.history_effect` is present only for an undo or redo whose
+`save_status` is `saved_locally`, and contains:
 
 - `scope`: `entity`, `outline`, or `graph`;
 - `affected_outlines`: the page or tag owners whose hydrated trees may be stale;
@@ -25,12 +25,17 @@ contains a URL, scroll offset, collapsed-state mutation, DOM identity, or focus
 request. A missing reveal target means that reconciliation still occurs but the
 client stays where it is.
 
+Command results carry identity and navigation metadata, not a second change
+flag. Non-empty `CoreExecution.update` bytes are the core's change authority;
+the runtime maps that fact to `saved_locally` or `unchanged`, and the client
+uses that save status for revision and reconciliation decisions.
+
 ## Core Ownership
 
 `GraphCore` keeps one ephemeral `HistoryEntry` beside each local Loro undo item.
-The undo and redo metadata stacks move in lockstep with Loro's stacks. A new
-changed command clears redo metadata; a no-op creates neither a Loro item nor an
-entry. A stack mismatch rejects the history command and restores the exact
+The undo and redo metadata stacks move in lockstep with Loro's stacks. A command
+that emits an update clears redo metadata; a no-op creates neither a Loro item
+nor an entry. A stack mismatch rejects the history command and restores the exact
 pre-command causal frontier, then starts a fresh local history boundary instead
 of publishing an uncorrelated effect.
 
@@ -103,5 +108,6 @@ its current caret rather than resetting it.
 Core tests cover cross-owner effects, graph-scoped effects, deleted-block ID
 resolution, and redo fallbacks. Component tests cover same-owner ancestor
 expansion, cross-owner routing and reveal, focus preservation, and graph-wide
-route stability. The fake CorePort mirrors the semantic metadata stacks so UI
-tests exercise the same boundary as the Rust runtime.
+route stability. They execute against the same Rust/Wasm history implementation
+as the browser; the test adapter contributes effects, not another history
+model.

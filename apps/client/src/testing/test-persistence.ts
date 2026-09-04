@@ -2,6 +2,7 @@ import {
   IndexedDbGraphRepository,
   StorageError,
   type MetadataRecord,
+  type OutboxRecord,
   type PersistenceHooks,
   type QuarantineRecord,
   type RecoveryReadStats,
@@ -122,6 +123,25 @@ export class TestIndexedDbGraphRepository extends IndexedDbGraphRepository {
     const source = new Uint8Array(value.payload);
     const truncated = source.slice(0, Math.max(0, source.byteLength - 1));
     store.put({ ...value, payload: truncated.buffer });
+    await complete(transaction);
+    database.close();
+  }
+
+  async swapOutboxKeys(graphId: string, firstId: string, secondId: string): Promise<void> {
+    const database = await openDatabase();
+    const transaction = database.transaction("outbox", "readwrite");
+    const store = transaction.objectStore("outbox");
+    const [first, second] = await Promise.all([
+      request<OutboxRecord | undefined>(store.get([graphId, firstId])),
+      request<OutboxRecord | undefined>(store.get([graphId, secondId])),
+    ]);
+    if (!first || !second) {
+      throw new StorageError("storage_corrupt", "outbox records to swap were not found", false);
+    }
+    store.delete([graphId, firstId]);
+    store.delete([graphId, secondId]);
+    store.put({ ...first, message_id: secondId });
+    store.put({ ...second, message_id: firstId });
     await complete(transaction);
     database.close();
   }

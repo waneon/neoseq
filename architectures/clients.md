@@ -16,7 +16,7 @@ defines presentation-only localization.
 
 ## CorePort and Session
 
-The frontend depends on the asynchronous CorePort v3 operations:
+The frontend depends on the asynchronous CorePort v4 operations:
 
 ```text
 open_graph, execute, read, read_outline, query, subscribe, close_graph
@@ -308,7 +308,9 @@ local data loss:
 Steady saved/synced/live states remain visually quiet but available to assistive
 technology. Deviations become visible. Remote editing always commits locally
 first; reconnect uses version-vector catch-up and then drains the durable outbox
-in order. A server epoch replacement is handled inside the Worker: it validates
+in order. Each outbox key is the lowercase SHA-256 of its exact update bytes, so
+retry and acknowledgement reuse repository identity instead of inventing a
+transport UUID. A server epoch replacement is handled inside the Worker: it validates
 the replacement checkpoint, rebases durable unacknowledged intent, atomically
 swaps IndexedDB Base+Tail, and only then publishes the new canonical core.
 Cursor and selection presence uses expiring protocol messages and is never
@@ -396,7 +398,9 @@ bounded frontier. An active query row remains pinned across answer changes.
   aligned without moving the page under the caret the pointer just placed.
 - Property editors stay associated with their owning page or block and return
   focus after a command.
-- Component tests use a fake CorePort; layout and browser-storage behavior use
-  Playwright; Rust owns domain and query semantics.
+- Component tests run the production Rust/Wasm core behind a thin in-memory
+  CorePort effect adapter. Only dispatch barriers, persistence faults, and
+  explicit query answers are injectable; layout and browser-storage behavior
+  use Playwright.
 - Native and browser adapters consume the same current CorePort fixture and
   round-trip built-in, repeated, and unknown property values.

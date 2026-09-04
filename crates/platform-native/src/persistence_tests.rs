@@ -2,7 +2,7 @@ use crate::{FaultPoint, SQLITE_SCHEMA_VERSION, SqliteGraphRepository, SqliteRepo
 use domain::{Command, CommandEnvelope, CommandId, GraphId, PageId};
 use graph_core::{
     GraphCore, GraphLocator, GraphRepository, GraphRuntime, InMemoryClock, LocalGraphRepository,
-    recover_graph,
+    RuntimePersistence, recover_graph,
 };
 use rusqlite::{Connection, params};
 use std::path::{Path, PathBuf};
@@ -327,7 +327,10 @@ fn recovery_starts_a_fresh_undo_session_before_new_durable_edits() {
     let first_session_undo = reopened
         .execute(envelope(&graph, "first-session-undo", Command::Undo))
         .unwrap();
-    assert!(first_session_undo.result.changed);
+    assert!(matches!(
+        first_session_undo.persistence,
+        RuntimePersistence::Appended(_)
+    ));
     assert_eq!(reopened.core().summary().unwrap().pages[0].title, "Home");
     reopened
         .execute(envelope(
@@ -350,7 +353,7 @@ fn recovery_starts_a_fresh_undo_session_before_new_durable_edits() {
     let old_session = durable
         .execute(envelope(&graph, "old-session-undo", Command::Undo))
         .unwrap();
-    assert!(!old_session.result.changed);
+    assert_eq!(old_session.persistence, RuntimePersistence::Unchanged);
     durable
         .execute(envelope(
             &graph,
@@ -364,7 +367,10 @@ fn recovery_starts_a_fresh_undo_session_before_new_durable_edits() {
     let current_session = durable
         .execute(envelope(&graph, "current-session-undo", Command::Undo))
         .unwrap();
-    assert!(current_session.result.changed);
+    assert!(matches!(
+        current_session.persistence,
+        RuntimePersistence::Appended(_)
+    ));
     assert_eq!(
         durable.core().summary().unwrap().pages[0].title,
         "After reopen"

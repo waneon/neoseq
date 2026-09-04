@@ -37,6 +37,7 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
 import type { QueryViewKind } from "../../core-port/snapshot";
+import type { AuthoredQueryRequest } from "../../generated/core-port";
 import {
   defaultQueryKey,
   MAX_DEFAULT_QUERIES,
@@ -45,7 +46,7 @@ import {
   type DefaultQuery,
 } from "../../entities/default-queries";
 import { todayLocalDate } from "../../entities/journal";
-import { compilePlan, planBindings, QUERY_LANGUAGE } from "../../entities/query-compile";
+import { QUERY_LANGUAGE } from "../../entities/query-document";
 import {
   columnSourceKey,
   columnSourcesFor,
@@ -99,7 +100,7 @@ export function DefaultQueriesSection() {
         default_query_id: id,
         title: "",
         document: newDefaultQueryDocument(
-          compilePlan(plan).source,
+          "",
           { version: QUERY_PLAN_VERSION, payload: encodePlan(plan) },
           "list",
         ),
@@ -181,24 +182,33 @@ function DefaultQueryRow({
   const activeView =
     query.document.views.find((view) => view.id === query.document.default_view_id) ??
     query.document.views[0]!;
-  const payload = activeView.definition.plan?.payload;
-  const plan = useMemo(() => (payload ? decodePlan(payload, QUERY_PLAN_VERSION) : null), [payload]);
-  const compiled = useMemo(() => (plan ? compilePlan(plan) : null), [plan]);
-  const runtime = useMemo(
-    () => ({ graphId: state.snapshot.graph_id, today: todayLocalDate() }),
-    [state.snapshot.graph_id],
+  const storedPlan = activeView.definition.plan;
+  const plan = useMemo(
+    () => (storedPlan ? decodePlan(storedPlan.payload, storedPlan.version) : null),
+    [storedPlan],
   );
+  const unsupportedPlan = storedPlan != null && plan === null;
+  const today = useMemo(() => todayLocalDate(), [state.snapshot.graph_id]);
   // The same request the journal will make, so the two share one execution: the
   // count here is the count there rather than a second opinion about it.
-  const request = useMemo(
-    () => ({
-      language: QUERY_LANGUAGE,
-      source: compiled ? compiled.source : activeView.definition.source,
-      bindings: compiled ? planBindings(compiled.parameters, runtime) : {},
-    }),
-    [activeView.definition.source, compiled, runtime],
+  const request = useMemo<AuthoredQueryRequest | null>(
+    () =>
+      plan
+        ? { kind: "built", plan, today }
+        : unsupportedPlan
+          ? null
+          : {
+              kind: "raw_sparql",
+              language: QUERY_LANGUAGE,
+              source: activeView.definition.source,
+            },
+    [activeView.definition.source, plan, today, unsupportedPlan],
   );
-  const answer = useQueryAnswer(JSON.stringify([defaultQueryKey(query), activeView.id]), request);
+  const answer = useQueryAnswer(
+    JSON.stringify([defaultQueryKey(query), activeView.id]),
+    request,
+    unsupportedPlan ? message("query.unsupportedPlan") : null,
+  );
   const count = answerLabel(answer, null, message);
 
   const summary = plan
@@ -207,7 +217,9 @@ function DefaultQueryRow({
         message,
         formatDate: formatJournalDate,
       })
-    : { lead: "SPARQL", detail: null };
+    : unsupportedPlan
+      ? { lead: message("query.unsupportedPlan"), detail: null }
+      : { lead: "SPARQL", detail: null };
   const name = query.title || summaryLabel(summary);
 
   const owner = { kind: "graph_default", default_query_id: query.id } as const;
@@ -221,14 +233,13 @@ function DefaultQueryRow({
   const save = (command: Parameters<typeof session.execute>[0]): void => {
     void executeCommand(command);
   };
-  /** A plan and the SPARQL it compiles to are written together, never apart. */
+  /** The plan is authority; its marked SPARQL is regenerated beside it. */
   const commitPlan = (next: QueryPlan): Promise<void> =>
     executeCommand({
       type: "set_query_plan",
       owner,
       view_id: activeView.id,
       plan: { version: QUERY_PLAN_VERSION, payload: encodePlan(next) },
-      source: compilePlan(next).source,
     });
 
   const hiddenVariables = new Set(

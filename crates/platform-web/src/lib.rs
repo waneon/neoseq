@@ -1,7 +1,8 @@
 //! Browser Wasm adapter for the graph core.
 
+use domain::{CorePortError, CorePortErrorCode};
 use graph_core::{GraphCore, apply_index_changes};
-use query::{GraphIndex, QueryRequest};
+use query::{AuthoredQueryRequest, GraphIndex};
 use sync_protocol::{Message, decode, encode};
 use wasm_bindgen::prelude::*;
 
@@ -34,7 +35,9 @@ pub fn encode_graph_archive(
     exported_at: &str,
     suggested_name: Option<String>,
 ) -> Result<Vec<u8>, JsValue> {
-    let source_graph_id = domain::GraphId::new(source_graph_id).map_err(js_error)?;
+    let source_graph_id = domain::GraphId::new(source_graph_id).map_err(|error| {
+        js_port_error(port_error(CorePortErrorCode::InvalidArchive, error, false))
+    })?;
     graph_archive::encode(
         snapshot,
         graph_archive::ArchiveMetadata {
@@ -45,14 +48,17 @@ pub fn encode_graph_archive(
             suggested_name,
         },
     )
-    .map_err(js_error)
+    .map_err(|error| js_port_error(map_archive_error(error)))
 }
 
 #[wasm_bindgen(js_name = decodeGraphArchive)]
 pub fn decode_graph_archive(bytes: &[u8]) -> Result<WasmDecodedGraphArchive, JsValue> {
-    let decoded = graph_archive::decode(bytes).map_err(js_error)?;
+    let decoded =
+        graph_archive::decode(bytes).map_err(|error| js_port_error(map_archive_error(error)))?;
     Ok(WasmDecodedGraphArchive {
-        manifest_json: serde_json::to_string(&decoded.manifest).map_err(js_error)?,
+        manifest_json: serde_json::to_string(&decoded.manifest).map_err(|error| {
+            js_port_error(port_error(CorePortErrorCode::Internal, error, false))
+        })?,
         snapshot: decoded.snapshot,
     })
 }
@@ -79,23 +85,169 @@ fn js_error(error: impl std::fmt::Display) -> JsValue {
     JsValue::from_str(&error.to_string())
 }
 
+fn js_port_error(error: CorePortError) -> JsValue {
+    JsValue::from_str(&serialize_port_error(&error))
+}
+
+fn serialize_port_error(error: &CorePortError) -> String {
+    serde_json::to_string(error)
+        .expect("CorePortError contains only infallibly serializable values")
+}
+
+fn port_error(
+    code: CorePortErrorCode,
+    error: impl std::fmt::Display,
+    retryable: bool,
+) -> CorePortError {
+    CorePortError {
+        code,
+        message: error.to_string(),
+        retryable,
+    }
+}
+
+fn map_archive_error(error: graph_archive::ArchiveError) -> CorePortError {
+    let code = match &error {
+        graph_archive::ArchiveError::ArchiveTooLarge
+        | graph_archive::ArchiveError::ManifestTooLarge
+        | graph_archive::ArchiveError::SnapshotTooLarge => CorePortErrorCode::ArchiveTooLarge,
+        graph_archive::ArchiveError::UnsupportedVersion => CorePortErrorCode::UnsupportedArchive,
+        graph_archive::ArchiveError::ChecksumMismatch => CorePortErrorCode::ArchiveChecksumMismatch,
+        graph_archive::ArchiveError::InvalidEntries
+        | graph_archive::ArchiveError::UnsupportedCompression
+        | graph_archive::ArchiveError::InvalidManifest(_)
+        | graph_archive::ArchiveError::Zip(_)
+        | graph_archive::ArchiveError::Io(_) => CorePortErrorCode::InvalidArchive,
+    };
+    port_error(code, error, false)
+}
+
+fn map_query_error(error: query::QueryError) -> CorePortError {
+    let code = match &error {
+        query::QueryError::SourceBudget
+        | query::QueryError::BindingBudget
+        | query::QueryError::AlgebraBudget
+        | query::QueryError::RowBudget => CorePortErrorCode::QueryBudgetExceeded,
+        query::QueryError::Index(_) => CorePortErrorCode::Internal,
+        query::QueryError::UnsupportedLanguage(_)
+        | query::QueryError::Syntax(_)
+        | query::QueryError::InvalidPlan(_)
+        | query::QueryError::Disallowed(_)
+        | query::QueryError::InvalidTerm(_)
+        | query::QueryError::Evaluation(_) => CorePortErrorCode::InvalidQuery,
+    };
+    port_error(code, error, false)
+}
+
+fn map_core_error(error: graph_core::CoreError) -> CorePortError {
+    let code = match &error {
+        graph_core::CoreError::WrongGraph { .. } => CorePortErrorCode::WrongGraph,
+        graph_core::CoreError::UnsupportedSchema(_) => CorePortErrorCode::UnsupportedSchema,
+        graph_core::CoreError::PageNameConflict { .. } => CorePortErrorCode::PageNameConflict,
+        graph_core::CoreError::TagNameConflict { .. } => CorePortErrorCode::TagNameConflict,
+        graph_core::CoreError::FirstSiblingIndent => CorePortErrorCode::FirstSiblingIndent,
+        graph_core::CoreError::RootBlockOutdent => CorePortErrorCode::RootBlockOutdent,
+        _ => CorePortErrorCode::InvalidRequest,
+    };
+    port_error(code, error, false)
+}
+
+fn map_runtime_error(error: graph_core::RuntimeError) -> CorePortError {
+    match error {
+        graph_core::RuntimeError::Core(error) => map_core_error(error),
+        graph_core::RuntimeError::Query(error) => map_query_error(error),
+        graph_core::RuntimeError::DirtyUnsaved { kind, message } => {
+            let (code, retryable) = match kind {
+                graph_core::StorageErrorKind::Full => (CorePortErrorCode::StorageFull, true),
+                graph_core::StorageErrorKind::Corrupt | graph_core::StorageErrorKind::NotFound => {
+                    (CorePortErrorCode::DirtyUnsaved, false)
+                }
+                graph_core::StorageErrorKind::Busy
+                | graph_core::StorageErrorKind::Unavailable
+                | graph_core::StorageErrorKind::Other => (CorePortErrorCode::DirtyUnsaved, true),
+            };
+            port_error(code, message, retryable)
+        }
+        graph_core::RuntimeError::ZeroEventCapacity => port_error(
+            CorePortErrorCode::InvalidRequest,
+            "event capacity must be positive",
+            false,
+        ),
+    }
+}
+
+fn js_core_error(error: graph_core::CoreError) -> JsValue {
+    js_port_error(map_core_error(error))
+}
+
+fn js_invalid_request(error: impl std::fmt::Display) -> JsValue {
+    js_port_error(port_error(CorePortErrorCode::InvalidRequest, error, false))
+}
+
+fn js_invalid_query(error: impl std::fmt::Display) -> JsValue {
+    js_port_error(port_error(CorePortErrorCode::InvalidQuery, error, false))
+}
+
+fn js_internal_error(error: impl std::fmt::Display) -> JsValue {
+    js_port_error(port_error(CorePortErrorCode::Internal, error, false))
+}
+
+fn js_dirty_unsaved(message: &'static str) -> JsValue {
+    js_port_error(port_error(CorePortErrorCode::DirtyUnsaved, message, true))
+}
+
 #[wasm_bindgen]
 pub struct WasmGraphCore {
     inner: GraphCore,
+    /// `None` is the complete stale/cold representation. Derived index work
+    /// can therefore fail without changing authoritative mutation semantics.
     index: Option<GraphIndex>,
     pending_update: Option<Vec<u8>>,
+    #[cfg(test)]
+    fail_next_index_update: bool,
+}
+
+impl WasmGraphCore {
+    fn advance_index(&mut self, changes: &graph_core::GraphChangeSet) {
+        let Some(mut index) = self.index.take() else {
+            return;
+        };
+        #[cfg(test)]
+        if std::mem::take(&mut self.fail_next_index_update) {
+            return;
+        }
+        if apply_index_changes(&self.inner, &mut index, changes).is_ok() {
+            self.index = Some(index);
+        }
+    }
+
+    fn index(&mut self) -> Result<&GraphIndex, graph_core::RuntimeError> {
+        if self.index.is_none() {
+            self.index = Some(GraphIndex::from_units(
+                self.inner.graph_id().clone(),
+                self.inner.frontier(),
+                self.inner.index_units()?,
+            )?);
+        }
+        Ok(self
+            .index
+            .as_ref()
+            .expect("query index initialized immediately above"))
+    }
 }
 
 #[wasm_bindgen]
 impl WasmGraphCore {
     #[wasm_bindgen(constructor)]
     pub fn new(graph_id: &str, peer_id: u64, now: &str) -> Result<WasmGraphCore, JsValue> {
-        let graph_id = domain::GraphId::new(graph_id).map_err(js_error)?;
-        let inner = GraphCore::new(graph_id, peer_id, now).map_err(js_error)?;
+        let graph_id = domain::GraphId::new(graph_id).map_err(js_invalid_request)?;
+        let inner = GraphCore::new(graph_id, peer_id, now).map_err(js_core_error)?;
         Ok(Self {
             inner,
             index: None,
             pending_update: None,
+            #[cfg(test)]
+            fail_next_index_update: false,
         })
     }
 
@@ -105,12 +257,14 @@ impl WasmGraphCore {
         peer_id: u64,
         snapshot: &[u8],
     ) -> Result<WasmGraphCore, JsValue> {
-        let graph_id = domain::GraphId::new(graph_id).map_err(js_error)?;
-        let inner = GraphCore::from_snapshot(graph_id, peer_id, snapshot).map_err(js_error)?;
+        let graph_id = domain::GraphId::new(graph_id).map_err(js_invalid_request)?;
+        let inner = GraphCore::from_snapshot(graph_id, peer_id, snapshot).map_err(js_core_error)?;
         Ok(Self {
             inner,
             index: None,
             pending_update: None,
+            #[cfg(test)]
+            fail_next_index_update: false,
         })
     }
 
@@ -120,29 +274,35 @@ impl WasmGraphCore {
         peer_id: u64,
         snapshot: &[u8],
     ) -> Result<WasmGraphCore, JsValue> {
-        let graph_id = domain::GraphId::new(graph_id).map_err(js_error)?;
-        let inner =
-            GraphCore::from_recovery_snapshot(graph_id, peer_id, snapshot).map_err(js_error)?;
+        let graph_id = domain::GraphId::new(graph_id).map_err(js_invalid_request)?;
+        let inner = GraphCore::from_recovery_snapshot(graph_id, peer_id, snapshot)
+            .map_err(js_core_error)?;
         Ok(Self {
             inner,
             index: None,
             pending_update: None,
+            #[cfg(test)]
+            fail_next_index_update: false,
         })
     }
 
     #[wasm_bindgen(js_name = importRecoveryUpdate)]
     pub fn import_recovery_update(&mut self, update: &[u8]) -> Result<(), JsValue> {
-        self.inner.import_recovery_update(update).map_err(js_error)
+        self.inner
+            .import_recovery_update(update)
+            .map_err(js_core_error)
     }
 
     #[wasm_bindgen(js_name = stageRecoveryUpdate)]
     pub fn stage_recovery_update(&mut self, update: &[u8]) -> Result<(), JsValue> {
-        self.inner.stage_recovery_update(update).map_err(js_error)
+        self.inner
+            .stage_recovery_update(update)
+            .map_err(js_core_error)
     }
 
     #[wasm_bindgen(js_name = finishRecovery)]
     pub fn finish_recovery(&mut self) -> Result<(), JsValue> {
-        self.inner.finish_recovery().map_err(js_error)?;
+        self.inner.finish_recovery().map_err(js_core_error)?;
         self.index = None;
         Ok(())
     }
@@ -155,20 +315,23 @@ impl WasmGraphCore {
     #[wasm_bindgen(js_name = executeJson)]
     pub fn execute_json(&mut self, command: &str, now: &str) -> Result<String, JsValue> {
         if self.pending_update.is_some() {
-            return Err(js_error("take the pending update before another command"));
+            return Err(js_dirty_unsaved(
+                "take the pending update before another command",
+            ));
         }
-        let envelope = serde_json::from_str(command).map_err(js_error)?;
-        let execution = self.inner.execute(envelope, now).map_err(js_error)?;
-        if let Some(index) = self.index.as_mut() {
-            apply_index_changes(&self.inner, index, &execution.changes).map_err(js_error)?;
+        let envelope = serde_json::from_str(command).map_err(js_invalid_request)?;
+        let mut execution = self.inner.execute(envelope, now).map_err(js_core_error)?;
+        if !execution.update.is_empty() {
+            // The document is authoritative and has already changed. Publish
+            // its exact durable unit before updating any disposable index.
+            self.pending_update = Some(std::mem::take(&mut execution.update));
         }
-        self.pending_update = Some(execution.update);
+        self.advance_index(&execution.changes);
         serde_json::to_string(&serde_json::json!({
             "result": execution.result,
-            "semantic": execution.semantic,
-            "duplicate": execution.duplicate
+            "semantic": execution.semantic
         }))
-        .map_err(js_error)
+        .map_err(js_internal_error)
     }
 
     #[wasm_bindgen(js_name = takeUpdate)]
@@ -178,19 +341,22 @@ impl WasmGraphCore {
 
     #[wasm_bindgen(js_name = importUpdate)]
     pub fn import_update(&mut self, update: &[u8]) -> Result<(), JsValue> {
+        if self.pending_update.is_some() {
+            return Err(js_dirty_unsaved("take the pending update before importing"));
+        }
         let changes = self
             .inner
             .import_remote_with_changes(update)
-            .map_err(js_error)?;
-        if let Some(index) = self.index.as_mut() {
-            apply_index_changes(&self.inner, index, &changes).map_err(js_error)?;
-        }
+            .map_err(js_core_error)?;
+        // Inbound bytes are durable before this API is called. An index error
+        // invalidates only the disposable projection, not the accepted import.
+        self.advance_index(&changes);
         Ok(())
     }
 
     #[wasm_bindgen(js_name = validateUpdate)]
     pub fn validate_update(&self, update: &[u8]) -> Result<(), JsValue> {
-        self.inner.validate_remote(update).map_err(js_error)
+        self.inner.validate_remote(update).map_err(js_core_error)
     }
 
     #[wasm_bindgen(js_name = versionVector)]
@@ -200,36 +366,30 @@ impl WasmGraphCore {
 
     #[wasm_bindgen(js_name = exportAll)]
     pub fn export_all(&self) -> Result<Vec<u8>, JsValue> {
-        self.inner.export_all().map_err(js_error)
+        self.inner.export_all().map_err(js_core_error)
     }
 
     #[wasm_bindgen(js_name = exportUpdatesSince)]
     pub fn export_updates_since(&self, version_vector: &[u8]) -> Result<Vec<u8>, JsValue> {
         self.inner
             .export_updates_since(version_vector)
-            .map_err(js_error)
+            .map_err(js_core_error)
     }
 
     #[wasm_bindgen(js_name = queryJson)]
     pub fn query_json(&mut self, request: &str) -> Result<String, JsValue> {
         if self.pending_update.is_some() {
-            return Err(js_error("take the pending update before querying"));
+            return Err(js_dirty_unsaved("take the pending update before querying"));
         }
-        let request: QueryRequest = serde_json::from_str(request).map_err(js_error)?;
-        if self.index.is_none() {
-            self.index = Some(
-                GraphIndex::from_units(
-                    self.inner.graph_id().clone(),
-                    self.inner.frontier(),
-                    self.inner.index_units().map_err(js_error)?,
-                )
-                .map_err(js_error)?,
-            );
-        }
-        let Some(index) = self.index.as_ref() else {
-            return Err(js_error("query index initialization failed"));
-        };
-        serde_json::to_string(&index.execute(request).map_err(js_error)?).map_err(js_error)
+        let request: AuthoredQueryRequest =
+            serde_json::from_str(request).map_err(js_invalid_query)?;
+        let index = self
+            .index()
+            .map_err(|error| js_port_error(map_runtime_error(error)))?;
+        let result = index
+            .execute_authored(request)
+            .map_err(|error| js_port_error(map_query_error(error)))?;
+        serde_json::to_string(&result).map_err(js_internal_error)
     }
 
     #[wasm_bindgen(js_name = queryIndexReady)]
@@ -239,24 +399,26 @@ impl WasmGraphCore {
 
     #[wasm_bindgen(js_name = summaryJson)]
     pub fn summary_json(&self) -> Result<String, JsValue> {
-        serde_json::to_string(&self.inner.summary().map_err(js_error)?).map_err(js_error)
+        serde_json::to_string(&self.inner.summary().map_err(js_core_error)?)
+            .map_err(js_internal_error)
     }
 
     #[wasm_bindgen(js_name = outlineSnapshotJson)]
     pub fn outline_snapshot_json(&self, owner: &str) -> Result<String, JsValue> {
-        let owner: domain::OutlineOwner = serde_json::from_str(owner).map_err(js_error)?;
-        serde_json::to_string(&self.inner.outline_snapshot(&owner).map_err(js_error)?)
-            .map_err(js_error)
+        let owner: domain::OutlineOwner =
+            serde_json::from_str(owner).map_err(js_invalid_request)?;
+        serde_json::to_string(&self.inner.outline_snapshot(&owner).map_err(js_core_error)?)
+            .map_err(js_internal_error)
     }
 
     #[wasm_bindgen(js_name = exportSnapshot)]
     pub fn export_snapshot(&self) -> Result<Vec<u8>, JsValue> {
-        self.inner.export_snapshot().map_err(js_error)
+        self.inner.export_snapshot().map_err(js_core_error)
     }
 
     #[wasm_bindgen(js_name = exportGcCheckpoint)]
     pub fn export_gc_checkpoint(&self) -> Result<Vec<u8>, JsValue> {
-        self.inner.export_gc_checkpoint().map_err(js_error)
+        self.inner.export_gc_checkpoint().map_err(js_core_error)
     }
 
     #[wasm_bindgen(js_name = exportCloneSnapshot)]
@@ -265,9 +427,185 @@ impl WasmGraphCore {
         target_graph_id: &str,
         target_peer_id: u64,
     ) -> Result<Vec<u8>, JsValue> {
-        let target_graph_id = domain::GraphId::new(target_graph_id).map_err(js_error)?;
+        let target_graph_id = domain::GraphId::new(target_graph_id).map_err(js_invalid_request)?;
         self.inner
             .export_clone_snapshot(target_graph_id, target_peer_id)
-            .map_err(js_error)
+            .map_err(js_core_error)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use domain::{Command, CommandEnvelope, CommandId, GraphId, PageId};
+
+    fn assert_error_code(error: CorePortError, code: CorePortErrorCode) {
+        assert_eq!(error.code, code);
+        assert!(!error.retryable);
+        let decoded: CorePortError = serde_json::from_str(&serialize_port_error(&error)).unwrap();
+        assert_eq!(decoded, error);
+    }
+
+    fn ensure_page(graph_id: &str, command_id: &str, page_id: &str, title: &str) -> String {
+        serde_json::to_string(&CommandEnvelope {
+            graph_id: GraphId::new(graph_id).unwrap(),
+            command_id: CommandId::new(command_id).unwrap(),
+            command: Command::EnsurePage {
+                page_id: PageId::new(page_id).unwrap(),
+                title: title.to_owned(),
+            },
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn local_update_is_pending_before_a_failed_index_advance() {
+        let mut core = WasmGraphCore::new("wasm-index-local", 1, "initial").unwrap();
+        core.index().unwrap();
+        core.fail_next_index_update = true;
+
+        assert!(
+            core.execute_json(
+                &ensure_page("wasm-index-local", "command", "page", "Page"),
+                "now"
+            )
+            .is_ok()
+        );
+        assert!(
+            core.pending_update
+                .as_ref()
+                .is_some_and(|bytes| !bytes.is_empty())
+        );
+        assert!(core.index.is_none());
+
+        assert!(!core.take_update().is_empty());
+        assert!(core.pending_update.is_none());
+        core.index().unwrap();
+        assert!(core.index.is_some());
+    }
+
+    #[test]
+    fn durable_remote_import_survives_a_failed_index_advance() {
+        let mut receiver = WasmGraphCore::new("wasm-index-remote", 1, "initial").unwrap();
+        let snapshot = receiver.export_snapshot().unwrap();
+        let mut sender = WasmGraphCore::from_snapshot("wasm-index-remote", 2, &snapshot).unwrap();
+        sender
+            .execute_json(
+                &ensure_page("wasm-index-remote", "command", "page", "Page"),
+                "now",
+            )
+            .unwrap();
+        let update = sender.take_update();
+        receiver.index().unwrap();
+        receiver.fail_next_index_update = true;
+
+        assert!(receiver.import_update(&update).is_ok());
+        assert!(receiver.pending_update.is_none());
+        assert!(receiver.index.is_none());
+        assert!(
+            receiver
+                .inner
+                .snapshot()
+                .unwrap()
+                .pages
+                .iter()
+                .any(|page| page.title == "Page")
+        );
+
+        receiver.index().unwrap();
+        assert!(receiver.index.is_some());
+    }
+
+    #[test]
+    fn query_failures_use_core_port_error_codes() {
+        assert_error_code(
+            map_query_error(query::QueryError::SourceBudget),
+            CorePortErrorCode::QueryBudgetExceeded,
+        );
+        assert_error_code(
+            map_query_error(query::QueryError::Syntax("bad query".to_owned())),
+            CorePortErrorCode::InvalidQuery,
+        );
+        assert_error_code(
+            map_query_error(query::QueryError::Index("broken index".to_owned())),
+            CorePortErrorCode::Internal,
+        );
+
+        let encoded = serialize_port_error(&map_query_error(query::QueryError::RowBudget));
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&encoded).unwrap(),
+            serde_json::json!({
+                "code": "query_budget_exceeded",
+                "message": "query output exceeds the configured row budget",
+                "retryable": false
+            })
+        );
+    }
+
+    #[test]
+    fn archive_failures_use_core_port_error_codes() {
+        assert_error_code(
+            map_archive_error(graph_archive::ArchiveError::SnapshotTooLarge),
+            CorePortErrorCode::ArchiveTooLarge,
+        );
+        assert_error_code(
+            map_archive_error(graph_archive::ArchiveError::ChecksumMismatch),
+            CorePortErrorCode::ArchiveChecksumMismatch,
+        );
+        assert_error_code(
+            map_archive_error(graph_archive::ArchiveError::UnsupportedVersion),
+            CorePortErrorCode::UnsupportedArchive,
+        );
+        assert_error_code(
+            map_archive_error(graph_archive::ArchiveError::InvalidEntries),
+            CorePortErrorCode::InvalidArchive,
+        );
+        assert_error_code(
+            map_archive_error(graph_archive::ArchiveError::UnsupportedCompression),
+            CorePortErrorCode::InvalidArchive,
+        );
+    }
+
+    #[test]
+    fn graph_core_failures_preserve_cross_platform_codes() {
+        assert_error_code(
+            map_core_error(graph_core::CoreError::WrongGraph {
+                expected: GraphId::new("expected").unwrap(),
+                actual: GraphId::new("actual").unwrap(),
+            }),
+            CorePortErrorCode::WrongGraph,
+        );
+        assert_error_code(
+            map_core_error(graph_core::CoreError::UnsupportedSchema(99)),
+            CorePortErrorCode::UnsupportedSchema,
+        );
+        assert_error_code(
+            map_core_error(graph_core::CoreError::PageNotFound(
+                PageId::new("missing").unwrap(),
+            )),
+            CorePortErrorCode::InvalidRequest,
+        );
+        assert_error_code(
+            map_core_error(graph_core::CoreError::PageNameConflict {
+                name: "Same".to_owned(),
+                existing: PageId::new("page").unwrap(),
+            }),
+            CorePortErrorCode::PageNameConflict,
+        );
+        assert_error_code(
+            map_core_error(graph_core::CoreError::TagNameConflict {
+                name: "Same".to_owned(),
+                existing: domain::TagId::new("tag").unwrap(),
+            }),
+            CorePortErrorCode::TagNameConflict,
+        );
+        assert_error_code(
+            map_core_error(graph_core::CoreError::FirstSiblingIndent),
+            CorePortErrorCode::FirstSiblingIndent,
+        );
+        assert_error_code(
+            map_core_error(graph_core::CoreError::RootBlockOutdent),
+            CorePortErrorCode::RootBlockOutdent,
+        );
     }
 }

@@ -8,9 +8,11 @@ RDF index; they never walk `LoroDoc` as their normal read path. The complete
 index is reproducible from a validated Loro snapshot, so losing or deleting it
 cannot lose user data.
 
-Neoseq uses a read-only SPARQL 1.1 profile instead of a product-specific query
-DSL. Queries run only in the client Rust core. They cannot mutate CRDT state,
-select another graph, contact a SPARQL endpoint, or access platform I/O.
+Neoseq has two explicit authored query forms: the product's typed `QueryPlan`
+and raw read-only SPARQL 1.1. Both lower once at the Rust boundary into the same
+`LogicalQuery` algebra. Queries run only in the client Rust core. They cannot
+mutate CRDT state, select another graph, contact a SPARQL endpoint, or access
+platform I/O.
 
 ## RDF Projection Contract
 
@@ -73,7 +75,7 @@ observable mapping requires a corresponding profile or projection version.
 Each open graph owns an Oxigraph in-memory store backed by:
 
 - an RDF-term dictionary and the store's triple permutations;
-- Oxigraph's SPARQL parser, optimizer, and evaluator;
+- Oxigraph's optimizer and evaluator, plus its parser for raw SPARQL only;
 - a compact outline-owner-to-entity-subject ledger for targeted retraction;
 - a normalized-text cache and compressed trigram postings used by the versioned
   `neo:matchesText` function;
@@ -109,6 +111,9 @@ Each validated local command or remote import produces a projection change set
 from its committed Loro diffs. Pages and tags are the publication units. A page
 replacement includes its complete visible block tree because structural edits
 can change parent and sibling-index triples beyond the directly targeted block.
+The change set is either `Incremental` or `Rebuild`; partial IDs cannot coexist
+with a rebuild flag. An incremental index delta is keyed by publication-unit ID
+and gives each unit exactly one state: upserted or removed.
 The runtime materializes snapshots only for the named units, reprojects those
 units, reads their previous outgoing triples through the RDF subject index, and
 atomically retracts and inserts their entity-level triple differences. Text and
@@ -147,27 +152,29 @@ literal parameter. The core validates this shape before planning so postings
 cannot change its meaning. Its normalization and matching rules are part of the
 analyzer-version fixture. All other expressions follow SPARQL 1.1 semantics.
 
-The versioned core boundary is:
+CorePort v4 makes authorship explicit rather than accepting two fields that can
+disagree:
 
 ```text
 query(graph_handle, {
-  language: "sparql-1.1/neoseq-v1",
-  source,
-  bindings: Map<Variable, RdfTerm>,
-  budget
+  kind: "built", plan: QueryPlan, today, projection: view | entities, budget
+} | {
+  kind: "raw_sparql", language: "sparql-1.1/neoseq-v1",
+  source, bindings: Map<Variable, RdfTerm>, budget
 }) -> QueryResult (select | ask)
 ```
 
-Bindings become the query's initial solution mapping; they are never inserted
-through string substitution. A select result preserves declared variable order
-and returns unbound, IRI, or typed-literal cells plus index revision/frontier.
-Entity IRIs are additionally decoded to typed entity references at the
-CorePort boundary. Unspecified result order follows SPARQL semantics; product
-queries that require stable presentation must include `ORDER BY`, with entity
-IRI as their final tie-breaker.
+The built compiler validates the complete plan grammar and constructs algebra
+directly; it never serializes or parses SPARQL. `today` resolves relative dates
+at execution, and `projection: entities` removes display-column joins and
+aggregates for canonical entity renderers. Raw bindings become the query's
+initial solution mapping and are never inserted through string substitution.
+A select result preserves declared variable order and returns unbound, IRI, or
+typed-literal cells plus index revision/frontier. Entity IRIs are additionally
+decoded to typed entity references at the CorePort boundary.
 
-For example, the UI can store this source and bind `?today` and `?needle` as
-typed values:
+For example, a hand-authored raw request may bind `?today` and `?needle` as typed
+values:
 
 ```sparql
 PREFIX neo:  <urn:neoseq:vocab:v1:>
@@ -184,11 +191,15 @@ ORDER BY ?deadline ?block
 LIMIT 100
 ```
 
-A query is executable when its owner has a valid `builtin.query` document with
-schema `neoseq.query` version 2. Each stable-ID view owns collaborative source,
-language, the builder plan behind it, and its column and presentation layout.
-Only ordering and the default view are document-wide. Table and list are the
-current renderers.
+A query view in a valid `builtin.query` document (`neoseq.query` version 2)
+owns either a builder plan or hand-authored source, plus its column and
+presentation layout. Built versus Raw is one atomic register. A Built plan is
+the sole authored authority, and the Rust core regenerates its marked source as
+an inspectable explanation; that artifact
+is not independently executable because operands may remain parameterized. A
+plan version this build cannot understand stays visibly unavailable rather than
+silently running the explanation as raw SPARQL. Only ordering and the default
+view are document-wide. Table and list are the current renderers.
 
 Blocks, pages, and tags may own one. A tag's is the tag's own view of the graph
 it names, and the client seeds it rather than writing it: opening a tag runs a
@@ -216,15 +227,16 @@ chips nor recursively mounted queries. Plan-less and non-block SELECT results
 retain a separate query-shaped list fallback when no block plan can provide an
 entity contract.
 
-The active view's plan columns are that view's executable result projection. A
+The active view's plan columns are that view's logical result projection. A
 table column switch adds to or removes from only that projection; sibling views
 never participate in the decision.
-When a block list runs, the client derives an ephemeral identity projection from
-the same plan: subject type, conditions, parameters, distinctness, limit, and
-subject order remain, while every table column pattern and aggregate is absent.
-The stored source remains the full plan compilation. This boundary is necessary
-because a table aggregate may remove or group subject identity; a block list must
-still receive one `q_subject` binding to hydrate each canonical block.
+When a block list runs, it sends the same plan with the typed `entities`
+projection. The Rust compiler keeps subject type, conditions, distinctness,
+limit, and subject order while omitting every table-column pattern and
+aggregate. The stored source remains only the full-plan explanation. This is
+necessary because a table aggregate may remove or group subject identity; a
+block list must still receive one `q_subject` binding to hydrate each canonical
+block.
 
 Every plan-carrying view is built. A view with no plan still runs and reads from
 its source, but the client offers no builder for it.
@@ -253,10 +265,10 @@ vectors. Missing values remain last in either direction except task priority,
 where absence is the rank below Low. Equal rows use stable entity identity as the
 final tie-breaker.
 
-The compiled source carries no order of its own beyond the subject, which is what
+The compiled plan carries no order of its own beyond the subject, which is what
 a `LIMIT` cuts against: renderer ordering rearranges only the answer already
 returned. A product question that needs ordering to choose which rows survive a
-limit must express that semantic order in the executable query instead.
+limit must express that semantic order in the authored query instead.
 
 The RDF projection emits the query property's presence but does not recursively
 project its document configuration. Query plans (in the SPARQL planner's sense),
@@ -320,65 +332,59 @@ invalidate query results by itself.
 
 ## Authoring: the Query Builder
 
-SPARQL stays the only executable query language, and the core reads nothing
-else. A **query plan** is the _authoring_ representation the client's query
-builder writes that SPARQL from: a subject kind, a nested all/any/none tree of
-typed conditions, output columns, and a row limit. Repeated columns are folded
-into one cell by their cardinality rather than by a reader-facing mode. The plan is
-stored beside the source in the same document so reopening a query reopens the
-builder rather than a wall of SPARQL, and so it reaches every replica.
+A **query plan** is the product builder's typed authored representation: a
+subject kind, a nested all/any/none tree of typed conditions, output columns, and
+a bounded integer row limit. Repeated columns fold according to their
+cardinality rather than a reader-facing mode. The generated CorePort types and
+the Rust `query` crate describe the same versioned grammar.
 
-The plan is the only authoring surface the product offers. A second grammar for
-one document would be a second product, and the one thing hand-written SPARQL
-could say that the builder cannot is not worth a reader meeting a text box where
-a question belongs. What runs stays readable — every query discloses its compiled
-source — but nothing asks a person to type it.
+When a view carries a plan, that plan is its sole authority. The browser sends
+`Built(plan)` and the Rust query compiler validates and lowers it directly into
+`LogicalQuery`; no SPARQL text is produced, transferred, parsed, or trusted on
+that execution path. `RawSparql(source)` is a separate authored alternative for
+legacy and hand-authored documents. Both converge before sandbox validation,
+physical planning, and evaluation, so there is one execution representation.
 
-The split of ownership is deliberate. The domain owns whether a plan is
-_well-formed_ — a bounded JSON object carrying its own version — and enforces
-that setting a plan writes it and its compiled source in one transaction, and
-that writing source directly clears the plan. The client owns the authoring
-grammar and its compiler, because a builder is an editor for the source, and the
-source it produces is validated, planned, and budgeted by exactly the same path
-any source takes. A plan version a reader does not understand leaves the block on
-its source, which still runs.
+The source text beside a Built plan is deliberately inert. The Rust core
+regenerates the provenance-marked explanation during projection, so
+caller-supplied or concurrently edited text is never trusted beside a valid
+plan. The browser only displays this artifact; it has no query semantics
+compiler. Explicitly setting raw source replaces that text and atomically
+selects Raw; incremental source edits cannot eject a Built plan. An unsupported
+plan version retains the plan and its inert source for inspection, but executes
+neither.
 
-Three properties of the emitted SPARQL are contractual rather than incidental:
+Rust differential tests compare direct lowering with representative legacy
+SPARQL artifacts. Three lowering properties are contractual:
 
-- **Every user value leaves as a bound parameter**, never as text spliced into
-  the source. A plan therefore cannot inject syntax, and a relative operand
-  ("due today") resolves against the reader's own today at run time instead of
-  being frozen into the stored query.
-- **Negation is `NOT EXISTS` over the positive pattern**, so "does not contain"
-  keeps entities that carry no such value at all, which is the reading a person
-  means.
-- **Alternatives are a disjunction of `EXISTS`, not `UNION`.** A `UNION` branch
-  is evaluated on its own and only then joined, so neither the subject nor any
-  bound parameter is visible inside it — the branch would ask its question of
-  the whole graph, and a parameterized branch would silently answer nothing.
-  `EXISTS` is evaluated against the solution in hand, which is what "any of
-  these is true _of this row_" means.
+- User values become typed algebra terms, never syntax fragments. A relative
+  operand resolves from the request's validated local date on every execution.
+- Negation is `NOT EXISTS` over the positive pattern, so "does not contain"
+  keeps entities that carry no such value at all.
+- Alternatives are a disjunction of correlated `EXISTS`, not `UNION`, so each
+  branch asks its question of the subject already in hand.
 
-A repeated relation, folded into one cell by default, compiles to `GROUP_CONCAT`
-with the remaining columns in `GROUP BY`. All of these shapes are covered by a
-query-crate conformance test, because the compiler that writes them lives outside
-Rust.
+A repeated relation folded into one cell lowers to `GROUP_CONCAT` with the
+remaining columns as group keys. The same Rust compiler produces the table
+projection and the entity-only projection; the projection tag changes only the
+result shape, never the authored question.
 
 ## Planning, Reactivity, and Budgets
 
-Parsing produces diagnostics and SPARQL algebra. Oxigraph plans that algebra
-over the RDF store. Typed bindings are injected as an algebraic `VALUES` row,
-not source text. Execution never falls back to scanning Loro containers.
+Built plans construct logical algebra directly; only raw SPARQL is parsed for
+syntax diagnostics. Oxigraph plans the common algebra over the RDF store. Raw
+typed bindings are injected as an algebraic `VALUES` row, not source text.
+Execution never falls back to scanning Loro containers.
 
 The client treats a mounted query as a demand read: activation runs immediately,
-while changes to its source, bindings, or canonical session revision are
+while changes to its authored request or canonical session revision are
 debounced. A bounded per-session result cache lets route and virtualized-row
 remounts paint a current answer synchronously and deduplicates identical work;
 signature and revision tags prevent obsolete responses from replacing it.
 Predicate-level dependency tracking is a future optimization and must preserve
 this conservative invalidation behavior.
 
-V1 limits source bytes, algebra operators, initial bindings, and output rows.
+V1 limits authored bytes, algebra operators, raw initial bindings, and output rows.
 Request budgets may tighten but cannot raise the runtime ceilings. Budget failures
 use a typed CorePort error and never return partial rows. Browser
 evaluation runs in the graph Worker so it cannot occupy the UI thread. Elapsed

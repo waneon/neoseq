@@ -7,29 +7,30 @@ import { chooseFromMenu, GRAPH_ID, mountAt } from "./harness";
 async function mountProjection() {
   const harness = await mountAt(`/g/${GRAPH_ID}/p/home`);
   await harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
-  await harness.session.execute({
+  const inserted = await harness.session.execute({
     type: "insert_block",
     owner: { kind: "page", id: "home" },
     parent: null,
     index: 0,
     markdown: "Overdue work",
   });
-  return harness;
+  if (!inserted.created_block) throw new Error("test block was not created");
+  return { ...harness, blockId: inserted.created_block };
 }
 
 describe("query and task projections", () => {
   it("keeps a query answer across page navigation and activates without a timer", async () => {
-    const { session, port, router } = await mountProjection();
+    const { session, port, router, blockId } = await mountProjection();
     port.queryResult = {
       kind: "ask",
       value: true,
       revision: 3,
-      frontier: "fake-3",
+      frontier: "fixture-3",
     };
 
     await session.execute({
       type: "set_query_source",
-      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: blockId },
       view_id: "all",
       source: "ASK { ?block ?predicate ?value }",
     });
@@ -60,7 +61,7 @@ describe("query and task projections", () => {
   // still says what it is; what it no longer has is an editor, so its caption is
   // a caption rather than a disclosure and nothing here can rewrite the SPARQL.
   it("reads a plan-less query without offering an editor for it", async () => {
-    const { session, port } = await mountProjection();
+    const { session, port, blockId } = await mountProjection();
     port.queryResult = {
       kind: "select",
       variables: ["block", "status"],
@@ -68,8 +69,8 @@ describe("query and task projections", () => {
         {
           block: {
             kind: "iri",
-            value: "urn:neoseq:entity:test-graph:block:b-1",
-            entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+            value: `urn:neoseq:entity:test-graph:block:${blockId}`,
+            entity: { kind: "block", owner: { kind: "page", id: "home" }, id: blockId },
           },
           status: {
             kind: "literal",
@@ -79,11 +80,11 @@ describe("query and task projections", () => {
         },
       ],
       revision: 3,
-      frontier: "fake-3",
+      frontier: "fixture-3",
     };
     await session.execute({
       type: "set_query_source",
-      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: blockId },
       view_id: "all",
       source: "SELECT ?block ?status WHERE { ?block ?p ?status }",
     });
@@ -96,7 +97,7 @@ describe("query and task projections", () => {
     await waitFor(() => expect(screen.getByTestId("query-count")).toHaveTextContent("1 result"));
     expect(screen.queryByTestId("query-title")).not.toBeInTheDocument();
     expect(screen.queryByTestId("query-conditions-trigger")).not.toBeInTheDocument();
-    await waitFor(() => expect(screen.getByTestId("query-block")).toHaveTextContent("b-1"));
+    await waitFor(() => expect(screen.getByTestId("query-block")).toHaveTextContent(blockId));
     // Which revision answered is a diagnostic, so it is written where a test or a
     // console can read it rather than into the caption.
     expect(screen.getByTestId("query-block")).toHaveAttribute("data-revision", "3");
@@ -124,10 +125,10 @@ describe("query and task projections", () => {
   });
 
   it("preserves unknown task values and writes the status through the inline control", async () => {
-    const { session } = await mountProjection();
+    const { session, blockId } = await mountProjection();
     await session.execute({
       type: "set_property",
-      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: blockId },
       key: "builtin.task-status",
       value: { type: "string", value: "blocked" },
     });
@@ -145,8 +146,8 @@ describe("query and task projections", () => {
   });
 
   it("puts priority at the head of the line and dates in the chip strip", async () => {
-    const { session } = await mountProjection();
-    const owner = { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" } as const;
+    const { session, blockId } = await mountProjection();
+    const owner = { kind: "block", owner: { kind: "page", id: "home" }, id: blockId } as const;
     await session.execute({
       type: "set_property",
       owner,
@@ -182,8 +183,8 @@ describe("query and task projections", () => {
   });
 
   it("rolls a recurring task forward instead of settling it", async () => {
-    const { session } = await mountProjection();
-    const owner = { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" } as const;
+    const { session, blockId } = await mountProjection();
+    const owner = { kind: "block", owner: { kind: "page", id: "home" }, id: blockId } as const;
     for (const command of [
       { key: "builtin.task-status", value: { type: "string", value: "todo" } },
       { key: "builtin.task-scheduled", value: { type: "date", value: "2026-08-21" } },

@@ -1,4 +1,14 @@
-//! Reproducible RDF projection and read-only SPARQL execution.
+//! Reproducible RDF projection and read-only logical query execution.
+
+pub mod logical;
+pub mod plan;
+
+pub use logical::{LogicalQuery, LogicalSelect};
+pub use plan::{
+    AuthoredQueryRequest, BuiltQueryPlan, BuiltQueryProjection, DERIVED_SOURCE_PROVENANCE,
+    PlanAggregate, PlanColumn, PlanColumnSource, PlanField, PlanLimit, PlanMatch, PlanNode,
+    PlanOperator, PlanRelativeDate, PlanSubject, PlanValue, RelativeDateUnit, derive_plan_source,
+};
 
 use domain::{
     BlockSnapshot, GraphId, GraphSnapshot, OutlineOwner, PageId, PageSnapshot, PropertyBag,
@@ -13,9 +23,14 @@ use oxigraph::store::{StorageError, Store, Transaction};
 use roaring::RoaringBitmap;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use spargebra::algebra::{Expression, Function, GraphPattern, OrderExpression};
+use spargebra::Query;
+#[cfg(test)]
+use spargebra::SparqlParser;
+use spargebra::algebra::{
+    AggregateExpression, Expression, Function, GraphPattern, OrderExpression,
+    PropertyPathExpression,
+};
 use spargebra::term::{GroundTerm, NamedNodePattern, TermPattern, TriplePattern};
-use spargebra::{Query, SparqlParser};
 use std::{
     cmp::{Ordering, Reverse},
     collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque},
@@ -80,6 +95,20 @@ impl Default for QueryBudget {
     }
 }
 
+impl QueryBudget {
+    fn bounded(self) -> Self {
+        let ceiling = Self::default();
+        Self {
+            max_source_bytes: self.max_source_bytes.min(ceiling.max_source_bytes),
+            max_algebra_operators: self
+                .max_algebra_operators
+                .min(ceiling.max_algebra_operators),
+            max_bindings: self.max_bindings.min(ceiling.max_bindings),
+            max_rows: self.max_rows.min(ceiling.max_rows),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct QueryRequest {
     pub language: String,
@@ -88,6 +117,27 @@ pub struct QueryRequest {
     pub bindings: BTreeMap<String, RdfTerm>,
     #[serde(default)]
     pub budget: QueryBudget,
+}
+
+/// A query request whose executable representation is already typed algebra.
+///
+/// Product query builders should use this path. `QueryRequest` remains the raw
+/// SPARQL compatibility boundary and lowers into this request before execution.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LogicalQueryRequest {
+    pub query: LogicalQuery,
+    pub bindings: BTreeMap<String, RdfTerm>,
+    pub budget: QueryBudget,
+}
+
+impl LogicalQueryRequest {
+    pub fn new(query: LogicalQuery) -> Self {
+        Self {
+            query,
+            bindings: BTreeMap::new(),
+            budget: QueryBudget::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -106,23 +156,87 @@ pub enum QueryResult {
     },
 }
 
-/// A validated, bounded replacement set for the derived index. Pages are the
-/// structural publication unit because a tree edit may change parent and
-/// sibling-index triples for more than the command's directly targeted block.
-#[derive(Debug, Clone)]
-pub struct IndexDelta {
-    pub pages: Vec<PageSnapshot>,
-    pub removed_pages: Vec<PageId>,
-    pub tags: Vec<TagSnapshot>,
-    pub removed_tags: Vec<TagId>,
-    pub frontier: String,
-}
-
 /// One independently projected unit consumed by the cold index builder.
 #[derive(Debug, Clone)]
 pub enum IndexUnit {
     Page(PageSnapshot),
     Tag(TagSnapshot),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum IndexUnitId {
+    Page(PageId),
+    Tag(TagId),
+}
+
+impl IndexUnit {
+    fn id(&self) -> IndexUnitId {
+        match self {
+            Self::Page(page) => IndexUnitId::Page(page.id.clone()),
+            Self::Tag(tag) => IndexUnitId::Tag(tag.id.clone()),
+        }
+    }
+}
+
+/// One replacement or retraction in the derived index. Pages are the
+/// structural publication unit because a tree edit may change parent and
+/// sibling-index triples for more than the command's directly targeted block.
+#[derive(Debug, Clone)]
+pub enum IndexChange {
+    Upsert(IndexUnit),
+    Remove(IndexUnitId),
+}
+
+impl IndexUnitId {
+    fn owner(&self) -> OutlineOwner {
+        match self {
+            Self::Page(id) => OutlineOwner::Page { id: id.clone() },
+            Self::Tag(id) => OutlineOwner::Tag { id: id.clone() },
+        }
+    }
+}
+
+impl IndexChange {
+    fn key(&self) -> IndexUnitId {
+        match self {
+            Self::Upsert(unit) => unit.id(),
+            Self::Remove(id) => id.clone(),
+        }
+    }
+}
+
+/// A canonical replacement set for the derived index.
+///
+/// The keyed representation makes it impossible for one publication unit to
+/// be both replaced and removed in the same delta. If a producer names the
+/// same unit more than once, its final change is the canonical one.
+#[derive(Debug, Clone)]
+pub struct IndexDelta {
+    changes: BTreeMap<IndexUnitId, IndexChange>,
+    frontier: String,
+}
+
+impl IndexDelta {
+    pub fn new(
+        frontier: impl Into<String>,
+        changes: impl IntoIterator<Item = IndexChange>,
+    ) -> Self {
+        Self {
+            changes: changes
+                .into_iter()
+                .map(|change| (change.key(), change))
+                .collect(),
+            frontier: frontier.into(),
+        }
+    }
+
+    pub fn frontier(&self) -> &str {
+        &self.frontier
+    }
+
+    pub fn changes(&self) -> impl Iterator<Item = &IndexChange> {
+        self.changes.values()
+    }
 }
 
 #[derive(Debug, Error)]
@@ -139,6 +253,8 @@ pub enum QueryError {
     RowBudget,
     #[error("SPARQL syntax error: {0}")]
     Syntax(String),
+    #[error("invalid built query plan: {0}")]
+    InvalidPlan(String),
     #[error("query form is not allowed: {0}")]
     Disallowed(String),
     #[error("invalid RDF term: {0}")]
@@ -688,28 +804,23 @@ impl GraphIndex {
     /// Applies page/tag replacements without walking or cloning the rest of the
     /// graph. One store transaction remains the publication boundary.
     pub fn apply_delta(&mut self, delta: IndexDelta) -> Result<bool, QueryError> {
+        let IndexDelta { changes, frontier } = delta;
         let mut projected = Projection::default();
         let mut replaced = BTreeSet::new();
-        let mut owners = delta
-            .removed_pages
-            .into_iter()
-            .map(|id| OutlineOwner::Page { id })
-            .chain(
-                delta
-                    .removed_tags
-                    .into_iter()
-                    .map(|id| OutlineOwner::Tag { id }),
-            )
+        let owners = changes
+            .keys()
+            .map(IndexUnitId::owner)
             .collect::<BTreeSet<_>>();
-        for page in &delta.pages {
-            owners.insert(OutlineOwner::Page {
-                id: page.id.clone(),
-            });
-            project_page(&mut projected, &self.graph_id, page)?;
-        }
-        for tag in &delta.tags {
-            owners.insert(OutlineOwner::Tag { id: tag.id.clone() });
-            project_tag(&mut projected, &self.graph_id, tag)?;
+        for change in changes.values() {
+            match change {
+                IndexChange::Upsert(IndexUnit::Page(page)) => {
+                    project_page(&mut projected, &self.graph_id, page)?;
+                }
+                IndexChange::Upsert(IndexUnit::Tag(tag)) => {
+                    project_tag(&mut projected, &self.graph_id, tag)?;
+                }
+                IndexChange::Remove(_) => {}
+            }
         }
         for owner in &owners {
             if let Some(keys) = self.owner_entities.get(owner) {
@@ -730,7 +841,7 @@ impl GraphIndex {
         let triples_changed = replaced
             .iter()
             .any(|key| previous.get(key) != projected.entities.get(key));
-        if !triples_changed && self.frontier == delta.frontier {
+        if !triples_changed && self.frontier == frontier {
             return Ok(false);
         }
 
@@ -787,25 +898,13 @@ impl GraphIndex {
                 self.owner_entities.insert(owner, keys);
             }
         }
-        self.frontier = delta.frontier;
+        self.frontier = frontier;
         self.revision = self.revision.saturating_add(1);
         Ok(true)
     }
 
     pub fn execute(&self, request: QueryRequest) -> Result<QueryResult, QueryError> {
-        let ceiling = QueryBudget::default();
-        let budget = QueryBudget {
-            max_source_bytes: request
-                .budget
-                .max_source_bytes
-                .min(ceiling.max_source_bytes),
-            max_algebra_operators: request
-                .budget
-                .max_algebra_operators
-                .min(ceiling.max_algebra_operators),
-            max_bindings: request.budget.max_bindings.min(ceiling.max_bindings),
-            max_rows: request.budget.max_rows.min(ceiling.max_rows),
-        };
+        let budget = request.budget.bounded();
         if request.language != QUERY_LANGUAGE {
             return Err(QueryError::UnsupportedLanguage(request.language));
         }
@@ -815,10 +914,64 @@ impl GraphIndex {
         if request.bindings.len() > budget.max_bindings {
             return Err(QueryError::BindingBudget);
         }
+        let query = LogicalQuery::from_sparql(&request.source)?;
+        self.execute_logical(LogicalQueryRequest {
+            query,
+            bindings: request.bindings,
+            budget,
+        })
+    }
 
-        let mut query = SparqlParser::new()
-            .parse_query(&request.source)
-            .map_err(|error| QueryError::Syntax(error.to_string()))?;
+    /// Lowers either authored form into the one logical execution boundary.
+    ///
+    /// Built plans never travel through SPARQL text. Raw SPARQL remains an
+    /// explicit compatibility path and is parsed once by [`Self::execute`].
+    pub fn execute_authored(
+        &self,
+        request: AuthoredQueryRequest,
+    ) -> Result<QueryResult, QueryError> {
+        match request {
+            AuthoredQueryRequest::Built {
+                plan,
+                today,
+                projection,
+                budget,
+            } => {
+                let budget = budget.bounded();
+                let authored_bytes = serde_json::to_vec(&plan)
+                    .map_err(|error| QueryError::InvalidPlan(error.to_string()))?;
+                if authored_bytes.len() > budget.max_source_bytes.min(domain::QUERY_PLAN_LIMIT) {
+                    return Err(QueryError::SourceBudget);
+                }
+                let query = plan.compile(&self.graph_id, &today, projection)?;
+                self.execute_logical(LogicalQueryRequest {
+                    query,
+                    bindings: BTreeMap::new(),
+                    budget,
+                })
+            }
+            AuthoredQueryRequest::RawSparql {
+                language,
+                source,
+                bindings,
+                budget,
+            } => self.execute(QueryRequest {
+                language,
+                source,
+                bindings,
+                budget,
+            }),
+        }
+    }
+
+    /// Executes typed logical algebra without serializing or parsing SPARQL.
+    pub fn execute_logical(&self, request: LogicalQueryRequest) -> Result<QueryResult, QueryError> {
+        let budget = request.budget.bounded();
+        if request.bindings.len() > budget.max_bindings {
+            return Err(QueryError::BindingBudget);
+        }
+
+        let mut query = request.query.into_algebra();
         let bindings = request.bindings;
         let text_calls = validate_query(&query, budget.max_algebra_operators, &bindings)?;
         let top_k_subjects = select_top_k_candidates(
@@ -1398,7 +1551,6 @@ fn validate_query(
     max_operators: usize,
     bindings: &BTreeMap<String, RdfTerm>,
 ) -> Result<Vec<TextCall>, QueryError> {
-    let sse = query.to_sse();
     let (dataset, pattern) = match query {
         Query::Select {
             dataset, pattern, ..
@@ -1416,11 +1568,9 @@ fn validate_query(
     if dataset.is_some() {
         return Err(QueryError::Disallowed("FROM/FROM NAMED".into()));
     }
-    if sse.bytes().filter(|byte| *byte == b'(').count() > max_operators {
-        return Err(QueryError::AlgebraBudget);
-    }
     let mut calls = Vec::new();
-    collect_text_calls(pattern, bindings, &mut calls)?;
+    let mut remaining_operators = max_operators;
+    validate_pattern(pattern, bindings, &mut calls, &mut remaining_operators)?;
     for call in &calls {
         if !pattern_has_text_object(pattern, &call.content) {
             return Err(QueryError::Disallowed(
@@ -1432,34 +1582,83 @@ fn validate_query(
     Ok(calls)
 }
 
-fn collect_text_calls(
+fn spend_operator(remaining: &mut usize) -> Result<(), QueryError> {
+    let Some(next) = remaining.checked_sub(1) else {
+        return Err(QueryError::AlgebraBudget);
+    };
+    *remaining = next;
+    Ok(())
+}
+
+fn spend_operators(remaining: &mut usize, count: usize) -> Result<(), QueryError> {
+    let Some(next) = remaining.checked_sub(count) else {
+        return Err(QueryError::AlgebraBudget);
+    };
+    *remaining = next;
+    Ok(())
+}
+
+fn validate_property_path(
+    path: &PropertyPathExpression,
+    remaining_operators: &mut usize,
+) -> Result<(), QueryError> {
+    match path {
+        PropertyPathExpression::NamedNode(_) => Ok(()),
+        PropertyPathExpression::Reverse(inner)
+        | PropertyPathExpression::ZeroOrMore(inner)
+        | PropertyPathExpression::OneOrMore(inner)
+        | PropertyPathExpression::ZeroOrOne(inner) => {
+            spend_operator(remaining_operators)?;
+            validate_property_path(inner, remaining_operators)
+        }
+        PropertyPathExpression::Sequence(left, right)
+        | PropertyPathExpression::Alternative(left, right) => {
+            spend_operator(remaining_operators)?;
+            validate_property_path(left, remaining_operators)?;
+            validate_property_path(right, remaining_operators)
+        }
+        PropertyPathExpression::NegatedPropertySet(_) => spend_operator(remaining_operators),
+    }
+}
+
+/// Validates the sandbox and operator budget in one traversal of the typed
+/// algebra while collecting the custom text calls needed by physical planning.
+fn validate_pattern(
     pattern: &GraphPattern,
     bindings: &BTreeMap<String, RdfTerm>,
     calls: &mut Vec<TextCall>,
+    remaining_operators: &mut usize,
 ) -> Result<(), QueryError> {
+    spend_operator(remaining_operators)?;
     match pattern {
-        GraphPattern::Bgp { .. } | GraphPattern::Path { .. } | GraphPattern::Values { .. } => {}
+        GraphPattern::Bgp { patterns } => {
+            spend_operators(remaining_operators, patterns.len())?;
+        }
+        GraphPattern::Path { path, .. } => {
+            validate_property_path(path, remaining_operators)?;
+        }
+        GraphPattern::Values { .. } => {}
         GraphPattern::Join { left, right }
         | GraphPattern::Lateral { left, right }
         | GraphPattern::Union { left, right }
         | GraphPattern::Minus { left, right } => {
-            collect_text_calls(left, bindings, calls)?;
-            collect_text_calls(right, bindings, calls)?;
+            validate_pattern(left, bindings, calls, remaining_operators)?;
+            validate_pattern(right, bindings, calls, remaining_operators)?;
         }
         GraphPattern::LeftJoin {
             left,
             right,
             expression,
         } => {
-            collect_text_calls(left, bindings, calls)?;
-            collect_text_calls(right, bindings, calls)?;
+            validate_pattern(left, bindings, calls, remaining_operators)?;
+            validate_pattern(right, bindings, calls, remaining_operators)?;
             if let Some(expression) = expression {
-                collect_text_calls_in_expression(expression, bindings, calls)?;
+                validate_expression(expression, bindings, calls, remaining_operators)?;
             }
         }
         GraphPattern::Filter { expr, inner } => {
-            collect_text_calls(inner, bindings, calls)?;
-            collect_text_calls_in_expression(expr, bindings, calls)?;
+            validate_pattern(inner, bindings, calls, remaining_operators)?;
+            validate_expression(expr, bindings, calls, remaining_operators)?;
         }
         // The sandbox is decided on the algebra, wherever the form is nested:
         // a named graph selects another dataset and SERVICE reaches the network.
@@ -1468,32 +1667,35 @@ fn collect_text_calls(
         GraphPattern::Project { inner, .. }
         | GraphPattern::Distinct { inner }
         | GraphPattern::Reduced { inner }
-        | GraphPattern::Slice { inner, .. } => collect_text_calls(inner, bindings, calls)?,
+        | GraphPattern::Slice { inner, .. } => {
+            validate_pattern(inner, bindings, calls, remaining_operators)?;
+        }
         GraphPattern::Extend {
             inner, expression, ..
         } => {
-            collect_text_calls(inner, bindings, calls)?;
-            collect_text_calls_in_expression(expression, bindings, calls)?;
+            validate_pattern(inner, bindings, calls, remaining_operators)?;
+            validate_expression(expression, bindings, calls, remaining_operators)?;
         }
         GraphPattern::OrderBy { inner, expression } => {
-            collect_text_calls(inner, bindings, calls)?;
+            validate_pattern(inner, bindings, calls, remaining_operators)?;
             for order in expression {
+                spend_operator(remaining_operators)?;
                 let expression = match order {
-                    spargebra::algebra::OrderExpression::Asc(expression)
-                    | spargebra::algebra::OrderExpression::Desc(expression) => expression,
+                    OrderExpression::Asc(expression) | OrderExpression::Desc(expression) => {
+                        expression
+                    }
                 };
-                collect_text_calls_in_expression(expression, bindings, calls)?;
+                validate_expression(expression, bindings, calls, remaining_operators)?;
             }
         }
         GraphPattern::Group {
             inner, aggregates, ..
         } => {
-            collect_text_calls(inner, bindings, calls)?;
+            validate_pattern(inner, bindings, calls, remaining_operators)?;
             for (_, aggregate) in aggregates {
-                if let spargebra::algebra::AggregateExpression::FunctionCall { expr, .. } =
-                    aggregate
-                {
-                    collect_text_calls_in_expression(expr, bindings, calls)?;
+                spend_operator(remaining_operators)?;
+                if let AggregateExpression::FunctionCall { expr, .. } = aggregate {
+                    validate_expression(expr, bindings, calls, remaining_operators)?;
                 }
             }
         }
@@ -1501,11 +1703,18 @@ fn collect_text_calls(
     Ok(())
 }
 
-fn collect_text_calls_in_expression(
+fn validate_expression(
     expression: &Expression,
     bindings: &BTreeMap<String, RdfTerm>,
     calls: &mut Vec<TextCall>,
+    remaining_operators: &mut usize,
 ) -> Result<(), QueryError> {
+    if !matches!(
+        expression,
+        Expression::NamedNode(_) | Expression::Literal(_) | Expression::Variable(_)
+    ) {
+        spend_operator(remaining_operators)?;
+    }
     match expression {
         Expression::FunctionCall(Function::Custom(function), arguments)
             if function.as_str() == MATCHES_TEXT =>
@@ -1533,7 +1742,9 @@ fn collect_text_calls_in_expression(
                 needle,
             });
         }
-        Expression::Exists(pattern) => collect_text_calls(pattern, bindings, calls)?,
+        Expression::Exists(pattern) => {
+            validate_pattern(pattern, bindings, calls, remaining_operators)?;
+        }
         Expression::Or(left, right)
         | Expression::And(left, right)
         | Expression::Equal(left, right)
@@ -1546,26 +1757,26 @@ fn collect_text_calls_in_expression(
         | Expression::Subtract(left, right)
         | Expression::Multiply(left, right)
         | Expression::Divide(left, right) => {
-            collect_text_calls_in_expression(left, bindings, calls)?;
-            collect_text_calls_in_expression(right, bindings, calls)?;
+            validate_expression(left, bindings, calls, remaining_operators)?;
+            validate_expression(right, bindings, calls, remaining_operators)?;
         }
         Expression::UnaryPlus(inner) | Expression::UnaryMinus(inner) | Expression::Not(inner) => {
-            collect_text_calls_in_expression(inner, bindings, calls)?
+            validate_expression(inner, bindings, calls, remaining_operators)?
         }
         Expression::If(condition, left, right) => {
-            collect_text_calls_in_expression(condition, bindings, calls)?;
-            collect_text_calls_in_expression(left, bindings, calls)?;
-            collect_text_calls_in_expression(right, bindings, calls)?;
+            validate_expression(condition, bindings, calls, remaining_operators)?;
+            validate_expression(left, bindings, calls, remaining_operators)?;
+            validate_expression(right, bindings, calls, remaining_operators)?;
         }
         Expression::In(left, right) => {
-            collect_text_calls_in_expression(left, bindings, calls)?;
+            validate_expression(left, bindings, calls, remaining_operators)?;
             for expression in right {
-                collect_text_calls_in_expression(expression, bindings, calls)?;
+                validate_expression(expression, bindings, calls, remaining_operators)?;
             }
         }
         Expression::Coalesce(expressions) | Expression::FunctionCall(_, expressions) => {
             for expression in expressions {
-                collect_text_calls_in_expression(expression, bindings, calls)?;
+                validate_expression(expression, bindings, calls, remaining_operators)?;
             }
         }
         Expression::NamedNode(_)
@@ -2748,6 +2959,7 @@ mod tests {
                 blocks: vec![],
             }],
             settings: GraphSettings::default(),
+            conflicts: vec![],
             quarantined: vec![],
         }
     }
@@ -2784,6 +2996,7 @@ mod tests {
             }],
             tags: vec![],
             settings: GraphSettings::default(),
+            conflicts: vec![],
             quarantined: vec![],
         }
     }
@@ -3134,8 +3347,239 @@ mod tests {
         ));
     }
 
-    /// The query builder writes SPARQL, so the shapes it writes are part of
-    /// this profile's contract: a bound parameter standing in for a constant
+    #[test]
+    fn typed_logical_query_matches_raw_sparql_without_a_text_round_trip() {
+        use crate::logical::{bgp, triple};
+
+        let index = GraphIndex::new(&snapshot()).unwrap();
+        let block = Variable::new("block").unwrap();
+        let deadline = Variable::new("deadline").unwrap();
+        let status = Variable::new("status").unwrap();
+        let today = Variable::new("today").unwrap();
+        let core = bgp([
+            triple(
+                block.clone(),
+                named(rdf::TYPE.as_str()).unwrap(),
+                named(&format!("{NEO_NS}Block")).unwrap(),
+            ),
+            triple(
+                block.clone(),
+                named(&format!("{PROPERTY_NS}builtin.task-status")).unwrap(),
+                status.clone(),
+            ),
+            triple(
+                block.clone(),
+                named(&format!("{PROPERTY_NS}builtin.task-deadline")).unwrap(),
+                deadline.clone(),
+            ),
+        ]);
+        let logical = LogicalQuery::select(
+            GraphPattern::Filter {
+                expr: Expression::LessOrEqual(
+                    Box::new(deadline.clone().into()),
+                    Box::new(today.clone().into()),
+                ),
+                inner: Box::new(core),
+            },
+            [block.clone(), deadline.clone()],
+        )
+        .order_by([
+            OrderExpression::Asc(deadline.into()),
+            OrderExpression::Asc(block.into()),
+        ])
+        .limit(100)
+        .build();
+
+        let bindings = BTreeMap::from([
+            (
+                "status".into(),
+                RdfTerm::Literal {
+                    value: "todo".into(),
+                    datatype: xsd::STRING.as_str().into(),
+                    language: None,
+                },
+            ),
+            (
+                "today".into(),
+                RdfTerm::Literal {
+                    value: "2026-08-15".into(),
+                    datatype: xsd::DATE.as_str().into(),
+                    language: None,
+                },
+            ),
+        ]);
+        let logical_result = index
+            .execute_logical(LogicalQueryRequest {
+                query: logical,
+                bindings: bindings.clone(),
+                budget: QueryBudget::default(),
+            })
+            .unwrap();
+
+        let mut raw = request(
+            "PREFIX neo: <urn:neoseq:vocab:v1:>\n\
+             PREFIX prop: <urn:neoseq:property:>\n\
+             SELECT ?block ?deadline WHERE {\n\
+               ?block a neo:Block ;\n\
+                      prop:builtin.task-status ?status ;\n\
+                      prop:builtin.task-deadline ?deadline .\n\
+               FILTER (?deadline <= ?today)\n\
+             } ORDER BY ?deadline ?block LIMIT 100",
+        );
+        raw.bindings = bindings;
+        assert_eq!(logical_result, index.execute(raw).unwrap());
+    }
+
+    #[test]
+    fn built_plan_matches_its_legacy_sparql_artifact() {
+        let index = GraphIndex::new(&snapshot()).unwrap();
+        let plan: BuiltQueryPlan = serde_json::from_value(serde_json::json!({
+            "version": 1,
+            "subject": "block",
+            "where": {
+                "id": "root",
+                "kind": "group",
+                "match": "all",
+                "children": [
+                    {
+                        "id": "status",
+                        "kind": "condition",
+                        "field": { "kind": "property", "key": "builtin.task-status" },
+                        "op": "equals",
+                        "value": { "type": "text", "value": "todo" }
+                    },
+                    {
+                        "id": "either",
+                        "kind": "group",
+                        "match": "any",
+                        "children": [
+                            {
+                                "id": "tag",
+                                "kind": "condition",
+                                "field": { "kind": "tag" },
+                                "op": "equals",
+                                "value": { "type": "tag", "value": "project" }
+                            },
+                            {
+                                "id": "deadline",
+                                "kind": "condition",
+                                "field": {
+                                    "kind": "property",
+                                    "key": "builtin.task-deadline"
+                                },
+                                "op": "lte",
+                                "value": {
+                                    "type": "relative",
+                                    "value": { "unit": "month", "offset": 4 }
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "id": "not-done",
+                        "kind": "group",
+                        "match": "none",
+                        "children": [{
+                            "id": "done",
+                            "kind": "condition",
+                            "field": { "kind": "property", "key": "user.done" },
+                            "op": "is_set"
+                        }]
+                    }
+                ]
+            },
+            "columns": [
+                { "id": "text", "source": { "kind": "content" } },
+                { "id": "tags", "source": { "kind": "tags" }, "aggregate": "list" },
+                { "id": "total", "source": { "kind": "subject" }, "aggregate": "count" }
+            ],
+            "limit": 50,
+            "distinct": false
+        }))
+        .unwrap();
+
+        let built = index
+            .execute_authored(AuthoredQueryRequest::Built {
+                plan: plan.clone(),
+                today: LocalDate::new("2026-08-18").unwrap(),
+                projection: BuiltQueryProjection::View,
+                budget: QueryBudget::default(),
+            })
+            .unwrap();
+        let tag = entity_iri(&GraphId::new("query graph").unwrap(), "tag", "project")
+            .unwrap()
+            .as_str()
+            .to_owned();
+        let legacy_bindings = BTreeMap::from([
+            (
+                "q_p0".into(),
+                RdfTerm::Literal {
+                    value: "todo".into(),
+                    datatype: xsd::STRING.as_str().into(),
+                    language: None,
+                },
+            ),
+            (
+                "q_p1".into(),
+                RdfTerm::Iri {
+                    value: tag,
+                    entity: None,
+                },
+            ),
+            (
+                "q_p2".into(),
+                RdfTerm::Literal {
+                    value: "2026-12-01".into(),
+                    datatype: xsd::DATE.as_str().into(),
+                    language: None,
+                },
+            ),
+        ]);
+        let legacy = index
+            .execute_authored(AuthoredQueryRequest::RawSparql {
+                language: QUERY_LANGUAGE.into(),
+                source: format!(
+                    "# neoseq:query-plan-compiler=1\n\
+                     PREFIX neo: <{NEO_NS}>\n\
+                     PREFIX prop: <{PROPERTY_NS}>\n\
+                     SELECT ?text\n\
+                       (GROUP_CONCAT(DISTINCT ?q_a3; SEPARATOR=\"\\u001F\") AS ?tags)\n\
+                       (COUNT(DISTINCT ?q_subject) AS ?total) WHERE {{\n\
+                       ?q_subject a neo:Block .\n\
+                       ?q_subject prop:builtin.task-status ?q_p0 .\n\
+                       FILTER(EXISTS {{ ?q_subject neo:tag ?q_p1 }} ||\n\
+                              EXISTS {{ ?q_subject prop:builtin.task-deadline ?q_v1 .\n\
+                                        FILTER(?q_v1 <= ?q_p2) }})\n\
+                       FILTER NOT EXISTS {{ ?q_subject prop:user.done ?q_v2 }}\n\
+                       OPTIONAL {{ ?q_subject neo:content ?text }}\n\
+                       OPTIONAL {{ ?q_subject neo:tag ?q_t4 . ?q_t4 neo:name ?q_a3 }}\n\
+                     }} GROUP BY ?text LIMIT 50",
+                ),
+                bindings: legacy_bindings,
+                budget: QueryBudget::default(),
+            })
+            .unwrap();
+        assert_eq!(built, legacy);
+
+        let QueryResult::Select {
+            variables, rows, ..
+        } = index
+            .execute_authored(AuthoredQueryRequest::Built {
+                plan,
+                today: LocalDate::new("2026-08-18").unwrap(),
+                projection: BuiltQueryProjection::Entities,
+                budget: QueryBudget::default(),
+            })
+            .unwrap()
+        else {
+            panic!("expected SELECT")
+        };
+        assert_eq!(variables, ["q_subject"]);
+        assert_eq!(rows.len(), 1);
+    }
+
+    /// Legacy generated SPARQL remains part of this profile's compatibility
+    /// contract: a bound parameter standing in for a constant
     /// object, negation as `NOT EXISTS`, alternatives as a disjunction of
     /// `EXISTS`, optional columns, `GROUP_CONCAT` over a repeated relation, and
     /// the subject as the one order a `LIMIT` cuts against. A change here breaks
@@ -3338,13 +3782,13 @@ mod tests {
         let frontier = snapshot_fingerprint(&source).unwrap();
         assert!(
             incremental
-                .apply_delta(IndexDelta {
-                    pages: vec![source.pages[0].clone()],
-                    removed_pages: vec![],
-                    tags: vec![source.tags[0].clone()],
-                    removed_tags: vec![],
+                .apply_delta(IndexDelta::new(
                     frontier,
-                })
+                    [
+                        IndexChange::Upsert(IndexUnit::Page(source.pages[0].clone())),
+                        IndexChange::Upsert(IndexUnit::Tag(source.tags[0].clone())),
+                    ],
+                ))
                 .unwrap()
         );
         let rebuilt = GraphIndex::new(&source).unwrap();
@@ -3363,18 +3807,38 @@ mod tests {
         let tag_id = source.tags.remove(0).id;
         let frontier = snapshot_fingerprint(&source).unwrap();
         incremental
-            .apply_delta(IndexDelta {
-                pages: vec![],
-                removed_pages: vec![page_id],
-                tags: vec![],
-                removed_tags: vec![tag_id],
+            .apply_delta(IndexDelta::new(
                 frontier,
-            })
+                [
+                    IndexChange::Remove(IndexUnitId::Page(page_id)),
+                    IndexChange::Remove(IndexUnitId::Tag(tag_id)),
+                ],
+            ))
             .unwrap();
         let rebuilt = GraphIndex::new(&source).unwrap();
         assert_eq!(incremental.semantic_triples(), rebuilt.semantic_triples());
         assert_eq!(incremental.frontier(), rebuilt.frontier());
         assert_eq!(incremental.triple_count(), 0);
+    }
+
+    #[test]
+    fn index_delta_has_one_canonical_change_per_publication_unit() {
+        let source = snapshot();
+        let page = source.pages[0].clone();
+        let page_id = page.id.clone();
+        let delta = IndexDelta::new(
+            "frontier",
+            [
+                IndexChange::Upsert(IndexUnit::Page(page)),
+                IndexChange::Remove(IndexUnitId::Page(page_id.clone())),
+            ],
+        );
+
+        assert_eq!(delta.changes().count(), 1);
+        assert!(matches!(
+            delta.changes().next(),
+            Some(IndexChange::Remove(IndexUnitId::Page(id))) if id == &page_id
+        ));
     }
 
     #[test]
@@ -3400,13 +3864,12 @@ mod tests {
             ))
             .unwrap();
         index
-            .apply_delta(IndexDelta {
-                pages: vec![source.pages[0].clone()],
-                removed_pages: vec![],
-                tags: vec![],
-                removed_tags: vec![],
-                frontier: snapshot_fingerprint(&source).unwrap(),
-            })
+            .apply_delta(IndexDelta::new(
+                snapshot_fingerprint(&source).unwrap(),
+                [IndexChange::Upsert(IndexUnit::Page(
+                    source.pages[0].clone(),
+                ))],
+            ))
             .unwrap();
 
         let id = index.text_index.id(&block).unwrap();
@@ -3451,6 +3914,18 @@ mod tests {
         algebra.budget.max_algebra_operators = 0;
         assert!(matches!(
             index.execute(algebra),
+            Err(QueryError::AlgebraBudget)
+        ));
+
+        let logical = LogicalQuery::ask(crate::logical::bgp([crate::logical::triple(
+            Variable::new("s").unwrap(),
+            Variable::new("p").unwrap(),
+            Variable::new("o").unwrap(),
+        )]));
+        let mut logical = LogicalQueryRequest::new(logical);
+        logical.budget.max_algebra_operators = 1;
+        assert!(matches!(
+            index.execute_logical(logical),
             Err(QueryError::AlgebraBudget)
         ));
 

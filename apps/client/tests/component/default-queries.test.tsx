@@ -8,9 +8,8 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CorePortFailure } from "../../src/core-worker";
 import { newDefaultQueryDocument, type DefaultQuery } from "../../src/entities/default-queries";
-import { compilePlan } from "../../src/entities/query-compile";
+import { DERIVED_SOURCE_PROVENANCE } from "../../src/entities/query-compile";
 import {
   decodePlan,
   defaultPlan,
@@ -43,7 +42,7 @@ async function seed(
   } = {},
 ): Promise<DefaultQuery> {
   const id = `dq-${crypto.randomUUID()}`;
-  const source = query.source ?? (query.plan ? compilePlan(query.plan).source : SOURCE);
+  const source = query.source ?? (query.plan ? "" : SOURCE);
   await harness.settle(() =>
     harness.session.execute({
       type: "create_default_query",
@@ -60,7 +59,8 @@ async function seed(
 }
 
 /** One row, one block, so a `SELECT ?block` has something true to answer with. */
-function oneRow(harness: Harness): void {
+async function oneRow(harness: Harness): Promise<void> {
+  const blockId = await installResultBlock(harness);
   harness.port.queryResult = {
     kind: "select",
     variables: ["block"],
@@ -68,18 +68,20 @@ function oneRow(harness: Harness): void {
       {
         block: {
           kind: "iri",
-          value: `urn:neoseq:entity:${GRAPH_ID}:block:b-1`,
-          entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+          value: `urn:neoseq:entity:${GRAPH_ID}:block:${blockId}`,
+          entity: { kind: "block", owner: { kind: "page", id: "home" }, id: blockId },
         },
       },
     ],
     revision: 2,
-    frontier: "fake-2",
+    frontier: "fixture-2",
   };
+  await revealInjectedResult(harness, blockId, "One result");
 }
 
 /** The default block plan's two display columns, plus its carried row identity. */
-function tableRow(harness: Harness): void {
+async function tableRow(harness: Harness): Promise<void> {
+  const blockId = await installResultBlock(harness);
   harness.port.queryResult = {
     kind: "select",
     variables: ["q_subject", "text", "page"],
@@ -87,8 +89,8 @@ function tableRow(harness: Harness): void {
       {
         q_subject: {
           kind: "iri",
-          value: `urn:neoseq:entity:${GRAPH_ID}:block:b-1`,
-          entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+          value: `urn:neoseq:entity:${GRAPH_ID}:block:${blockId}`,
+          entity: { kind: "block", owner: { kind: "page", id: "home" }, id: blockId },
         },
         text: {
           kind: "literal",
@@ -103,8 +105,35 @@ function tableRow(harness: Harness): void {
       },
     ],
     revision: 3,
-    frontier: "fake-3",
+    frontier: "fixture-3",
   };
+  await revealInjectedResult(harness, blockId, "Ship the builder");
+}
+
+async function installResultBlock(harness: Harness): Promise<string> {
+  await harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
+  const result = await harness.session.execute({
+    type: "insert_block",
+    owner: { kind: "page", id: "home" },
+    parent: null,
+    index: 0,
+    markdown: "",
+  });
+  if (!result.created_block) throw new Error("query result block was not created");
+  return result.created_block;
+}
+
+async function revealInjectedResult(
+  harness: Harness,
+  blockId: string,
+  markdown: string,
+): Promise<void> {
+  await harness.session.execute({
+    type: "edit_markdown",
+    owner: { kind: "page", id: "home" },
+    block_id: blockId,
+    markdown,
+  });
 }
 
 beforeEach(() => {
@@ -124,15 +153,16 @@ describe("writing a standing question", () => {
 
     await user.click(screen.getByTestId("add-default-query"));
     const [built] = queries(harness);
-    // A built query stores its plan beside the SPARQL it compiled to, exactly as
-    // a query owned by a block does — one canonical shape in the graph.
+    // The fake observes the same core-owned derivation boundary as a block query.
     expect(
       decodePlan(
         built.document.views[0].definition.plan!.payload,
         built.document.views[0].definition.plan!.version,
       )?.subject,
     ).toBe("block");
-    expect(built.document.views[0].definition.source).toContain("?q_subject a neo:Block .");
+    expect(built.document.views[0].definition.source.startsWith(DERIVED_SOURCE_PROVENANCE)).toBe(
+      true,
+    );
     expect(await screen.findByTestId("query-builder")).toBeInTheDocument();
 
     // There is no second authoring grammar, here or anywhere: every standing
@@ -167,8 +197,9 @@ describe("writing a standing question", () => {
             column.source.kind === "property" && column.source.key === "builtin.task-status",
         ),
       ).toBe(true);
-      // The plan and the SPARQL it compiles to are written together, never apart.
-      expect(query.document.views[0].definition.source).toContain("prop:builtin.task-status");
+      expect(query.document.views[0].definition.source.startsWith(DERIVED_SOURCE_PROVENANCE)).toBe(
+        true,
+      );
     });
   });
 
@@ -180,14 +211,18 @@ describe("writing a standing question", () => {
     const title = screen.getByTestId("default-query-title");
     expect(title).toHaveAttribute("placeholder", "Blocks");
 
-    await user.type(title, "Today");
+    // One authored value is one domain rename. Character-by-character typing
+    // would intentionally queue several canonical writes, which this test does
+    // not need in order to specify the naming boundary.
+    await user.click(title);
+    await user.paste("Today");
     await waitFor(() => expect(queries(harness)[0].title).toBe("Today"));
   });
 
   it("says how much a standing question finds, at the size the journal prints it", async () => {
     const user = userEvent.setup();
     const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
-    oneRow(harness);
+    await oneRow(harness);
 
     await user.click(screen.getByTestId("add-default-query"));
 
@@ -199,14 +234,11 @@ describe("writing a standing question", () => {
   it("reports a failing query as a failure rather than as an empty answer", async () => {
     const user = userEvent.setup();
     const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
-    harness.port.query = () =>
-      Promise.reject(
-        new CorePortFailure({
-          code: "invalid_query",
-          message: "unreadable",
-          retryable: false,
-        }),
-      );
+    harness.port.queryFailure = {
+      code: "invalid_query",
+      message: "unreadable",
+      retryable: false,
+    };
 
     await user.click(screen.getByTestId("add-default-query"));
 
@@ -275,8 +307,7 @@ describe("reading a standing question", () => {
 
     // A canonical change reruns what is mounted, which is how a standing question
     // stays current while the day is being written.
-    oneRow(harness);
-    await harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
+    await oneRow(harness);
     await waitFor(() =>
       expect(within(section).getByTestId("query-count")).toHaveTextContent("1 result"),
     );
@@ -302,13 +333,15 @@ describe("reading a standing question", () => {
     // What runs is still readable, which is the only way to check a question
     // whose editor is elsewhere.
     await user.click(await screen.findByRole("menuitem", { name: "Show SPARQL" }));
-    expect(await screen.findByTestId("query-compiled")).toHaveTextContent("a neo:Block");
+    expect(await screen.findByTestId("query-compiled")).toHaveTextContent(
+      DERIVED_SOURCE_PROVENANCE,
+    );
   });
 
   it("persists a table's column width and order from the presented answer", async () => {
     const user = userEvent.setup();
     const harness = await mountAt(`/g/${GRAPH_ID}/journal`);
-    tableRow(harness);
+    await tableRow(harness);
     const query = await seed(harness, { layout: "table", plan: defaultPlan("block") });
     const table = await screen.findByTestId("query-table");
     expect(within(table).getAllByRole("columnheader")[0]).toHaveAttribute("draggable", "true");

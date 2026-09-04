@@ -1,27 +1,37 @@
 mod outline;
+mod transition;
 
-use self::outline::{MergePlan, MovePlan, OutlinePlan};
+use self::transition::{CreationSlot, NormalizedTransition};
+use crate::{
+    SemanticEvent,
+    document::{
+        GRAPH_SETTINGS_SCHEMA_VERSION, MAX_DEFAULT_QUERY_TITLE, MAX_ENTITY_NAME_BYTES,
+        PAGE_REFERENCE_CHAR, PAGE_REFERENCE_MARK, PROPERTY_DOCUMENT_KEY, PROPERTY_SET_KEY,
+        PROPERTY_SHAPE_KEY, PROPERTY_SINGLE_KEY, QUERY_PLAN_STATE_KEY, QUERY_PLAN_STATE_VERSION,
+        StoredPlanState, StoredPropertyShape, decode_query_plan_state, validate_causal_document,
+    },
+};
 use domain::{
     BlockId, BlockSnapshot, Cardinality, Command, CommandEnvelope, CommandId, CommandResult,
-    DefaultQueryId, DefaultQuerySnapshot, EntityId, GraphId, GraphSettings, GraphSnapshot,
-    GraphSummary, HistoryEffect, HistoryScope, InlineContent, OUTLINE_FRAGMENT_KIND,
-    OUTLINE_FRAGMENT_VERSION, OutlineFragment, OutlineFragmentItem, OutlineFragmentPage,
-    OutlineItem, OutlineOwner, OutlineSnapshot, PageDirectoryEntry, PageId, PageReferenceSpan,
-    PageSnapshot, PageSummary, PropertyBag, PropertyChange, PropertyCopyPolicy, PropertyDocument,
-    PropertyDocumentHeader, PropertyError, PropertyField, PropertyKey, PropertyOwner,
-    PropertyTarget, PropertyType, PropertyValue, QUERY_DOCUMENT_SCHEMA, QUERY_DOCUMENT_VERSION,
-    QUERY_PROPERTY_KEY, QueryDefinition, QueryOwner, QueryPlan, QueryView, QueryViewColumn,
-    QueryViewId, QueryViewKind, QueryViewOptions, SplitPlacement, TagId, TagSnapshot, TagSummary,
-    property_copy_policy, validate_property, validate_property_field, validate_property_shape,
-    validate_property_target, validate_property_write,
+    DefaultQueryId, DefaultQuerySnapshot, EntityId, GraphConflict, GraphId, GraphSettings,
+    GraphSnapshot, GraphSummary, HistoryEffect, HistoryScope, MAX_QUERY_SOURCE_BYTES,
+    MAX_QUERY_VIEWS, OUTLINE_FRAGMENT_KIND, OUTLINE_FRAGMENT_VERSION, OutlineFragment,
+    OutlineFragmentItem, OutlineFragmentPage, OutlineItem, OutlineOwner, OutlineSnapshot,
+    PageDirectoryEntry, PageId, PageReferenceSpan, PageSnapshot, PageSummary, PropertyBag,
+    PropertyCopyPolicy, PropertyDocument, PropertyDocumentHeader, PropertyError, PropertyField,
+    PropertyKey, PropertyOwner, PropertyTarget, PropertyType, PropertyValue, QUERY_DOCUMENT_SCHEMA,
+    QUERY_DOCUMENT_VERSION, QUERY_PROPERTY_KEY, QueryDefinition, QueryOwner, QueryPlan, QueryView,
+    QueryViewColumn, QueryViewId, QueryViewKind, QueryViewOptions, TagId, TagSnapshot, TagSummary,
+    TextTarget, property_copy_policy, validate_property, validate_property_field,
+    validate_property_shape, validate_property_target, validate_property_write,
 };
 use loro::{
     Container, ContainerID, ContainerTrait, ExpandType, ExportMode, Index, LoroDoc,
     LoroEncodeError, LoroError, LoroMap, LoroText, LoroTree, LoroValue, StyleConfig,
     StyleConfigMap, Subscription, TextDelta, TreeID, TreeParentId, UndoManager, ValueOrContainer,
-    VersionVector, cursor::PosType, event::Diff,
+    VersionVector, event::Diff,
 };
-use query::{IndexDelta, IndexUnit};
+use query::{IndexChange, IndexDelta, IndexUnit, IndexUnitId, derive_plan_source};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -31,15 +41,9 @@ use thiserror::Error;
 
 pub use domain::SCHEMA_VERSION;
 
-const GRAPH_SETTINGS_SCHEMA_VERSION: u32 = 1;
 const MAX_DEFAULT_QUERIES: usize = 8;
-const MAX_DEFAULT_QUERY_TITLE: usize = 80;
-const MAX_ENTITY_NAME_BYTES: usize = 1024;
 const MAX_BLOCK_TEXT_BYTES: usize = 1_048_576;
-const MAX_QUERY_SOURCE_BYTES: usize = 65_536;
 const MAX_OUTLINE_FRAGMENT_BYTES: usize = 4 * MAX_BLOCK_TEXT_BYTES;
-const PAGE_REFERENCE_MARK: &str = "neoseq.page-reference";
-const PAGE_REFERENCE_CHAR: char = '\u{fffc}';
 
 /// Encoded causal baseline for a replica that has no operations yet.
 pub fn empty_version_vector() -> Vec<u8> {
@@ -51,75 +55,9 @@ const MAX_PROPERTY_CHANGES: usize = 64;
 const MAX_BATCH_COMMANDS: usize = 64;
 
 #[derive(Debug)]
-enum PreparedCommandKind<'a> {
-    Direct(&'a Command),
-    ContentEdit {
-        command: &'a Command,
-        edit: PreparedContentEdit<'a>,
-    },
-    MergeBlockBackward {
-        command: &'a Command,
-        plan: MergePlan,
-    },
-    MoveBlocks {
-        command: &'a Command,
-        plan: MovePlan,
-    },
-    IndentBlocks {
-        command: &'a Command,
-        plan: OutlinePlan,
-    },
-    OutdentBlocks {
-        command: &'a Command,
-        plan: OutlinePlan,
-    },
-    DeleteBlocks {
-        command: &'a Command,
-        plan: OutlinePlan,
-    },
-    DeleteTag {
-        command: &'a Command,
-        plan: TagDetachPlan,
-    },
-    PasteOutline {
-        command: &'a Command,
-        resolution: FragmentResolution,
-    },
-    Batch {
-        command: &'a Command,
-        plan: PreparedBatch,
-    },
-}
-
-impl<'a> PreparedCommandKind<'a> {
-    fn command(&self) -> &'a Command {
-        match self {
-            Self::Direct(command)
-            | Self::ContentEdit { command, .. }
-            | Self::MergeBlockBackward { command, .. }
-            | Self::MoveBlocks { command, .. }
-            | Self::IndentBlocks { command, .. }
-            | Self::OutdentBlocks { command, .. }
-            | Self::DeleteBlocks { command, .. }
-            | Self::DeleteTag { command, .. }
-            | Self::PasteOutline { command, .. }
-            | Self::Batch { command, .. } => command,
-        }
-    }
-}
-
-#[derive(Debug)]
-struct PreparedContentEdit<'a> {
-    owner: &'a OutlineOwner,
-    splices: Vec<PreparedContentSplice<'a>>,
-}
-
-#[derive(Debug)]
-struct PreparedContentSplice<'a> {
-    block_id: &'a BlockId,
-    index: usize,
-    delete: usize,
-    insert: PreparedContentInsert<'a>,
+enum PreparedCommandKind {
+    Transition(Box<NormalizedTransition>),
+    Batch { commands: Vec<Command> },
 }
 
 #[derive(Debug)]
@@ -127,51 +65,19 @@ struct PreparedBatch {
     affected_outlines: Vec<OutlineOwner>,
 }
 
-#[derive(Debug, Clone, Copy)]
-enum PreparedContentInsert<'a> {
-    Markdown(&'a str),
-    Inline(&'a [InlineContent]),
-}
-
-#[derive(Debug, Clone, Copy)]
-enum ContentEditRange {
-    ReplaceAll,
-    Splice { index: usize, delete: usize },
-}
-
-#[derive(Debug, Clone, Copy)]
-struct ContentEditInput<'a> {
-    block_id: &'a BlockId,
-    range: ContentEditRange,
-    insert: PreparedContentInsert<'a>,
-}
-
 #[derive(Debug)]
-struct PreparedCommand<'a> {
-    kind: PreparedCommandKind<'a>,
-    history: Option<HistoryPlan>,
+struct PreparedCommand {
+    kind: PreparedCommandKind,
+    history: HistoryPlan,
 }
 
-impl PreparedCommand<'_> {
-    fn command(&self) -> &Command {
-        self.kind.command()
+impl PreparedCommand {
+    fn semantic(&self) -> SemanticEvent {
+        match &self.kind {
+            PreparedCommandKind::Transition(transition) => transition.semantic(),
+            PreparedCommandKind::Batch { .. } => SemanticEvent::CommandBatchApplied,
+        }
     }
-
-    fn semantic(&self) -> &'static str {
-        semantic_name(self.command())
-    }
-}
-
-#[derive(Debug, Clone)]
-struct TagDetachOutline {
-    owner: OutlineOwner,
-    root: bool,
-    blocks: Vec<BlockId>,
-}
-
-#[derive(Debug, Clone)]
-struct TagDetachPlan {
-    outlines: Vec<TagDetachOutline>,
 }
 
 #[derive(Debug, Clone)]
@@ -268,6 +174,10 @@ pub enum CoreError {
     EmptyName { entity: &'static str },
     #[error("block does not exist or is deleted: {0}")]
     BlockNotFound(BlockId),
+    #[error("first sibling cannot be indented")]
+    FirstSiblingIndent,
+    #[error("root block cannot be outdented")]
+    RootBlockOutdent,
     #[error("invalid block hierarchy: {0}")]
     InvalidHierarchy(String),
     #[error("text exceeds the resource limit")]
@@ -298,18 +208,100 @@ pub enum CoreError {
 pub struct CoreExecution {
     pub result: CommandResult,
     pub update: Vec<u8>,
-    pub semantic: String,
-    pub duplicate: bool,
+    pub semantic: SemanticEvent,
     pub changes: GraphChangeSet,
+}
+
+/// Mutation-local bookkeeping used while applying a prepared command.
+///
+/// `changed` controls internal follow-up work such as timestamps and batch
+/// aggregation. It is deliberately not part of `CommandResult`: exported
+/// update bytes are the sole authority at the core boundary.
+#[derive(Debug, Default)]
+struct MutationOutcome {
+    created_page: Option<PageId>,
+    created_block: Option<BlockId>,
+    created_tag: Option<TagId>,
+    changed: bool,
+}
+
+impl MutationOutcome {
+    fn merge(&mut self, nested: Self) {
+        self.created_page = self.created_page.take().or(nested.created_page);
+        self.created_block = self.created_block.take().or(nested.created_block);
+        self.created_tag = self.created_tag.take().or(nested.created_tag);
+        self.changed |= nested.changed;
+    }
+
+    fn into_result(
+        self,
+        command_id: CommandId,
+        history_effect: Option<HistoryEffect>,
+    ) -> CommandResult {
+        CommandResult {
+            command_id,
+            created_page: self.created_page,
+            created_block: self.created_block,
+            created_tag: self.created_tag,
+            history_effect,
+        }
+    }
 }
 
 /// Projection publication units affected by one local command or remote
 /// import. An unclassifiable relevant diff requests a safe full rebuild.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct GraphChangeSet {
-    pub pages: BTreeSet<PageId>,
-    pub tags: BTreeSet<TagId>,
-    pub rebuild: bool,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GraphChangeSet {
+    Incremental {
+        pages: BTreeSet<PageId>,
+        tags: BTreeSet<TagId>,
+    },
+    Rebuild,
+}
+
+impl Default for GraphChangeSet {
+    fn default() -> Self {
+        Self::Incremental {
+            pages: BTreeSet::new(),
+            tags: BTreeSet::new(),
+        }
+    }
+}
+
+impl GraphChangeSet {
+    pub fn is_rebuild(&self) -> bool {
+        matches!(self, Self::Rebuild)
+    }
+
+    pub fn pages(&self) -> Option<&BTreeSet<PageId>> {
+        match self {
+            Self::Incremental { pages, .. } => Some(pages),
+            Self::Rebuild => None,
+        }
+    }
+
+    pub fn tags(&self) -> Option<&BTreeSet<TagId>> {
+        match self {
+            Self::Incremental { tags, .. } => Some(tags),
+            Self::Rebuild => None,
+        }
+    }
+
+    fn require_rebuild(&mut self) {
+        *self = Self::Rebuild;
+    }
+
+    fn include_page(&mut self, page: PageId) {
+        if let Self::Incremental { pages, .. } = self {
+            pages.insert(page);
+        }
+    }
+
+    fn include_tag(&mut self, tag: TagId) {
+        if let Self::Incremental { tags, .. } = self {
+            tags.insert(tag);
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -335,41 +327,10 @@ pub struct GraphCore {
     redo_history: Vec<HistoryEntry>,
 }
 
-/// Opaque server-room candidate containing one already imported and validated
-/// remote update.
-///
-/// Preparing this value does not mutate the live core. The server may persist
-/// the exact update bytes and consume the candidate only after that commit is
-/// known to have inserted a new record. Converting it into a server baseline
-/// deliberately starts fresh local command and undo history; interactive client
-/// runtimes must continue to use [`GraphCore::import_remote`].
-#[must_use = "a prepared server update must be adopted after durable insertion or discarded"]
-pub struct PreparedServerRemoteUpdate {
-    baseline: GraphCore,
-    gc_checkpoint_len: usize,
-}
-
-impl PreparedServerRemoteUpdate {
-    /// Size of a garbage-collected checkpoint exported from the validated
-    /// candidate state.
-    pub fn gc_checkpoint_len(&self) -> usize {
-        self.gc_checkpoint_len
-    }
-
-    /// Consumes the prepared state as a disposable server-room baseline.
-    ///
-    /// The returned core intentionally has no session-local command cache or
-    /// undo/redo history. This is an infallible ownership transfer, not another
-    /// remote import or validation pass.
-    pub fn into_server_baseline(self) -> GraphCore {
-        self.baseline
-    }
-}
-
 impl HistoryPlan {
-    fn finish(mut self, result: &CommandResult, core: &GraphCore) -> HistoryEntry {
+    fn finish(mut self, outcome: &MutationOutcome, core: &GraphCore) -> HistoryEntry {
         if self.redo_created_block
-            && let Some(block_id) = &result.created_block
+            && let Some(block_id) = &outcome.created_block
             && let Some(owner) = self.entry.affected_outlines.first()
         {
             let target = core
@@ -397,7 +358,7 @@ impl HistoryPlan {
             self.entry.redo_candidates.insert(0, target);
         }
         if self.redo_created_page
-            && let Some(page_id) = &result.created_page
+            && let Some(page_id) = &outcome.created_page
         {
             self.entry.redo_candidates.insert(
                 0,
@@ -465,7 +426,7 @@ impl ProjectionChangeTracker {
                 continue;
             }
             if change.unknown {
-                result.rebuild = true;
+                result.require_rebuild();
                 continue;
             }
             if page_scope
@@ -475,7 +436,7 @@ impl ProjectionChangeTracker {
                 // Every referring block materializes this title. The canonical
                 // references do not change, but the disposable RDF/text index
                 // must refresh those derived strings as one coherent view.
-                result.rebuild = true;
+                result.require_rebuild();
             }
 
             let mut resolved = false;
@@ -483,7 +444,7 @@ impl ProjectionChangeTracker {
                 resolved = true;
                 for key in &change.map_keys {
                     if let Ok(page_id) = PageId::new(key) {
-                        result.pages.insert(page_id);
+                        result.include_page(page_id);
                     }
                 }
             }
@@ -491,7 +452,7 @@ impl ProjectionChangeTracker {
                 resolved = true;
                 for key in &change.map_keys {
                     if let Ok(tag_id) = TagId::new(key) {
-                        result.tags.insert(tag_id);
+                        result.include_tag(tag_id);
                     }
                 }
             }
@@ -508,7 +469,7 @@ impl ProjectionChangeTracker {
                         .is_some_and(|page| page.id() == *container_id)
                 {
                     if let Ok(page_id) = PageId::new(&key) {
-                        result.pages.insert(page_id);
+                        result.include_page(page_id);
                     }
                     resolved = true;
                 }
@@ -519,14 +480,14 @@ impl ProjectionChangeTracker {
                         .is_some_and(|tag| tag.id() == *container_id)
                 {
                     if let Ok(tag_id) = TagId::new(&key) {
-                        result.tags.insert(tag_id);
+                        result.include_tag(tag_id);
                     }
                     resolved = true;
                 }
             }
 
             if !resolved {
-                result.rebuild = true;
+                result.require_rebuild();
             }
         }
         result
@@ -569,7 +530,7 @@ fn path_is_below_root(
     })
 }
 
-fn configure_inline_content(doc: &LoroDoc) {
+pub(crate) fn configure_inline_content(doc: &LoroDoc) {
     let mut styles = StyleConfigMap::default_rich_text_config();
     styles.insert(
         PAGE_REFERENCE_MARK.into(),
@@ -578,22 +539,31 @@ fn configure_inline_content(doc: &LoroDoc) {
     doc.config_text_style(styles);
 }
 
+pub(crate) fn new_document(
+    graph_id: &GraphId,
+    peer_id: u64,
+    now: &str,
+) -> Result<LoroDoc, CoreError> {
+    let doc = LoroDoc::new();
+    configure_inline_content(&doc);
+    doc.set_peer_id(peer_id)?;
+    let meta = doc.get_map("meta");
+    meta.insert("graph_id", graph_id.as_str())?;
+    meta.insert("schema_version", i64::from(SCHEMA_VERSION))?;
+    let settings = doc.get_map("graph_settings");
+    settings.insert("schema_version", i64::from(GRAPH_SETTINGS_SCHEMA_VERSION))?;
+    let _ = settings.ensure_mergeable_map("default_queries")?;
+    let _ = doc.get_map("pages");
+    let _ = doc.get_map("tags");
+    doc.set_next_commit_origin("system:init");
+    doc.set_next_commit_message(&format!("initialize graph at {now}"));
+    doc.commit();
+    Ok(doc)
+}
+
 impl GraphCore {
     pub fn new(graph_id: GraphId, peer_id: u64, now: &str) -> Result<Self, CoreError> {
-        let doc = LoroDoc::new();
-        configure_inline_content(&doc);
-        doc.set_peer_id(peer_id)?;
-        let meta = doc.get_map("meta");
-        meta.insert("graph_id", graph_id.as_str())?;
-        meta.insert("schema_version", i64::from(SCHEMA_VERSION))?;
-        let settings = doc.get_map("graph_settings");
-        settings.insert("schema_version", i64::from(GRAPH_SETTINGS_SCHEMA_VERSION))?;
-        let _ = settings.ensure_mergeable_map("default_queries")?;
-        let _ = doc.get_map("pages");
-        let _ = doc.get_map("tags");
-        doc.set_next_commit_origin("system:init");
-        doc.set_next_commit_message(&format!("initialize graph at {now}"));
-        doc.commit();
+        let doc = new_document(&graph_id, peer_id, now)?;
         let undo = UndoManager::new(&doc);
         Ok(Self {
             graph_id,
@@ -629,7 +599,7 @@ impl GraphCore {
         configure_inline_content(&doc);
         doc.set_peer_id(peer_id)?;
         verify_schema(&doc, &graph_id)?;
-        validate_unique_entity_names(&doc)?;
+        validate_entity_names(&doc)?;
         enable_outlines(&doc)?;
         let undo = UndoManager::new(&doc);
         Ok(Self {
@@ -651,7 +621,7 @@ impl GraphCore {
             return Err(CoreError::MissingDependencies);
         }
         verify_schema(&candidate, &self.graph_id)?;
-        validate_unique_entity_names(&candidate)?;
+        validate_entity_names(&candidate)?;
 
         let status = self.doc.import(update)?;
         if status.pending.is_some() {
@@ -682,7 +652,7 @@ impl GraphCore {
         configure_inline_content(&staged);
         staged.set_peer_id(peer_id)?;
         verify_schema(&staged, &self.graph_id)?;
-        validate_unique_entity_names(&staged)?;
+        validate_entity_names(&staged)?;
         enable_outlines(&staged)?;
         self.doc = staged;
         self.reset_local_history();
@@ -733,8 +703,7 @@ impl GraphCore {
             return Ok(CoreExecution {
                 result: result.clone(),
                 update: Vec::new(),
-                semantic: "CommandDeduplicated".to_owned(),
-                duplicate: true,
+                semantic: SemanticEvent::CommandDeduplicated,
                 changes: GraphChangeSet::default(),
             });
         }
@@ -742,33 +711,26 @@ impl GraphCore {
         let before = self.doc.oplog_vv();
         let semantic;
         let mut history_plan = None;
-        let mut result = CommandResult {
-            command_id: envelope.command_id.clone(),
-            created_page: None,
-            created_block: None,
-            created_tag: None,
-            changed: true,
-            history_effect: None,
-        };
+        let mut outcome = MutationOutcome::default();
+        let mut history_effect = None;
         let change_tracker = ProjectionChangeTracker::new(&self.doc);
 
         match &envelope.command {
             Command::Undo => {
-                semantic = "LocalUndo".to_owned();
+                semantic = SemanticEvent::LocalUndo;
                 if self.undo_history.is_empty() {
                     if self.undo.can_undo() {
                         self.reset_local_history();
                         return Err(CoreError::HistoryMetadataMismatch);
                     }
-                    result.changed = false;
                     self.doc.commit();
                     let changes = change_tracker.finish(&self.doc);
+                    let result = outcome.into_result(envelope.command_id.clone(), None);
                     self.remember(envelope.command_id.as_str(), result.clone());
                     return Ok(CoreExecution {
                         result,
                         update: Vec::new(),
                         semantic,
-                        duplicate: false,
                         changes,
                     });
                 }
@@ -777,20 +739,18 @@ impl GraphCore {
                     return Err(CoreError::HistoryMetadataMismatch);
                 }
                 let backup = self.doc.fork();
-                result.changed = match self.undo.undo() {
+                let changed = match self.undo.undo() {
                     Ok(changed) => changed,
                     Err(error) => {
                         self.restore_history_backup(backup)?;
                         return Err(error.into());
                     }
                 };
-                if !result.changed {
+                if !changed {
                     self.restore_history_backup(backup)?;
                     return Err(CoreError::HistoryMetadataMismatch);
                 }
-                if result.changed
-                    && let Err(error) = validate_unique_entity_names(&self.doc)
-                {
+                if let Err(error) = validate_entity_names(&self.doc) {
                     self.restore_history_backup(backup)?;
                     return Err(error);
                 }
@@ -798,26 +758,25 @@ impl GraphCore {
                     .undo_history
                     .pop()
                     .expect("history metadata was checked before undo");
-                result.history_effect = Some(self.history_effect(&entry, HistoryDirection::Undo));
+                history_effect = Some(self.history_effect(&entry, HistoryDirection::Undo));
                 self.redo_history.push(entry);
                 self.doc.commit();
             }
             Command::Redo => {
-                semantic = "LocalRedo".to_owned();
+                semantic = SemanticEvent::LocalRedo;
                 if self.redo_history.is_empty() {
                     if self.undo.can_redo() {
                         self.reset_local_history();
                         return Err(CoreError::HistoryMetadataMismatch);
                     }
-                    result.changed = false;
                     self.doc.commit();
                     let changes = change_tracker.finish(&self.doc);
+                    let result = outcome.into_result(envelope.command_id.clone(), None);
                     self.remember(envelope.command_id.as_str(), result.clone());
                     return Ok(CoreExecution {
                         result,
                         update: Vec::new(),
                         semantic,
-                        duplicate: false,
                         changes,
                     });
                 }
@@ -826,20 +785,18 @@ impl GraphCore {
                     return Err(CoreError::HistoryMetadataMismatch);
                 }
                 let backup = self.doc.fork();
-                result.changed = match self.undo.redo() {
+                let changed = match self.undo.redo() {
                     Ok(changed) => changed,
                     Err(error) => {
                         self.restore_history_backup(backup)?;
                         return Err(error.into());
                     }
                 };
-                if !result.changed {
+                if !changed {
                     self.restore_history_backup(backup)?;
                     return Err(CoreError::HistoryMetadataMismatch);
                 }
-                if result.changed
-                    && let Err(error) = validate_unique_entity_names(&self.doc)
-                {
+                if let Err(error) = validate_entity_names(&self.doc) {
                     self.restore_history_backup(backup)?;
                     return Err(error);
                 }
@@ -847,19 +804,19 @@ impl GraphCore {
                     .redo_history
                     .pop()
                     .expect("history metadata was checked before redo");
-                result.history_effect = Some(self.history_effect(&entry, HistoryDirection::Redo));
+                history_effect = Some(self.history_effect(&entry, HistoryDirection::Redo));
                 self.undo_history.push(entry);
                 self.doc.commit();
             }
             command => {
                 let prepared = self.prepare(command)?;
-                semantic = prepared.semantic().to_owned();
-                history_plan = prepared.history.clone();
+                semantic = prepared.semantic();
+                history_plan = Some(prepared.history.clone());
                 self.undo.group_start()?;
                 self.doc.set_next_commit_origin("local:command");
                 self.doc
                     .set_next_commit_message(envelope.command_id.as_str());
-                let apply_result = self.apply(&prepared, now, &mut result);
+                let apply_result = self.apply(&prepared, now, &mut outcome);
                 if apply_result.is_ok() {
                     self.doc.commit();
                 }
@@ -877,16 +834,16 @@ impl GraphCore {
         if !update.is_empty()
             && let Some(plan) = history_plan
         {
-            let entry = plan.finish(&result, self);
+            let entry = plan.finish(&outcome, self);
             self.undo_history.push(entry);
             self.redo_history.clear();
         }
+        let result = outcome.into_result(envelope.command_id.clone(), history_effect);
         self.remember(envelope.command_id.as_str(), result.clone());
         Ok(CoreExecution {
             result,
             update,
             semantic,
-            duplicate: false,
             changes,
         })
     }
@@ -915,44 +872,6 @@ impl GraphCore {
         self.validated_remote_candidate_doc(update).map(|_| ())
     }
 
-    /// Prepares a remote update for a durable server room without mutating its
-    /// live baseline.
-    ///
-    /// The update is imported exactly once into a disposable fork. Dependency,
-    /// graph/schema, entity-name, and tag-outline invariants are validated there,
-    /// and the garbage-collected checkpoint size is measured before this method
-    /// returns. After the matching bytes are durably inserted, the server adopts
-    /// the returned candidate with
-    /// [`PreparedServerRemoteUpdate::into_server_baseline`]. A duplicate or
-    /// failed durable outcome must discard it.
-    ///
-    /// Adoption creates a fresh server baseline and therefore does not preserve
-    /// local command idempotency or undo/redo history. Client runtimes should use
-    /// [`GraphCore::import_remote`] instead.
-    pub fn prepare_server_remote_update(
-        &self,
-        update: &[u8],
-    ) -> Result<PreparedServerRemoteUpdate, CoreError> {
-        let candidate = self.validated_remote_candidate_doc(update)?;
-        let frontiers = candidate.oplog_frontiers();
-        let gc_checkpoint_len = candidate
-            .export(ExportMode::shallow_snapshot(&frontiers))?
-            .len();
-        let undo = UndoManager::new(&candidate);
-        Ok(PreparedServerRemoteUpdate {
-            baseline: Self {
-                graph_id: self.graph_id.clone(),
-                doc: candidate,
-                undo,
-                command_results: BTreeMap::new(),
-                command_order: VecDeque::new(),
-                undo_history: Vec::new(),
-                redo_history: Vec::new(),
-            },
-            gc_checkpoint_len,
-        })
-    }
-
     fn validated_remote_candidate_doc(&self, update: &[u8]) -> Result<LoroDoc, CoreError> {
         // Validate on a deep fork first: a rejected remote update must not
         // partially enter the canonical document. A fork receives a new random
@@ -965,7 +884,7 @@ impl GraphCore {
             return Err(CoreError::MissingDependencies);
         }
         verify_schema(&candidate, &self.graph_id)?;
-        validate_unique_entity_names(&candidate)?;
+        validate_entity_names(&candidate)?;
         enable_outlines(&candidate)?;
         Ok(candidate)
     }
@@ -1013,7 +932,7 @@ impl GraphCore {
         doc.set_next_commit_message("clone graph into a new identity");
         doc.commit();
         verify_schema(&doc, &target_graph_id)?;
-        validate_unique_entity_names(&doc)?;
+        validate_entity_names(&doc)?;
         let frontiers = doc.oplog_frontiers();
         Ok(doc.export(ExportMode::shallow_snapshot(&frontiers))?)
     }
@@ -1041,98 +960,181 @@ impl GraphCore {
         Ok(self.doc.export(ExportMode::updates(&version))?)
     }
 
-    pub fn snapshot(&self) -> Result<GraphSnapshot, CoreError> {
-        let mut quarantined = Vec::new();
-        let live_tags = live_tag_ids(&self.doc);
-        let page_directory = page_directory(&self.doc, &mut quarantined);
-        let directory = page_directory
-            .iter()
-            .map(|entry| (entry.id.clone(), entry.clone()))
-            .collect::<BTreeMap<_, _>>();
-        let tags = tag_snapshots(&self.doc, &live_tags, &directory, &mut quarantined)?;
-        let pages = self.doc.get_map("pages");
-        let mut snapshots = BTreeMap::<PageId, PageSnapshot>::new();
+    /// Projects the complete public graph and its diagnostics in one walk per
+    /// canonical entity. Snapshot and summary are views of this same result;
+    /// neither performs a second interpretation of CRDT state.
+    fn project_graph(&self) -> Result<ProjectedGraph, CoreError> {
+        let mut diagnostics = ProjectionDiagnostics::default();
+        let mut tag_headers = BTreeMap::<TagId, (TagSummary, LoroMap)>::new();
+        self.doc.get_map("tags").for_each(|raw_id, value| {
+            let Ok(tag_id) = TagId::new(raw_id) else {
+                diagnostics
+                    .quarantined
+                    .push(format!("tag:{raw_id}:invalid-id"));
+                return;
+            };
+            let Some(tag) = value_into_map(value) else {
+                diagnostics
+                    .quarantined
+                    .push(format!("tag:{raw_id}:not-map"));
+                return;
+            };
+            if let Some(summary) = project_tag_summary(&tag_id, &tag, &mut diagnostics) {
+                tag_headers.insert(tag_id, (summary, tag));
+            }
+        });
+        let live_tags = tag_headers.keys().cloned().collect::<BTreeSet<_>>();
 
-        pages.for_each(|raw_id, value| {
+        let mut page_directory = BTreeMap::<PageId, PageDirectoryEntry>::new();
+        let mut page_headers = BTreeMap::<PageId, (PageSnapshot, LoroMap)>::new();
+        self.doc.get_map("pages").for_each(|raw_id, value| {
             let Ok(page_id) = PageId::new(raw_id) else {
-                quarantined.push(format!("page:{raw_id}:invalid-id"));
+                diagnostics
+                    .quarantined
+                    .push(format!("page:{raw_id}:invalid-id"));
                 return;
             };
             let Some(page) = value_into_map(value) else {
-                quarantined.push(format!("page:{raw_id}:not-map"));
+                diagnostics
+                    .quarantined
+                    .push(format!("page:{raw_id}:not-map"));
                 return;
             };
-            if let Some(snapshot) = page_metadata(&page_id, &page, &live_tags, &mut quarantined) {
-                snapshots.insert(page_id, snapshot);
+            let Some(header) = project_page_header(&page_id, &page, &live_tags, &mut diagnostics)
+            else {
+                return;
+            };
+            page_directory.insert(page_id.clone(), header.directory);
+            if let Some(snapshot) = header.snapshot {
+                page_headers.insert(page_id, (snapshot, page));
             }
         });
+        let directory = page_directory.clone();
 
-        for (page_id, snapshot) in &mut snapshots {
-            let page = self.require_page(page_id)?;
+        let mut tags = Vec::with_capacity(tag_headers.len());
+        for (tag_id, (summary, tag)) in tag_headers {
+            let owner = OutlineOwner::Tag { id: tag_id };
+            let outline = tag_outline(&tag)?;
+            let mut blocks = Vec::new();
+            for root in outline.roots() {
+                blocks.push(project_block_snapshot(
+                    &outline,
+                    root,
+                    &owner,
+                    &live_tags,
+                    &directory,
+                    &mut diagnostics,
+                )?);
+            }
+            tags.push(TagSnapshot {
+                id: summary.id,
+                name: summary.name,
+                properties: summary.properties,
+                defaults: summary.defaults,
+                blocks,
+            });
+        }
+
+        let mut pages = BTreeMap::new();
+        for (page_id, (mut snapshot, page)) in page_headers {
+            let owner = OutlineOwner::Page {
+                id: page_id.clone(),
+            };
             let Some(outline) = page.get("outline").and_then(value_into_tree) else {
-                quarantined.push(format!("page:{page_id}:outline:missing-or-invalid"));
+                diagnostics
+                    .quarantined
+                    .push(format!("page:{page_id}:outline:missing-or-invalid"));
+                pages.insert(page_id, snapshot);
                 continue;
             };
             for root in outline.roots() {
-                snapshot.blocks.push(block_snapshot(
+                snapshot.blocks.push(project_block_snapshot(
                     &outline,
                     root,
+                    &owner,
                     &live_tags,
                     &directory,
-                    &mut quarantined,
+                    &mut diagnostics,
                 )?);
             }
+            pages.insert(page_id, snapshot);
         }
 
-        quarantined.sort();
+        let ProjectedGraphSettings {
+            settings,
+            overflow_ids,
+            query_conflicts,
+        } = project_graph_settings(&self.doc)?;
+        diagnostics.query_conflicts.extend(query_conflicts);
+        diagnostics.sort();
+
+        let mut text_conflicts =
+            page_title_limit_conflicts(pages.values().map(|page| (&page.id, page.title.as_str())));
+        text_conflicts.extend(diagnostics.text_conflicts);
+        let conflicts = projection_conflicts(
+            pages
+                .values()
+                .filter(|page| !is_journal_page(&page.properties))
+                .map(|page| (&page.id, page.title.as_str())),
+            tags.iter().map(|tag| (&tag.id, tag.name.as_str())),
+            overflow_ids,
+            text_conflicts,
+            diagnostics.query_conflicts,
+        );
+
+        Ok(ProjectedGraph {
+            pages,
+            page_directory: page_directory.into_values().collect(),
+            tags,
+            settings,
+            conflicts,
+            quarantined: diagnostics.quarantined,
+        })
+    }
+
+    pub fn snapshot(&self) -> Result<GraphSnapshot, CoreError> {
+        let projection = self.project_graph()?;
         Ok(GraphSnapshot {
             schema_version: SCHEMA_VERSION,
             graph_id: self.graph_id.clone(),
-            pages: snapshots.into_values().collect(),
-            page_directory,
-            tags,
-            settings: graph_settings_snapshot(&self.doc)?,
-            quarantined,
+            pages: projection.pages.into_values().collect(),
+            page_directory: projection.page_directory,
+            tags: projection.tags,
+            settings: projection.settings,
+            conflicts: projection.conflicts,
+            quarantined: projection.quarantined,
         })
     }
 
     pub fn summary(&self) -> Result<GraphSummary, CoreError> {
-        let mut quarantined = Vec::new();
-        let live_tags = live_tag_ids(&self.doc);
-        let page_directory = page_directory(&self.doc, &mut quarantined);
-        let pages = self.doc.get_map("pages");
-        let mut page_summaries = BTreeMap::<PageId, PageSummary>::new();
-        pages.for_each(|raw_id, value| {
-            let Ok(page_id) = PageId::new(raw_id) else {
-                quarantined.push(format!("page:{raw_id}:invalid-id"));
-                return;
-            };
-            let Some(page) = value_into_map(value) else {
-                quarantined.push(format!("page:{raw_id}:not-map"));
-                return;
-            };
-            if let Some(page) = page_metadata(&page_id, &page, &live_tags, &mut quarantined) {
-                page_summaries.insert(
-                    page_id,
-                    PageSummary {
-                        id: page.id,
-                        title: page.title,
-                        properties: page.properties,
-                        tags: page.tags,
-                    },
-                );
-            }
-        });
-        let tags = tag_summaries(&self.doc, &mut quarantined);
-        quarantined.sort();
+        let projection = self.project_graph()?;
         Ok(GraphSummary {
             schema_version: SCHEMA_VERSION,
             graph_id: self.graph_id.clone(),
-            pages: page_summaries.into_values().collect(),
-            page_directory,
-            tags,
-            settings: graph_settings_snapshot(&self.doc)?,
-            quarantined,
+            pages: projection
+                .pages
+                .into_values()
+                .map(|page| PageSummary {
+                    id: page.id,
+                    title: page.title,
+                    properties: page.properties,
+                    tags: page.tags,
+                })
+                .collect(),
+            page_directory: projection.page_directory,
+            tags: projection
+                .tags
+                .into_iter()
+                .map(|tag| TagSummary {
+                    id: tag.id,
+                    name: tag.name,
+                    properties: tag.properties,
+                    defaults: tag.defaults,
+                })
+                .collect(),
+            settings: projection.settings,
+            conflicts: projection.conflicts,
+            quarantined: projection.quarantined,
         })
     }
 
@@ -1164,6 +1166,7 @@ impl GraphCore {
             blocks.push(block_snapshot(
                 &outline,
                 root,
+                owner,
                 &live_tags,
                 &directory,
                 &mut quarantined,
@@ -1179,29 +1182,30 @@ impl GraphCore {
     /// means the Loro diff could not be classified safely and the caller must
     /// rebuild from a complete snapshot.
     pub fn index_delta(&self, changes: &GraphChangeSet) -> Result<Option<IndexDelta>, CoreError> {
-        if changes.rebuild {
+        let GraphChangeSet::Incremental {
+            pages: affected_pages,
+            tags: affected_tags,
+        } = changes
+        else {
             return Ok(None);
-        }
-        let mut pages = Vec::with_capacity(changes.pages.len());
-        let mut removed_pages = Vec::new();
-        for page_id in &changes.pages {
+        };
+        let mut index_changes = Vec::with_capacity(affected_pages.len() + affected_tags.len());
+        for page_id in affected_pages {
             match self.page_snapshot(page_id) {
-                Ok(page) => pages.push(page),
+                Ok(page) => index_changes.push(IndexChange::Upsert(IndexUnit::Page(page))),
                 Err(CoreError::PageNotFound(_)) | Err(CoreError::PageDeleted(_)) => {
-                    removed_pages.push(page_id.clone());
+                    index_changes.push(IndexChange::Remove(IndexUnitId::Page(page_id.clone())));
                 }
                 Err(error) => return Err(error),
             }
         }
 
-        let mut tags = Vec::with_capacity(changes.tags.len());
-        let mut removed_tags = Vec::new();
         let mut directory_issues = Vec::new();
         let directory = page_directory(&self.doc, &mut directory_issues)
             .into_iter()
             .map(|entry| (entry.id.clone(), entry))
             .collect::<BTreeMap<_, _>>();
-        for tag_id in &changes.tags {
+        for tag_id in affected_tags {
             let mut quarantined = Vec::new();
             if let Some(tag) = tag_snapshot_by_id(
                 &self.doc,
@@ -1210,18 +1214,12 @@ impl GraphCore {
                 &directory,
                 &mut quarantined,
             )? {
-                tags.push(tag);
+                index_changes.push(IndexChange::Upsert(IndexUnit::Tag(tag)));
             } else {
-                removed_tags.push(tag_id.clone());
+                index_changes.push(IndexChange::Remove(IndexUnitId::Tag(tag_id.clone())));
             }
         }
-        Ok(Some(IndexDelta {
-            pages,
-            removed_pages,
-            tags,
-            removed_tags,
-            frontier: self.frontier(),
-        }))
+        Ok(Some(IndexDelta::new(self.frontier(), index_changes)))
     }
 
     /// Streams the validated projection units without materializing a complete
@@ -1279,6 +1277,9 @@ impl GraphCore {
             snapshot.blocks.push(block_snapshot(
                 &outline,
                 root,
+                &OutlineOwner::Page {
+                    id: page_id.clone(),
+                },
                 live_tags,
                 &directory,
                 &mut quarantined,
@@ -1324,199 +1325,46 @@ impl GraphCore {
     /// transaction will consume. User-rejectable checks and structural reads
     /// happen here exactly once; history and mutation never re-plan against a
     /// subtly different view of the document.
-    fn prepare<'a>(&self, command: &'a Command) -> Result<PreparedCommand<'a>, CoreError> {
-        let kind = if let Some(edit) = self.prepare_content_edit(command)? {
-            PreparedCommandKind::ContentEdit { command, edit }
-        } else {
-            self.validate(command)?;
-            match command {
-                Command::MoveBlocks {
-                    block_ids,
-                    owner,
-                    parent,
-                    after,
-                } => PreparedCommandKind::MoveBlocks {
-                    command,
-                    plan: self.plan_move_blocks(
-                        owner,
-                        block_ids,
-                        parent.as_ref(),
-                        after.as_ref(),
-                    )?,
-                },
-                Command::IndentBlocks { owner, block_ids } => PreparedCommandKind::IndentBlocks {
-                    command,
-                    plan: self.plan_indent_blocks(owner, block_ids)?,
-                },
-                Command::OutdentBlocks { owner, block_ids } => PreparedCommandKind::OutdentBlocks {
-                    command,
-                    plan: self.plan_outdent_blocks(owner, block_ids)?,
-                },
-                Command::DeleteBlocks { owner, block_ids } => PreparedCommandKind::DeleteBlocks {
-                    command,
-                    plan: self.plan_delete_blocks(owner, block_ids)?,
-                },
-                Command::MergeBlockBackward { owner, block_id } => {
-                    PreparedCommandKind::MergeBlockBackward {
-                        command,
-                        plan: self.plan_merge_block_backward(owner, block_id)?,
-                    }
+    fn prepare(&self, command: &Command) -> Result<PreparedCommand, CoreError> {
+        match command {
+            Command::Batch { commands } => {
+                if commands.is_empty() || commands.len() > MAX_BATCH_COMMANDS {
+                    return Err(CoreError::InvalidBatch(format!(
+                        "expected between 1 and {MAX_BATCH_COMMANDS} commands"
+                    )));
                 }
-                Command::DeleteTag { tag_id } => PreparedCommandKind::DeleteTag {
-                    command,
-                    plan: self.plan_delete_tag(tag_id)?,
-                },
-                Command::PasteOutline { fragment, .. } => PreparedCommandKind::PasteOutline {
-                    command,
-                    resolution: self.resolve_outline_fragment(fragment)?,
-                },
-                Command::Batch { commands } => PreparedCommandKind::Batch {
-                    command,
-                    plan: self.prepare_batch(commands)?,
-                },
-                _ => PreparedCommandKind::Direct(command),
-            }
-        };
-        let history = self.plan_history(&kind)?;
-        Ok(PreparedCommand { kind, history })
-    }
-
-    fn prepare_content_edit<'a>(
-        &self,
-        command: &'a Command,
-    ) -> Result<Option<PreparedContentEdit<'a>>, CoreError> {
-        let (owner, inputs, batch_name) = match command {
-            Command::EditMarkdown {
-                owner,
-                block_id,
-                markdown,
-            } => (
-                owner,
-                vec![ContentEditInput {
-                    block_id,
-                    range: ContentEditRange::ReplaceAll,
-                    insert: PreparedContentInsert::Markdown(markdown),
-                }],
-                None,
-            ),
-            Command::SpliceMarkdown {
-                owner,
-                block_id,
-                index,
-                delete,
-                insert,
-            } => (
-                owner,
-                vec![ContentEditInput {
-                    block_id,
-                    range: ContentEditRange::Splice {
-                        index: *index,
-                        delete: *delete,
+                let plan = self.prepare_batch(commands)?;
+                let mut affected_outlines = plan.affected_outlines.clone();
+                affected_outlines.sort();
+                affected_outlines.dedup();
+                Ok(PreparedCommand {
+                    kind: PreparedCommandKind::Batch {
+                        commands: commands.to_vec(),
                     },
-                    insert: PreparedContentInsert::Markdown(insert),
-                }],
-                None,
-            ),
-            Command::SpliceMarkdowns { owner, splices } => (
-                owner,
-                splices
-                    .iter()
-                    .map(|splice| ContentEditInput {
-                        block_id: &splice.block_id,
-                        range: ContentEditRange::Splice {
-                            index: splice.index,
-                            delete: splice.delete,
+                    history: HistoryPlan {
+                        entry: HistoryEntry {
+                            scope: HistoryScope::Graph,
+                            affected_outlines,
+                            undo_candidates: Vec::new(),
+                            redo_candidates: Vec::new(),
                         },
-                        insert: PreparedContentInsert::Markdown(&splice.insert),
-                    })
-                    .collect(),
-                Some("markdown splice"),
-            ),
-            Command::SpliceBlockContent {
-                owner,
-                block_id,
-                index,
-                delete,
-                insert,
-            } => (
-                owner,
-                vec![ContentEditInput {
-                    block_id,
-                    range: ContentEditRange::Splice {
-                        index: *index,
-                        delete: *delete,
+                        redo_created_block: false,
+                        redo_created_page: false,
                     },
-                    insert: PreparedContentInsert::Inline(insert),
-                }],
-                None,
-            ),
-            Command::SpliceBlockContents { owner, splices } => (
-                owner,
-                splices
-                    .iter()
-                    .map(|splice| ContentEditInput {
-                        block_id: &splice.block_id,
-                        range: ContentEditRange::Splice {
-                            index: splice.index,
-                            delete: splice.delete,
-                        },
-                        insert: PreparedContentInsert::Inline(&splice.insert),
-                    })
-                    .collect(),
-                Some("block content splice"),
-            ),
-            _ => return Ok(None),
-        };
-
-        if let Some(batch_name) = batch_name
-            && (inputs.is_empty() || inputs.len() > MAX_STRUCTURAL_TARGETS)
-        {
-            return Err(CoreError::InvalidHierarchy(format!(
-                "{batch_name} batch must contain between 1 and {MAX_STRUCTURAL_TARGETS} blocks"
-            )));
-        }
-
-        let mut seen = BTreeSet::new();
-        let mut splices = Vec::with_capacity(inputs.len());
-        for input in inputs {
-            if let Some(batch_name) = batch_name
-                && !seen.insert(input.block_id.clone())
-            {
-                return Err(CoreError::InvalidHierarchy(format!(
-                    "{batch_name} batch contains a duplicate block"
-                )));
+                })
             }
-            self.require_block(owner, input.block_id)?;
-            match input.insert {
-                PreparedContentInsert::Markdown(insert) => {
-                    validate_text(insert, MAX_BLOCK_TEXT_BYTES)?;
-                }
-                PreparedContentInsert::Inline(insert) => validate_inline_content(self, insert)?,
+            Command::Undo | Command::Redo => {
+                unreachable!("history commands are handled before preparation")
             }
-            let text = self.block_text(owner, input.block_id)?;
-            let (index, delete) = match input.range {
-                ContentEditRange::ReplaceAll => (0, text.len_unicode()),
-                ContentEditRange::Splice { index, delete } => {
-                    if index.saturating_add(delete) > text.len_unicode() {
-                        let operation = match input.insert {
-                            PreparedContentInsert::Markdown(_) => "markdown splice",
-                            PreparedContentInsert::Inline(_) => "block content splice",
-                        };
-                        return Err(CoreError::InvalidHierarchy(format!(
-                            "{operation} is out of bounds"
-                        )));
-                    }
-                    (index, delete)
-                }
-            };
-            splices.push(PreparedContentSplice {
-                block_id: input.block_id,
-                index,
-                delete,
-                insert: input.insert,
-            });
+            _ => {
+                let transition = self.prepare_transition(command)?;
+                let history = transition.history().clone();
+                Ok(PreparedCommand {
+                    kind: PreparedCommandKind::Transition(Box::new(transition)),
+                    history,
+                })
+            }
         }
-        Ok(Some(PreparedContentEdit { owner, splices }))
     }
 
     fn prepare_batch(&self, commands: &[Command]) -> Result<PreparedBatch, CoreError> {
@@ -1526,6 +1374,9 @@ impl GraphCore {
         // scope leaves this validation boundary.
         let mut staged = self.validation_fork();
         let mut affected_outlines = Vec::new();
+        let mut created_pages = 0;
+        let mut created_tags = 0;
+        let mut created_blocks = 0;
         for command in commands {
             if matches!(
                 command,
@@ -1536,19 +1387,22 @@ impl GraphCore {
                 ));
             }
             let prepared = staged.prepare(command)?;
-            let mut result = CommandResult {
-                command_id: CommandId::new("batch-preflight")
-                    .expect("the fixed preflight command id is valid"),
-                created_page: None,
-                created_block: None,
-                created_tag: None,
-                changed: true,
-                history_effect: None,
-            };
-            if let Some(history) = &prepared.history {
-                affected_outlines.extend(history.entry.affected_outlines.iter().cloned());
+            if let PreparedCommandKind::Transition(transition) = &prepared.kind {
+                match transition.creation_slot() {
+                    Some(CreationSlot::Page) => created_pages += 1,
+                    Some(CreationSlot::Block) => created_blocks += 1,
+                    Some(CreationSlot::Tag) => created_tags += 1,
+                    None => {}
+                }
             }
-            staged.apply(&prepared, "1970-01-01T00:00:00Z", &mut result)?;
+            if created_pages > 1 || created_tags > 1 || created_blocks > 1 {
+                return Err(CoreError::InvalidBatch(
+                    "at most one page, block, and tag creation may report a result".into(),
+                ));
+            }
+            let mut outcome = MutationOutcome::default();
+            affected_outlines.extend(prepared.history.entry.affected_outlines.iter().cloned());
+            staged.apply(&prepared, "1970-01-01T00:00:00Z", &mut outcome)?;
             staged.doc.commit();
         }
         Ok(PreparedBatch { affected_outlines })
@@ -1568,947 +1422,32 @@ impl GraphCore {
         }
     }
 
-    fn validate(&self, command: &Command) -> Result<(), CoreError> {
-        match command {
-            Command::EnsurePage { page_id, title } => {
-                validate_text(title, MAX_ENTITY_NAME_BYTES)?;
-                validate_name(title, "page")?;
-                if self.doc.get_map("pages").get(page_id.as_str()).is_none() {
-                    ensure_page_name_available(&self.doc, page_id, title)?;
-                }
-            }
-            Command::EnsureTag { tag_id, name } => {
-                validate_text(name, MAX_ENTITY_NAME_BYTES)?;
-                validate_name(name, "tag")?;
-                if self.doc.get_map("tags").get(tag_id.as_str()).is_none() {
-                    ensure_tag_name_available(&self.doc, tag_id, name)?;
-                }
-            }
-            Command::RenamePage { page_id, title } => {
-                validate_text(title, MAX_ENTITY_NAME_BYTES)?;
-                validate_name(title, "page")?;
-                self.require_page(page_id)?;
-                ensure_page_name_available(&self.doc, page_id, title)?;
-            }
-            Command::RenameTag { tag_id, name } => {
-                validate_text(name, MAX_ENTITY_NAME_BYTES)?;
-                validate_name(name, "tag")?;
-                self.require_tag(tag_id)?;
-                ensure_tag_name_available(&self.doc, tag_id, name)?;
-            }
-            Command::InsertBlock {
-                owner,
-                parent,
-                markdown,
-                ..
-            } => {
-                self.require_live_outline_owner(owner)?;
-                validate_text(markdown, MAX_BLOCK_TEXT_BYTES)?;
-                if let Some(parent) = parent {
-                    self.require_block(owner, parent)?;
-                }
-            }
-            Command::SplitBlock {
-                owner,
-                block_id,
-                index,
-                placement,
-            } => {
-                self.require_live_outline_owner(owner)?;
-                self.require_block(owner, block_id)?;
-                let length = self.block_text(owner, block_id)?.len_unicode();
-                if *index > length {
-                    return Err(CoreError::InvalidHierarchy(
-                        "block split is out of bounds".into(),
-                    ));
-                }
-                if (*index == 0) != (*placement == SplitPlacement::Before) {
-                    return Err(CoreError::InvalidHierarchy(
-                        "a leading split must create a block before the target".into(),
-                    ));
-                }
-            }
-            Command::MergeBlockBackward { owner, block_id } => {
-                self.require_live_outline_owner(owner)?;
-                self.require_block(owner, block_id)?;
-            }
-            Command::InsertOutline {
-                owner,
-                parent,
-                replace,
-                items,
-                ..
-            } => {
-                self.require_live_outline_owner(owner)?;
-                if replace.is_none()
-                    && let Some(parent) = parent
-                {
-                    self.require_block(owner, parent)?;
-                }
-                validate_outline_items(items, "insert")?;
-                if let Some(block_id) = replace {
-                    self.require_block(owner, block_id)?;
-                    if !self.block_text(owner, block_id)?.to_string().is_empty() {
-                        return Err(CoreError::InvalidHierarchy(
-                            "outline replacement block is not empty".into(),
-                        ));
-                    }
-                }
-            }
-            Command::PasteOutline {
-                owner,
-                parent,
-                replace,
-                fragment,
-                ..
-            } => {
-                self.require_live_outline_owner(owner)?;
-                if replace.is_none()
-                    && let Some(parent) = parent
-                {
-                    self.require_block(owner, parent)?;
-                }
-                self.validate_outline_fragment(fragment)?;
-                if let Some(block_id) = replace {
-                    self.require_block(owner, block_id)?;
-                    if !self.block_is_plain_empty(owner, block_id)? {
-                        return Err(CoreError::InvalidHierarchy(
-                            "outline replacement block contains content or metadata".into(),
-                        ));
-                    }
-                }
-            }
-            Command::EditMarkdown { .. }
-            | Command::SpliceMarkdown { .. }
-            | Command::SpliceMarkdowns { .. }
-            | Command::SpliceBlockContent { .. }
-            | Command::SpliceBlockContents { .. } => {
-                unreachable!("content edits are validated while building their prepared form")
-            }
-            Command::MoveBlocks { .. }
-            | Command::IndentBlocks { .. }
-            | Command::OutdentBlocks { .. }
-            | Command::DeleteBlocks { .. } => {}
-            Command::DeletePage { page_id } => {
-                self.require_page(page_id)?;
-            }
-            Command::RestorePage { page_id } => {
-                let root = self.page_root(page_id)?;
-                let title = match root.get("content") {
-                    Some(ValueOrContainer::Container(Container::Text(text))) => text.to_string(),
-                    _ => {
-                        return Err(CoreError::InvalidHierarchy(
-                            "page root content is missing".to_owned(),
-                        ));
-                    }
-                };
-                validate_name(&title, "page")?;
-                ensure_page_name_available(&self.doc, page_id, &title)?;
-            }
-            Command::DeleteTag { tag_id } => {
-                self.require_live_tag(tag_id)?;
-            }
-            Command::RestoreTag { tag_id } => {
-                let tag = self.require_tag(tag_id)?;
-                let name = map_string(&tag, "name")
-                    .ok_or_else(|| CoreError::TagNotFound(tag_id.clone()))?;
-                validate_name(&name, "tag")?;
-                ensure_tag_name_available(&self.doc, tag_id, &name)?;
-            }
-            Command::EnsureProperty {
-                owner,
-                key,
-                value_type,
-                cardinality,
-            } => {
-                self.validate_property_owner(owner)?;
-                validate_property_write(key, property_owner_target(owner))?;
-                validate_property_shape(key, *value_type, *cardinality)?;
-                if *value_type == PropertyType::Document {
-                    return Err(PropertyError::DocumentCommandRequired(key.to_string()).into());
-                }
-            }
-            Command::SetProperty { owner, key, value } => {
-                self.validate_property_owner(owner)?;
-                validate_property_write(key, property_owner_target(owner))?;
-                validate_property(key, value, Cardinality::Single)?;
-                if value.property_type() == PropertyType::Document {
-                    return Err(PropertyError::DocumentCommandRequired(key.to_string()).into());
-                }
-            }
-            Command::SetProperties { owner, changes } => {
-                self.validate_property_owner(owner)?;
-                if changes.is_empty() || changes.len() > MAX_PROPERTY_CHANGES {
-                    return Err(CoreError::InvalidHierarchy(format!(
-                        "property patch must contain between 1 and {MAX_PROPERTY_CHANGES} changes"
-                    )));
-                }
-                let mut keys = BTreeSet::new();
-                for PropertyChange { key, value } in changes {
-                    if !keys.insert(key) {
-                        return Err(CoreError::InvalidHierarchy(format!(
-                            "property patch contains a duplicate key: {key}"
-                        )));
-                    }
-                    validate_property_write(key, property_owner_target(owner))?;
-                    if let Some(value) = value {
-                        validate_property(key, value, Cardinality::Single)?;
-                        if value.property_type() == PropertyType::Document {
-                            return Err(
-                                PropertyError::DocumentCommandRequired(key.to_string()).into()
-                            );
-                        }
-                    }
-                }
-            }
-            Command::AddRepeatedProperty { owner, key, value }
-            | Command::RemoveRepeatedProperty { owner, key, value } => {
-                self.validate_property_owner(owner)?;
-                validate_property_write(key, property_owner_target(owner))?;
-                validate_property(key, value, Cardinality::Set)?;
-            }
-            Command::ClearPropertyValues { owner, key }
-            | Command::RemoveProperty { owner, key } => {
-                self.validate_property_owner(owner)?;
-                validate_property_write(key, property_owner_target(owner))?;
-                if matches!(command, Command::ClearPropertyValues { .. })
-                    && key.as_str() == QUERY_PROPERTY_KEY
-                {
-                    return Err(PropertyError::DocumentCommandRequired(key.to_string()).into());
-                }
-            }
-            Command::CreateDefaultQuery {
-                default_query_id,
-                title,
-                document,
-            } => {
-                validate_default_query_title(title)?;
-                document.validate()?;
-                let queries = default_queries_map(&self.doc)?;
-                if queries.get(default_query_id.as_str()).is_some() {
-                    return Err(CoreError::InvalidHierarchy(format!(
-                        "default query id already exists: {default_query_id}"
-                    )));
-                }
-                if graph_settings_snapshot(&self.doc)?.default_queries.len() >= MAX_DEFAULT_QUERIES
-                {
-                    return Err(CoreError::InvalidHierarchy(
-                        "graph already has the maximum number of default queries".to_owned(),
-                    ));
-                }
-            }
-            Command::RenameDefaultQuery {
-                default_query_id,
-                title,
-            } => {
-                self.require_default_query(default_query_id)?;
-                validate_default_query_title(title)?;
-            }
-            Command::MoveDefaultQuery {
-                default_query_id,
-                index,
-            } => {
-                self.require_default_query(default_query_id)?;
-                if *index >= graph_settings_snapshot(&self.doc)?.default_queries.len() {
-                    return Err(CoreError::InvalidHierarchy(
-                        "default query move is out of bounds".to_owned(),
-                    ));
-                }
-            }
-            Command::DeleteDefaultQuery { default_query_id } => {
-                self.require_default_query(default_query_id)?;
-            }
-            Command::SetQuerySource {
-                owner,
-                view_id,
-                source,
-            } => {
-                self.validate_query_owner(owner)?;
-                match self.query_document_if_present(owner)? {
-                    Some(document) if !document.views.iter().any(|view| &view.id == view_id) => {
-                        return Err(PropertyError::InvalidDocument(
-                            "query view does not exist".to_owned(),
-                        )
-                        .into());
-                    }
-                    None if view_id.as_str() != "all" => {
-                        return Err(PropertyError::InvalidDocument(
-                            "a new query must begin with view all".to_owned(),
-                        )
-                        .into());
-                    }
-                    _ => {}
-                }
-                if source.len() > MAX_QUERY_SOURCE_BYTES {
-                    return Err(CoreError::TextTooLong);
-                }
-            }
-            Command::SpliceQuerySource {
-                owner,
-                view_id,
-                index,
-                delete,
-                insert,
-            } => {
-                self.validate_query_owner(owner)?;
-                let document = self.query_document(owner)?;
-                let definition = &document
-                    .views
-                    .iter()
-                    .find(|view| &view.id == view_id)
-                    .ok_or_else(|| {
-                        PropertyError::InvalidDocument("query view does not exist".to_owned())
-                    })?
-                    .definition;
-                let points = definition.source.chars().count();
-                if index.saturating_add(*delete) > points {
-                    return Err(CoreError::InvalidHierarchy(
-                        "query source splice is out of bounds".to_owned(),
-                    ));
-                }
-                let start_byte = definition
-                    .source
-                    .char_indices()
-                    .nth(*index)
-                    .map_or(definition.source.len(), |(offset, _)| offset);
-                let end_byte = definition
-                    .source
-                    .char_indices()
-                    .nth(index.saturating_add(*delete))
-                    .map_or(definition.source.len(), |(offset, _)| offset);
-                let next_len = definition.source.len() - (end_byte - start_byte) + insert.len();
-                if next_len > MAX_QUERY_SOURCE_BYTES {
-                    return Err(CoreError::TextTooLong);
-                }
-            }
-            Command::SetQueryPlan {
-                owner,
-                view_id,
-                plan,
-                source,
-            } => {
-                self.validate_query_owner(owner)?;
-                match self.query_document_if_present(owner)? {
-                    Some(document) if !document.views.iter().any(|view| &view.id == view_id) => {
-                        return Err(PropertyError::InvalidDocument(
-                            "query view does not exist".to_owned(),
-                        )
-                        .into());
-                    }
-                    None if view_id.as_str() != "all" => {
-                        return Err(PropertyError::InvalidDocument(
-                            "a new query must begin with view all".to_owned(),
-                        )
-                        .into());
-                    }
-                    _ => {}
-                }
-                plan.validate()?;
-                if source.len() > MAX_QUERY_SOURCE_BYTES {
-                    return Err(CoreError::TextTooLong);
-                }
-            }
-            Command::ClearQueryPlan { owner, view_id } => {
-                self.validate_query_owner(owner)?;
-                let document = self.query_document(owner)?;
-                if !document.views.iter().any(|view| &view.id == view_id) {
-                    return Err(PropertyError::InvalidDocument(
-                        "query view does not exist".to_owned(),
-                    )
-                    .into());
-                }
-            }
-            Command::PutQueryView { owner, view } => {
-                self.validate_query_owner(owner)?;
-                let mut document = self.query_document(owner)?;
-                if let Some(existing) = document.views.iter_mut().find(|item| item.id == view.id) {
-                    let definition = existing.definition.clone();
-                    *existing = view.clone();
-                    existing.definition = definition;
-                } else {
-                    document.views.push(view.clone());
-                }
-                document.validate()?;
-            }
-            Command::RemoveQueryView { owner, view_id } => {
-                self.validate_query_owner(owner)?;
-                let mut document = self.query_document(owner)?;
-                document.views.retain(|view| &view.id != view_id);
-                if document.views.is_empty() {
-                    return Err(PropertyError::InvalidDocument(
-                        "the last query view cannot be removed".to_owned(),
-                    )
-                    .into());
-                }
-            }
-            Command::SetQueryDefaultView { owner, view_id } => {
-                self.validate_query_owner(owner)?;
-                let document = self.query_document(owner)?;
-                if !document.views.iter().any(|view| &view.id == view_id) {
-                    return Err(PropertyError::InvalidDocument(
-                        "default query view does not exist".to_owned(),
-                    )
-                    .into());
-                }
-            }
-            Command::AddTag { entity, tag_id } => {
-                self.validate_entity(entity)?;
-                self.require_live_tag(tag_id)?;
-            }
-            Command::RemoveTag { entity, tag_id } => {
-                self.validate_entity(entity)?;
-                self.require_tag(tag_id)?;
-            }
-            Command::Batch { commands } => {
-                if commands.is_empty() || commands.len() > MAX_BATCH_COMMANDS {
-                    return Err(CoreError::InvalidBatch(format!(
-                        "expected between 1 and {MAX_BATCH_COMMANDS} commands"
-                    )));
-                }
-                let created_pages = commands
-                    .iter()
-                    .filter(|step| {
-                        matches!(
-                            step,
-                            Command::EnsurePage { .. } | Command::EnsureJournal { .. }
-                        )
-                    })
-                    .count();
-                let created_tags = commands
-                    .iter()
-                    .filter(|step| matches!(step, Command::EnsureTag { .. }))
-                    .count();
-                let created_blocks = commands
-                    .iter()
-                    .filter(|step| {
-                        matches!(
-                            step,
-                            Command::InsertBlock { .. }
-                                | Command::SplitBlock { .. }
-                                | Command::InsertOutline { .. }
-                                | Command::PasteOutline { .. }
-                        )
-                    })
-                    .count();
-                if created_pages > 1 || created_tags > 1 || created_blocks > 1 {
-                    return Err(CoreError::InvalidBatch(
-                        "at most one page, block, and tag creation may report a result".into(),
-                    ));
-                }
-            }
-            Command::EnsureJournal { .. } | Command::Undo | Command::Redo => {}
-        }
-        Ok(())
-    }
-
     fn apply(
         &mut self,
-        prepared: &PreparedCommand<'_>,
+        prepared: &PreparedCommand,
         now: &str,
-        result: &mut CommandResult,
+        outcome: &mut MutationOutcome,
     ) -> Result<(), CoreError> {
-        if let PreparedCommandKind::ContentEdit { edit, .. } = &prepared.kind {
-            self.apply_content_edit(edit)?;
-            if result.changed {
-                self.touch_content_edit(edit, now)?;
+        match &prepared.kind {
+            PreparedCommandKind::Transition(transition) => {
+                self.apply_transition(transition, now, outcome)
             }
-            return Ok(());
-        }
-        let command = prepared.command();
-        match command {
-            Command::EnsurePage { page_id, title } => {
-                result.created_page =
-                    self.ensure_page(page_id, "regular", Some(title), None, now)?;
-                result.changed = result.created_page.is_some();
-            }
-            Command::EnsureJournal { date } => {
-                let page_id = self.journal_page_id(date);
-                result.created_page =
-                    self.ensure_page(&page_id, "journal", None, Some(date.clone()), now)?;
-                result.changed = result.created_page.is_some();
-            }
-            Command::RenamePage { page_id, title } => {
-                replace_text(
-                    &self.page_root(page_id)?.ensure_mergeable_text("content")?,
-                    title,
-                )?;
-            }
-            Command::DeletePage { page_id } => {
-                let bag = self.page_properties(page_id)?;
-                set_single(
-                    &bag,
-                    &key("builtin.deleted-at"),
-                    &PropertyValue::String(now.to_owned()),
-                )?;
-            }
-            Command::RestorePage { page_id } => {
-                remove_property_field(&self.page_properties(page_id)?, &key("builtin.deleted-at"))?;
-            }
-            Command::EnsureTag { tag_id, name } => {
-                result.created_tag = self.ensure_tag(tag_id, name, now)?;
-                result.changed = result.created_tag.is_some();
-            }
-            Command::RenameTag { tag_id, name } => {
-                self.require_tag(tag_id)?.insert("name", name.as_str())?;
-            }
-            Command::DeleteTag { tag_id } => {
-                let PreparedCommandKind::DeleteTag { plan, .. } = &prepared.kind else {
-                    unreachable!("tag deletion was not prepared as a tag deletion")
-                };
-                self.apply_delete_tag(tag_id, plan, now)?;
-            }
-            Command::RestoreTag { tag_id } => {
-                remove_property_field(
-                    &self.tag_bag(tag_id, "properties")?,
-                    &key("builtin.deleted-at"),
-                )?;
-            }
-            Command::InsertBlock {
-                owner,
-                parent,
-                index,
-                markdown,
-            } => {
-                let outline = self.outline(owner)?;
-                let parent_tree = parent.as_ref().map(tree_id).transpose()?;
-                let available = parent_tree.map_or_else(
-                    || outline.roots().len(),
-                    |parent| outline.children(parent).map_or(0, |items| items.len()),
-                );
-                let tree_index = (*index).min(available);
-                let node = outline.create_at(parent_tree, tree_index)?;
-                let meta = outline.get_meta(node)?;
-                initialize_created_node(&meta, markdown, now)?;
-                result.created_block = Some(block_id(node));
-            }
-            Command::SplitBlock {
-                owner,
-                block_id: target_id,
-                index,
-                placement,
-            } => {
-                let outline = self.outline(owner)?;
-                let target = require_block_in(&outline, target_id)?;
-                let (parent, position) = match placement {
-                    SplitPlacement::FirstChild => (Some(target), 0),
-                    SplitPlacement::Before | SplitPlacement::After => {
-                        let actual_parent = outline
-                            .parent(target)
-                            .ok_or_else(|| CoreError::BlockNotFound(target_id.clone()))?;
-                        let siblings = outline.children(actual_parent).unwrap_or_default();
-                        let target_position = siblings
-                            .iter()
-                            .position(|candidate| *candidate == target)
-                            .ok_or_else(|| CoreError::BlockNotFound(target_id.clone()))?;
-                        let parent = match actual_parent {
-                            TreeParentId::Node(parent) => Some(parent),
-                            TreeParentId::Root => None,
-                            TreeParentId::Deleted | TreeParentId::Unexist => {
-                                return Err(CoreError::BlockNotFound(target_id.clone()));
-                            }
-                        };
-                        let offset = usize::from(*placement == SplitPlacement::After);
-                        (parent, target_position + offset)
-                    }
-                };
-                let text = self.block_text(owner, target_id)?;
-                let tail = if *index == 0 {
-                    Vec::new()
-                } else {
-                    text.slice_delta(*index, text.len_unicode(), PosType::Unicode)?
-                };
-                let node = outline.create_at(parent, position)?;
-                let meta = outline.get_meta(node)?;
-                initialize_created_node(&meta, "", now)?;
-                if !tail.is_empty() {
-                    meta.ensure_mergeable_text("content")?.apply_delta(&tail)?;
-                }
-                if *index > 0 && *index < text.len_unicode() {
-                    text.delete(*index, text.len_unicode() - *index)?;
-                }
-                result.created_block = Some(block_id(node));
-            }
-            Command::MergeBlockBackward { owner, .. } => {
-                let PreparedCommandKind::MergeBlockBackward { plan, .. } = &prepared.kind else {
-                    unreachable!("block merge was not prepared as a block merge")
-                };
-                let target = self.block_text(owner, &plan.target)?;
-                let source = self.block_text(owner, &plan.source)?;
-                let target_length = target.len_unicode();
-                let mut tail = source.slice_delta(0, source.len_unicode(), PosType::Unicode)?;
-                if !tail.is_empty() && target_length > 0 {
-                    tail.insert(
-                        0,
-                        TextDelta::Retain {
-                            retain: target_length,
-                            attributes: None,
-                        },
-                    );
-                }
-                if !tail.is_empty() {
-                    target.apply_delta(&tail)?;
-                }
-                let outline = self.outline(owner)?;
-                let source_node = require_block_in(&outline, &plan.source)?;
-                let target_node = require_block_in(&outline, &plan.target)?;
-                for child in outline.children(source_node).unwrap_or_default() {
-                    outline.mov(child, target_node)?;
-                }
-                self.touch_block(owner, &plan.target, now)?;
-                self.touch_block(owner, &plan.source, now)?;
-                outline.delete(source_node)?;
-            }
-            Command::InsertOutline {
-                owner,
-                parent,
-                index,
-                replace,
-                items,
-            } => {
-                result.created_block = self.insert_outline_items(
-                    OutlineInsertion {
-                        owner,
-                        parent: parent.as_ref(),
-                        index: *index,
-                        replace: replace.as_ref(),
-                        items,
-                    },
-                    now,
-                    |_, _| Ok(()),
-                )?;
-            }
-            Command::PasteOutline {
-                owner,
-                parent,
-                index,
-                replace,
-                fragment,
-            } => {
-                let PreparedCommandKind::PasteOutline { resolution, .. } = &prepared.kind else {
-                    unreachable!("outline paste was not prepared as an outline paste")
-                };
-                for (target_id, reference) in &resolution.new_pages {
-                    if let Some(date) = &reference.journal_date {
-                        self.ensure_page(target_id, "journal", None, Some(date.clone()), now)?;
-                    } else {
-                        self.ensure_page(target_id, "regular", Some(&reference.title), None, now)?;
-                    }
-                }
-                for (target_id, name) in &resolution.new_tags {
-                    self.ensure_tag(target_id, name, now)?;
-                }
-                result.created_block = self.insert_outline_items(
-                    OutlineInsertion {
-                        owner,
-                        parent: parent.as_ref(),
-                        index: *index,
-                        replace: replace.as_ref(),
-                        items: &fragment.items,
-                    },
-                    now,
-                    |meta, item| {
-                        write_fragment_content(
-                            &meta.ensure_mergeable_text("content")?,
-                            item,
-                            &resolution.pages,
-                        )?;
-                        let bag = meta.ensure_mergeable_map("properties")?;
-                        for field in &item.properties {
-                            write_fragment_property(&bag, field, &resolution.pages)?;
-                        }
-                        let tag_refs = meta.ensure_mergeable_map("tag_refs")?;
-                        for source_tag in &item.tags {
-                            let target_tag = resolution.tags.get(source_tag).ok_or_else(|| {
-                                CoreError::InvalidHierarchy(format!(
-                                    "outline fragment tag reference is missing: {source_tag}"
-                                ))
-                            })?;
-                            tag_refs.insert(target_tag.as_str(), true)?;
-                        }
-                        Ok(())
-                    },
-                )?;
-            }
-            Command::EditMarkdown { .. }
-            | Command::SpliceMarkdown { .. }
-            | Command::SpliceMarkdowns { .. }
-            | Command::SpliceBlockContent { .. }
-            | Command::SpliceBlockContents { .. } => {
-                unreachable!("content edits use their canonical prepared form")
-            }
-            Command::MoveBlocks { owner, .. } => {
-                let PreparedCommandKind::MoveBlocks { plan, .. } = &prepared.kind else {
-                    unreachable!("block move was not prepared as a block move")
-                };
-                self.move_blocks(
-                    &plan.outline.roots,
-                    owner,
-                    plan.parent.as_ref(),
-                    plan.after.as_ref(),
-                )?;
-            }
-            Command::IndentBlocks { owner, .. } => {
-                let PreparedCommandKind::IndentBlocks { plan, .. } = &prepared.kind else {
-                    unreachable!("block indent was not prepared as a block indent")
-                };
-                for block_id in &plan.roots {
-                    self.indent(owner, block_id)?;
-                }
-            }
-            Command::OutdentBlocks { owner, .. } => {
-                let PreparedCommandKind::OutdentBlocks { plan, .. } = &prepared.kind else {
-                    unreachable!("block outdent was not prepared as a block outdent")
-                };
-                for block_id in &plan.roots {
-                    self.outdent(owner, block_id)?;
-                }
-            }
-            Command::DeleteBlocks { owner, .. } => {
-                let PreparedCommandKind::DeleteBlocks { plan, .. } = &prepared.kind else {
-                    unreachable!("block deletion was not prepared as a block deletion")
-                };
-                let outline = self.outline(owner)?;
-                for block_id in &plan.roots {
-                    self.touch_block(owner, block_id, now)?;
-                    outline.delete(tree_id(block_id)?)?;
-                }
-            }
-            Command::EnsureProperty {
-                owner,
-                key,
-                value_type,
-                cardinality,
-            } => {
-                ensure_property_field(
-                    &self.property_owner_bag(owner)?,
-                    key,
-                    *value_type,
-                    *cardinality,
-                )?;
-            }
-            Command::SetProperty { owner, key, value } => {
-                set_single(&self.property_owner_bag(owner)?, key, value)?;
-            }
-            Command::SetProperties { owner, changes } => {
-                let bag = self.property_owner_bag(owner)?;
-                for PropertyChange { key, value } in changes {
-                    if let Some(value) = value {
-                        set_single(&bag, key, value)?;
-                    } else {
-                        remove_property_field(&bag, key)?;
-                    }
-                }
-            }
-            Command::ClearPropertyValues { owner, key } => {
-                clear_property_values(&self.property_owner_bag(owner)?, key)?;
-            }
-            Command::RemoveProperty { owner, key } => {
-                remove_property_field(&self.property_owner_bag(owner)?, key)?;
-            }
-            Command::AddRepeatedProperty { owner, key, value } => {
-                set_repeated(&self.property_owner_bag(owner)?, key, value)?;
-            }
-            Command::RemoveRepeatedProperty { owner, key, value } => {
-                self.property_owner_bag(owner)?
-                    .delete(&repeated_slot(key, value)?)?;
-            }
-            Command::CreateDefaultQuery {
-                default_query_id,
-                title,
-                document,
-            } => {
-                let current = graph_settings_snapshot(&self.doc)?.default_queries;
-                let position = current
-                    .last()
-                    .map_or(0, |query| query.position.saturating_add(1));
-                self.insert_default_query(default_query_id, title, document, position)?;
-            }
-            Command::RenameDefaultQuery {
-                default_query_id,
-                title,
-            } => {
-                self.require_default_query(default_query_id)?
-                    .insert("title", title.as_str())?;
-            }
-            Command::MoveDefaultQuery {
-                default_query_id,
-                index,
-            } => {
-                let mut order = graph_settings_snapshot(&self.doc)?
-                    .default_queries
-                    .into_iter()
-                    .map(|query| query.id)
-                    .collect::<Vec<_>>();
-                let from = order
-                    .iter()
-                    .position(|id| id == default_query_id)
-                    .expect("validated default query is in the snapshot");
-                let moved = order.remove(from);
-                order.insert(*index, moved);
-                let queries = default_queries_map(&self.doc)?;
-                for (position, id) in order.iter().enumerate() {
-                    queries
-                        .get(id.as_str())
-                        .and_then(value_into_map)
-                        .expect("validated default query entry")
-                        .insert(
-                            "position",
-                            i64::try_from(position).expect("bounded position"),
-                        )?;
-                }
-            }
-            Command::DeleteDefaultQuery { default_query_id } => {
-                self.require_default_query(default_query_id)?
-                    .insert("deleted", true)?;
-            }
-            // Writing SPARQL by hand detaches the builder: the plan no longer
-            // describes what runs, so it stops claiming to.
-            Command::SetQuerySource {
-                owner,
-                view_id,
-                source,
-            } => {
-                let document = self.ensure_query_document_for_owner(owner)?;
-                let definition = require_query_definition(&document, view_id)?;
-                replace_text(&definition.ensure_mergeable_text("source")?, source)?;
-                clear_query_plan(&definition)?;
-            }
-            Command::SpliceQuerySource {
-                owner,
-                view_id,
-                index,
-                delete,
-                insert,
-            } => {
-                let document = self.require_query_document_for_owner(owner)?;
-                let definition = require_query_definition(&document, view_id)?;
-                definition
-                    .ensure_mergeable_text("source")?
-                    .delete(*index, *delete)?;
-                if !insert.is_empty() {
-                    definition
-                        .ensure_mergeable_text("source")?
-                        .insert(*index, insert)?;
-                }
-                clear_query_plan(&definition)?;
-            }
-            Command::SetQueryPlan {
-                owner,
-                view_id,
-                plan,
-                source,
-            } => {
-                let document = self.ensure_query_document_for_owner(owner)?;
-                let definition = require_query_definition(&document, view_id)?;
-                // The plan and the source it compiled to land in one
-                // transaction, so no revision ever runs a source the stored
-                // plan did not produce.
-                replace_text(&definition.ensure_mergeable_text("source")?, source)?;
-                definition.insert("plan_version", i64::from(plan.version))?;
-                definition.insert("plan", plan.payload.as_str())?;
-            }
-            Command::ClearQueryPlan { owner, view_id } => {
-                let document = self.require_query_document_for_owner(owner)?;
-                clear_query_plan(&require_query_definition(&document, view_id)?)?;
-            }
-            Command::PutQueryView { owner, view } => {
-                put_query_view(&self.require_query_document_for_owner(owner)?, view)?;
-            }
-            Command::RemoveQueryView { owner, view_id } => {
-                remove_query_view(&self.require_query_document_for_owner(owner)?, view_id)?;
-            }
-            Command::SetQueryDefaultView { owner, view_id } => {
-                self.require_query_document_for_owner(owner)?
-                    .insert("default_view_id", view_id.as_str())?;
-            }
-            Command::AddTag { entity, tag_id } => {
-                self.entity_tags(entity)?.insert(tag_id.as_str(), true)?;
-                let entity_bag = self.entity_bag(entity)?;
-                for field in decode_bag(&self.tag_bag(tag_id, "defaults")?).0 {
-                    if !bag_contains_key(&entity_bag, &field.key) {
-                        ensure_property_field(
-                            &entity_bag,
-                            &field.key,
-                            field.value_type,
-                            field.cardinality,
-                        )?;
-                        for value in &field.values {
-                            match field.cardinality {
-                                Cardinality::Single => set_single(&entity_bag, &field.key, value)?,
-                                Cardinality::Set => set_repeated(&entity_bag, &field.key, value)?,
-                            }
-                        }
-                    }
-                }
-            }
-            Command::RemoveTag { entity, tag_id } => {
-                self.entity_tags(entity)?.delete(tag_id.as_str())?;
-            }
-            Command::Batch { commands } => {
-                let PreparedCommandKind::Batch { .. } = &prepared.kind else {
-                    unreachable!("batch was not prepared as a batch")
-                };
-                result.changed = false;
+            PreparedCommandKind::Batch { commands, .. } => {
+                outcome.changed = false;
                 for command in commands {
                     // Preflight proved the complete sequence valid, but opaque
                     // TreeIDs created on its fork cannot safely cross into the
                     // live document. Resolve each live plan against the state
                     // produced by the preceding live step.
                     let prepared = self.prepare(command)?;
-                    let mut nested = CommandResult {
-                        command_id: result.command_id.clone(),
-                        created_page: None,
-                        created_block: None,
-                        created_tag: None,
-                        changed: true,
-                        history_effect: None,
-                    };
+                    let mut nested = MutationOutcome::default();
                     self.apply(&prepared, now, &mut nested)?;
-                    result.created_page = result.created_page.take().or(nested.created_page);
-                    result.created_block = result.created_block.take().or(nested.created_block);
-                    result.created_tag = result.created_tag.take().or(nested.created_tag);
-                    result.changed |= nested.changed;
+                    outcome.merge(nested);
                 }
-            }
-            Command::Undo | Command::Redo => unreachable!("handled before apply"),
-        }
-        if result.changed {
-            self.touch_command(command, result, now)?;
-        }
-        Ok(())
-    }
-
-    fn apply_content_edit(&self, edit: &PreparedContentEdit<'_>) -> Result<(), CoreError> {
-        for splice in &edit.splices {
-            let text = self.block_text(edit.owner, splice.block_id)?;
-            if splice.delete > 0 {
-                text.delete(splice.index, splice.delete)?;
-            }
-            match splice.insert {
-                PreparedContentInsert::Markdown(insert) => {
-                    if !insert.is_empty() {
-                        text.insert(splice.index, insert)?;
-                    }
-                }
-                PreparedContentInsert::Inline(insert) => {
-                    apply_inline_content(&text, splice.index, insert)?;
-                }
+                Ok(())
             }
         }
-        Ok(())
     }
-
-    fn touch_content_edit(
-        &self,
-        edit: &PreparedContentEdit<'_>,
-        now: &str,
-    ) -> Result<(), CoreError> {
-        for splice in &edit.splices {
-            self.touch_block(edit.owner, splice.block_id, now)?;
-        }
-        self.touch_outline_owner(edit.owner, now)
-    }
-
     fn insert_outline_items<T>(
         &self,
         insertion: OutlineInsertion<'_, T>,
@@ -2596,134 +1535,6 @@ impl GraphCore {
         }
 
         Ok(last_created)
-    }
-
-    fn touch_command(
-        &self,
-        command: &Command,
-        result: &CommandResult,
-        now: &str,
-    ) -> Result<(), CoreError> {
-        match command {
-            Command::EnsurePage { .. } | Command::EnsureJournal { .. } => {
-                if let Some(page_id) = &result.created_page {
-                    self.touch_page(page_id, now)?;
-                }
-            }
-            Command::RenamePage { page_id, .. }
-            | Command::DeletePage { page_id }
-            | Command::RestorePage { page_id } => self.touch_page(page_id, now)?,
-            Command::InsertBlock { owner, .. } => {
-                if let Some(block_id) = &result.created_block {
-                    self.touch_block(owner, block_id, now)?;
-                }
-                self.touch_outline_owner(owner, now)?;
-            }
-            Command::SplitBlock {
-                owner,
-                block_id,
-                index,
-                ..
-            } => {
-                if *index > 0 {
-                    self.touch_block(owner, block_id, now)?;
-                }
-                if let Some(created) = &result.created_block {
-                    self.touch_block(owner, created, now)?;
-                }
-                self.touch_outline_owner(owner, now)?;
-            }
-            Command::MergeBlockBackward { owner, .. } => {
-                self.touch_outline_owner(owner, now)?;
-            }
-            Command::InsertOutline { owner, .. } | Command::PasteOutline { owner, .. } => {
-                self.touch_outline_owner(owner, now)?
-            }
-            Command::EditMarkdown { .. }
-            | Command::SpliceMarkdown { .. }
-            | Command::SpliceMarkdowns { .. }
-            | Command::SpliceBlockContent { .. }
-            | Command::SpliceBlockContents { .. } => {
-                unreachable!("content edits touch owners from their prepared form")
-            }
-            Command::MoveBlocks {
-                owner, block_ids, ..
-            }
-            | Command::IndentBlocks { owner, block_ids }
-            | Command::OutdentBlocks { owner, block_ids } => {
-                for block_id in block_ids {
-                    self.touch_block(owner, block_id, now)?;
-                }
-                self.touch_outline_owner(owner, now)?;
-            }
-            Command::DeleteBlocks { owner, .. } => self.touch_outline_owner(owner, now)?,
-            Command::EnsureProperty { owner, .. }
-            | Command::SetProperty { owner, .. }
-            | Command::SetProperties { owner, .. }
-            | Command::ClearPropertyValues { owner, .. }
-            | Command::RemoveProperty { owner, .. }
-            | Command::AddRepeatedProperty { owner, .. }
-            | Command::RemoveRepeatedProperty { owner, .. } => {
-                self.touch_property_owner(owner, now)?
-            }
-            Command::SetQuerySource { owner, .. }
-            | Command::SpliceQuerySource { owner, .. }
-            | Command::SetQueryPlan { owner, .. }
-            | Command::ClearQueryPlan { owner, .. }
-            | Command::PutQueryView { owner, .. }
-            | Command::RemoveQueryView { owner, .. }
-            | Command::SetQueryDefaultView { owner, .. } => self.touch_query_owner(owner, now)?,
-            Command::CreateDefaultQuery { .. }
-            | Command::RenameDefaultQuery { .. }
-            | Command::MoveDefaultQuery { .. }
-            | Command::DeleteDefaultQuery { .. } => {}
-            Command::AddTag { entity, .. } | Command::RemoveTag { entity, .. } => {
-                self.touch_entity(entity, now)?
-            }
-            Command::EnsureTag { .. } => {
-                if let Some(tag_id) = &result.created_tag {
-                    self.touch_tag(tag_id, now)?;
-                }
-            }
-            Command::RenameTag { tag_id, .. }
-            | Command::DeleteTag { tag_id }
-            | Command::RestoreTag { tag_id } => self.touch_tag(tag_id, now)?,
-            // Each nested command has already touched its complete ownership
-            // boundary with the batch timestamp.
-            Command::Batch { .. } => {}
-            Command::Undo | Command::Redo => {}
-        }
-        Ok(())
-    }
-
-    fn touch_entity(&self, entity: &EntityId, now: &str) -> Result<(), CoreError> {
-        match entity {
-            EntityId::Page { id } => self.touch_page(id, now),
-            EntityId::Block { owner, id } => {
-                self.touch_block(owner, id, now)?;
-                self.touch_outline_owner(owner, now)
-            }
-        }
-    }
-
-    fn touch_property_owner(&self, owner: &PropertyOwner, now: &str) -> Result<(), CoreError> {
-        match owner {
-            PropertyOwner::Page { id } => self.touch_page(id, now),
-            PropertyOwner::Block { owner, id } => {
-                self.touch_block(owner, id, now)?;
-                self.touch_outline_owner(owner, now)
-            }
-            PropertyOwner::Tag { tag_id } | PropertyOwner::TagDefault { tag_id } => {
-                self.touch_tag(tag_id, now)
-            }
-        }
-    }
-
-    fn touch_query_owner(&self, owner: &QueryOwner, now: &str) -> Result<(), CoreError> {
-        match property_owner_from_query_owner(owner) {
-            Some(owner) => self.touch_property_owner(&owner, now),
-            None => Ok(()),
-        }
     }
 
     fn touch_page(&self, page_id: &PageId, now: &str) -> Result<(), CoreError> {
@@ -3082,347 +1893,6 @@ impl GraphCore {
                 .all(|field| property_copy_policy(&field.key) != PropertyCopyPolicy::Portable))
     }
 
-    fn plan_history(
-        &self,
-        prepared: &PreparedCommandKind<'_>,
-    ) -> Result<Option<HistoryPlan>, CoreError> {
-        let command = prepared.command();
-        let plan = |scope,
-                    mut affected_outlines: Vec<OutlineOwner>,
-                    undo_candidates,
-                    redo_candidates,
-                    redo_created_block,
-                    redo_created_page| {
-            affected_outlines.sort();
-            affected_outlines.dedup();
-            Some(HistoryPlan {
-                entry: HistoryEntry {
-                    scope,
-                    affected_outlines,
-                    undo_candidates,
-                    redo_candidates,
-                },
-                redo_created_block,
-                redo_created_page,
-            })
-        };
-        let page = |page_id: &PageId| {
-            HistoryTarget::Entity(EntityId::Page {
-                id: page_id.clone(),
-            })
-        };
-        let block = |owner: &OutlineOwner, block_id: &BlockId| {
-            HistoryTarget::Entity(EntityId::Block {
-                owner: owner.clone(),
-                id: block_id.clone(),
-            })
-        };
-        let outline_target = |owner: &OutlineOwner| match owner {
-            OutlineOwner::Page { id } => Some(page(id)),
-            OutlineOwner::Tag { .. } => None,
-        };
-        let entity_plan = |entity: &EntityId| {
-            let (scope, owner) = match entity {
-                EntityId::Page { id } => {
-                    (HistoryScope::Outline, OutlineOwner::Page { id: id.clone() })
-                }
-                EntityId::Block { owner, .. } => (HistoryScope::Entity, owner.clone()),
-            };
-            plan(
-                scope,
-                vec![owner],
-                vec![HistoryTarget::Entity(entity.clone())],
-                vec![HistoryTarget::Entity(entity.clone())],
-                false,
-                false,
-            )
-        };
-        let graph_plan = || {
-            plan(
-                HistoryScope::Graph,
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                false,
-                false,
-            )
-        };
-        let owner_plan = |owner: &PropertyOwner| match owner {
-            PropertyOwner::Page { id } => entity_plan(&EntityId::Page { id: id.clone() }),
-            PropertyOwner::Block { owner, id } => entity_plan(&EntityId::Block {
-                owner: owner.clone(),
-                id: id.clone(),
-            }),
-            PropertyOwner::Tag { .. } | PropertyOwner::TagDefault { .. } => graph_plan(),
-        };
-        let query_owner_plan = |owner: &QueryOwner| {
-            property_owner_from_query_owner(owner)
-                .map_or_else(graph_plan, |owner| owner_plan(&owner))
-        };
-
-        if let PreparedCommandKind::ContentEdit { edit, .. } = prepared {
-            let candidates = edit
-                .splices
-                .iter()
-                .map(|splice| block(edit.owner, splice.block_id))
-                .collect::<Vec<_>>();
-            return Ok(plan(
-                HistoryScope::Entity,
-                vec![edit.owner.clone()],
-                candidates.clone(),
-                candidates,
-                false,
-                false,
-            ));
-        }
-
-        Ok(match command {
-            Command::EnsurePage { page_id, .. } => plan(
-                HistoryScope::Outline,
-                vec![OutlineOwner::Page {
-                    id: page_id.clone(),
-                }],
-                Vec::new(),
-                Vec::new(),
-                false,
-                true,
-            ),
-            Command::EnsureJournal { date } => {
-                let page_id = self.journal_page_id(date);
-                plan(
-                    HistoryScope::Outline,
-                    vec![OutlineOwner::Page {
-                        id: page_id.clone(),
-                    }],
-                    Vec::new(),
-                    vec![page(&page_id)],
-                    false,
-                    false,
-                )
-            }
-            Command::RenamePage { page_id, .. } => plan(
-                HistoryScope::Outline,
-                vec![OutlineOwner::Page {
-                    id: page_id.clone(),
-                }],
-                vec![page(page_id)],
-                vec![page(page_id)],
-                false,
-                false,
-            ),
-            Command::DeletePage { page_id } => plan(
-                HistoryScope::Outline,
-                vec![OutlineOwner::Page {
-                    id: page_id.clone(),
-                }],
-                vec![page(page_id)],
-                Vec::new(),
-                false,
-                false,
-            ),
-            Command::RestorePage { page_id } => plan(
-                HistoryScope::Outline,
-                vec![OutlineOwner::Page {
-                    id: page_id.clone(),
-                }],
-                Vec::new(),
-                vec![page(page_id)],
-                false,
-                false,
-            ),
-            Command::EnsureTag { .. } | Command::RenameTag { .. } | Command::RestoreTag { .. } => {
-                graph_plan()
-            }
-            Command::DeleteTag { .. } => plan(
-                HistoryScope::Graph,
-                match prepared {
-                    PreparedCommandKind::DeleteTag { plan, .. } => plan,
-                    _ => unreachable!("tag deletion was not prepared as a tag deletion"),
-                }
-                .outlines
-                .iter()
-                .map(|entry| entry.owner.clone())
-                .collect(),
-                Vec::new(),
-                Vec::new(),
-                false,
-                false,
-            ),
-            Command::InsertBlock { owner, parent, .. }
-            | Command::InsertOutline { owner, parent, .. }
-            | Command::PasteOutline { owner, parent, .. } => plan(
-                HistoryScope::Entity,
-                vec![owner.clone()],
-                parent
-                    .as_ref()
-                    .map(|id| block(owner, id))
-                    .into_iter()
-                    .chain(outline_target(owner))
-                    .collect(),
-                Vec::new(),
-                true,
-                false,
-            ),
-            Command::SplitBlock {
-                owner, block_id, ..
-            } => plan(
-                HistoryScope::Entity,
-                vec![owner.clone()],
-                [block(owner, block_id)]
-                    .into_iter()
-                    .chain(outline_target(owner))
-                    .collect(),
-                vec![block(owner, block_id)],
-                true,
-                false,
-            ),
-            Command::MergeBlockBackward { owner, .. } => {
-                let merge = match prepared {
-                    PreparedCommandKind::MergeBlockBackward { plan, .. } => plan,
-                    _ => unreachable!("block merge was not prepared as a block merge"),
-                };
-                let parent = merge.before.parents.get(&merge.source).cloned().flatten();
-                let index = merge
-                    .before
-                    .children
-                    .get(&parent)
-                    .and_then(|siblings| siblings.iter().position(|id| id == &merge.source))
-                    .ok_or_else(|| CoreError::BlockNotFound(merge.source.clone()))?;
-                plan(
-                    HistoryScope::Entity,
-                    vec![owner.clone()],
-                    vec![
-                        HistoryTarget::BlockPosition {
-                            owner: owner.clone(),
-                            parent,
-                            index,
-                        },
-                        block(owner, &merge.target),
-                    ],
-                    vec![block(owner, &merge.target)],
-                    false,
-                    false,
-                )
-            }
-            Command::EditMarkdown { .. }
-            | Command::SpliceMarkdown { .. }
-            | Command::SpliceMarkdowns { .. }
-            | Command::SpliceBlockContent { .. }
-            | Command::SpliceBlockContents { .. } => {
-                unreachable!("content edits plan history from their prepared form")
-            }
-            Command::MoveBlocks { owner, .. }
-            | Command::IndentBlocks { owner, .. }
-            | Command::OutdentBlocks { owner, .. } => {
-                let outline = match prepared {
-                    PreparedCommandKind::MoveBlocks { plan, .. } => &plan.outline,
-                    PreparedCommandKind::IndentBlocks { plan, .. }
-                    | PreparedCommandKind::OutdentBlocks { plan, .. } => plan,
-                    _ => unreachable!("structural command was not prepared as structural work"),
-                };
-                let candidates = outline
-                    .roots
-                    .iter()
-                    .map(|id| block(owner, id))
-                    .chain(outline_target(owner))
-                    .collect::<Vec<_>>();
-                plan(
-                    HistoryScope::Entity,
-                    vec![owner.clone()],
-                    candidates.clone(),
-                    candidates,
-                    false,
-                    false,
-                )
-            }
-            Command::DeleteBlocks { owner, .. } => {
-                let PreparedCommandKind::DeleteBlocks { plan: outline, .. } = prepared else {
-                    unreachable!("block deletion was not prepared as a block deletion")
-                };
-                let state = &outline.before;
-                let undo_candidates = outline
-                    .roots
-                    .iter()
-                    .filter_map(|id| {
-                        let parent = state.parents.get(id)?.clone();
-                        let index = state
-                            .children
-                            .get(&parent)?
-                            .iter()
-                            .position(|item| item == id)?;
-                        Some(HistoryTarget::BlockPosition {
-                            owner: owner.clone(),
-                            parent,
-                            index,
-                        })
-                    })
-                    .chain(outline_target(owner))
-                    .collect::<Vec<_>>();
-                let mut redo_candidates = Vec::new();
-                if let Some(first) = outline.roots.first()
-                    && let Some(parent) = state.parents.get(first).cloned()
-                {
-                    if let Some(previous) = state.children.get(&parent).and_then(|siblings| {
-                        siblings
-                            .iter()
-                            .position(|id| id == first)
-                            .and_then(|position| position.checked_sub(1))
-                            .map(|position| siblings[position].clone())
-                    }) {
-                        redo_candidates.push(block(owner, &previous));
-                    }
-                    if let Some(parent) = parent {
-                        redo_candidates.push(block(owner, &parent));
-                    }
-                }
-                redo_candidates.extend(outline_target(owner));
-                plan(
-                    HistoryScope::Entity,
-                    vec![owner.clone()],
-                    undo_candidates,
-                    redo_candidates,
-                    false,
-                    false,
-                )
-            }
-            Command::EnsureProperty { owner, .. }
-            | Command::SetProperty { owner, .. }
-            | Command::SetProperties { owner, .. }
-            | Command::ClearPropertyValues { owner, .. }
-            | Command::RemoveProperty { owner, .. }
-            | Command::AddRepeatedProperty { owner, .. }
-            | Command::RemoveRepeatedProperty { owner, .. } => owner_plan(owner),
-            Command::SetQuerySource { owner, .. }
-            | Command::SpliceQuerySource { owner, .. }
-            | Command::SetQueryPlan { owner, .. }
-            | Command::ClearQueryPlan { owner, .. }
-            | Command::PutQueryView { owner, .. }
-            | Command::RemoveQueryView { owner, .. }
-            | Command::SetQueryDefaultView { owner, .. } => query_owner_plan(owner),
-            Command::CreateDefaultQuery { .. }
-            | Command::RenameDefaultQuery { .. }
-            | Command::MoveDefaultQuery { .. }
-            | Command::DeleteDefaultQuery { .. } => graph_plan(),
-            Command::AddTag { entity, .. } | Command::RemoveTag { entity, .. } => {
-                entity_plan(entity)
-            }
-            Command::Batch { .. } => {
-                let PreparedCommandKind::Batch { plan: batch, .. } = prepared else {
-                    unreachable!("batch was not prepared as a batch")
-                };
-                plan(
-                    HistoryScope::Graph,
-                    batch.affected_outlines.clone(),
-                    Vec::new(),
-                    Vec::new(),
-                    false,
-                    false,
-                )
-            }
-            Command::Undo | Command::Redo => None,
-        })
-    }
-
     fn history_effect(&self, entry: &HistoryEntry, direction: HistoryDirection) -> HistoryEffect {
         let candidates = match direction {
             HistoryDirection::Undo => &entry.undo_candidates,
@@ -3465,89 +1935,6 @@ impl GraphCore {
         }
     }
 
-    fn plan_delete_tag(&self, tag_id: &TagId) -> Result<TagDetachPlan, CoreError> {
-        let mut owners = Vec::new();
-        self.doc.get_map("pages").for_each(|raw_id, value| {
-            if let (Ok(page_id), Some(page)) = (PageId::new(raw_id), value_into_map(value)) {
-                owners.push((OutlineOwner::Page { id: page_id }, page));
-            }
-        });
-        self.doc.get_map("tags").for_each(|raw_id, value| {
-            if let (Ok(owner_id), Some(tag)) = (TagId::new(raw_id), value_into_map(value)) {
-                owners.push((OutlineOwner::Tag { id: owner_id }, tag));
-            }
-        });
-        owners.sort_by(|left, right| left.0.cmp(&right.0));
-
-        let mut outlines = Vec::new();
-        for (owner, map) in owners {
-            let root_tagged = match &owner {
-                OutlineOwner::Page { .. } => map
-                    .get("root")
-                    .and_then(value_into_map)
-                    .ok_or_else(|| CoreError::InvalidHierarchy("page root node is missing".into()))
-                    .map(|root| node_has_tag(&root, tag_id))?,
-                OutlineOwner::Tag { .. } => false,
-            };
-            let outline = match map.get("outline") {
-                Some(value) => value_into_tree(value).ok_or_else(|| {
-                    CoreError::InvalidHierarchy("owner outline is invalid".into())
-                })?,
-                None if matches!(owner, OutlineOwner::Tag { .. }) => continue,
-                None => {
-                    return Err(CoreError::InvalidHierarchy(
-                        "owner outline is missing".into(),
-                    ));
-                }
-            };
-            let mut blocks = Vec::new();
-            for node in outline.roots() {
-                collect_tagged_blocks(&outline, node, tag_id, &mut blocks)?;
-            }
-            if root_tagged || !blocks.is_empty() {
-                outlines.push(TagDetachOutline {
-                    owner,
-                    root: root_tagged,
-                    blocks,
-                });
-            }
-        }
-        Ok(TagDetachPlan { outlines })
-    }
-
-    fn apply_delete_tag(
-        &self,
-        tag_id: &TagId,
-        plan: &TagDetachPlan,
-        now: &str,
-    ) -> Result<(), CoreError> {
-        set_single(
-            &self.tag_bag(tag_id, "properties")?,
-            &key("builtin.deleted-at"),
-            &PropertyValue::String(now.to_owned()),
-        )?;
-        for entry in &plan.outlines {
-            if entry.root {
-                let OutlineOwner::Page { id } = &entry.owner else {
-                    unreachable!("only page roots can carry tags")
-                };
-                self.page_root(id)?
-                    .ensure_mergeable_map("tag_refs")?
-                    .delete(tag_id.as_str())?;
-            }
-            let outline = self.outline(&entry.owner)?;
-            for block_id in &entry.blocks {
-                outline
-                    .get_meta(require_block_in(&outline, block_id)?)?
-                    .ensure_mergeable_map("tag_refs")?
-                    .delete(tag_id.as_str())?;
-                self.touch_block(&entry.owner, block_id, now)?;
-            }
-            self.touch_outline_owner(&entry.owner, now)?;
-        }
-        Ok(())
-    }
-
     fn move_blocks(
         &self,
         block_ids: &[BlockId],
@@ -3568,42 +1955,6 @@ impl GraphCore {
             }
             anchor = Some(block);
         }
-        Ok(())
-    }
-
-    fn indent(&self, owner: &OutlineOwner, block_id: &BlockId) -> Result<(), CoreError> {
-        let outline = self.outline(owner)?;
-        let block = tree_id(block_id)?;
-        let parent = outline
-            .parent(block)
-            .ok_or_else(|| CoreError::BlockNotFound(block_id.clone()))?;
-        let siblings = outline.children(parent).unwrap_or_default();
-        let position = siblings
-            .iter()
-            .position(|item| *item == block)
-            .ok_or_else(|| CoreError::BlockNotFound(block_id.clone()))?;
-        if position == 0 {
-            return Err(CoreError::InvalidHierarchy(
-                "first sibling cannot be indented".into(),
-            ));
-        }
-        let new_parent = siblings[position - 1];
-        outline.mov(block, new_parent)?;
-        Ok(())
-    }
-
-    fn outdent(&self, owner: &OutlineOwner, block_id: &BlockId) -> Result<(), CoreError> {
-        let outline = self.outline(owner)?;
-        let block = tree_id(block_id)?;
-        let Some(TreeParentId::Node(parent)) = outline.parent(block) else {
-            return Err(CoreError::InvalidHierarchy(
-                "root block cannot be outdented".into(),
-            ));
-        };
-        outline
-            .parent(parent)
-            .ok_or_else(|| CoreError::InvalidHierarchy("missing grandparent".into()))?;
-        outline.mov_after(block, parent)?;
         Ok(())
     }
 
@@ -3737,20 +2088,6 @@ impl GraphCore {
             )));
         }
         Ok(entry)
-    }
-
-    fn insert_default_query(
-        &self,
-        id: &DefaultQueryId,
-        title: &str,
-        document: &PropertyDocument,
-        position: u32,
-    ) -> Result<(), CoreError> {
-        let entry = default_queries_map(&self.doc)?.ensure_mergeable_map(id.as_str())?;
-        entry.insert("title", title)?;
-        entry.insert("position", i64::from(position))?;
-        entry.insert("deleted", false)?;
-        write_query_document_map(&entry.ensure_mergeable_map("document")?, document)
     }
 
     fn validate_query_owner(&self, owner: &QueryOwner) -> Result<(), CoreError> {
@@ -3914,9 +2251,8 @@ fn rewrite_graph_scoped_query_iris(
         })
         .collect::<Result<Vec<_>, CoreError>>()?;
 
-    let query_key = key(QUERY_PROPERTY_KEY);
     for bag in property_bags {
-        let Some(document) = bag.get(&document_slot(&query_key)).and_then(value_into_map) else {
+        let Some(document) = query_document_from_bag(&bag) else {
             continue;
         };
         rewrite_query_document_iris(&document, &replacements)?;
@@ -3975,204 +2311,125 @@ fn rewrite_query_document_iris(
     Ok(())
 }
 
-fn query_document_maps(doc: &LoroDoc) -> Vec<LoroMap> {
-    let mut property_bags = Vec::new();
-    doc.get_map("pages").for_each(|_, value| {
-        let Some(page) = value_into_map(value) else {
-            return;
-        };
-        if let Some(root) = page.get("root").and_then(value_into_map)
-            && let Some(properties) = root.get("properties").and_then(value_into_map)
-        {
-            property_bags.push(properties);
-        }
-        if let Some(outline) = page.get("outline").and_then(value_into_tree) {
-            for node in outline.nodes() {
-                if let Ok(meta) = outline.get_meta(node)
-                    && let Some(properties) = meta.get("properties").and_then(value_into_map)
-                {
-                    property_bags.push(properties);
-                }
-            }
-        }
-    });
-    doc.get_map("tags").for_each(|_, value| {
-        let Some(tag) = value_into_map(value) else {
-            return;
-        };
-        for name in ["properties", "defaults"] {
-            if let Some(properties) = tag.get(name).and_then(value_into_map) {
-                property_bags.push(properties);
-            }
-        }
-        if let Some(outline) = tag.get("outline").and_then(value_into_tree) {
-            for node in outline.nodes() {
-                if let Ok(meta) = outline.get_meta(node)
-                    && let Some(properties) = meta.get("properties").and_then(value_into_map)
-                {
-                    property_bags.push(properties);
-                }
-            }
-        }
-    });
+struct StoredQueryDocument {
+    owner: Option<QueryOwner>,
+    document: LoroMap,
+}
 
+fn query_document_from_bag(bag: &LoroMap) -> Option<LoroMap> {
     let query_key = key(QUERY_PROPERTY_KEY);
-    let query_slot = document_slot(&query_key);
-    let mut documents = property_bags
-        .into_iter()
-        .filter_map(|bag| {
-            bag_contains_key(&bag, &query_key)
-                .then(|| bag.get(&query_slot).and_then(value_into_map))
-                .flatten()
-        })
-        .collect::<Vec<_>>();
-    if let Some(queries) = doc
-        .get_map("graph_settings")
-        .get("default_queries")
+    bag.get(query_key.as_str())
         .and_then(value_into_map)
-    {
-        queries.for_each(|_, value| {
-            if let Some(entry) = value_into_map(value)
-                && map_bool(&entry, "deleted") != Some(true)
-                && let Some(document) = entry.get("document").and_then(value_into_map)
-            {
-                documents.push(document);
-            }
-        });
-    }
-    documents
+        .filter(|field| {
+            stored_property_shape(field, &query_key).is_ok_and(|shape| {
+                shape.value_type == PropertyType::Document
+                    && shape.cardinality == Cardinality::Single
+            })
+        })
+        .and_then(|field| field.get(PROPERTY_DOCUMENT_KEY))
+        .and_then(value_into_map)
 }
 
-fn validate_current_query_documents(doc: &LoroDoc) -> Result<(), CoreError> {
-    for document in query_document_maps(doc) {
-        decode_query_document(&document).map_err(CoreError::InvalidHierarchy)?;
-    }
-    Ok(())
-}
-
-fn validate_tag_outlines(doc: &LoroDoc) -> Result<(), CoreError> {
-    let mut invalid = None;
-    doc.get_map("tags").for_each(|raw_id, value| {
-        let Some(tag) = value_into_map(value) else {
-            return;
-        };
-        if tag.get("outline").and_then(value_into_tree).is_none() {
-            invalid = Some(raw_id.to_owned());
-        }
-    });
-    match invalid {
-        Some(tag_id) => Err(CoreError::InvalidHierarchy(format!(
-            "tag outline is missing or invalid: {tag_id}"
-        ))),
-        None => Ok(()),
+fn push_query_document(
+    documents: &mut Vec<StoredQueryDocument>,
+    bag: &LoroMap,
+    owner: Option<QueryOwner>,
+) {
+    if let Some(document) = query_document_from_bag(bag) {
+        documents.push(StoredQueryDocument { owner, document });
     }
 }
 
-fn verify_schema(doc: &LoroDoc, graph_id: &GraphId) -> Result<(), CoreError> {
-    let meta = doc.get_map("meta");
-    match map_string(&meta, "graph_id") {
-        Some(value) if value == graph_id.as_str() => {}
-        _ => return Err(CoreError::SnapshotGraphMismatch),
-    }
-    let stored = map_i64(&meta, "schema_version").unwrap_or(0);
-    let schema = u32::try_from(stored).map_err(|_| CoreError::UnsupportedSchema(stored))?;
-    if schema != SCHEMA_VERSION {
-        return Err(CoreError::UnsupportedSchema(stored));
-    }
-    validate_tag_outlines(doc)?;
-    validate_inline_page_references(doc)?;
-    validate_current_graph_settings(doc)?;
-    validate_current_query_documents(doc)
-}
-
-fn validate_inline_page_references(doc: &LoroDoc) -> Result<(), CoreError> {
-    let page_ids = doc
-        .get_map("pages")
-        .keys()
-        .filter_map(|raw| PageId::new(raw.to_string()).ok())
-        .collect::<BTreeSet<_>>();
-    let mut outlines = Vec::new();
+/// Enumerates non-settings query documents with their stable semantic owner.
+/// Graph-default documents are projected once by `project_graph_settings`.
+fn stored_query_documents(doc: &LoroDoc) -> Vec<StoredQueryDocument> {
+    let mut documents = Vec::new();
     doc.get_map("pages").for_each(|raw_id, value| {
         let Some(page) = value_into_map(value) else {
             return;
         };
+        let page_id = PageId::new(raw_id).ok();
+        let outline_owner = page_id
+            .as_ref()
+            .map(|id| OutlineOwner::Page { id: id.clone() });
+        if let Some(root) = page.get("root").and_then(value_into_map)
+            && let Some(properties) = root.get("properties").and_then(value_into_map)
+        {
+            push_query_document(
+                &mut documents,
+                &properties,
+                page_id.clone().map(|id| QueryOwner::Page { id }),
+            );
+        }
         if let Some(outline) = page.get("outline").and_then(value_into_tree) {
-            outlines.push((format!("page:{raw_id}"), outline));
+            for node in outline.nodes() {
+                if let Ok(meta) = outline.get_meta(node)
+                    && let Some(properties) = meta.get("properties").and_then(value_into_map)
+                {
+                    push_query_document(
+                        &mut documents,
+                        &properties,
+                        outline_owner.clone().map(|owner| QueryOwner::Block {
+                            owner,
+                            id: block_id(node),
+                        }),
+                    );
+                }
+            }
         }
     });
     doc.get_map("tags").for_each(|raw_id, value| {
         let Some(tag) = value_into_map(value) else {
             return;
         };
+        let tag_id = TagId::new(raw_id).ok();
+        let outline_owner = tag_id
+            .as_ref()
+            .map(|id| OutlineOwner::Tag { id: id.clone() });
+        if let Some(properties) = tag.get("properties").and_then(value_into_map) {
+            push_query_document(
+                &mut documents,
+                &properties,
+                tag_id.clone().map(|tag_id| QueryOwner::Tag { tag_id }),
+            );
+        }
+        if let Some(defaults) = tag.get("defaults").and_then(value_into_map) {
+            // Query documents are not valid tag defaults, but an unowned entry
+            // is still decoded so malformed remote state cannot hide here.
+            push_query_document(&mut documents, &defaults, None);
+        }
         if let Some(outline) = tag.get("outline").and_then(value_into_tree) {
-            outlines.push((format!("tag:{raw_id}"), outline));
+            for node in outline.nodes() {
+                if let Ok(meta) = outline.get_meta(node)
+                    && let Some(properties) = meta.get("properties").and_then(value_into_map)
+                {
+                    push_query_document(
+                        &mut documents,
+                        &properties,
+                        outline_owner.clone().map(|owner| QueryOwner::Block {
+                            owner,
+                            id: block_id(node),
+                        }),
+                    );
+                }
+            }
         }
     });
-    for (owner, outline) in outlines {
-        for root in outline.roots() {
-            validate_inline_page_reference_node(&outline, root, &page_ids, &owner)?;
-        }
+    documents.sort_by(|left, right| left.owner.cmp(&right.owner));
+    documents
+}
+
+fn validate_current_query_documents(doc: &LoroDoc) -> Result<(), CoreError> {
+    for stored in stored_query_documents(doc) {
+        project_query_document(&stored.document).map_err(CoreError::InvalidHierarchy)?;
     }
     Ok(())
 }
 
-fn validate_inline_page_reference_node(
-    outline: &LoroTree,
-    node: TreeID,
-    page_ids: &BTreeSet<PageId>,
-    owner: &str,
-) -> Result<(), CoreError> {
-    let meta = outline.get_meta(node)?;
-    let text = meta
-        .get("content")
-        .and_then(|value| match value {
-            ValueOrContainer::Container(Container::Text(text)) => Some(text),
-            _ => None,
-        })
-        .ok_or_else(|| CoreError::InvalidHierarchy(format!("{owner}: block content is missing")))?;
-    for segment in text.to_delta() {
-        let TextDelta::Insert { insert, attributes } = segment else {
-            return Err(CoreError::InvalidHierarchy(format!(
-                "{owner}: block content contains a non-insert delta"
-            )));
-        };
-        let reference = attributes
-            .as_ref()
-            .and_then(|attributes| attributes.get(PAGE_REFERENCE_MARK));
-        match reference {
-            Some(LoroValue::String(raw)) => {
-                let page_id = PageId::new(raw.as_ref()).map_err(|_| {
-                    CoreError::InvalidHierarchy(format!(
-                        "{owner}: page reference has an invalid identity"
-                    ))
-                })?;
-                if !page_ids.contains(&page_id)
-                    || insert
-                        .chars()
-                        .any(|character| character != PAGE_REFERENCE_CHAR)
-                {
-                    return Err(CoreError::InvalidHierarchy(format!(
-                        "{owner}: page reference atom is invalid"
-                    )));
-                }
-            }
-            Some(_) => {
-                return Err(CoreError::InvalidHierarchy(format!(
-                    "{owner}: page reference identity is not a string"
-                )));
-            }
-            None if insert.contains(PAGE_REFERENCE_CHAR) => {
-                return Err(CoreError::InvalidHierarchy(format!(
-                    "{owner}: unmarked page reference atom"
-                )));
-            }
-            None => {}
-        }
-    }
-    for child in outline.children(node).unwrap_or_default() {
-        validate_inline_page_reference_node(outline, child, page_ids, owner)?;
-    }
-    Ok(())
+pub(crate) fn verify_schema(doc: &LoroDoc, graph_id: &GraphId) -> Result<(), CoreError> {
+    validate_causal_document(doc, graph_id)?;
+    validate_current_graph_settings(doc)?;
+    validate_current_query_documents(doc)
 }
 
 fn validate_outline_items<T: InsertableOutlineItem>(
@@ -4227,59 +2484,6 @@ fn validate_text(value: &str, max: usize) -> Result<(), CoreError> {
     }
 }
 
-fn validate_inline_content(core: &GraphCore, content: &[InlineContent]) -> Result<(), CoreError> {
-    let mut bytes = 0usize;
-    for item in content {
-        match item {
-            InlineContent::Markdown { value } => {
-                if value.contains(PAGE_REFERENCE_CHAR) {
-                    return Err(CoreError::InvalidHierarchy(
-                        "plain block content contains the reserved reference atom".into(),
-                    ));
-                }
-                bytes = bytes.saturating_add(value.len());
-            }
-            InlineContent::PageReference { page_id } => {
-                core.require_live_page(page_id)?;
-                bytes = bytes.saturating_add(PAGE_REFERENCE_CHAR.len_utf8());
-            }
-        }
-    }
-    if bytes > MAX_BLOCK_TEXT_BYTES {
-        Err(CoreError::TextTooLong)
-    } else {
-        Ok(())
-    }
-}
-
-fn apply_inline_content(
-    text: &LoroText,
-    index: usize,
-    content: &[InlineContent],
-) -> Result<(), CoreError> {
-    let mut position = index;
-    for item in content {
-        match item {
-            InlineContent::Markdown { value } => {
-                if !value.is_empty() {
-                    text.insert(position, value)?;
-                    position += value.chars().count();
-                }
-            }
-            InlineContent::PageReference { page_id } => {
-                text.insert(position, &PAGE_REFERENCE_CHAR.to_string())?;
-                text.mark(
-                    position..position + 1,
-                    PAGE_REFERENCE_MARK,
-                    page_id.as_str(),
-                )?;
-                position += 1;
-            }
-        }
-    }
-    Ok(())
-}
-
 fn validate_default_query_title(value: &str) -> Result<(), CoreError> {
     if value.chars().count() > MAX_DEFAULT_QUERY_TITLE {
         Err(CoreError::TextTooLong)
@@ -4318,11 +2522,7 @@ fn live_page_names(doc: &LoroDoc) -> Vec<(PageId, String)> {
         let Some(snapshot) = page_metadata(&page_id, &page, &live_tags, &mut quarantined) else {
             return;
         };
-        let is_journal = snapshot
-            .properties
-            .get("builtin.page-kind")
-            .is_some_and(|entry| entry.values == [PropertyValue::String("journal".to_owned())]);
-        if !is_journal {
+        if !is_journal_page(&snapshot.properties) {
             names.push((page_id, snapshot.title));
         }
     });
@@ -4378,33 +2578,97 @@ fn ensure_tag_name_available(doc: &LoroDoc, tag_id: &TagId, name: &str) -> Resul
     Ok(())
 }
 
-fn validate_unique_entity_names(doc: &LoroDoc) -> Result<(), CoreError> {
-    let mut pages = BTreeMap::<String, (PageId, String)>::new();
-    for (page_id, name) in live_page_names(doc) {
+pub(crate) fn validate_entity_names(doc: &LoroDoc) -> Result<(), CoreError> {
+    for (_, name) in live_page_names(doc) {
         validate_name(&name, "page")?;
-        let canonical = canonical_entity_name(&name);
-        if let Some((existing, _)) = pages.get(&canonical) {
-            return Err(CoreError::PageNameConflict {
-                name,
-                existing: existing.clone(),
-            });
-        }
-        pages.insert(canonical, (page_id, name));
     }
-
-    let mut tags = BTreeMap::<String, (TagId, String)>::new();
-    for (tag_id, name) in live_tag_names(doc) {
+    for (_, name) in live_tag_names(doc) {
         validate_name(&name, "tag")?;
-        let canonical = canonical_entity_name(&name);
-        if let Some((existing, _)) = tags.get(&canonical) {
-            return Err(CoreError::TagNameConflict {
-                name,
-                existing: existing.clone(),
-            });
-        }
-        tags.insert(canonical, (tag_id, name));
     }
     Ok(())
+}
+
+fn is_journal_page(properties: &PropertyBag) -> bool {
+    properties
+        .get("builtin.page-kind")
+        .is_some_and(|entry| entry.values == [PropertyValue::String("journal".to_owned())])
+}
+
+fn page_title_limit_conflicts<'a>(
+    pages: impl IntoIterator<Item = (&'a PageId, &'a str)>,
+) -> Vec<GraphConflict> {
+    pages
+        .into_iter()
+        .filter(|(_, title)| title.len() > MAX_ENTITY_NAME_BYTES)
+        .map(|(page_id, title)| GraphConflict::TextLimitExceeded {
+            target: TextTarget::PageTitle {
+                page_id: page_id.clone(),
+            },
+            actual_bytes: title.len(),
+            limit: MAX_ENTITY_NAME_BYTES,
+        })
+        .collect()
+}
+
+/// Combines conflicts after entity-name projection. Each input is already in
+/// canonical order, so the public conflict order is independent of map
+/// iteration order.
+fn projection_conflicts<'page, 'tag>(
+    pages: impl IntoIterator<Item = (&'page PageId, &'page str)>,
+    tags: impl IntoIterator<Item = (&'tag TagId, &'tag str)>,
+    overflow_ids: Vec<DefaultQueryId>,
+    text_conflicts: Vec<GraphConflict>,
+    query_conflicts: Vec<GraphConflict>,
+) -> Vec<GraphConflict> {
+    let mut page_names = BTreeMap::<String, Vec<PageId>>::new();
+    for (page_id, name) in pages {
+        page_names
+            .entry(canonical_entity_name(name))
+            .or_default()
+            .push(page_id.clone());
+    }
+
+    let mut tag_names = BTreeMap::<String, Vec<TagId>>::new();
+    for (tag_id, name) in tags {
+        tag_names
+            .entry(canonical_entity_name(name))
+            .or_default()
+            .push(tag_id.clone());
+    }
+
+    let mut conflicts = page_names
+        .into_iter()
+        .filter_map(|(canonical_name, mut page_ids)| {
+            if page_ids.len() < 2 {
+                return None;
+            }
+            page_ids.sort();
+            Some(GraphConflict::DuplicatePageName {
+                canonical_name,
+                page_ids,
+            })
+        })
+        .collect::<Vec<_>>();
+    conflicts.extend(
+        tag_names
+            .into_iter()
+            .filter_map(|(canonical_name, mut tag_ids)| {
+                if tag_ids.len() < 2 {
+                    return None;
+                }
+                tag_ids.sort();
+                Some(GraphConflict::DuplicateTagName {
+                    canonical_name,
+                    tag_ids,
+                })
+            }),
+    );
+    if !overflow_ids.is_empty() {
+        conflicts.push(GraphConflict::DefaultQueryOverflow { overflow_ids });
+    }
+    conflicts.extend(text_conflicts);
+    conflicts.extend(query_conflicts);
+    conflicts
 }
 
 fn property_owner_target(owner: &PropertyOwner) -> PropertyTarget {
@@ -4430,62 +2694,17 @@ fn property_owner_from_query_owner(owner: &QueryOwner) -> Option<PropertyOwner> 
     }
 }
 
-fn semantic_name(command: &Command) -> &'static str {
-    match command {
-        Command::EnsurePage { .. } => "PageEnsured",
-        Command::EnsureJournal { .. } => "JournalEnsured",
-        Command::RenamePage { .. } => "PageRenamed",
-        Command::DeletePage { .. } => "PageDeleted",
-        Command::RestorePage { .. } => "PageRestored",
-        Command::EnsureTag { .. } => "TagEnsured",
-        Command::RenameTag { .. } => "TagRenamed",
-        Command::DeleteTag { .. } => "TagDeleted",
-        Command::RestoreTag { .. } => "TagRestored",
-        Command::InsertBlock { .. }
-        | Command::InsertOutline { .. }
-        | Command::PasteOutline { .. } => "BlockInserted",
-        Command::SplitBlock { .. } => "BlockSplit",
-        Command::MergeBlockBackward { .. } => "BlockMergedBackward",
-        Command::EditMarkdown { .. }
-        | Command::SpliceMarkdown { .. }
-        | Command::SpliceMarkdowns { .. }
-        | Command::SpliceBlockContent { .. }
-        | Command::SpliceBlockContents { .. } => "BlockTextChanged",
-        Command::MoveBlocks { .. }
-        | Command::IndentBlocks { .. }
-        | Command::OutdentBlocks { .. } => "SubtreeMoved",
-        Command::DeleteBlocks { .. } => "SubtreesDeleted",
-        Command::AddTag { .. } => "TagAddedAndDefaultsMaterialized",
-        Command::RemoveTag { .. } => "TagRemoved",
-        Command::EnsureProperty { owner, .. }
-        | Command::SetProperty { owner, .. }
-        | Command::SetProperties { owner, .. }
-        | Command::ClearPropertyValues { owner, .. }
-        | Command::RemoveProperty { owner, .. }
-        | Command::AddRepeatedProperty { owner, .. }
-        | Command::RemoveRepeatedProperty { owner, .. } => match owner {
-            PropertyOwner::Tag { .. } => "TagPropertiesChanged",
-            PropertyOwner::TagDefault { .. } => "TagDefaultsChanged",
-            PropertyOwner::Page { .. } | PropertyOwner::Block { .. } => "PropertiesChanged",
-        },
-        Command::SetQuerySource { owner, .. }
-        | Command::SpliceQuerySource { owner, .. }
-        | Command::SetQueryPlan { owner, .. }
-        | Command::ClearQueryPlan { owner, .. }
-        | Command::PutQueryView { owner, .. }
-        | Command::RemoveQueryView { owner, .. }
-        | Command::SetQueryDefaultView { owner, .. } => match owner {
-            QueryOwner::Tag { .. } => "TagPropertiesChanged",
-            QueryOwner::Page { .. } | QueryOwner::Block { .. } => "PropertiesChanged",
-            QueryOwner::GraphDefault { .. } => "GraphSettingsChanged",
-        },
-        Command::CreateDefaultQuery { .. }
-        | Command::RenameDefaultQuery { .. }
-        | Command::MoveDefaultQuery { .. }
-        | Command::DeleteDefaultQuery { .. } => "GraphSettingsChanged",
-        Command::Batch { .. } => "CommandBatchApplied",
-        Command::Undo => "LocalUndo",
-        Command::Redo => "LocalRedo",
+fn query_owner_from_property_owner(owner: &PropertyOwner) -> Option<QueryOwner> {
+    match owner {
+        PropertyOwner::Page { id } => Some(QueryOwner::Page { id: id.clone() }),
+        PropertyOwner::Block { owner, id } => Some(QueryOwner::Block {
+            owner: owner.clone(),
+            id: id.clone(),
+        }),
+        PropertyOwner::Tag { tag_id } => Some(QueryOwner::Tag {
+            tag_id: tag_id.clone(),
+        }),
+        PropertyOwner::TagDefault { .. } => None,
     }
 }
 
@@ -4507,25 +2726,9 @@ fn require_block_in(outline: &LoroTree, block_id: &BlockId) -> Result<TreeID, Co
     Ok(tree)
 }
 
-fn single_slot(key: &PropertyKey) -> String {
-    format!("s:{}", key.as_str())
-}
-
-fn field_slot(key: &PropertyKey) -> String {
-    format!("f:{}", key.as_str())
-}
-
-fn repeated_slot(key: &PropertyKey, value: &PropertyValue) -> Result<String, CoreError> {
+fn property_member_slot(value: &PropertyValue) -> Result<String, CoreError> {
     let encoded = serde_json::to_vec(value)?;
-    Ok(format!(
-        "r:{}:{}",
-        key.as_str(),
-        hex::encode(Sha256::digest(encoded))
-    ))
-}
-
-fn document_slot(key: &PropertyKey) -> String {
-    format!("d:{}", key.as_str())
+    Ok(hex::encode(Sha256::digest(encoded)))
 }
 
 fn initialize_node(node: &LoroMap, content: &str) -> Result<(), CoreError> {
@@ -4642,95 +2845,14 @@ fn validate_fragment_page_references(item: &OutlineFragmentItem) -> Result<(), C
     Ok(())
 }
 
-fn write_fragment_content(
-    text: &LoroText,
-    item: &OutlineFragmentItem,
-    page_resolution: &BTreeMap<PageId, PageId>,
-) -> Result<(), CoreError> {
-    if item.page_references.is_empty() {
-        return Ok(());
-    }
-    let points = item.markdown.chars().collect::<Vec<_>>();
-    let mut content = Vec::new();
-    let mut cursor = 0usize;
-    for reference in &item.page_references {
-        let prefix = points[cursor..reference.start].iter().collect::<String>();
-        if !prefix.is_empty() {
-            content.push(InlineContent::Markdown { value: prefix });
-        }
-        let page_id = page_resolution
-            .get(&reference.page_id)
-            .cloned()
-            .ok_or_else(|| {
-                CoreError::InvalidHierarchy(format!(
-                    "outline fragment page reference is missing: {}",
-                    reference.page_id
-                ))
-            })?;
-        content.push(InlineContent::PageReference { page_id });
-        cursor = reference.end;
-    }
-    let suffix = points[cursor..].iter().collect::<String>();
-    if !suffix.is_empty() {
-        content.push(InlineContent::Markdown { value: suffix });
-    }
-    if text.len_unicode() > 0 {
-        text.delete(0, text.len_unicode())?;
-    }
-    apply_inline_content(text, 0, &content)
-}
-
-fn write_fragment_property(
-    bag: &LoroMap,
-    field: &PropertyField,
-    page_resolution: &BTreeMap<PageId, PageId>,
-) -> Result<(), CoreError> {
-    let mut field = field.clone();
-    for value in &mut field.values {
-        if let PropertyValue::Page(source) = value
-            && let Some(target) = page_resolution.get(source)
-        {
-            *source = target.clone();
-        }
-    }
-    validate_property_field(&field)?;
-    ensure_property_field(bag, &field.key, field.value_type, field.cardinality)?;
-    for value in &field.values {
-        match value {
-            PropertyValue::Document(document) => {
-                if field.key.as_str() != QUERY_PROPERTY_KEY
-                    || field.cardinality != Cardinality::Single
-                {
-                    return Err(PropertyError::UnsupportedDocument {
-                        schema: document.schema.clone(),
-                        version: document.version,
-                    }
-                    .into());
-                }
-                write_query_document_snapshot(bag, document)?;
-            }
-            PropertyValue::UnsupportedDocument(document) => {
-                return Err(PropertyError::UnsupportedDocument {
-                    schema: document.schema.clone(),
-                    version: document.version,
-                }
-                .into());
-            }
-            _ => match field.cardinality {
-                Cardinality::Single => set_single(bag, &field.key, value)?,
-                Cardinality::Set => set_repeated(bag, &field.key, value)?,
-            },
-        }
-    }
-    Ok(())
-}
-
 fn write_query_document_snapshot(
     bag: &LoroMap,
     snapshot: &PropertyDocument,
 ) -> Result<(), CoreError> {
     let query_key = key(QUERY_PROPERTY_KEY);
-    let document = bag.ensure_mergeable_map(&document_slot(&query_key))?;
+    let field =
+        ensure_property_field(bag, &query_key, PropertyType::Document, Cardinality::Single)?;
+    let document = required_property_payload_map(&field, PROPERTY_DOCUMENT_KEY, &query_key)?;
     write_query_document_map(&document, snapshot)
 }
 
@@ -4777,18 +2899,22 @@ fn ensure_property_field(
     key: &PropertyKey,
     value_type: PropertyType,
     cardinality: Cardinality,
-) -> Result<(), CoreError> {
+) -> Result<LoroMap, CoreError> {
     validate_property_shape(key, value_type, cardinality)?;
-    if let Some(encoded) = map.get(&field_slot(key)).and_then(value_into_string) {
-        let existing: PropertyField = serde_json::from_str(&encoded)?;
-        if !existing.values.is_empty() {
-            return Err(CoreError::InvalidHierarchy(format!(
-                "property field marker {} contains inline values",
-                key
-            )));
-        }
-        validate_property_field(&existing)?;
-        if existing.key != *key || existing.value_type != value_type {
+    if value_type == PropertyType::Document && cardinality == Cardinality::Set {
+        return Err(CoreError::Property(PropertyError::WrongCardinality {
+            key: key.to_string(),
+            expected: Cardinality::Single,
+            actual: Cardinality::Set,
+        }));
+    }
+    if let Some(value) = map.get(key.as_str()) {
+        let field = value_into_map(value).ok_or_else(|| {
+            CoreError::InvalidHierarchy(format!("property field {key} is not a map"))
+        })?;
+        let existing = stored_property_shape(&field, key)?;
+        validate_property_shape(key, existing.value_type, existing.cardinality)?;
+        if existing.value_type != value_type {
             return Err(CoreError::Property(PropertyError::WrongType {
                 key: key.to_string(),
                 expected: existing.value_type,
@@ -4802,38 +2928,51 @@ fn ensure_property_field(
                 actual: cardinality,
             }));
         }
-        return Ok(());
+        validate_property_payload_shape(&field, key, existing)?;
+        return Ok(field);
     }
-    // A field recreated after removal starts empty even if a malformed or
-    // concurrently orphaned value slot survived without its marker.
-    clear_property_values(map, key)?;
-    let marker = PropertyField {
-        key: key.clone(),
+
+    // A regular child has a fresh op-derived identity. Removing the outer map
+    // reference therefore makes every edit inside the old generation inert,
+    // while recreating cannot surface its preserved payload.
+    let field = map.insert_container(key.as_str(), LoroMap::new())?;
+    let shape = StoredPropertyShape {
         value_type,
         cardinality,
-        values: Vec::new(),
     };
-    map.insert(&field_slot(key), serde_json::to_string(&marker)?)?;
-    Ok(())
+    field.insert(PROPERTY_SHAPE_KEY, serde_json::to_string(&shape)?)?;
+    match (value_type, cardinality) {
+        (PropertyType::Document, Cardinality::Single) => {
+            let _ = field.ensure_mergeable_map(PROPERTY_DOCUMENT_KEY)?;
+        }
+        (PropertyType::Document, Cardinality::Set) => unreachable!(),
+        (_, Cardinality::Set) => {
+            let _ = field.ensure_mergeable_map(PROPERTY_SET_KEY)?;
+        }
+        (_, Cardinality::Single) => {}
+    }
+    Ok(field)
 }
 
 fn set_single(map: &LoroMap, key: &PropertyKey, value: &PropertyValue) -> Result<(), CoreError> {
-    ensure_property_field(map, key, value.property_type(), Cardinality::Single)?;
-    map.insert(&single_slot(key), encode_value(value)?)?;
+    let field = ensure_property_field(map, key, value.property_type(), Cardinality::Single)?;
+    field.insert(PROPERTY_SINGLE_KEY, encode_value(value)?)?;
     Ok(())
 }
 
 fn set_repeated(map: &LoroMap, key: &PropertyKey, value: &PropertyValue) -> Result<(), CoreError> {
-    ensure_property_field(map, key, value.property_type(), Cardinality::Set)?;
-    map.insert(&repeated_slot(key, value)?, encode_value(value)?)?;
+    let field = ensure_property_field(map, key, value.property_type(), Cardinality::Set)?;
+    required_property_payload_map(&field, PROPERTY_SET_KEY, key)?
+        .insert(&property_member_slot(value)?, encode_value(value)?)?;
     Ok(())
 }
 
 fn ensure_query_document(map: &LoroMap) -> Result<LoroMap, CoreError> {
     let query_key = key(QUERY_PROPERTY_KEY);
-    ensure_property_field(map, &query_key, PropertyType::Document, Cardinality::Single)?;
-    let created = map.get(&document_slot(&query_key)).is_none();
-    let document = map.ensure_mergeable_map(&document_slot(&query_key))?;
+    let created = !bag_contains_key(map, &query_key);
+    let field =
+        ensure_property_field(map, &query_key, PropertyType::Document, Cardinality::Single)?;
+    let document = required_property_payload_map(&field, PROPERTY_DOCUMENT_KEY, &query_key)?;
     if created {
         document.insert("schema", QUERY_DOCUMENT_SCHEMA)?;
         document.insert("version", i64::from(QUERY_DOCUMENT_VERSION))?;
@@ -4849,22 +2988,73 @@ fn ensure_query_document(map: &LoroMap) -> Result<LoroMap, CoreError> {
     Ok(document)
 }
 
-fn clear_query_plan(definition: &LoroMap) -> Result<(), CoreError> {
-    if definition.get("plan").is_some() {
-        definition.delete("plan")?;
-    }
-    if definition.get("plan_version").is_some() {
-        definition.delete("plan_version")?;
-    }
+/// Writes the complete query authority with one LWW map operation.
+fn write_query_plan_state(definition: &LoroMap, plan: Option<&QueryPlan>) -> Result<(), CoreError> {
+    let state = plan.map_or(StoredPlanState::Raw, |plan| StoredPlanState::Built {
+        version: QUERY_PLAN_STATE_VERSION,
+        plan: plan.clone(),
+    });
+    definition.insert(QUERY_PLAN_STATE_KEY, serde_json::to_string(&state)?)?;
     Ok(())
 }
 
 fn require_query_document(map: &LoroMap) -> Result<LoroMap, CoreError> {
     let query_key = key(QUERY_PROPERTY_KEY);
-    let Some(document) = map.get(&document_slot(&query_key)).and_then(value_into_map) else {
+    let Some(field) = map.get(query_key.as_str()).and_then(value_into_map) else {
         return Err(PropertyError::InvalidDocument("query document is missing".to_owned()).into());
     };
-    Ok(document)
+    let shape = stored_property_shape(&field, &query_key)?;
+    if shape.value_type != PropertyType::Document || shape.cardinality != Cardinality::Single {
+        return Err(
+            PropertyError::InvalidDocument("query property shape is invalid".to_owned()).into(),
+        );
+    }
+    required_property_payload_map(&field, PROPERTY_DOCUMENT_KEY, &query_key)
+}
+
+fn stored_property_shape(
+    field: &LoroMap,
+    key: &PropertyKey,
+) -> Result<StoredPropertyShape, CoreError> {
+    let encoded = field
+        .get(PROPERTY_SHAPE_KEY)
+        .and_then(value_into_string)
+        .ok_or_else(|| {
+            CoreError::InvalidHierarchy(format!("property field {key} has no valid shape"))
+        })?;
+    Ok(serde_json::from_str(&encoded)?)
+}
+
+fn required_property_payload_map(
+    field: &LoroMap,
+    slot: &str,
+    key: &PropertyKey,
+) -> Result<LoroMap, CoreError> {
+    field.get(slot).and_then(value_into_map).ok_or_else(|| {
+        CoreError::InvalidHierarchy(format!("property field {key} has no valid {slot} payload"))
+    })
+}
+
+fn validate_property_payload_shape(
+    field: &LoroMap,
+    key: &PropertyKey,
+    shape: StoredPropertyShape,
+) -> Result<(), CoreError> {
+    match (shape.value_type, shape.cardinality) {
+        (PropertyType::Document, Cardinality::Single) => {
+            required_property_payload_map(field, PROPERTY_DOCUMENT_KEY, key)?;
+        }
+        (PropertyType::Document, Cardinality::Set) => {
+            return Err(CoreError::InvalidHierarchy(format!(
+                "property field {key} has invalid document cardinality"
+            )));
+        }
+        (_, Cardinality::Set) => {
+            required_property_payload_map(field, PROPERTY_SET_KEY, key)?;
+        }
+        (_, Cardinality::Single) => {}
+    }
+    Ok(())
 }
 
 fn put_query_view(document: &LoroMap, view: &QueryView) -> Result<(), CoreError> {
@@ -4899,17 +3089,47 @@ fn write_query_definition(
     definition: &LoroMap,
     snapshot: &QueryDefinition,
 ) -> Result<(), CoreError> {
+    let snapshot = normalized_query_definition(snapshot)?;
     definition.insert("language", snapshot.language.as_str())?;
     replace_text(
         &definition.ensure_mergeable_text("source")?,
         &snapshot.source,
     )?;
-    clear_query_plan(definition)?;
-    if let Some(plan) = &snapshot.plan {
-        definition.insert("plan_version", i64::from(plan.version))?;
-        definition.insert("plan", plan.payload.as_str())?;
+    write_query_plan_state(definition, snapshot.plan.as_ref())
+}
+
+fn derived_query_source(plan: &QueryPlan) -> Result<String, CoreError> {
+    let source = derive_plan_source(plan)
+        .map_err(|error| CoreError::Property(PropertyError::InvalidDocument(error.to_string())))?;
+    if source.len() > MAX_QUERY_SOURCE_BYTES {
+        return Err(CoreError::TextTooLong);
     }
-    Ok(())
+    Ok(source)
+}
+
+fn normalized_query_definition(snapshot: &QueryDefinition) -> Result<QueryDefinition, CoreError> {
+    if let Some(plan) = &snapshot.plan {
+        let _ = derived_query_source(plan)?;
+    }
+    Ok(snapshot.clone())
+}
+
+fn normalized_query_view(view: &QueryView) -> Result<QueryView, CoreError> {
+    let mut normalized = view.clone();
+    normalized.definition = normalized_query_definition(&view.definition)?;
+    normalized.validate()?;
+    Ok(normalized)
+}
+
+fn normalized_query_document(document: &PropertyDocument) -> Result<PropertyDocument, CoreError> {
+    let mut normalized = document.clone();
+    normalized.views = document
+        .views
+        .iter()
+        .map(normalized_query_view)
+        .collect::<Result<_, _>>()?;
+    normalized.validate()?;
+    Ok(normalized)
 }
 
 fn require_query_view(document: &LoroMap, view_id: &QueryViewId) -> Result<LoroMap, CoreError> {
@@ -4937,44 +3157,54 @@ fn require_query_definition(
         })
 }
 
-fn remove_query_view(document: &LoroMap, view_id: &QueryViewId) -> Result<(), CoreError> {
-    let current = decode_query_document(document).map_err(CoreError::InvalidHierarchy)?;
-    let next_default = if current.default_view_id == *view_id {
-        Some(
-            current
-                .views
-                .iter()
-                .find(|view| &view.id != view_id)
-                .ok_or_else(|| {
-                    PropertyError::InvalidDocument(
-                        "the last query view cannot be removed".to_owned(),
-                    )
-                })?
-                .id
-                .clone(),
-        )
-    } else {
-        None
-    };
-    let views = document.ensure_mergeable_map("views")?;
-    let stored = views
-        .get(view_id.as_str())
-        .and_then(value_into_map)
-        .ok_or_else(|| PropertyError::InvalidDocument("query view does not exist".to_owned()))?;
-    stored.insert("deleted", true)?;
-    if let Some(next) = next_default {
-        document.insert("default_view_id", next.as_str())?;
+struct ProjectedQueryDocument {
+    document: PropertyDocument,
+    overflow_ids: Vec<QueryViewId>,
+    unavailable_default: Option<(QueryViewId, QueryViewId)>,
+    source_overflows: Vec<(QueryViewId, usize)>,
+}
+
+fn append_query_projection_conflicts(
+    conflicts: &mut Vec<GraphConflict>,
+    owner: QueryOwner,
+    projection: &ProjectedQueryDocument,
+) {
+    if !projection.overflow_ids.is_empty() {
+        conflicts.push(GraphConflict::QueryViewOverflow {
+            owner: owner.clone(),
+            overflow_ids: projection.overflow_ids.clone(),
+        });
     }
-    Ok(())
+    if let Some((requested_view_id, fallback_view_id)) = &projection.unavailable_default {
+        conflicts.push(GraphConflict::QueryDefaultViewUnavailable {
+            owner: owner.clone(),
+            requested_view_id: requested_view_id.clone(),
+            fallback_view_id: fallback_view_id.clone(),
+        });
+    }
+    for (view_id, actual_bytes) in &projection.source_overflows {
+        conflicts.push(GraphConflict::TextLimitExceeded {
+            target: TextTarget::QuerySource {
+                owner: owner.clone(),
+                view_id: view_id.clone(),
+            },
+            actual_bytes: *actual_bytes,
+            limit: MAX_QUERY_SOURCE_BYTES,
+        });
+    }
 }
 
 fn decode_query_document(document: &LoroMap) -> Result<PropertyDocument, String> {
+    Ok(project_query_document(document)?.document)
+}
+
+fn project_query_document(document: &LoroMap) -> Result<ProjectedQueryDocument, String> {
     let schema = map_string(document, "schema")
         .ok_or_else(|| "query document schema is missing".to_owned())?;
     let version = map_i64(document, "version")
         .and_then(|value| u32::try_from(value).ok())
         .ok_or_else(|| "query document version is invalid".to_owned())?;
-    decode_query_document_with(document, schema, version, |view, raw_id| {
+    project_query_document_with(document, schema, version, |view, raw_id| {
         read_query_definition(
             &view
                 .get("definition")
@@ -4985,12 +3215,12 @@ fn decode_query_document(document: &LoroMap) -> Result<PropertyDocument, String>
     })
 }
 
-fn decode_query_document_with(
+fn project_query_document_with(
     document: &LoroMap,
     schema: String,
     version: u32,
     mut decode_definition: impl FnMut(&LoroMap, &str) -> Result<QueryDefinition, String>,
-) -> Result<PropertyDocument, String> {
+) -> Result<ProjectedQueryDocument, String> {
     let requested_default_view_id = QueryViewId::new(
         map_string(document, "default_view_id")
             .ok_or_else(|| "query document default view is missing".to_owned())?,
@@ -5056,45 +3286,75 @@ fn decode_query_document_with(
             .then_with(|| left.id.cmp(&right.id))
     });
     if decoded.is_empty() {
+        // Distinct locally valid removals can jointly delete every view. Keep
+        // reads total with an ephemeral, deterministic fallback; the raw
+        // tombstones and unavailable canonical selection stay untouched.
         decoded.push(
             PropertyDocument::default_query(String::new())
                 .views
                 .remove(0),
         );
     }
+    // Shape corruption is never mergeable. Source length is different: each
+    // branch can stay within budget while LoroText retains both insertions, so
+    // it belongs to the conflict projection rather than import validation.
+    for view in &decoded {
+        view.validate_structure()
+            .map_err(|error| error.to_string())?;
+    }
+    let source_overflows = decoded
+        .iter()
+        .filter(|view| view.definition.source.len() > MAX_QUERY_SOURCE_BYTES)
+        .map(|view| (view.id.clone(), view.definition.source.len()))
+        .collect();
+    let overflow = if decoded.len() > MAX_QUERY_VIEWS {
+        decoded.split_off(MAX_QUERY_VIEWS)
+    } else {
+        Vec::new()
+    };
+    let overflow_ids = overflow.into_iter().map(|view| view.id).collect();
     let default_view_id = if decoded
         .iter()
         .any(|view| view.id == requested_default_view_id)
     {
-        requested_default_view_id
+        requested_default_view_id.clone()
     } else {
         decoded[0].id.clone()
     };
+    let unavailable_default = (default_view_id != requested_default_view_id)
+        .then(|| (requested_default_view_id, default_view_id.clone()));
     let snapshot = PropertyDocument {
         schema,
         version,
         views: decoded,
         default_view_id,
     };
-    snapshot.validate().map_err(|error| error.to_string())?;
-    Ok(snapshot)
+    snapshot
+        .validate_structure()
+        .map_err(|error| error.to_string())?;
+    Ok(ProjectedQueryDocument {
+        document: snapshot,
+        overflow_ids,
+        unavailable_default,
+        source_overflows,
+    })
 }
 
 fn read_query_definition(map: &LoroMap, label: &str) -> Result<QueryDefinition, String> {
     let language =
         map_string(map, "language").ok_or_else(|| format!("{label} language is missing"))?;
-    let source = map
+    let raw_source = map
         .get("source")
         .and_then(value_into_text)
         .map(|text| text.to_string())
         .ok_or_else(|| format!("{label} source is missing"))?;
-    // An unreadable plan never invalidates an otherwise executable source.
-    let plan = match (map_i64(map, "plan_version"), map_string(map, "plan")) {
-        (Some(version), Some(payload)) => u32::try_from(version)
-            .ok()
-            .map(|version| QueryPlan { version, payload })
-            .filter(|plan| plan.validate().is_ok()),
-        _ => None,
+    let candidate = decode_query_plan_state(map, label).map_err(|error| error.to_string())?;
+    let (source, plan) = match candidate {
+        Some(plan) => (
+            derived_query_source(&plan).unwrap_or(raw_source),
+            Some(plan),
+        ),
+        None => (raw_source, None),
     };
     Ok(QueryDefinition {
         source,
@@ -5170,11 +3430,6 @@ fn stored_default_queries(doc: &LoroDoc) -> Result<Vec<StoredDefaultQuery>, Core
     if let Some(issue) = issue {
         return Err(CoreError::InvalidHierarchy(issue));
     }
-    if stored.len() > MAX_DEFAULT_QUERIES {
-        return Err(CoreError::InvalidHierarchy(
-            "graph contains too many default queries".to_owned(),
-        ));
-    }
     stored.sort_by(|left, right| {
         left.position
             .cmp(&right.position)
@@ -5183,62 +3438,149 @@ fn stored_default_queries(doc: &LoroDoc) -> Result<Vec<StoredDefaultQuery>, Core
     Ok(stored)
 }
 
-fn graph_settings_snapshot(doc: &LoroDoc) -> Result<GraphSettings, CoreError> {
-    let decoded = stored_default_queries(doc)?
-        .into_iter()
-        .map(|stored| {
-            let document =
-                decode_query_document(&stored.document).map_err(CoreError::InvalidHierarchy)?;
-            Ok(DefaultQuerySnapshot {
+struct ProjectedGraphSettings {
+    settings: GraphSettings,
+    overflow_ids: Vec<DefaultQueryId>,
+    query_conflicts: Vec<GraphConflict>,
+}
+
+struct ProjectedGraph {
+    pages: BTreeMap<PageId, PageSnapshot>,
+    page_directory: Vec<PageDirectoryEntry>,
+    tags: Vec<TagSnapshot>,
+    settings: GraphSettings,
+    conflicts: Vec<GraphConflict>,
+    quarantined: Vec<String>,
+}
+
+#[derive(Default)]
+struct ProjectionDiagnostics {
+    quarantined: Vec<String>,
+    text_conflicts: Vec<GraphConflict>,
+    query_conflicts: Vec<GraphConflict>,
+}
+
+impl ProjectionDiagnostics {
+    fn sort(&mut self) {
+        self.quarantined.sort();
+        self.text_conflicts.sort_by_cached_key(conflict_sort_key);
+        self.query_conflicts.sort_by_cached_key(conflict_sort_key);
+    }
+}
+
+fn conflict_sort_key(conflict: &GraphConflict) -> String {
+    serde_json::to_string(conflict).expect("graph conflicts are always JSON-serializable")
+}
+
+/// Decodes every canonical entry, then bounds only the published projection.
+/// A merge may exceed the local creation limit; dropping those entries would
+/// lose valid CRDT operations, while rejecting them would break merge closure.
+fn project_graph_settings(doc: &LoroDoc) -> Result<ProjectedGraphSettings, CoreError> {
+    let mut visible = Vec::new();
+    let mut overflow_ids = Vec::new();
+    let mut query_conflicts = Vec::new();
+    for (index, stored) in stored_default_queries(doc)?.into_iter().enumerate() {
+        let query_projection =
+            project_query_document(&stored.document).map_err(CoreError::InvalidHierarchy)?;
+        append_query_projection_conflicts(
+            &mut query_conflicts,
+            QueryOwner::GraphDefault {
+                default_query_id: stored.id.clone(),
+            },
+            &query_projection,
+        );
+        if index < MAX_DEFAULT_QUERIES {
+            visible.push(DefaultQuerySnapshot {
                 id: stored.id,
                 title: stored.title,
                 position: stored.position,
-                document,
-            })
-        })
-        .collect::<Result<Vec<_>, CoreError>>()?;
-    Ok(GraphSettings {
-        default_queries: decoded,
+                document: query_projection.document,
+            });
+        } else {
+            overflow_ids.push(stored.id);
+        }
+    }
+    Ok(ProjectedGraphSettings {
+        settings: GraphSettings {
+            default_queries: visible,
+        },
+        overflow_ids,
+        query_conflicts,
     })
 }
 
+fn graph_settings_snapshot(doc: &LoroDoc) -> Result<GraphSettings, CoreError> {
+    Ok(project_graph_settings(doc)?.settings)
+}
+
 fn validate_current_graph_settings(doc: &LoroDoc) -> Result<(), CoreError> {
-    graph_settings_snapshot(doc).map(|_| ())
+    project_graph_settings(doc).map(|_| ())
 }
 
 fn bag_contains_key(map: &LoroMap, key: &PropertyKey) -> bool {
-    map.get(&field_slot(key)).is_some()
-}
-
-fn property_value_slots(map: &LoroMap, key: &PropertyKey) -> Vec<String> {
-    let single = single_slot(key);
-    let document = document_slot(key);
-    let repeated = format!("r:{}:", key.as_str());
-    let mut slots = Vec::new();
-    map.for_each(|slot, _| {
-        if slot == single || slot == document || slot.starts_with(&repeated) {
-            slots.push(slot.to_owned());
-        }
-    });
-    slots
+    map.get(key.as_str()).is_some()
 }
 
 fn clear_property_values(map: &LoroMap, key: &PropertyKey) -> Result<(), CoreError> {
-    for slot in property_value_slots(map, key) {
-        map.delete(&slot)?;
+    let Some(field) = map.get(key.as_str()).and_then(value_into_map) else {
+        return Ok(());
+    };
+    let shape = stored_property_shape(&field, key)?;
+    match (shape.value_type, shape.cardinality) {
+        (PropertyType::Document, _) => {
+            return Err(PropertyError::DocumentCommandRequired(key.to_string()).into());
+        }
+        (_, Cardinality::Single) => {
+            field.delete(PROPERTY_SINGLE_KEY)?;
+        }
+        (_, Cardinality::Set) => {
+            let values = required_property_payload_map(&field, PROPERTY_SET_KEY, key)?;
+            for member in values.keys() {
+                values.delete(&member)?;
+            }
+        }
     }
     Ok(())
 }
 
 fn remove_property_field(map: &LoroMap, key: &PropertyKey) -> Result<(), CoreError> {
-    clear_property_values(map, key)?;
-    map.delete(&field_slot(key))?;
+    // Deleting only the selected generation is the remove-wins boundary. Any
+    // concurrent operation against that generation remains causally valid but
+    // unreachable; a later declaration inserts a fresh regular child.
+    map.delete(key.as_str())?;
     Ok(())
 }
 
-fn decode_bag_child(page: &LoroMap, name: &str) -> (PropertyBag, Vec<String>) {
-    match page.get(name).and_then(value_into_map) {
-        Some(map) => decode_bag(&map),
+fn remove_repeated_value(
+    map: &LoroMap,
+    key: &PropertyKey,
+    value: &PropertyValue,
+) -> Result<(), CoreError> {
+    let Some(field) = map.get(key.as_str()).and_then(value_into_map) else {
+        return Ok(());
+    };
+    let shape = stored_property_shape(&field, key)?;
+    if shape.value_type != value.property_type() || shape.cardinality != Cardinality::Set {
+        return Ok(());
+    }
+    required_property_payload_map(&field, PROPERTY_SET_KEY, key)?
+        .delete(&property_member_slot(value)?)?;
+    Ok(())
+}
+
+fn decode_bag(map: &LoroMap) -> (PropertyBag, Vec<String>) {
+    let mut ignored_query_conflicts = Vec::new();
+    decode_bag_with_owner(map, None, &mut ignored_query_conflicts)
+}
+
+fn project_bag_child(
+    parent: &LoroMap,
+    name: &str,
+    owner: Option<&PropertyOwner>,
+    diagnostics: &mut ProjectionDiagnostics,
+) -> (PropertyBag, Vec<String>) {
+    match parent.get(name).and_then(value_into_map) {
+        Some(map) => decode_bag_with_owner(&map, owner, &mut diagnostics.query_conflicts),
         None => (
             PropertyBag::new(),
             vec![format!("property-bag:{name}:missing-or-invalid")],
@@ -5246,129 +3588,246 @@ fn decode_bag_child(page: &LoroMap, name: &str) -> (PropertyBag, Vec<String>) {
     }
 }
 
-fn decode_bag(map: &LoroMap) -> (PropertyBag, Vec<String>) {
+fn decode_bag_with_owner(
+    map: &LoroMap,
+    owner: Option<&PropertyOwner>,
+    query_conflicts: &mut Vec<GraphConflict>,
+) -> (PropertyBag, Vec<String>) {
     let mut fields = BTreeMap::<PropertyKey, PropertyField>::new();
     let mut issues = Vec::new();
     map.for_each(|slot, value| {
-        let Some(raw_key) = slot.strip_prefix("f:") else {
+        let Ok(key) = PropertyKey::new(slot) else {
+            issues.push(format!("property-slot:{slot}:invalid-key"));
             return;
         };
-        let Some(encoded) = value_into_string(value) else {
-            issues.push(format!("property-slot:{slot}:not-atomic-string"));
+        let Some(stored) = value_into_map(value) else {
+            issues.push(format!("property-slot:{slot}:not-field-map"));
             return;
         };
-        let Ok(field) = serde_json::from_str::<PropertyField>(&encoded) else {
-            issues.push(format!("property-slot:{slot}:invalid-field"));
+        let Ok(shape) = stored_property_shape(&stored, &key) else {
+            issues.push(format!("property-slot:{slot}:invalid-shape"));
             return;
         };
-        if field.key.as_str() != raw_key || !field.values.is_empty() {
-            issues.push(format!("property-slot:{slot}:invalid-marker"));
+        if validate_property_shape(&key, shape.value_type, shape.cardinality).is_err() {
+            issues.push(format!("property-slot:{slot}:contract-violation"));
             return;
+        }
+        let payload_key = match (shape.value_type, shape.cardinality) {
+            (PropertyType::Document, Cardinality::Single) => PROPERTY_DOCUMENT_KEY,
+            (PropertyType::Document, Cardinality::Set) => {
+                issues.push(format!("property-slot:{slot}:invalid-document-cardinality"));
+                return;
+            }
+            (_, Cardinality::Single) => PROPERTY_SINGLE_KEY,
+            (_, Cardinality::Set) => PROPERTY_SET_KEY,
+        };
+        if stored
+            .keys()
+            .any(|name| name.as_ref() != PROPERTY_SHAPE_KEY && name.as_ref() != payload_key)
+        {
+            issues.push(format!("property-slot:{slot}:invalid-payload-slot"));
+            return;
+        }
+        let mut field = PropertyField {
+            key: key.clone(),
+            value_type: shape.value_type,
+            cardinality: shape.cardinality,
+            values: Vec::new(),
+        };
+        match (shape.value_type, shape.cardinality) {
+            (PropertyType::Document, Cardinality::Single) => {
+                let Some(document) = stored.get(PROPERTY_DOCUMENT_KEY).and_then(value_into_map)
+                else {
+                    issues.push(format!("property-slot:{slot}:not-document-map"));
+                    return;
+                };
+                let schema = map_string(&document, "schema");
+                let version =
+                    map_i64(&document, "version").and_then(|value| u32::try_from(value).ok());
+                match (schema, version) {
+                    (Some(schema), Some(version))
+                        if schema != QUERY_DOCUMENT_SCHEMA || version != QUERY_DOCUMENT_VERSION =>
+                    {
+                        field.values =
+                            vec![PropertyValue::UnsupportedDocument(PropertyDocumentHeader {
+                                schema,
+                                version,
+                            })];
+                    }
+                    (Some(_), Some(_)) => {
+                        let Ok(projection) = project_query_document(&document) else {
+                            issues.push(format!("property-slot:{slot}:invalid-document"));
+                            fields.insert(key, field);
+                            return;
+                        };
+                        if let Some(owner) = owner.and_then(query_owner_from_property_owner) {
+                            append_query_projection_conflicts(query_conflicts, owner, &projection);
+                        }
+                        field.values = vec![PropertyValue::Document(projection.document)];
+                    }
+                    _ => {
+                        issues.push(format!("property-slot:{slot}:invalid-document-header"));
+                        fields.insert(key, field);
+                        return;
+                    }
+                }
+            }
+            (PropertyType::Document, Cardinality::Set) => unreachable!(),
+            (_, Cardinality::Single) => {
+                let Some(value) = stored.get(PROPERTY_SINGLE_KEY) else {
+                    fields.insert(key, field);
+                    return;
+                };
+                let Some(encoded) = value_into_string(value) else {
+                    issues.push(format!("property-slot:{slot}:not-atomic-string"));
+                    return;
+                };
+                let Ok(value) = serde_json::from_str::<PropertyValue>(&encoded) else {
+                    issues.push(format!("property-slot:{slot}:invalid-value"));
+                    return;
+                };
+                if value.property_type() != shape.value_type
+                    || validate_property(&key, &value, Cardinality::Single).is_err()
+                {
+                    issues.push(format!("property-slot:{slot}:contract-violation"));
+                    return;
+                }
+                field.values.push(value);
+            }
+            (_, Cardinality::Set) => {
+                let Some(values) = stored.get(PROPERTY_SET_KEY).and_then(value_into_map) else {
+                    issues.push(format!("property-slot:{slot}:not-set-map"));
+                    return;
+                };
+                let mut valid = true;
+                values.for_each(|member, value| {
+                    let Some(encoded) = value_into_string(value) else {
+                        issues.push(format!(
+                            "property-slot:{slot}:member:{member}:not-atomic-string"
+                        ));
+                        valid = false;
+                        return;
+                    };
+                    let Ok(value) = serde_json::from_str::<PropertyValue>(&encoded) else {
+                        issues.push(format!(
+                            "property-slot:{slot}:member:{member}:invalid-value"
+                        ));
+                        valid = false;
+                        return;
+                    };
+                    let member_matches =
+                        property_member_slot(&value).is_ok_and(|expected| expected == member);
+                    if value.property_type() != shape.value_type
+                        || validate_property(&key, &value, Cardinality::Set).is_err()
+                        || !member_matches
+                    {
+                        issues.push(format!(
+                            "property-slot:{slot}:member:{member}:contract-violation"
+                        ));
+                        valid = false;
+                        return;
+                    }
+                    field.values.push(value);
+                });
+                if !valid {
+                    return;
+                }
+            }
         }
         if validate_property_field(&field).is_err() {
             issues.push(format!("property-slot:{slot}:contract-violation"));
             return;
         }
-        fields.insert(field.key.clone(), field);
-    });
-    map.for_each(|slot, value| {
-        if slot.starts_with("f:") {
-            return;
-        }
-        if let Some(raw_key) = slot.strip_prefix("d:") {
-            let Ok(key) = PropertyKey::new(raw_key) else {
-                issues.push(format!("property-slot:{slot}:invalid-key"));
-                return;
-            };
-            let Some(field) = fields.get_mut(&key) else {
-                issues.push(format!("property-slot:{slot}:missing-field"));
-                return;
-            };
-            if field.value_type != PropertyType::Document
-                || field.cardinality != Cardinality::Single
-            {
-                issues.push(format!("property-slot:{slot}:contract-violation"));
-                return;
-            }
-            let Some(document) = value_into_map(value) else {
-                issues.push(format!("property-slot:{slot}:not-document-map"));
-                return;
-            };
-            let schema = map_string(&document, "schema");
-            let version = map_i64(&document, "version").and_then(|value| u32::try_from(value).ok());
-            match (schema, version) {
-                (Some(schema), Some(version))
-                    if schema != QUERY_DOCUMENT_SCHEMA || version != QUERY_DOCUMENT_VERSION =>
-                {
-                    field.values =
-                        vec![PropertyValue::UnsupportedDocument(PropertyDocumentHeader {
-                            schema,
-                            version,
-                        })];
-                }
-                (Some(_), Some(_)) => {
-                    let Ok(document) = decode_query_document(&document) else {
-                        issues.push(format!("property-slot:{slot}:invalid-document"));
-                        return;
-                    };
-                    field.values = vec![PropertyValue::Document(document)];
-                }
-                _ => issues.push(format!("property-slot:{slot}:invalid-document-header")),
-            }
-            return;
-        }
-        let (raw_key, cardinality) = if let Some(raw_key) = slot.strip_prefix("s:") {
-            (raw_key, Cardinality::Single)
-        } else if let Some(rest) = slot.strip_prefix("r:") {
-            let Some((raw_key, _hash)) = rest.split_once(':') else {
-                issues.push(format!("property-slot:{slot}:invalid-slot"));
-                return;
-            };
-            (raw_key, Cardinality::Set)
-        } else {
-            issues.push(format!("property-slot:{slot}:invalid-slot"));
-            return;
-        };
-        let Ok(key) = PropertyKey::new(raw_key) else {
-            issues.push(format!("property-slot:{slot}:invalid-key"));
-            return;
-        };
-        let Some(field) = fields.get_mut(&key) else {
-            issues.push(format!("property-slot:{slot}:missing-field"));
-            return;
-        };
-        if field.cardinality != cardinality {
-            issues.push(format!("property-slot:{slot}:cardinality-mismatch"));
-            return;
-        }
-        let Some(encoded) = value_into_string(value) else {
-            issues.push(format!("property-slot:{slot}:not-atomic-string"));
-            return;
-        };
-        let Ok(property_value) = serde_json::from_str::<PropertyValue>(&encoded) else {
-            issues.push(format!("property-slot:{slot}:invalid-value"));
-            return;
-        };
-        if property_value.property_type() != field.value_type
-            || validate_property(&key, &property_value, cardinality).is_err()
-        {
-            issues.push(format!("property-slot:{slot}:contract-violation"));
-            return;
-        }
-        if cardinality == Cardinality::Single {
-            field.values.clear();
-        }
-        field.values.push(property_value);
-    });
-    for field in fields.values_mut() {
         field
             .values
             .sort_by_key(|value| serde_json::to_string(value).unwrap_or_default());
-    }
+        fields.insert(key, field);
+    });
     issues.sort();
     let fields = PropertyBag::try_from_fields(fields.into_values())
         .expect("property fields decoded from distinct Loro map slots are valid and unique");
     (fields, issues)
+}
+
+struct ProjectedPageHeader {
+    directory: PageDirectoryEntry,
+    snapshot: Option<PageSnapshot>,
+}
+
+fn project_page_header(
+    page_id: &PageId,
+    page: &LoroMap,
+    live_tags: &BTreeSet<TagId>,
+    diagnostics: &mut ProjectionDiagnostics,
+) -> Option<ProjectedPageHeader> {
+    let Some(root) = page.get("root").and_then(value_into_map) else {
+        diagnostics
+            .quarantined
+            .push(format!("page:{page_id}:root:missing-or-invalid"));
+        return None;
+    };
+    let title = match root.get("content") {
+        Some(ValueOrContainer::Container(Container::Text(text))) => text.to_string(),
+        _ => {
+            diagnostics
+                .quarantined
+                .push(format!("page:{page_id}:root:missing-content"));
+            String::new()
+        }
+    };
+    let property_owner = PropertyOwner::Page {
+        id: page_id.clone(),
+    };
+    let (mut properties, mut issues) =
+        project_bag_child(&root, "properties", Some(&property_owner), diagnostics);
+    diagnostics.quarantined.append(&mut issues);
+    properties.retain(|entry| {
+        if validate_property_target(&entry.key, PropertyTarget::Page).is_ok() {
+            true
+        } else {
+            diagnostics.quarantined.push(format!(
+                "page:{page_id}:property:{}:invalid-target",
+                entry.key
+            ));
+            false
+        }
+    });
+    let deleted = properties.contains_key("builtin.deleted-at");
+    let journal_date = properties
+        .get("builtin.journal-date")
+        .and_then(|field| field.values.first())
+        .and_then(|value| match value {
+            PropertyValue::Date(date) => Some(date.clone()),
+            _ => None,
+        });
+    let directory = PageDirectoryEntry {
+        id: page_id.clone(),
+        title: journal_date
+            .as_ref()
+            .map_or_else(|| title.clone(), ToString::to_string),
+        journal_date,
+        deleted,
+    };
+    let snapshot = if deleted {
+        None
+    } else {
+        Some(PageSnapshot {
+            id: page_id.clone(),
+            title,
+            properties,
+            tags: decode_tag_refs(
+                &root,
+                &format!("page:{page_id}"),
+                live_tags,
+                &mut diagnostics.quarantined,
+            ),
+            blocks: Vec::new(),
+        })
+    };
+    Some(ProjectedPageHeader {
+        directory,
+        snapshot,
+    })
 }
 
 fn page_metadata(
@@ -5377,84 +3836,37 @@ fn page_metadata(
     live_tags: &BTreeSet<TagId>,
     quarantined: &mut Vec<String>,
 ) -> Option<PageSnapshot> {
-    let Some(root) = page.get("root").and_then(value_into_map) else {
-        quarantined.push(format!("page:{page_id}:root:missing-or-invalid"));
-        return None;
-    };
-    let title = match root.get("content") {
-        Some(ValueOrContainer::Container(Container::Text(text))) => text.to_string(),
-        _ => {
-            quarantined.push(format!("page:{page_id}:root:missing-content"));
-            String::new()
-        }
-    };
-    let (mut properties, mut issues) = decode_bag_child(&root, "properties");
-    quarantined.append(&mut issues);
-    properties.retain(|entry| {
-        if validate_property_target(&entry.key, PropertyTarget::Page).is_ok() {
-            true
-        } else {
-            quarantined.push(format!(
-                "page:{page_id}:property:{}:invalid-target",
-                entry.key
-            ));
-            false
-        }
-    });
-    if properties.contains_key("builtin.deleted-at") {
-        return None;
-    }
-    let tags = decode_tag_refs(&root, &format!("page:{page_id}"), live_tags, quarantined);
-    Some(PageSnapshot {
-        id: page_id.clone(),
-        title,
-        properties,
-        tags,
-        blocks: Vec::new(),
-    })
+    let mut diagnostics = ProjectionDiagnostics::default();
+    let snapshot = project_page_header(page_id, page, live_tags, &mut diagnostics)
+        .and_then(|header| header.snapshot);
+    quarantined.append(&mut diagnostics.quarantined);
+    snapshot
 }
 
 fn page_directory(doc: &LoroDoc, quarantined: &mut Vec<String>) -> Vec<PageDirectoryEntry> {
+    let live_tags = live_tag_ids(doc);
+    let mut diagnostics = ProjectionDiagnostics::default();
     let mut entries = BTreeMap::new();
     doc.get_map("pages").for_each(|raw_id, value| {
         let Ok(page_id) = PageId::new(raw_id) else {
+            diagnostics
+                .quarantined
+                .push(format!("page:{raw_id}:invalid-id"));
             return;
         };
         let Some(page) = value_into_map(value) else {
+            diagnostics
+                .quarantined
+                .push(format!("page:{raw_id}:not-map"));
             return;
         };
-        let Some(root) = page.get("root").and_then(value_into_map) else {
+        let Some(header) = project_page_header(&page_id, &page, &live_tags, &mut diagnostics)
+        else {
             return;
         };
-        let mut title = match root.get("content") {
-            Some(ValueOrContainer::Container(Container::Text(text))) => text.to_string(),
-            _ => {
-                quarantined.push(format!("page:{page_id}:root:missing-content"));
-                String::new()
-            }
-        };
-        let (properties, mut issues) = decode_bag_child(&root, "properties");
-        quarantined.append(&mut issues);
-        let journal_date = properties
-            .get("builtin.journal-date")
-            .and_then(|field| field.values.first())
-            .and_then(|value| match value {
-                PropertyValue::Date(date) => Some(date.clone()),
-                _ => None,
-            });
-        if let Some(date) = &journal_date {
-            title = date.to_string();
-        }
-        entries.insert(
-            page_id.clone(),
-            PageDirectoryEntry {
-                id: page_id,
-                title,
-                journal_date,
-                deleted: properties.contains_key("builtin.deleted-at"),
-            },
-        );
+        entries.insert(page_id, header.directory);
     });
+    quarantined.append(&mut diagnostics.quarantined);
     entries.into_values().collect()
 }
 
@@ -5562,10 +3974,14 @@ fn tag_snapshots(
             .ok_or_else(|| CoreError::TagNotFound(summary.id.clone()))?;
         let mut blocks = Vec::new();
         let outline = tag_outline(&tag)?;
+        let owner = OutlineOwner::Tag {
+            id: summary.id.clone(),
+        };
         for root in outline.roots() {
             blocks.push(block_snapshot(
                 &outline,
                 root,
+                &owner,
                 live_tags,
                 directory,
                 quarantined,
@@ -5601,10 +4017,12 @@ fn tag_snapshot_by_id(
     };
     let mut blocks = Vec::new();
     let outline = tag_outline(&tag)?;
+    let owner = OutlineOwner::Tag { id: tag_id.clone() };
     for root in outline.roots() {
         blocks.push(block_snapshot(
             &outline,
             root,
+            &owner,
             live_tags,
             directory,
             quarantined,
@@ -5619,20 +4037,34 @@ fn tag_snapshot_by_id(
     }))
 }
 
-fn tag_summary(tag_id: &TagId, tag: &LoroMap, quarantined: &mut Vec<String>) -> Option<TagSummary> {
+fn project_tag_summary(
+    tag_id: &TagId,
+    tag: &LoroMap,
+    diagnostics: &mut ProjectionDiagnostics,
+) -> Option<TagSummary> {
     let Some(name) = map_string(tag, "name") else {
-        quarantined.push(format!("tag:{tag_id}:missing-name"));
+        diagnostics
+            .quarantined
+            .push(format!("tag:{tag_id}:missing-name"));
         return None;
     };
-    let (mut properties, mut issues) = decode_bag_child(tag, "properties");
-    quarantined.append(&mut issues);
+    let property_owner = PropertyOwner::Tag {
+        tag_id: tag_id.clone(),
+    };
+    let (mut properties, mut issues) =
+        project_bag_child(tag, "properties", Some(&property_owner), diagnostics);
+    diagnostics.quarantined.append(&mut issues);
     if properties.contains_key("builtin.deleted-at") {
         return None;
     }
     properties
         .retain(|entry| validate_property_target(&entry.key, PropertyTarget::TagMetadata).is_ok());
-    let (mut defaults, mut issues) = decode_bag_child(tag, "defaults");
-    quarantined.append(&mut issues);
+    let default_owner = PropertyOwner::TagDefault {
+        tag_id: tag_id.clone(),
+    };
+    let (mut defaults, mut issues) =
+        project_bag_child(tag, "defaults", Some(&default_owner), diagnostics);
+    diagnostics.quarantined.append(&mut issues);
     defaults.retain(|field| {
         validate_property_write(&field.key, PropertyTarget::TagDefault).is_ok()
             && validate_property_field(field).is_ok()
@@ -5643,6 +4075,13 @@ fn tag_summary(tag_id: &TagId, tag: &LoroMap, quarantined: &mut Vec<String>) -> 
         properties,
         defaults,
     })
+}
+
+fn tag_summary(tag_id: &TagId, tag: &LoroMap, quarantined: &mut Vec<String>) -> Option<TagSummary> {
+    let mut diagnostics = ProjectionDiagnostics::default();
+    let summary = project_tag_summary(tag_id, tag, &mut diagnostics);
+    quarantined.append(&mut diagnostics.quarantined);
+    summary
 }
 
 fn decode_tag_refs(
@@ -5671,45 +4110,93 @@ fn decode_tag_refs(
 fn block_snapshot(
     outline: &LoroTree,
     node: TreeID,
+    owner: &OutlineOwner,
     live_tags: &BTreeSet<TagId>,
     directory: &BTreeMap<PageId, PageDirectoryEntry>,
     quarantined: &mut Vec<String>,
 ) -> Result<BlockSnapshot, CoreError> {
+    let mut diagnostics = ProjectionDiagnostics::default();
+    let snapshot =
+        project_block_snapshot(outline, node, owner, live_tags, directory, &mut diagnostics)?;
+    quarantined.append(&mut diagnostics.quarantined);
+    Ok(snapshot)
+}
+
+fn project_block_snapshot(
+    outline: &LoroTree,
+    node: TreeID,
+    owner: &OutlineOwner,
+    live_tags: &BTreeSet<TagId>,
+    directory: &BTreeMap<PageId, PageDirectoryEntry>,
+    diagnostics: &mut ProjectionDiagnostics,
+) -> Result<BlockSnapshot, CoreError> {
     let meta = outline.get_meta(node)?;
+    let id = block_id(node);
     let (markdown, page_references) = match meta.get("content") {
         Some(ValueOrContainer::Container(Container::Text(text))) => {
-            materialize_block_content(&text, directory, &format!("block:{node}"), quarantined)
+            let actual_bytes = text.to_string().len();
+            if actual_bytes > MAX_BLOCK_TEXT_BYTES {
+                diagnostics
+                    .text_conflicts
+                    .push(GraphConflict::TextLimitExceeded {
+                        target: TextTarget::BlockContent {
+                            owner: owner.clone(),
+                            block_id: id.clone(),
+                        },
+                        actual_bytes,
+                        limit: MAX_BLOCK_TEXT_BYTES,
+                    });
+            }
+            materialize_block_content(
+                &text,
+                directory,
+                &format!("block:{node}"),
+                &mut diagnostics.quarantined,
+            )
         }
         _ => {
-            quarantined.push(format!("block:{node}:missing-content"));
+            diagnostics
+                .quarantined
+                .push(format!("block:{node}:missing-content"));
             (String::new(), Vec::new())
         }
     };
-    let (mut properties, mut issues) = decode_bag_child(&meta, "properties");
-    quarantined.append(&mut issues);
+    let property_owner = PropertyOwner::Block {
+        owner: owner.clone(),
+        id: id.clone(),
+    };
+    let (mut properties, mut issues) =
+        project_bag_child(&meta, "properties", Some(&property_owner), diagnostics);
+    diagnostics.quarantined.append(&mut issues);
     properties.retain(|entry| {
         let valid = validate_property_target(&entry.key, PropertyTarget::Block).is_ok();
         if !valid {
-            quarantined.push(format!(
+            diagnostics.quarantined.push(format!(
                 "block:{node}:property:{}:invalid-target",
                 entry.key
             ));
         }
         valid
     });
-    let tags = decode_tag_refs(&meta, &format!("block:{node}"), live_tags, quarantined);
+    let tags = decode_tag_refs(
+        &meta,
+        &format!("block:{node}"),
+        live_tags,
+        &mut diagnostics.quarantined,
+    );
     let mut children = Vec::new();
     for child in outline.children(node).unwrap_or_default() {
-        children.push(block_snapshot(
+        children.push(project_block_snapshot(
             outline,
             child,
+            owner,
             live_tags,
             directory,
-            quarantined,
+            diagnostics,
         )?);
     }
     Ok(BlockSnapshot {
-        id: block_id(node),
+        id,
         markdown,
         page_references,
         properties,
@@ -5761,7 +4248,7 @@ fn value_into_text(value: ValueOrContainer) -> Option<LoroText> {
     }
 }
 
-fn enable_outlines(doc: &LoroDoc) -> Result<(), CoreError> {
+pub(crate) fn enable_outlines(doc: &LoroDoc) -> Result<(), CoreError> {
     let mut outlines = Vec::new();
     for root in [doc.get_map("pages"), doc.get_map("tags")] {
         root.for_each(|_, value| {
@@ -5806,7 +4293,8 @@ fn map_bool(map: &LoroMap, key: &str) -> Option<bool> {
 mod tests {
     use super::*;
     use domain::{
-        BlockContentSplice, CommandId, LocalDate, MarkdownSplice, QueryViewFieldSort, QueryViewSort,
+        BlockContentSplice, CommandId, InlineContent, LocalDate, MarkdownSplice, PropertyChange,
+        QueryViewFieldSort, QueryViewSort, SplitPlacement,
     };
 
     fn graph() -> GraphId {
@@ -5827,6 +4315,28 @@ mod tests {
             source: source.to_owned(),
             language: domain::QUERY_LANGUAGE.to_owned(),
             plan: None,
+        }
+    }
+    fn query_plan(subject: &str) -> QueryPlan {
+        QueryPlan {
+            version: domain::QUERY_PLAN_VERSION,
+            payload: serde_json::json!({
+                "version": domain::QUERY_PLAN_VERSION,
+                "subject": subject,
+                "where": {
+                    "kind": "group",
+                    "id": "root",
+                    "match": "all",
+                    "children": [],
+                },
+                "columns": [{
+                    "id": "subject",
+                    "source": { "kind": "subject" },
+                }],
+                "limit": 100,
+                "distinct": false,
+            })
+            .to_string(),
         }
     }
     fn insert_root(
@@ -6089,8 +4599,8 @@ mod tests {
                 "t1",
             )
             .unwrap();
-        assert_eq!(created.changes.pages, BTreeSet::from([page()]));
-        assert!(!created.changes.rebuild);
+        assert_eq!(created.changes.pages(), Some(&BTreeSet::from([page()])));
+        assert!(!created.changes.is_rebuild());
 
         let block = insert_root(&mut left, "block", &page(), 0, "before");
         let baseline = left.export_snapshot().unwrap();
@@ -6108,15 +4618,19 @@ mod tests {
                 "t2",
             )
             .unwrap();
-        assert_eq!(edited.changes.pages, BTreeSet::from([page()]));
-        assert!(edited.changes.tags.is_empty());
-        assert!(!edited.changes.rebuild);
+        assert_eq!(edited.changes.pages(), Some(&BTreeSet::from([page()])));
+        assert!(edited.changes.tags().is_some_and(BTreeSet::is_empty));
+        assert!(!edited.changes.is_rebuild());
 
         let remote = right.import_remote_with_changes(&edited.update).unwrap();
         assert_eq!(remote, edited.changes);
         let delta = right.index_delta(&remote).unwrap().unwrap();
-        assert_eq!(delta.pages.len(), 1);
-        assert_eq!(delta.pages[0].blocks[0].markdown, "after");
+        assert_eq!(delta.changes().count(), 1);
+        assert!(matches!(
+            delta.changes().next(),
+            Some(IndexChange::Upsert(IndexUnit::Page(page)))
+                if page.blocks[0].markdown == "after"
+        ));
     }
 
     #[test]
@@ -6152,10 +4666,17 @@ mod tests {
                 "t1",
             )
             .unwrap();
-        assert_eq!(created.changes.tags, BTreeSet::from([tag_id.clone()]));
-        assert!(created.changes.pages.is_empty());
+        assert_eq!(
+            created.changes.tags(),
+            Some(&BTreeSet::from([tag_id.clone()]))
+        );
+        assert!(created.changes.pages().is_some_and(BTreeSet::is_empty));
         let delta = core.index_delta(&created.changes).unwrap().unwrap();
-        assert_eq!(delta.tags[0].id, tag_id);
+        assert_eq!(delta.changes().count(), 1);
+        assert!(matches!(
+            delta.changes().next(),
+            Some(IndexChange::Upsert(IndexUnit::Tag(tag))) if tag.id == tag_id
+        ));
 
         ensure_regular_page(&mut core, "page", &page());
         let block_id = insert_root(&mut core, "block", &page(), 0, "tagged");
@@ -6174,8 +4695,8 @@ mod tests {
                 "t2",
             )
             .unwrap();
-        assert_eq!(tagged.changes.pages, BTreeSet::from([page()]));
-        assert!(tagged.changes.tags.is_empty());
+        assert_eq!(tagged.changes.pages(), Some(&BTreeSet::from([page()])));
+        assert!(tagged.changes.tags().is_some_and(BTreeSet::is_empty));
 
         let deleted = core
             .execute(
@@ -6188,11 +4709,21 @@ mod tests {
                 "t3",
             )
             .unwrap();
-        assert_eq!(deleted.changes.pages, BTreeSet::from([page()]));
-        assert_eq!(deleted.changes.tags, BTreeSet::from([tag_id.clone()]));
+        assert_eq!(deleted.changes.pages(), Some(&BTreeSet::from([page()])));
+        assert_eq!(
+            deleted.changes.tags(),
+            Some(&BTreeSet::from([tag_id.clone()]))
+        );
         let delta = core.index_delta(&deleted.changes).unwrap().unwrap();
-        assert_eq!(delta.pages.len(), 1);
-        assert_eq!(delta.removed_tags, [tag_id]);
+        let page_id = page();
+        assert_eq!(delta.changes().count(), 2);
+        assert!(delta.changes().any(|change| matches!(
+            change,
+            IndexChange::Upsert(IndexUnit::Page(page)) if page.id == page_id
+        )));
+        assert!(delta.changes().any(|change| {
+            matches!(change, IndexChange::Remove(IndexUnitId::Tag(id)) if id == &tag_id)
+        }));
     }
 
     #[test]
@@ -6431,11 +4962,7 @@ mod tests {
                 Command::SetQueryPlan {
                     owner: owner.clone(),
                     view_id: QueryViewId::new("all").unwrap(),
-                    plan: QueryPlan {
-                        version: 1,
-                        payload: "{\"subject\":\"block\"}".into(),
-                    },
-                    source: "SELECT ?item WHERE {}".into(),
+                    plan: query_plan("block"),
                 },
             ),
             "t2",
@@ -6482,7 +5009,12 @@ mod tests {
         let PropertyValue::Document(document) = &field.values[0] else {
             panic!("a tag's query did not decode as a document")
         };
-        assert_eq!(document.views[0].definition.source, "SELECT ?item WHERE {}");
+        assert!(
+            document.views[0]
+                .definition
+                .source
+                .starts_with(query::DERIVED_SOURCE_PROVENANCE)
+        );
         assert_eq!(document.default_view_id.as_str(), "v-open");
         assert_eq!(document.views.len(), 2);
         // A tag's query lives in its metadata, never in the defaults it copies.
@@ -6618,7 +5150,7 @@ mod tests {
     }
 
     #[test]
-    fn query_plan_travels_with_its_compiled_source_and_detaches_on_a_hand_edit() {
+    fn query_plan_derives_its_source_in_core_and_detaches_on_a_hand_edit() {
         let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
         ensure_regular_page(&mut core, "page", &page());
         let block = insert_root(&mut core, "block", &page(), 0, "query");
@@ -6646,18 +5178,19 @@ mod tests {
                 Command::SetQueryPlan {
                     owner: owner.clone(),
                     view_id: QueryViewId::new("all").unwrap(),
-                    plan: QueryPlan {
-                        version: 1,
-                        payload: "{\"subject\":\"block\"}".into(),
-                    },
-                    source: "SELECT ?item WHERE {}".into(),
+                    plan: query_plan("block"),
                 },
             ),
             "t3",
         )
         .unwrap();
         let document = read(&core);
-        assert_eq!(document.views[0].definition.source, "SELECT ?item WHERE {}");
+        assert!(
+            document.views[0]
+                .definition
+                .source
+                .starts_with(query::DERIVED_SOURCE_PROVENANCE)
+        );
         assert_eq!(
             document.views[0]
                 .definition
@@ -6667,22 +5200,66 @@ mod tests {
             Some(1)
         );
 
-        // Editing the SPARQL by hand makes the source authoritative again.
+        let stored_document = core.require_query_document_for_owner(&owner).unwrap();
+        let stored_definition =
+            require_query_definition(&stored_document, &QueryViewId::new("all").unwrap()).unwrap();
+        assert!(stored_definition.get(QUERY_PLAN_STATE_KEY).is_some());
+        assert!(stored_definition.get("plan_version").is_none());
+        assert!(stored_definition.get("plan").is_none());
+        assert_eq!(
+            stored_definition
+                .get("source")
+                .and_then(value_into_text)
+                .unwrap()
+                .to_string(),
+            ""
+        );
+
+        // A text splice is not an implicit Built -> Raw transition because the
+        // projected explanation is not authoritative source text.
+        let splice_error = core
+            .execute(
+                envelope(
+                    "splice-built",
+                    Command::SpliceQuerySource {
+                        owner: owner.clone(),
+                        view_id: QueryViewId::new("all").unwrap(),
+                        index: 0,
+                        delete: 0,
+                        insert: "# edit".into(),
+                    },
+                ),
+                "t3-splice",
+            )
+            .unwrap_err();
+        assert!(matches!(
+            splice_error,
+            CoreError::Property(PropertyError::InvalidDocument(_))
+        ));
+        assert!(read(&core).views[0].definition.plan.is_some());
+
+        // Replacing the SPARQL explicitly makes the raw source authoritative.
         core.execute(
             envelope(
                 "hand-edit",
-                Command::SpliceQuerySource {
+                Command::SetQuerySource {
                     owner: owner.clone(),
                     view_id: QueryViewId::new("all").unwrap(),
-                    index: 0,
-                    delete: 0,
-                    insert: "# note\n".into(),
+                    source: "# note\nSELECT ?item WHERE {}".into(),
                 },
             ),
             "t4",
         )
         .unwrap();
         assert!(read(&core).views[0].definition.plan.is_none());
+        let stored_document = core.require_query_document_for_owner(&owner).unwrap();
+        let stored_definition =
+            require_query_definition(&stored_document, &QueryViewId::new("all").unwrap()).unwrap();
+        assert!(
+            decode_query_plan_state(&stored_definition, "query definition")
+                .unwrap()
+                .is_none()
+        );
 
         core.execute(
             envelope(
@@ -6690,11 +5267,7 @@ mod tests {
                 Command::SetQueryPlan {
                     owner: owner.clone(),
                     view_id: QueryViewId::new("all").unwrap(),
-                    plan: QueryPlan {
-                        version: 1,
-                        payload: "{\"subject\":\"page\"}".into(),
-                    },
-                    source: "SELECT ?page WHERE {}".into(),
+                    plan: query_plan("page"),
                 },
             ),
             "t5",
@@ -6703,10 +5276,11 @@ mod tests {
         assert!(read(&core).views[0].definition.plan.is_some());
         core.execute(
             envelope(
-                "clear-plan",
-                Command::ClearQueryPlan {
+                "eject-plan",
+                Command::SetQuerySource {
                     owner: owner.clone(),
                     view_id: QueryViewId::new("all").unwrap(),
+                    source: "SELECT ?item WHERE {}".into(),
                 },
             ),
             "t6",
@@ -6714,7 +5288,7 @@ mod tests {
         .unwrap();
         let detached = read(&core);
         assert!(detached.views[0].definition.plan.is_none());
-        assert_eq!(detached.views[0].definition.source, "SELECT ?page WHERE {}");
+        assert_eq!(detached.views[0].definition.source, "SELECT ?item WHERE {}");
 
         let error = core
             .execute(
@@ -6727,7 +5301,6 @@ mod tests {
                             version: 1,
                             payload: "not json".into(),
                         },
-                        source: String::new(),
                     },
                 ),
                 "t7",
@@ -6737,6 +5310,181 @@ mod tests {
             error,
             CoreError::Property(PropertyError::InvalidDocument(_))
         ));
+    }
+
+    #[test]
+    fn plan_bearing_document_commands_ignore_caller_supplied_source() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        let default_query_id = DefaultQueryId::new("dq-authority").unwrap();
+        let mut document = PropertyDocument::default_query("caller supplied".into());
+        document.views[0].definition.plan = Some(query_plan("block"));
+
+        core.execute(
+            envelope(
+                "create",
+                Command::CreateDefaultQuery {
+                    default_query_id: default_query_id.clone(),
+                    title: "Authority".into(),
+                    document,
+                },
+            ),
+            "t1",
+        )
+        .unwrap();
+
+        let created = &core.summary().unwrap().settings.default_queries[0]
+            .document
+            .views[0];
+        assert_ne!(created.definition.source, "caller supplied");
+        assert!(
+            created
+                .definition
+                .source
+                .starts_with(query::DERIVED_SOURCE_PROVENANCE)
+        );
+
+        core.execute(
+            envelope(
+                "put",
+                Command::PutQueryView {
+                    owner: QueryOwner::GraphDefault { default_query_id },
+                    view: QueryView {
+                        id: QueryViewId::new("page-view").unwrap(),
+                        name: "Pages".into(),
+                        definition: QueryDefinition {
+                            source: "another caller source".into(),
+                            language: domain::QUERY_LANGUAGE.into(),
+                            plan: Some(query_plan("page")),
+                        },
+                        kind: QueryViewKind::Table,
+                        position: 1,
+                        columns: Vec::new(),
+                        options: QueryViewOptions::default(),
+                    },
+                },
+            ),
+            "t2",
+        )
+        .unwrap();
+
+        let settings = core.summary().unwrap().settings;
+        let added = &settings.default_queries[0].document.views[1];
+        assert_ne!(added.definition.source, "another caller source");
+        assert!(
+            added
+                .definition
+                .source
+                .starts_with(query::DERIVED_SOURCE_PROVENANCE)
+        );
+        assert!(added.definition.plan.is_some());
+    }
+
+    #[test]
+    fn projection_preserves_unknown_plans_and_quarantines_corrupt_envelopes() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let block = insert_root(&mut core, "block", &page(), 0, "query");
+        let owner = QueryOwner::Block {
+            owner: OutlineOwner::Page { id: page() },
+            id: block,
+        };
+        core.execute(
+            envelope(
+                "source",
+                Command::SetQuerySource {
+                    owner: owner.clone(),
+                    view_id: QueryViewId::new("all").unwrap(),
+                    source: "SELECT * WHERE {}".into(),
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+
+        // Simulate a document authored by a newer peer. Projection must retain
+        // the plan's presence so an older client cannot execute its explanation
+        // artifact as if it were hand-authored raw SPARQL.
+        let document = core.require_query_document_for_owner(&owner).unwrap();
+        let definition =
+            require_query_definition(&document, &QueryViewId::new("all").unwrap()).unwrap();
+        // Remove the canonical register to exercise the v2 two-key read adapter.
+        definition.delete(QUERY_PLAN_STATE_KEY).unwrap();
+        definition.insert("plan_version", 2_i64).unwrap();
+        definition
+            .insert("plan", r#"{"version":2,"future":true}"#)
+            .unwrap();
+
+        let snapshot = core.page_snapshot(&page()).unwrap();
+        let field = snapshot.blocks[0]
+            .properties
+            .iter()
+            .find(|field| field.key.as_str() == QUERY_PROPERTY_KEY)
+            .unwrap();
+        let PropertyValue::Document(projected) = &field.values[0] else {
+            panic!("query property did not decode as a document")
+        };
+        assert_eq!(
+            projected.views[0]
+                .definition
+                .plan
+                .as_ref()
+                .map(|plan| plan.version),
+            Some(2)
+        );
+        assert_eq!(projected.views[0].definition.source, "SELECT * WHERE {}");
+
+        definition.insert("plan", "not json").unwrap();
+        let snapshot = core.page_snapshot(&page()).unwrap();
+        let field = snapshot.blocks[0]
+            .properties
+            .iter()
+            .find(|field| field.key.as_str() == QUERY_PROPERTY_KEY)
+            .unwrap();
+        assert!(field.values.is_empty());
+    }
+
+    #[test]
+    fn generated_query_source_must_fit_before_a_plan_mutates_the_graph() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let block = insert_root(&mut core, "block", &page(), 0, "query");
+        let owner = QueryOwner::Block {
+            owner: OutlineOwner::Page { id: page() },
+            id: block,
+        };
+        let mut payload: serde_json::Value =
+            serde_json::from_str(&query_plan("block").payload).unwrap();
+        payload["columns"][0]["id"] = serde_json::Value::String("x".repeat(20_000));
+        payload["columns"][0]["source"] = serde_json::json!({
+            "kind": "property",
+            "key": "builtin.task-scheduled",
+        });
+        let plan = QueryPlan {
+            version: domain::QUERY_PLAN_VERSION,
+            payload: payload.to_string(),
+        };
+        assert!(plan.payload.len() <= domain::QUERY_PLAN_LIMIT);
+
+        let error = core
+            .execute(
+                envelope(
+                    "oversized-derived-source",
+                    Command::SetQueryPlan {
+                        owner,
+                        view_id: QueryViewId::new("all").unwrap(),
+                        plan,
+                    },
+                ),
+                "t3",
+            )
+            .unwrap_err();
+        assert!(matches!(error, CoreError::TextTooLong));
+        assert!(
+            core.page_snapshot(&page()).unwrap().blocks[0]
+                .properties
+                .iter()
+                .all(|field| field.key.as_str() != QUERY_PROPERTY_KEY)
+        );
     }
 
     #[test]
@@ -7175,8 +5923,56 @@ mod tests {
                 &LocalDate::new("2026-08-03").unwrap()
             ))
         );
-        assert!(duplicate.duplicate);
+        assert_eq!(duplicate.semantic, SemanticEvent::CommandDeduplicated);
+        assert_eq!(duplicate.result, first.result);
         assert!(duplicate.update.is_empty());
+    }
+
+    #[test]
+    fn entity_name_conflicts_are_typed_command_rejections() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let page_error = core.execute(
+            envelope(
+                "conflicting-page",
+                Command::EnsurePage {
+                    page_id: PageId::new("other-page").unwrap(),
+                    title: " HOME ".into(),
+                },
+            ),
+            "t2",
+        );
+        assert!(matches!(
+            page_error,
+            Err(CoreError::PageNameConflict { existing, .. }) if existing == page()
+        ));
+
+        let existing_tag = TagId::new("tag").unwrap();
+        core.execute(
+            envelope(
+                "tag",
+                Command::EnsureTag {
+                    tag_id: existing_tag.clone(),
+                    name: "Project".into(),
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+        let tag_error = core.execute(
+            envelope(
+                "conflicting-tag",
+                Command::EnsureTag {
+                    tag_id: TagId::new("other-tag").unwrap(),
+                    name: " project ".into(),
+                },
+            ),
+            "t4",
+        );
+        assert!(matches!(
+            tag_error,
+            Err(CoreError::TagNameConflict { existing, .. }) if existing == existing_tag
+        ));
     }
 
     #[test]
@@ -7234,8 +6030,7 @@ mod tests {
             envelope("ensure-journal-again", Command::EnsureJournal { date }),
         ] {
             let execution = core.execute(command, "t2").unwrap();
-            assert!(!execution.duplicate);
-            assert!(!execution.result.changed);
+            assert_ne!(execution.semantic, SemanticEvent::CommandDeduplicated);
             assert!(
                 execution.update.is_empty(),
                 "{} emitted {} update bytes",
@@ -7648,7 +6443,7 @@ mod tests {
                 "t4",
             )
             .unwrap();
-        assert!(renamed.changes.rebuild);
+        assert!(renamed.changes.is_rebuild());
         let projected = core.page_snapshot(&page()).unwrap();
         assert_eq!(projected.blocks[0].markdown, "See [[Plan]]!");
         assert_eq!(projected.blocks[0].page_references[0].page_id, target_page);
@@ -7865,122 +6660,6 @@ mod tests {
         assert_eq!(restored.blocks.len(), 2);
         assert_eq!(restored.blocks[0].markdown, "one tail");
         assert_eq!(restored.blocks[1].markdown, "next words");
-    }
-
-    #[test]
-    fn content_edit_wire_variants_share_one_prepared_representation() {
-        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
-        ensure_regular_page(&mut core, "page", &page());
-        let first = insert_root(&mut core, "first", &page(), 0, "한글tail");
-        let second = insert_root(&mut core, "second", &page(), 1, "second");
-        let owner = OutlineOwner::Page { id: page() };
-        let commands = [
-            Command::EditMarkdown {
-                owner: owner.clone(),
-                block_id: first.clone(),
-                markdown: "replacement".into(),
-            },
-            Command::SpliceMarkdown {
-                owner: owner.clone(),
-                block_id: first.clone(),
-                index: 2,
-                delete: 4,
-                insert: "end".into(),
-            },
-            Command::SpliceMarkdowns {
-                owner: owner.clone(),
-                splices: vec![
-                    MarkdownSplice {
-                        block_id: first.clone(),
-                        index: 2,
-                        delete: 4,
-                        insert: "end".into(),
-                    },
-                    MarkdownSplice {
-                        block_id: second.clone(),
-                        index: 0,
-                        delete: 1,
-                        insert: "S".into(),
-                    },
-                ],
-            },
-            Command::SpliceBlockContent {
-                owner: owner.clone(),
-                block_id: first.clone(),
-                index: 2,
-                delete: 4,
-                insert: vec![InlineContent::Markdown {
-                    value: "end".into(),
-                }],
-            },
-            Command::SpliceBlockContents {
-                owner: owner.clone(),
-                splices: vec![
-                    BlockContentSplice {
-                        block_id: first.clone(),
-                        index: 2,
-                        delete: 4,
-                        insert: vec![InlineContent::Markdown {
-                            value: "end".into(),
-                        }],
-                    },
-                    BlockContentSplice {
-                        block_id: second,
-                        index: 0,
-                        delete: 1,
-                        insert: vec![InlineContent::Markdown { value: "S".into() }],
-                    },
-                ],
-            },
-        ];
-
-        for (index, command) in commands.iter().enumerate() {
-            let prepared = core.prepare(command).unwrap();
-            let PreparedCommandKind::ContentEdit {
-                command: prepared_command,
-                edit,
-            } = &prepared.kind
-            else {
-                panic!("content-edit wire command did not normalize")
-            };
-            assert!(std::ptr::eq(*prepared_command, command));
-            assert_eq!(edit.owner, &owner);
-            assert_eq!(
-                edit.splices.len(),
-                if index == 2 || index == 4 { 2 } else { 1 }
-            );
-            assert_eq!(
-                prepared
-                    .history
-                    .as_ref()
-                    .unwrap()
-                    .entry
-                    .affected_outlines
-                    .as_slice(),
-                std::slice::from_ref(&owner)
-            );
-            assert_eq!(
-                prepared
-                    .history
-                    .as_ref()
-                    .unwrap()
-                    .entry
-                    .undo_candidates
-                    .len(),
-                edit.splices.len()
-            );
-        }
-
-        let prepared = core.prepare(&commands[0]).unwrap();
-        let PreparedCommandKind::ContentEdit { edit, .. } = prepared.kind else {
-            unreachable!()
-        };
-        assert_eq!(edit.splices[0].index, 0);
-        assert_eq!(edit.splices[0].delete, 6);
-        assert!(matches!(
-            edit.splices[0].insert,
-            PreparedContentInsert::Markdown("replacement")
-        ));
     }
 
     #[test]
@@ -8548,7 +7227,20 @@ mod tests {
             ),
             "t3",
         );
-        assert!(matches!(rejected, Err(CoreError::InvalidHierarchy(_))));
+        assert!(matches!(rejected, Err(CoreError::FirstSiblingIndent)));
+        assert_eq!(core.page_snapshot(&page()).unwrap(), before_rejection);
+
+        let rejected = core.execute(
+            envelope(
+                "invalid-outdent-root",
+                Command::OutdentBlocks {
+                    owner: OutlineOwner::Page { id: page() },
+                    block_ids: vec![first.clone()],
+                },
+            ),
+            "t3",
+        );
+        assert!(matches!(rejected, Err(CoreError::RootBlockOutdent)));
         assert_eq!(core.page_snapshot(&page()).unwrap(), before_rejection);
 
         core.execute(
@@ -9255,64 +7947,6 @@ mod tests {
     }
 
     #[test]
-    fn prepared_server_remote_update_is_an_immutable_fresh_history_baseline() {
-        let mut server = GraphCore::new(graph(), 1, "t0").unwrap();
-        server
-            .execute(
-                envelope(
-                    "local-page",
-                    Command::EnsurePage {
-                        page_id: page(),
-                        title: "Home".into(),
-                    },
-                ),
-                "t1",
-            )
-            .unwrap();
-        let base = server.export_snapshot().unwrap();
-        let mut remote = GraphCore::from_snapshot(graph(), 2, &base).unwrap();
-        let remote_page = PageId::new("remote").unwrap();
-        let update = remote
-            .execute(
-                envelope(
-                    "remote-page",
-                    Command::EnsurePage {
-                        page_id: remote_page.clone(),
-                        title: "Remote".into(),
-                    },
-                ),
-                "t2",
-            )
-            .unwrap()
-            .update;
-
-        let live_before = server.fingerprint().unwrap();
-        let prepared = server.prepare_server_remote_update(&update).unwrap();
-        assert_eq!(server.fingerprint().unwrap(), live_before);
-
-        let measured_checkpoint_len = prepared.gc_checkpoint_len();
-        server = prepared.into_server_baseline();
-        assert_eq!(
-            server.export_gc_checkpoint().unwrap().len(),
-            measured_checkpoint_len
-        );
-        assert_eq!(server.fingerprint().unwrap(), remote.fingerprint().unwrap());
-
-        let undo = server
-            .execute(envelope("undo", Command::Undo), "t3")
-            .unwrap();
-        assert!(!undo.result.changed);
-        assert!(
-            server
-                .summary()
-                .unwrap()
-                .pages
-                .iter()
-                .any(|candidate| candidate.id == remote_page)
-        );
-    }
-
-    #[test]
     fn recovery_history_boundary_excludes_replayed_same_peer_tail() {
         let mut writer = GraphCore::new(graph(), 1, "t0").unwrap();
         let base = writer.export_gc_checkpoint().unwrap();
@@ -9337,7 +7971,7 @@ mod tests {
         let old_session = recovered
             .execute(envelope("old-session-undo", Command::Undo), "t2")
             .unwrap();
-        assert!(!old_session.result.changed);
+        assert!(old_session.update.is_empty());
         assert_eq!(recovered.summary().unwrap().pages[0].title, "Home");
 
         recovered
@@ -9355,7 +7989,7 @@ mod tests {
         let current_session = recovered
             .execute(envelope("new-session-undo", Command::Undo), "t4")
             .unwrap();
-        assert!(current_session.result.changed);
+        assert!(!current_session.update.is_empty());
         assert_eq!(recovered.summary().unwrap().pages[0].title, "Home");
     }
 
@@ -9395,16 +8029,16 @@ mod tests {
             )
             .unwrap();
         assert!(
-            recovered
+            !recovered
                 .execute(envelope("new-session-undo", Command::Undo), "t4")
                 .unwrap()
-                .result
-                .changed
+                .update
+                .is_empty()
         );
         let exhausted = recovered
             .execute(envelope("exhausted-undo", Command::Undo), "t5")
             .unwrap();
-        assert!(!exhausted.result.changed);
+        assert!(exhausted.update.is_empty());
         assert_eq!(recovered.summary().unwrap().pages[0].title, "Home");
     }
 
@@ -9452,7 +8086,7 @@ mod tests {
     }
 
     #[test]
-    fn rejected_history_operation_restores_the_exact_causal_frontier() {
+    fn history_operation_preserves_concurrent_name_conflicts_as_data() {
         let other_page = PageId::new("other").unwrap();
         let mut left = GraphCore::new(graph(), 1, "t0").unwrap();
         left.execute(
@@ -9510,40 +8144,32 @@ mod tests {
             .update;
         left.import_remote(&remote_rename).unwrap();
 
-        let frontier = left.doc.oplog_vv();
-        assert!(matches!(
-            left.execute(envelope("conflicting-undo", Command::Undo), "t5"),
-            Err(CoreError::PageNameConflict { .. })
-        ));
-        assert_eq!(left.doc.oplog_vv(), frontier);
+        let undone = left
+            .execute(envelope("conflicting-undo", Command::Undo), "t5")
+            .unwrap();
+        assert!(!undone.update.is_empty());
         let snapshot = left.summary().unwrap();
-        assert!(snapshot.pages.iter().any(|item| item.title == "Gamma"));
-        assert!(snapshot.pages.iter().any(|item| item.title == "Alpha"));
-
-        let no_history = left
-            .execute(envelope("after-rejection-undo", Command::Undo), "t6")
-            .unwrap();
-        assert!(!no_history.result.changed);
-        left.execute(
-            envelope(
-                "after-rejection-edit",
-                Command::RenamePage {
-                    page_id: page(),
-                    title: "Delta".into(),
-                },
-            ),
-            "t7",
-        )
-        .unwrap();
-        left.execute(envelope("after-rejection-edit-undo", Command::Undo), "t8")
-            .unwrap();
-        assert!(
-            left.summary()
-                .unwrap()
+        assert_eq!(
+            snapshot
                 .pages
                 .iter()
-                .any(|item| item.title == "Gamma")
+                .filter(|item| item.title == "Alpha")
+                .count(),
+            2
         );
+        assert_eq!(
+            snapshot.conflicts,
+            vec![GraphConflict::DuplicatePageName {
+                canonical_name: "alpha".into(),
+                page_ids: vec![page(), PageId::new("other").unwrap()],
+            }]
+        );
+
+        left.execute(envelope("resolve-conflict-redo", Command::Redo), "t6")
+            .unwrap();
+        let resolved = left.summary().unwrap();
+        assert!(resolved.conflicts.is_empty());
+        assert!(resolved.pages.iter().any(|item| item.title == "Gamma"));
     }
 
     #[test]
@@ -9625,7 +8251,7 @@ mod tests {
                 "t4",
             )
             .unwrap();
-        assert!(!result.result.changed, "the copied journal day is reused");
+        assert!(result.update.is_empty(), "the copied journal day is reused");
 
         let page_map = cloned.require_page(&page()).unwrap();
         let outline = page_map.get("outline").and_then(value_into_tree).unwrap();
@@ -9718,16 +8344,16 @@ mod tests {
         let corrupt_bag = core
             .block_bag(&OutlineOwner::Page { id: page() }, &child)
             .unwrap();
-        ensure_property_field(
+        let corrupt_field = ensure_property_field(
             &corrupt_bag,
             &key("builtin.page-kind"),
             PropertyType::String,
             Cardinality::Single,
         )
         .unwrap();
-        corrupt_bag
+        corrupt_field
             .insert(
-                &single_slot(&key("builtin.page-kind")),
+                PROPERTY_SINGLE_KEY,
                 encode_value(&PropertyValue::Page(page())).unwrap(),
             )
             .unwrap();

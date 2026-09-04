@@ -573,6 +573,7 @@ function ShellBody({
   const searchGraph = useCallback(
     async (needle: string): Promise<PaletteCommand[]> => {
       const result = await session.query({
+        kind: "raw_sparql",
         language: "sparql-1.1/neoseq-v1",
         source: `PREFIX neo: <urn:neoseq:vocab:v1:>
 SELECT ?entity ?content WHERE {

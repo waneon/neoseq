@@ -2,30 +2,30 @@ import { describe, expect, it } from "vitest";
 import { GraphSession } from "../../src/core-port/session";
 import type { StorageCapabilitiesDto } from "../../src/generated/core-port";
 import { findBlock, findPage, findTag, outlineOwnerKey } from "../../src/core-port/snapshot";
-import { FakeCorePort } from "../../src/core-port/testing/fake-core-port";
+import { WasmTestPort } from "./wasm-test-port";
 
-class TrackingCorePort extends FakeCorePort {
+class TrackingCorePort extends WasmTestPort {
   readonly readOwners: string[] = [];
   summaryReads = 0;
 
-  override async read(request: Parameters<FakeCorePort["read"]>[0]) {
+  override async read(request: Parameters<WasmTestPort["read"]>[0]) {
     this.summaryReads += 1;
     return super.read(request);
   }
 
-  override async readOutline(request: Parameters<FakeCorePort["readOutline"]>[0]) {
+  override async readOutline(request: Parameters<WasmTestPort["readOutline"]>[0]) {
     this.readOwners.push(outlineOwnerKey(request.owner));
     return super.readOutline(request);
   }
 }
 
-class DeferredCapabilitiesPort extends FakeCorePort {
+class DeferredCapabilitiesPort extends WasmTestPort {
   private resolveCapabilities!: (value: StorageCapabilitiesDto) => void;
   private readonly pendingCapabilities = new Promise<StorageCapabilitiesDto>((resolve) => {
     this.resolveCapabilities = resolve;
   });
 
-  override async openGraph(request: Parameters<FakeCorePort["openGraph"]>[0]) {
+  override async openGraph(request: Parameters<WasmTestPort["openGraph"]>[0]) {
     const opened = await super.openGraph(request);
     return { ...opened, capabilities: undefined };
   }
@@ -72,7 +72,7 @@ describe("outline hydration", () => {
     const seed = new GraphSession("hydration-test", port);
     await seed.open();
     await seed.execute({ type: "ensure_page", page_id: "one", title: "One" });
-    await seed.execute({
+    const first = await seed.execute({
       type: "insert_block",
       owner: { kind: "page", id: "one" },
       parent: null,
@@ -80,7 +80,7 @@ describe("outline hydration", () => {
       markdown: "First canonical block",
     });
     await seed.execute({ type: "ensure_page", page_id: "two", title: "Two" });
-    await seed.execute({
+    const second = await seed.execute({
       type: "insert_block",
       owner: { kind: "page", id: "two" },
       parent: null,
@@ -88,7 +88,7 @@ describe("outline hydration", () => {
       markdown: "Second canonical block",
     });
     await seed.execute({ type: "ensure_tag", tag_id: "topic", name: "Topic" });
-    await seed.execute({
+    const tagBlock = await seed.execute({
       type: "insert_block",
       owner: { kind: "tag", id: "topic" },
       parent: null,
@@ -120,10 +120,12 @@ describe("outline hydration", () => {
     );
     const one = findPage(session.getState().snapshot, "one");
     const two = findPage(session.getState().snapshot, "two");
-    expect(one && findBlock(one, "b-1")?.markdown).toBe("First canonical block");
-    expect(two && findBlock(two, "b-2")?.markdown).toBe("Second canonical block");
+    expect(one && findBlock(one, first.created_block!)?.markdown).toBe("First canonical block");
+    expect(two && findBlock(two, second.created_block!)?.markdown).toBe("Second canonical block");
     const topic = findTag(session.getState().snapshot, "topic");
-    expect(topic && findBlock(topic, "b-3")?.markdown).toBe("Tag canonical block");
+    expect(topic && findBlock(topic, tagBlock.created_block!)?.markdown).toBe(
+      "Tag canonical block",
+    );
 
     unsubscribe();
     await session.close();

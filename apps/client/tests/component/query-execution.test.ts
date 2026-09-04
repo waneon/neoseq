@@ -11,11 +11,13 @@ import {
 } from "../../src/features/query/presentation";
 
 const REQUEST_A: SparqlQueryRequest = {
+  kind: "raw_sparql",
   language: "sparql-1.1/neoseq-v1",
   source: "ASK { ?a ?b ?c }",
   bindings: {},
 };
 const REQUEST_B: SparqlQueryRequest = {
+  kind: "raw_sparql",
   language: "sparql-1.1/neoseq-v1",
   source: "ASK { ?x ?y ?z }",
   bindings: {},

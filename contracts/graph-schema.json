@@ -1,5 +1,5 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Neoseq Graph Document Schema v6",
-  "current": 6
+  "title": "Neoseq Graph Document Schema v7",
+  "current": 7
 }

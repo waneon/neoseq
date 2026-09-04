@@ -42,12 +42,22 @@ Neoseq client -- login / WSS --> sync session --> PostgreSQL
                                       +--> other authorized sessions
 ```
 
-A graph room holds a rehydrated Loro document and bounded connected sessions.
-It is created single-flight on demand from the current checkpoint plus its
-update tail and can be discarded at any time. V1 is a single-process,
-single-region service; horizontal fan-out has no broker yet.
+A graph room holds a minimal `ServerGraph`—a graph identity and rehydrated Loro
+document—plus bounded connected sessions. It has no editor commands, local
+undo, command-result cache, projection, or derived query execution state. It is
+created single-flight on demand from the current checkpoint plus its update
+tail and can be discarded at any time. V1 is a single-process, single-region
+service; horizontal fan-out has no broker yet.
 
-The server accepts and writes document schema v6. Room reconstruction rejects
+Room admission validates only the causal storage contract: graph/schema
+identity, entity containers and lifecycle, outline and inline-reference shape,
+graph settings, and query storage envelopes. It never builds a graph
+projection or invokes query compilation. A built query's atomic storage
+register has its own exact envelope version; the enclosed domain `QueryPlan`
+must be a bounded JSON object with a positive version, but a syntactically valid
+future plan version remains opaque data that the server accepts and relays.
+
+The server accepts and writes document schema v7. Room reconstruction rejects
 every other schema version; this pre-release baseline has no document migration
 path.
 
@@ -62,12 +72,12 @@ authenticated graph HTTP surface creates and lists graphs and lets an owner
 list, grant, or revoke memberships by username while membership rows retain the
 account's immutable ID. Browser WebSockets carry the session credential in
 a dedicated base64url subprotocol entry because the browser API cannot set an
-`Authorization` header; the server selects only the stable `neoseq.v5`
+`Authorization` header; the server selects only the stable `neoseq.v6`
 application subprotocol. Credentials are never accepted in a URL.
 
 Graph creation has two forms. Ordinary creation commits a server-generated
 empty checkpoint. Seeded creation accepts a bounded multipart checkpoint and its
-SHA-256 digest, validates it through `GraphCore` under the requested target ID,
+SHA-256 digest, validates it through `ServerGraph` under the requested target ID,
 then creates graph metadata, owner membership, checkpoint, and audit event in
 one database transaction. An exact retry returns the existing graph; differing
 input for an occupied ID is a conflict. The default durable and reconstructed
@@ -78,7 +88,7 @@ graph limit is 1 GiB; the migration raises graphs still using the former
 
 The binary protocol is versioned independently from the CRDT schema.
 `contracts/sync-protocol.json` declares that version and derives the
-`neoseq.v5` subprotocol name from it, generated for the server and the browser
+`neoseq.v6` subprotocol name from it, generated for the server and the browser
 client alike, so a bump cannot leave one side advertising the other's version.
 Messages are length-delimited envelopes:
 
@@ -87,14 +97,18 @@ Messages are length-delimited envelopes:
 - `Welcome`: history epoch, server version vector, and exactly one payload: a
   missing-update delta, an inline replacement checkpoint, or a bulk-checkpoint
   download marker;
-- `Update`: history epoch, client message ID, base version vector, and Loro bytes;
-- `Ack`: history epoch, client message ID, and durable server receipt cursor;
+- `Update`: history epoch, content ID, base version vector, and Loro bytes;
+- `Ack`: history epoch, content ID, and durable server receipt cursor;
 - `Presence`: ephemeral cursor/selection state with expiry;
 - `Error`/`ResyncRequired`: stable code and recoverability metadata.
 
 The server sequence/cursor proves durable receipt and supports resumable
 transport; it never defines CRDT conflict order. Updates are duplicate-safe. A
-client keeps an outbox item until its message ID is acknowledged.
+client keeps an outbox item until its content ID is acknowledged. A content ID
+is exactly the lowercase 64-hex SHA-256 of the update bytes. Protocol decoding,
+the room, and durable storage each reject a different spelling or byte digest.
+The Rust wire model represents this string as a validated `ContentId`; the v6
+JSON/postcard field name remains `message_id` for the cross-language contract.
 
 ## Session Flow
 
@@ -134,12 +148,12 @@ The logical PostgreSQL records are:
   epoch, timestamps, and checkpoint pointer;
 - membership: graph ID, account ID, role, revocation/version metadata; the
   owner membership is the canonical ownership record;
-- update: graph ID, server cursor, message ID, account ID, checksum, bytes,
-  size, received time;
+- update: graph ID, server cursor, content ID, account ID, bytes, size, received
+  time;
 - checkpoint: graph ID, history epoch, included cursor, shallow Loro
   snapshot/version vector, checksum, and size;
-- compact receipt: graph/message ID, checksum, and original cursor for
-  idempotent retries after covered update rows are reclaimed;
+- compact receipt: graph/content ID and original cursor for idempotent retries
+  after covered update rows are reclaimed;
 - audit event: account, graph, security/administrative action, timestamp.
 
 Server administration and graph ownership are independent authorities. A
@@ -148,8 +162,15 @@ an account but does not thereby become a graph owner. Disabling an account,
 changing its password or role, or explicitly revoking its sessions invalidates
 all existing credentials; periodic WebSocket verification closes live sessions.
 
-Uniqueness on `(graph_id, message_id)` across the live Tail and compact receipt
-set makes recent client retry idempotent; reuse with different bytes is rejected.
+Each physical Tail and receipt table is unique on `(graph_id, message_id)`, and
+one duplicate lookup spans both. A same-cursor Tail/receipt overlap retained for
+fallback reconstruction is therefore two placements of one identity, not two
+identities. `message_id` is the content ID rather than a second client-chosen
+identity. Payload-bearing rows verify their bytes directly against it; receipts
+need no second digest column. The v6 migration folds exact pre-v6 duplicates,
+resolves cross-table cursor disagreement to the earliest placement, rewrites
+arbitrary IDs to the digest, then removes the legacy checksum columns before
+adding format constraints.
 Database row sequence is transport metadata only.
 Graph content is not decomposed into SQL page/block tables, avoiding a competing
 source of truth.
@@ -159,7 +180,7 @@ source of truth.
 Graph creation stores an initial verified checkpoint and the room always loads
 the pointed Base before its durable Tail. After 256 Tail records or 1 MiB, the
 room exports a shallow checkpoint at its current cursor. One PostgreSQL
-transaction inserts the new Base, copies covered message identities to compact
+transaction inserts the new Base, copies covered content identities to compact
 receipts, advances the graph pointer and `history_epoch`, and recomputes used
 bytes. It retains the pointed Base, its immediate predecessor, and the Tail
 needed to reconstruct from that predecessor. The next successful rotation
@@ -177,7 +198,7 @@ safe because Loro operation import is idempotent; epoch rotation still forces a
 reconnect. With no outbox intent the installed state is exactly the server Base;
 a shallow snapshot representation difference is never inferred to be a local edit.
 Compact receipts are capped at the most recent
-4,096 messages per graph; older retries may obtain a new transport cursor, but
+4,096 content receipts per graph; older retries may obtain a new transport cursor, but
 Loro operation identity keeps their content import idempotent.
 
 ## Security and Abuse Controls

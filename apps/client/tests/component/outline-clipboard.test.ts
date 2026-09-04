@@ -173,6 +173,8 @@ describe("outline clipboard codecs", () => {
       graph_id: "graph",
       pages: [page],
       tags: [{ id: "project", name: "Project", properties: [], defaults: [] }],
+      settings: { default_queries: [] },
+      conflicts: [],
       quarantined: [],
     };
 
@@ -242,7 +244,7 @@ describe("outline clipboard codecs", () => {
       ],
     };
     const snapshot = {
-      schema_version: 6,
+      schema_version: 7,
       graph_id: "graph",
       pages: [page, target],
       page_directory: [
@@ -251,6 +253,7 @@ describe("outline clipboard codecs", () => {
       ],
       tags: [],
       settings: { default_queries: [] },
+      conflicts: [],
       quarantined: [],
     } satisfies GraphSnapshot;
 

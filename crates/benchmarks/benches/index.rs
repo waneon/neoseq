@@ -2,7 +2,7 @@ use criterion::{
     BenchmarkId, Criterion, SamplingMode, Throughput, criterion_group, criterion_main,
 };
 use neoseq_benchmarks::{BLOCK_COUNTS, LARGE_BLOCK_COUNT, graph_id, snapshot, streaming_units};
-use query::{GraphIndex, IndexDelta};
+use query::{GraphIndex, IndexChange, IndexDelta, IndexUnit};
 use std::hint::black_box;
 
 fn bench_build(criterion: &mut Criterion) {
@@ -86,24 +86,18 @@ fn bench_apply_one_page(criterion: &mut Criterion) {
                     .expect("benchmark index should build");
                 assert!(
                     index
-                        .apply_delta(IndexDelta {
-                            pages: vec![changed_page.clone()],
-                            removed_pages: vec![],
-                            tags: vec![],
-                            removed_tags: vec![],
-                            frontier: "frontier-1".to_owned(),
-                        })
+                        .apply_delta(IndexDelta::new(
+                            "frontier-1",
+                            [IndexChange::Upsert(IndexUnit::Page(changed_page.clone(),))],
+                        ))
                         .expect("single-page delta should succeed")
                 );
                 assert!(
                     index
-                        .apply_delta(IndexDelta {
-                            pages: vec![base_page.clone()],
-                            removed_pages: vec![],
-                            tags: vec![],
-                            removed_tags: vec![],
-                            frontier: "frontier-0".to_owned(),
-                        })
+                        .apply_delta(IndexDelta::new(
+                            "frontier-0",
+                            [IndexChange::Upsert(IndexUnit::Page(base_page.clone()))],
+                        ))
                         .expect("single-page delta should succeed")
                 );
                 (index, base_page, changed_page, true)
@@ -117,13 +111,12 @@ fn bench_apply_one_page(criterion: &mut Criterion) {
                 *use_changed = !*use_changed;
                 black_box(
                     index
-                        .apply_delta(IndexDelta {
-                            pages: vec![black_box(page.clone())],
-                            removed_pages: vec![],
-                            tags: vec![],
-                            removed_tags: vec![],
-                            frontier: frontier.to_owned(),
-                        })
+                        .apply_delta(IndexDelta::new(
+                            frontier,
+                            [IndexChange::Upsert(IndexUnit::Page(black_box(
+                                page.clone(),
+                            )))],
+                        ))
                         .expect("single-page delta should succeed"),
                 )
             });

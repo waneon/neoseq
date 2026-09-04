@@ -5,27 +5,30 @@
 // always had, the menu the selection puts on the bullet, and the bare keys the
 // tree answers to once a selection exists.
 
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { GRAPH_ID, mountAt } from "./harness";
 
 async function mountRows(markdowns: string[]) {
   const harness = await mountAt(`/g/${GRAPH_ID}/p/home`);
+  const blockIds: string[] = [];
   await harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
   for (const [index, markdown] of markdowns.entries()) {
-    await harness.session.execute({
+    const inserted = await harness.session.execute({
       type: "insert_block",
       owner: { kind: "page", id: "home" },
       parent: null,
       index,
       markdown,
     });
+    if (!inserted.created_block) throw new Error("insert_block did not return a block ID");
+    blockIds.push(inserted.created_block);
   }
   await waitFor(() =>
     expect(screen.getAllByLabelText("Block text")).toHaveLength(markdowns.length),
   );
-  return harness;
+  return { ...harness, blockIds };
 }
 
 /** A press-and-release on a bullet, with no travel: a click, not a drag. */
@@ -124,18 +127,18 @@ describe("block selection", () => {
   });
 
   it("outdents the whole selection back out, in order", async () => {
-    const { session } = await mountRows(["parent"]);
+    const { session, blockIds } = await mountRows(["parent"]);
     await session.execute({
       type: "insert_block",
       owner: { kind: "page", id: "home" },
-      parent: "b-1",
+      parent: blockIds[0],
       index: 0,
       markdown: "one",
     });
     await session.execute({
       type: "insert_block",
       owner: { kind: "page", id: "home" },
-      parent: "b-1",
+      parent: blockIds[0],
       index: 1,
       markdown: "two",
     });
@@ -152,12 +155,12 @@ describe("block selection", () => {
   });
 
   it("keeps selected passengers selected when undo separates them from their parent", async () => {
-    const { session } = await mountRows(["eight", "two", "four"]);
+    const { session, blockIds } = await mountRows(["eight", "two", "four"]);
     await session.execute({
       type: "move_blocks",
       owner: { kind: "page", id: "home" },
-      block_ids: ["b-2", "b-3"],
-      parent: "b-1",
+      block_ids: blockIds.slice(1),
+      parent: blockIds[0],
       after: null,
     });
     await waitFor(() => expect(screen.getAllByRole("treeitem")).toHaveLength(3));
@@ -224,11 +227,11 @@ describe("block selection", () => {
   });
 
   it("copies the covered hierarchy as an indented Markdown list", async () => {
-    const { session } = await mountRows(["parent"]);
+    const { session, blockIds } = await mountRows(["parent"]);
     await session.execute({
       type: "insert_block",
       owner: { kind: "page", id: "home" },
-      parent: "b-1",
+      parent: blockIds[0],
       index: 0,
       markdown: "child\ncontinuation",
     });
@@ -254,10 +257,18 @@ describe("block selection", () => {
       commands.push(command.type);
     };
 
-    fireEvent.paste(screen.getByLabelText("Block text"), {
-      clipboardData: {
-        getData: () => "- one\n  - two\n  - three\n- four",
-      },
+    await act(async () => {
+      fireEvent.paste(screen.getByLabelText("Block text"), {
+        clipboardData: {
+          getData: () => "- one\n  - two\n  - three\n- four",
+        },
+      });
+      await vi.waitUntil(() => {
+        const page = session.getState().snapshot.pages.find((entry) => entry.id === "home");
+        return page?.blocks.map((block) => block.markdown).join(",") === "one,four";
+      });
+      // `pasteOutline` activates its returned block in the command continuation.
+      await Promise.resolve();
     });
 
     await waitFor(() => {
@@ -267,7 +278,9 @@ describe("block selection", () => {
     });
     expect(commands).toEqual(["insert_outline"]);
 
-    await session.execute({ type: "undo" });
+    await act(async () => {
+      await session.execute({ type: "undo" });
+    });
     expect(
       session.getState().snapshot.pages.find((entry) => entry.id === "home")?.blocks,
     ).toMatchObject([{ markdown: "", children: [] }]);
@@ -301,16 +314,16 @@ describe("block selection", () => {
   });
 
   it("round-trips properties and tags through the rich clipboard fragment", async () => {
-    const { session, port } = await mountRows(["source", ""]);
+    const { session, port, blockIds } = await mountRows(["source", ""]);
     await session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
     await session.execute({
       type: "add_tag",
-      entity: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      entity: { kind: "block", owner: { kind: "page", id: "home" }, id: blockIds[0] },
       tag_id: "project",
     });
     await session.execute({
       type: "set_property",
-      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: "b-1" },
+      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: blockIds[0] },
       key: "builtin.task-status",
       value: { type: "string", value: "doing" },
     });

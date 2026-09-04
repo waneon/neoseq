@@ -3,27 +3,48 @@ use domain::{BlockId, OutlineOwner};
 use loro::{LoroTree, TreeID};
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct OutlinePlan {
     pub(super) before: OutlineState,
     pub(super) roots: Vec<BlockId>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct MovePlan {
     pub(super) outline: OutlinePlan,
     pub(super) parent: Option<BlockId>,
     pub(super) after: Option<BlockId>,
 }
 
-#[derive(Debug, Clone)]
+/// An ordered program of hierarchy-independent tree moves.
+///
+/// Each destination names only stable block identities, so applying a prepared
+/// plan never needs to rediscover siblings or parents from the live tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ReparentPlan {
+    pub(super) steps: Vec<ReparentStep>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ReparentStep {
+    pub(super) block_id: BlockId,
+    pub(super) destination: ReparentDestination,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum ReparentDestination {
+    FirstChild { parent: BlockId },
+    After { anchor: BlockId },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct MergePlan {
     pub(super) before: OutlineState,
     pub(super) source: BlockId,
     pub(super) target: BlockId,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct OutlineState {
     pub(super) parents: BTreeMap<BlockId, Option<BlockId>>,
     pub(super) children: BTreeMap<Option<BlockId>, Vec<BlockId>>,
@@ -172,7 +193,7 @@ impl OutlineState {
         Ok(())
     }
 
-    fn indent(&mut self, block_id: &BlockId) -> Result<(), CoreError> {
+    fn indent(&mut self, block_id: &BlockId) -> Result<ReparentStep, CoreError> {
         let parent = self
             .parents
             .get(block_id)
@@ -184,20 +205,34 @@ impl OutlineState {
             .position(|id| id == block_id)
             .ok_or_else(|| CoreError::BlockNotFound(block_id.clone()))?;
         if position == 0 {
-            return Err(CoreError::InvalidHierarchy(
-                "first sibling cannot be indented".into(),
-            ));
+            return Err(CoreError::FirstSiblingIndent);
         }
-        self.move_one(block_id, Some(siblings[position - 1].clone()), usize::MAX)
+        let parent = siblings[position - 1].clone();
+        let destination = self
+            .children
+            .get(&Some(parent.clone()))
+            .and_then(|children| children.last())
+            .cloned()
+            .map_or_else(
+                || ReparentDestination::FirstChild {
+                    parent: parent.clone(),
+                },
+                |anchor| ReparentDestination::After { anchor },
+            );
+        self.move_one(block_id, Some(parent), usize::MAX)?;
+        Ok(ReparentStep {
+            block_id: block_id.clone(),
+            destination,
+        })
     }
 
-    fn outdent(&mut self, block_id: &BlockId) -> Result<(), CoreError> {
+    fn outdent(&mut self, block_id: &BlockId) -> Result<ReparentStep, CoreError> {
         let parent = self
             .parents
             .get(block_id)
             .cloned()
             .flatten()
-            .ok_or_else(|| CoreError::InvalidHierarchy("root block cannot be outdented".into()))?;
+            .ok_or(CoreError::RootBlockOutdent)?;
         let grandparent = self
             .parents
             .get(&parent)
@@ -208,7 +243,11 @@ impl OutlineState {
             .get(&grandparent)
             .and_then(|siblings| siblings.iter().position(|id| id == &parent))
             .ok_or_else(|| CoreError::InvalidHierarchy("missing parent sibling".into()))?;
-        self.move_one(block_id, grandparent, position + 1)
+        self.move_one(block_id, grandparent, position + 1)?;
+        Ok(ReparentStep {
+            block_id: block_id.clone(),
+            destination: ReparentDestination::After { anchor: parent },
+        })
     }
 
     fn move_one(
@@ -287,29 +326,29 @@ impl GraphCore {
         &self,
         owner: &OutlineOwner,
         block_ids: &[BlockId],
-    ) -> Result<OutlinePlan, CoreError> {
-        let before = self.outline_state(owner)?;
-        let roots = before.roots(block_ids)?;
-        let mut after = before.clone();
+    ) -> Result<ReparentPlan, CoreError> {
+        let mut projected = self.outline_state(owner)?;
+        let roots = projected.roots(block_ids)?;
+        let mut steps = Vec::with_capacity(roots.len());
         for block_id in &roots {
-            after.indent(block_id)?;
+            steps.push(projected.indent(block_id)?);
         }
-        Ok(OutlinePlan { before, roots })
+        Ok(ReparentPlan { steps })
     }
 
     pub(super) fn plan_outdent_blocks(
         &self,
         owner: &OutlineOwner,
         block_ids: &[BlockId],
-    ) -> Result<OutlinePlan, CoreError> {
-        let before = self.outline_state(owner)?;
-        let mut roots = before.roots(block_ids)?;
-        let mut after = before.clone();
+    ) -> Result<ReparentPlan, CoreError> {
+        let mut projected = self.outline_state(owner)?;
+        let mut roots = projected.roots(block_ids)?;
         roots.reverse();
+        let mut steps = Vec::with_capacity(roots.len());
         for block_id in &roots {
-            after.outdent(block_id)?;
+            steps.push(projected.outdent(block_id)?);
         }
-        Ok(OutlinePlan { before, roots })
+        Ok(ReparentPlan { steps })
     }
 
     pub(super) fn plan_delete_blocks(

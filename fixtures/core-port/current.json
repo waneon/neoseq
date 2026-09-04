@@ -1,5 +1,5 @@
 {
-  "contract_version": 3,
+  "contract_version": 4,
   "operations": [
     "open_graph",
     "execute",
@@ -12,6 +12,10 @@
   "error_codes": [
     "unsupported_contract",
     "invalid_request",
+    "page_name_conflict",
+    "tag_name_conflict",
+    "first_sibling_indent",
+    "root_block_outdent",
     "invalid_archive",
     "unsupported_archive",
     "archive_too_large",
@@ -31,12 +35,21 @@
     "storage_corrupt",
     "internal"
   ],
+  "domain_payloads": {
+    "open_graph.response.summary": "GraphSummary",
+    "execute.request.command": "CommandEnvelope",
+    "execute.response.result": "CommandResult",
+    "read.response.summary": "GraphSummary",
+    "read_outline.request.owner": "OutlineOwner",
+    "read_outline.response.outline": "OutlineSnapshot"
+  },
   "transcript": {
     "open": "summary_available",
     "execute": "saved_locally",
-    "read": "schema_v6_summary",
+    "read": "schema_v7_summary",
     "read_outline": "outline_snapshot",
     "query": "select_result",
+    "query_request": "built_plan",
     "subscribe": ["semantic", "saved_locally"],
     "timeout_error": "command_timeout"
   }
