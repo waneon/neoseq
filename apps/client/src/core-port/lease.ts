@@ -11,6 +11,7 @@
 // is free. Both routes give the session the same answer and the same
 // obligation to release.
 
+import type { GraphLocatorDto } from "../generated/core-port";
 import { randomUUID } from "@/lib/crypto";
 
 export type LeaseMode = "exclusive" | "readonly";
@@ -29,14 +30,18 @@ interface TabLease {
 
 const tabLeases = new Map<string, TabLease>();
 
-export async function acquireLease(graphId: string): Promise<Lease> {
+export async function acquireLease(
+  locator: GraphLocatorDto,
+  options: { wait?: boolean } = {},
+): Promise<Lease> {
+  const graphId = JSON.stringify([locator.repository_id, locator.graph_id]);
   if (typeof navigator === "undefined") {
     return { mode: "exclusive", release: () => {} };
   }
 
   let shared = tabLeases.get(graphId);
   if (!shared) {
-    shared = createTabLease(graphId);
+    shared = createTabLease(graphId, options.wait ?? false);
     tabLeases.set(graphId, shared);
   }
   shared.consumers += 1;
@@ -59,6 +64,14 @@ export async function acquireLease(graphId: string): Promise<Lease> {
     throw error;
   }
 
+  // A read-only session has no lock to lend to a waiting directory operation.
+  // Retire that acquisition, while its existing readers keep their own handles.
+  if (mode === "readonly" && options.wait) {
+    releaseConsumer(graphId, shared);
+    if (tabLeases.get(graphId) === shared) tabLeases.delete(graphId);
+    return acquireLease(locator, options);
+  }
+
   let released = false;
   return {
     mode,
@@ -71,23 +84,23 @@ export async function acquireLease(graphId: string): Promise<Lease> {
   };
 }
 
-function createTabLease(graphId: string): TabLease {
+function createTabLease(graphId: string, wait: boolean): TabLease {
   let releaseLock: () => void = () => {};
   const held = new Promise<void>((resolve) => {
     releaseLock = resolve;
   });
   const mode = navigator.locks
-    ? webLockMode(graphId, held)
+    ? webLockMode(graphId, held, wait)
     : typeof BroadcastChannel === "function"
-      ? electedMode(graphId, held)
+      ? electedMode(graphId, held, wait)
       : Promise.resolve<LeaseMode>("exclusive");
   return { consumers: 0, mode, releaseLock, tail: Promise.resolve() };
 }
 
-function webLockMode(graphId: string, held: Promise<void>): Promise<LeaseMode> {
+function webLockMode(graphId: string, held: Promise<void>, wait: boolean): Promise<LeaseMode> {
   return new Promise<LeaseMode>((resolve, reject) => {
     void navigator.locks
-      .request(`neoseq:graph:${graphId}`, { ifAvailable: true }, (lock) => {
+      .request(`neoseq:graph:${graphId}`, { ifAvailable: !wait }, (lock) => {
         if (!lock) {
           resolve("readonly");
           return undefined;
@@ -106,7 +119,21 @@ const CLAIM_WINDOW_MS = 300;
 
 type LeaseMessage = { type: "claim"; claim: string } | { type: "held"; claim: string };
 
-function electedMode(graphId: string, held: Promise<void>): Promise<LeaseMode> {
+async function electedMode(
+  graphId: string,
+  held: Promise<void>,
+  wait: boolean,
+): Promise<LeaseMode> {
+  for (;;) {
+    const mode = await electionAttempt(graphId, held);
+    if (mode === "exclusive" || !wait) return mode;
+    // Reclaim after either a release or a closed/crashed holder. BroadcastChannel
+    // has no peer-disconnection event, so waiting acquisitions retry the election.
+    await new Promise<void>((resolve) => setTimeout(resolve, CLAIM_WINDOW_MS));
+  }
+}
+
+function electionAttempt(graphId: string, held: Promise<void>): Promise<LeaseMode> {
   const channel = new BroadcastChannel(`neoseq:lease:${graphId}`);
   const claim = randomUUID();
   return new Promise<LeaseMode>((resolve) => {
@@ -145,4 +172,17 @@ function releaseConsumer(graphId: string, shared: TabLease): void {
   if (shared.consumers > 0) return;
   if (tabLeases.get(graphId) === shared) tabLeases.delete(graphId);
   shared.releaseLock();
+}
+
+/** Runs a directory operation under the same lease that protects graph sessions. */
+export async function withGraphLease<T>(
+  locator: GraphLocatorDto,
+  action: () => Promise<T>,
+): Promise<T> {
+  const lease = await acquireLease(locator, { wait: true });
+  try {
+    return await action();
+  } finally {
+    lease.release();
+  }
 }

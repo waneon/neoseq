@@ -769,7 +769,7 @@ function TagRow({
       )}
       {picker && (
         <PropertyPicker
-          target={{ kind: "tag", id: tag.id, bag: tag.defaults }}
+          target={{ owner: { kind: "tag_default", tag_id: tag.id }, bag: tag.defaults }}
           anchor={elementAnchor(picker.anchor)}
           initialKey={picker.key}
           onClose={() => setPicker(null)}

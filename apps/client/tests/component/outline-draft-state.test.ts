@@ -1,9 +1,28 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { projectBuffer, projectContent } from "../../src/features/blocks/editor/content-buffer";
 import {
-  initialOutlineDraftState,
-  outlineDraftReducer,
+  initialOutlineDraftState as initialInteraction,
+  applyOutlineDraftAction,
+  type OutlineDraftAction,
+  type OutlineDraftState,
 } from "../../src/features/outline/draft-state";
+
+import { ContentSessions } from "../../src/features/blocks/editor/content-session";
+const owner = { kind: "page", id: "page-1" } as const;
+let sessions: ContentSessions;
+let initialOutlineDraftState: OutlineDraftState;
+beforeEach(() => {
+  sessions = new ContentSessions();
+  initialOutlineDraftState = { ...initialInteraction, buffers: sessions.buffers(owner) };
+});
+function outlineDraftReducer(
+  state: OutlineDraftState,
+  action: OutlineDraftAction,
+): OutlineDraftState {
+  const next = applyOutlineDraftAction(state, sessions, owner, action);
+  const buffers = sessions.buffers(owner);
+  return next === state && buffers === state.buffers ? state : { ...next, buffers };
+}
 
 describe("outline draft state", () => {
   it("adopts a pending row and remaps the next queued anchor atomically", () => {

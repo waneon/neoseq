@@ -59,7 +59,10 @@ One generator turns `contracts/` into the Rust and TypeScript sources that must
 agree: the CorePort DTOs and error codes, the graph document-schema version, and
 the sync protocol version with its WebSocket subprotocol name. The drift check
 runs before every other check, so a version bumped in only one language fails
-the build instead of the running system.
+the build instead of the running system. Domain payloads and sync message shapes
+are exported from their Rust serde declarations with build-only TypeScript
+derives. The same drift check verifies those bindings; the Web client does not
+maintain parallel payload declarations.
 
 Normal Vite builds contain product routes and real adapters. Test mode adds the
 storage contract page, deterministic time, and injected persistence faults.

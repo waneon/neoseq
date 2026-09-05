@@ -76,7 +76,7 @@ async function loadRepositoryCatalog(
   }
 }
 
-export function useRepositoryCatalogs(selected: Repository | undefined, enabled: boolean) {
+export function useRepositoryCatalogs(selected: Repository | undefined) {
   const [catalogs, setCatalogs] = useState<RepositoryCatalogs>({});
   const requests = useRef(new Map<string, AbortController>());
 
@@ -131,10 +131,10 @@ export function useRepositoryCatalogs(selected: Repository | undefined, enabled:
   );
 
   useEffect(() => {
-    if (!enabled || !selected) return;
+    if (!selected) return;
     refresh(selected);
     return () => cancel(selected.id);
-  }, [cancel, enabled, refresh, selected]);
+  }, [cancel, refresh, selected]);
 
   useEffect(
     () => () => {

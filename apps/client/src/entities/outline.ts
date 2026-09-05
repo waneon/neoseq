@@ -3,16 +3,8 @@
 
 import type { BlockSnapshot } from "../core-port/snapshot";
 
-export interface OutlineRow {
-  block: BlockSnapshot;
-  depth: number;
-  parentId: string | null;
-  /** Index among its siblings. */
-  index: number;
-  siblingCount: number;
-  hasChildren: boolean;
-  collapsed: boolean;
-}
+import { outlineIndex, type OutlineRow } from "../core-port/outline-index";
+export type { OutlineRow } from "../core-port/outline-index";
 
 /** Flattens the visible tree in document order, honoring collapsed nodes. */
 export function flattenOutline(
@@ -20,22 +12,15 @@ export function flattenOutline(
   collapsedIds: ReadonlySet<string>,
 ): OutlineRow[] {
   const rows: OutlineRow[] = [];
-  const walk = (blocks: BlockSnapshot[], depth: number, parentId: string | null) => {
-    blocks.forEach((block, index) => {
-      const collapsed = collapsedIds.has(block.id);
-      rows.push({
-        block,
-        depth,
-        parentId,
-        index,
-        siblingCount: blocks.length,
-        hasChildren: block.children.length > 0,
-        collapsed,
-      });
-      if (!collapsed) walk(block.children, depth + 1, block.id);
-    });
-  };
-  walk(outline.blocks, 0, null);
+  let hiddenBelow: number | undefined;
+  for (const row of outlineIndex(outline.blocks).values()) {
+    if (hiddenBelow !== undefined && row.depth > hiddenBelow) continue;
+    hiddenBelow = undefined;
+    if (collapsedIds.has(row.block.id)) {
+      rows.push({ ...row, collapsed: true });
+      hiddenBelow = row.depth;
+    } else rows.push(row);
+  }
   return rows;
 }
 

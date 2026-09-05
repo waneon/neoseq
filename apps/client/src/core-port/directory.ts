@@ -2,15 +2,13 @@
 // repository-qualified graph reference to its durable browser replica. Canonical
 // note data remains in the Worker-owned repository.
 
+import { withGraphLease } from "./lease";
 import { CoreWorker, type PreparedGraphArchive } from "../core-worker";
 import { CORE_PORT_VERSION, type GraphLocatorDto } from "../generated/core-port";
 import { LOCAL_REPOSITORY_ID, findRepository } from "../features/repositories/directory";
 import { randomUUID } from "@/lib/crypto";
 
-export interface GraphRef {
-  repository_id: string;
-  graph_id: string;
-}
+export type GraphRef = GraphLocatorDto;
 
 export interface GraphSummary {
   id: string;
@@ -51,10 +49,6 @@ const LEGACY_DIRECTORY_KEY = "neoseq.graph-directory.v1";
 
 function entryKey(ref: GraphRef): string {
   return JSON.stringify([ref.repository_id, ref.graph_id]);
-}
-
-function locator(ref: GraphRef): GraphLocatorDto {
-  return { repository_id: ref.repository_id, graph_id: ref.graph_id };
 }
 
 function readEntries(): Record<string, DirectoryEntry> {
@@ -265,7 +259,7 @@ export async function deleteGraph(first: string, second?: string): Promise<void>
   await withGraphLease(ref, async () => {
     const worker = new CoreWorker();
     try {
-      await worker.deleteGraph(locator(ref));
+      await worker.deleteGraph(ref);
     } finally {
       worker.terminate();
     }
@@ -296,7 +290,7 @@ export async function exportGraphArchive(
     try {
       const opened = await worker.openGraph({
         contract_version: CORE_PORT_VERSION,
-        locator: locator(ref),
+        locator: ref,
         peer_id: randomPeerId(),
       });
       return await worker.exportArchive(opened.graph_handle, name);
@@ -362,32 +356,7 @@ export async function installPreparedGraph(
   }
 }
 
-async function withGraphLease<T>(ref: GraphRef, action: () => Promise<T>): Promise<T> {
-  if (typeof navigator === "undefined" || !navigator.locks) return action();
-  return navigator.locks.request(`neoseq:graph:${ref.repository_id}:${ref.graph_id}`, action);
-}
-
 function randomPeerId(): number {
   const words = crypto.getRandomValues(new Uint32Array(2));
   return (words[0] & 0x1f_ffff) * 0x1_0000_0000 + words[1];
-}
-
-const PENDING_DELETE_KEY = "neoseq.pending-delete.v2";
-
-export function schedulePendingDelete(id: string): void;
-export function schedulePendingDelete(repositoryId: string, id: string): void;
-export function schedulePendingDelete(first: string, second?: string): void {
-  const ref = {
-    repository_id: second === undefined ? LOCAL_REPOSITORY_ID : first,
-    graph_id: second === undefined ? first : second,
-  };
-  sessionStorage.setItem(PENDING_DELETE_KEY, JSON.stringify(ref));
-}
-
-export async function processPendingDelete(): Promise<void> {
-  const raw = sessionStorage.getItem(PENDING_DELETE_KEY);
-  if (!raw) return;
-  sessionStorage.removeItem(PENDING_DELETE_KEY);
-  const ref = JSON.parse(raw) as GraphRef;
-  await deleteGraph(ref.repository_id, ref.graph_id);
 }

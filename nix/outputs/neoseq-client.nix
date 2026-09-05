@@ -55,13 +55,13 @@ stdenv.mkDerivation {
   cargoDeps = rustPlatform.fetchCargoVendor {
     inherit src;
     name = "${pname}-${version}-${cargoLockDigest}";
-    hash = "sha256-Hrw+2W0vNkL2waHfJd3RkfZVl6AIPk8YJxJtKNAmOYo=";
+    hash = "sha256-0TbMJtcvMD8S49FO/DFsXbn37UMy5gp7CHHuusZupBA=";
   };
   pnpmDeps = fetchPnpmDeps {
     inherit version src pnpm;
     pname = "${pname}-${pnpmLockDigest}";
     fetcherVersion = 3;
-    hash = "sha256-bm2fa9GcLfuJuGi5CutYa6J3msT3nP0uXMea5KcBNgQ=";
+    hash = "sha256-FegyDCm80GfpmCFascc3YWcazqivnCiflbCWf1isTcQ=";
   };
 
   nativeBuildInputs = [

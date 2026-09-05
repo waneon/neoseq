@@ -23,6 +23,7 @@ pub const MAX_QUERY_VIEWS: usize = 32;
 /// tie-breaker needs a different query, not a longer list.
 pub const QUERY_VIEW_SORT_LIMIT: usize = 8;
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PropertyType {
@@ -34,6 +35,7 @@ pub enum PropertyType {
     Document,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Cardinality {
@@ -156,6 +158,7 @@ impl PropertyShape {
     }
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum PropertyValue {
@@ -168,6 +171,7 @@ pub enum PropertyValue {
     UnsupportedDocument(PropertyDocumentHeader),
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PropertyDocumentHeader {
     pub schema: String,
@@ -181,6 +185,7 @@ pub struct PropertyDocumentHeader {
 /// plan executes its source directly. The plan's `payload` grammar belongs to
 /// the query layer, while the domain owns only what makes the envelope
 /// well-formed: a JSON object, within bounds, carrying its own version.
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueryPlan {
     pub version: u32,
@@ -208,6 +213,7 @@ impl QueryPlan {
     }
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PropertyDocument {
     pub schema: String,
@@ -416,6 +422,7 @@ impl PropertyValue {
     }
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PropertyField {
     pub key: PropertyKey,
@@ -431,6 +438,7 @@ pub struct PropertyField {
 /// deliberately limited to operations that preserve those invariants.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(transparent)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 pub struct PropertyBag(Vec<PropertyField>);
 
 impl PropertyBag {

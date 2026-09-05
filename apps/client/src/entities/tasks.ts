@@ -11,7 +11,7 @@
 // what keeps them comparable as `xsd:date` in the query index; a time is a
 // refinement of that date and reads only beside it.
 
-import { addDays, addMonths, dayDifference } from "./journal";
+import { addDays, addMonths, dayDifference } from "./calendar";
 import { stringChoicesOf } from "./properties";
 import type { DueTierSettings, ToneValue } from "./settings";
 import type { TemporalRecurrenceIntent } from "./temporal";

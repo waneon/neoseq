@@ -124,7 +124,7 @@ export function PageProperties({
       {open && (
         <PropertyPicker
           key={`${page.id}:${initialKey ?? "new"}`}
-          target={{ kind: "page", id: page.id, bag: page.properties }}
+          target={{ owner: { kind: "page", id: page.id }, bag: page.properties }}
           anchor={activeAnchor}
           initialKey={initialKey}
           returnFocus={() => {

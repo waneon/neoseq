@@ -1,3 +1,4 @@
+import type { Message as SyncMessage } from "../generated/domain";
 // GraphSession owns one open graph on behalf of the UI. It serializes
 // commands, reconciles state through the CorePort event/read path, and
 // exposes an immutable state object for React (useSyncExternalStore).
@@ -18,7 +19,7 @@ import type {
 import { CORE_PORT_VERSION } from "../generated/core-port";
 import {
   CorePortFailure,
-  type OutboxMessage,
+  type OutboxFrame,
   type SavedReceipt,
   type RemoteReceipt,
   type SyncState,
@@ -86,7 +87,7 @@ export interface SessionPort extends CorePort {
   storageCapabilities?(graphHandle: string): Promise<StorageCapabilitiesDto>;
   configureSync?(graphHandle: string): Promise<void>;
   syncState?(graphHandle: string): Promise<SyncState>;
-  nextOutbox?(graphHandle: string): Promise<OutboxMessage | null>;
+  nextSyncFrame?(graphHandle: string): Promise<OutboxFrame | null>;
   acknowledgeOutbox?(graphHandle: string, messageId: string): Promise<void>;
   importRemote?(graphHandle: string, bytes: number[]): Promise<RemoteReceipt>;
   replaceRemote?(
@@ -95,8 +96,8 @@ export interface SessionPort extends CorePort {
     historyEpoch: number,
     serverVersionVector: number[],
   ): Promise<void>;
-  encodeSyncMessage?(message: unknown): Promise<ArrayBuffer>;
-  decodeSyncMessage?(frame: ArrayBuffer): Promise<unknown>;
+  encodeSyncMessage?(message: SyncMessage): Promise<ArrayBuffer>;
+  decodeSyncMessage?(frame: ArrayBuffer): Promise<SyncMessage>;
   terminate?(): void;
 }
 
@@ -158,7 +159,7 @@ export class GraphSession {
 
   private async openNow(): Promise<void> {
     try {
-      this.lease = await acquireLease(`${this.repositoryId}:${this.graphId}`);
+      this.lease = await acquireLease({ repository_id: this.repositoryId, graph_id: this.graphId });
       if (this.closeRequested) return;
       const opened = await this.port.openGraph({
         contract_version: CORE_PORT_VERSION,
@@ -650,7 +651,7 @@ function requireSyncPort(port: SessionPort): RequiredSyncPort {
   const methods = [
     "configureSync",
     "syncState",
-    "nextOutbox",
+    "nextSyncFrame",
     "acknowledgeOutbox",
     "importRemote",
     "replaceRemote",

@@ -269,31 +269,7 @@ function isPortableField(field: PropertyField): boolean {
 }
 
 function cloneField(field: PropertyField): PropertyField {
-  return {
-    ...field,
-    values: field.values.map((value) => {
-      if (value.type !== "document") return { ...value };
-      return {
-        ...value,
-        value: {
-          ...value.value,
-          views: value.value.views.map((view) => ({
-            ...view,
-            definition: {
-              ...view.definition,
-              plan: view.definition.plan ? { ...view.definition.plan } : view.definition.plan,
-            },
-            columns: view.columns.map((column) => ({ ...column })),
-            options: {
-              ...view.options,
-              sort: view.options.sort?.map((sort) => ({ ...sort })),
-              list_sort: view.options.list_sort?.map((sort) => ({ ...sort })),
-            },
-          })),
-        },
-      };
-    }),
-  } as PropertyField;
+  return structuredClone(field);
 }
 
 function parseOutlineFragment(source: string): OutlineFragment | null {

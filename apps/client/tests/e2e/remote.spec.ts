@@ -282,7 +282,7 @@ async function markMockServerBase(page: Page): Promise<void> {
   await page.evaluate(
     ({ key }) =>
       new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open("neoseq-local-v1", 1);
+        const request = indexedDB.open("neoseq-local-v1");
         request.onerror = () => reject(request.error);
         request.onsuccess = () => {
           const database = request.result;

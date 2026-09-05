@@ -2,12 +2,12 @@ import type { QueryEntityRef, RdfTerm } from "../../generated/core-port";
 import type { PropertyValue, QueryViewFieldSort, QueryViewSort } from "../../core-port/snapshot";
 import type { OrderSemantics } from "../../entities/query-ordering";
 import type { PlanField } from "../../entities/query-plan";
-import { flattenOutline, type OutlineRow } from "../../entities/outline";
-import { findOutline, outlineOwnerKey } from "../../core-port/snapshot";
+import { outlineIndex, type OutlineRow } from "../../core-port/outline-index";
+import { findOutline } from "../../core-port/snapshot";
 import { entityName, type CellContext, type ResultColumn, type ResultViewRow } from "./cells";
 
 function fixedBucket(comparison: number, descending: boolean): number {
-  // TanStack reverses the comparator for descending order. Bucket placement is
+  // The row comparator reverses descending order. Bucket placement is
   // invariant, so pre-reverse it here: known values and bound values stay ahead
   // of fallbacks in either direction.
   return descending ? -comparison : comparison;
@@ -207,26 +207,14 @@ export function orderBlockRows(
 ): ResultViewRow[] {
   if (sorts.length === 0 || rows.length < 2) return [...rows];
   const descriptors = new Map(fields.map((field) => [field.id, field]));
-  const outlines = new Map<string, Map<string, OutlineRow>>();
   const values = new Map<string, Map<string, RdfTerm[]>>();
-
-  const outlineRows = (entity: Extract<QueryEntityRef, { kind: "block" }>) => {
-    const key = outlineOwnerKey(entity.owner);
-    const cached = outlines.get(key);
-    if (cached) return cached;
-    const outline = findOutline(context.snapshot, entity.owner);
-    const indexed = new Map(
-      (outline ? flattenOutline(outline, new Set()) : []).map((row) => [row.block.id, row]),
-    );
-    outlines.set(key, indexed);
-    return indexed;
-  };
 
   for (const result of rows) {
     const entity = result.subject;
     const rowValues = new Map<string, RdfTerm[]>();
     if (entity?.kind === "block") {
-      const blockRow = outlineRows(entity).get(entity.id);
+      const outline = findOutline(context.snapshot, entity.owner);
+      const blockRow = outline && outlineIndex(outline.blocks).get(entity.id);
       if (blockRow) {
         for (const sort of sorts) {
           const descriptor = descriptors.get(sort.field);

@@ -98,7 +98,6 @@ import {
 } from "./interaction-state";
 import {
   useOutlineDraftState,
-  outlineDraftReducer,
   type OutlineDraftAction,
   type PendingOutlineOperation,
 } from "./draft-state";
@@ -168,7 +167,6 @@ import {
   canonicalContentBoundary,
   joinInlineContentProjections,
   planInlineEdit,
-  planPageReference,
   splitInlineContentProjection,
   type InlineContentProjection,
 } from "../blocks/editor/inline-content";
@@ -180,10 +178,14 @@ import {
   inlineContent,
   projectBuffer,
 } from "../blocks/editor/content-buffer";
-import { contentSessionsFor } from "../blocks/editor/content-session";
+import {
+  contentSessionsFor,
+  useContentBuffer,
+  type BlockContentSession,
+} from "../blocks/editor/content-session";
 import { buildSlashItems, filterSlashItems, type SlashItem } from "../blocks/editor/slash-commands";
 import { createQueryCommand } from "../query/commands";
-import { randomUUID } from "@/lib/crypto";
+import { preparePageCompletion } from "../blocks/editor/completion-edit";
 
 const FLUSH_DEBOUNCE_MS = 400;
 /** How far a bullet must travel before a click becomes a drag. */
@@ -288,7 +290,6 @@ interface EditorContext {
   revealed: ReadonlySet<string>;
   /** Rows the selection covers, passengers included — what a bulk verb will take. */
   selectionCount: number;
-  revision: number;
   presence: readonly PeerPresence[];
   activateBlock(
     id: string | null,
@@ -507,23 +508,20 @@ export function Outliner({
   const drop = pointerGesture.kind === "dragging" ? pointerGesture.drop : null;
   const {
     state: draftState,
-    update: setDraftState,
+    dispatch: applyDraft,
     read: readDraftState,
   } = useOutlineDraftState(session, owner);
   const editorDirectory = useRef<readonly PageDirectoryEntry[]>([]);
   const dispatchDraft = useCallback(
     (action: OutlineDraftAction) => {
-      setDraftState((current) =>
-        outlineDraftReducer(
-          current,
-          action.type === "edit"
-            ? { ...action, contentIfAbsent: findBlock(outlineRef.current, action.id)?.content }
-            : action,
-          editorDirectory.current,
-        ),
+      applyDraft(
+        action.type === "edit"
+          ? { ...action, contentIfAbsent: findBlock(outlineRef.current, action.id)?.content }
+          : action,
+        editorDirectory.current,
       );
     },
-    [setDraftState],
+    [applyDraft],
   );
   const composing = useRef(false);
   const [compositionRevision, finishComposition] = useReducer(
@@ -653,26 +651,12 @@ export function Outliner({
     vim.reset();
   }, [clearVisualLineState, vim.reset]);
 
-  // Drop a block's draft only once the authoritative snapshot matches it;
-  // the focused draft and queued pending rows survive so IME composition
-  // and in-flight typing are never clobbered.
   useEffect(() => {
-    const draftIds: string[] = [];
-    const autoCloserIds: string[] = [];
-    for (const id of readDraftState().buffers.keys()) {
-      if (id === focusedId || isPendingId(id)) continue;
-      const block = findBlock(outlineRef.current, id);
-      if (!block || block.markdown === readDraft(id)?.markdown) draftIds.push(id);
-    }
-    for (const id of readDraftState().autoClosers.keys()) {
-      if (!isPendingId(id) && !findBlock(outlineRef.current, id)) {
-        autoCloserIds.push(id);
-      }
-    }
-    if (draftIds.length > 0 || autoCloserIds.length > 0) {
-      dispatchDraft({ type: "reconcile", draftIds, autoCloserIds });
-    }
-  }, [dispatchDraft, state.revision, focusedId]);
+    const ids = [...readDraftState().autoClosers.keys()].filter(
+      (id) => !isPendingId(id) && !findBlock(outlineRef.current, id),
+    );
+    if (ids.length) dispatchDraft({ type: "clear-auto-closers", ids });
+  }, [dispatchDraft, state.revision]);
 
   // A block that left the page cannot stay selected — a stale id would send the
   // next bulk command at something that is no longer there.
@@ -714,27 +698,30 @@ export function Outliner({
   }, []);
 
   const flush = useCallback(
-    (id: string) => {
-      if (isPendingId(id)) return; // transferred when the real id arrives
+    async (id: string): Promise<boolean> => {
+      if (isPendingId(id)) return false; // transferred when the real id arrives
       if (
         readDraftState().pendingOperations.some(
           (operation) => operation.kind === "merge" && operation.targetId === id,
         )
       )
-        return; // flushed after the canonical merge establishes this baseline
+        return false; // flushed after the canonical merge establishes this baseline
       const buffer = readDraftState().buffers.get(id);
       const command = buffer && bufferCommand(buffer, ownerRef.current, id);
-      if (!command) return;
+      if (!buffer) return true;
       const target = contentSessionsFor(session).open(
         ownerRef.current,
         id,
         inlineContent(buffer.source),
       );
-      void target.submit().catch((error: unknown) => {
-        if (!mounted.current) return;
-        // The shared target retains rejected edits and subsequent input.
-        notify.failure(message("failure.lastEdit"), error);
-      });
+      if (!command && !target.hasPendingActions) return true;
+      try {
+        await target.submit();
+        return true;
+      } catch (error) {
+        if (mounted.current) notify.failure(message("failure.lastEdit"), error);
+        return false;
+      }
     },
     [dispatchDraft, message, notify, session],
   );
@@ -746,7 +733,7 @@ export function Outliner({
         clearTimeout(timer);
         flushTimers.current.delete(id);
       }
-      flush(id);
+      return flush(id);
     },
     [flush],
   );
@@ -824,28 +811,21 @@ export function Outliner({
 
   const runHistory = useCallback(
     (id: string, redo: boolean) => {
-      flushNow(id);
-      const inputRevision = draftInputRevision.current;
-      void history
-        .run(redo ? "redo" : "undo", {
-          kind: "outline",
-          owner: ownerRef.current,
-          blockId: id,
-        })
-        .then(() => {
-          // GraphSession resolves only after its snapshot is authoritative. A
-          // focused clean draft must stand down now or it masks the history
-          // result; preserve it only if the user typed again while we waited.
-          if (draftInputRevision.current !== inputRevision) {
-            return;
-          }
-          dispatchDraft({ type: "clear", ids: [id] });
-        })
-        .catch((error: unknown) => {
+      void (async () => {
+        if (!(await flushNow(id))) return;
+        try {
+          await history.run(redo ? "redo" : "undo", {
+            kind: "outline",
+            owner: ownerRef.current,
+            blockId: id,
+          });
+          // The shared target rebases history publications, including newer input.
+        } catch (error) {
           notify.failure(redo ? message("failure.redo") : message("failure.undo"), error);
-        });
+        }
+      })();
     },
-    [dispatchDraft, flushNow, history, message, notify],
+    [flushNow, history, message, notify],
   );
 
   const publishSelection = useCallback(
@@ -2118,7 +2098,6 @@ export function Outliner({
     covered: selectionCovered,
     revealed,
     selectionCount,
-    revision: state.revision,
     presence: [...state.presence.values()].filter(
       (peer) => peer.owner !== undefined && sameOutlineOwner(peer.owner, owner),
     ),
@@ -2275,38 +2254,20 @@ export function Outliner({
       const chosen = option ?? pageResults[pageIndex];
       if (!request || request.blockId !== row.block.id || readonly || !chosen) return;
       const id = row.block.id;
-      const draft = readDraft(id)?.markdown ?? row.block.markdown;
-      const currentReferences = readDraft(id)?.pageReferences ?? row.block.page_references ?? [];
-      const pageId = chosen.create ? `p-${randomUUID()}` : chosen.id;
-      const replacement = planPageReference(
-        id,
-        draft,
-        currentReferences,
-        request.start,
-        request.end,
-        pageId,
-        chosen.title,
+      const target = contentSessionsFor(session).open(owner, id, row.block.content);
+      const prepared = preparePageCompletion(
+        target.buffer,
+        editorDirectory.current,
+        request,
+        chosen,
       );
-      dispatchDraft({
-        type: "splice",
-        id,
-        source: row.block.content,
-        ...replacement.plan.splice,
-      });
+      target.replace(prepared.buffer);
       dispatchDraft({ type: "clear-auto-closers", ids: [id] });
-      pendingCaret.current = replacement.caret;
+      pendingCaret.current = prepared.caret;
       setPageRequest(null);
-
-      const commands: Command[] = [];
-      if (chosen.create) {
-        commands.push({ type: "ensure_page", page_id: pageId, title: chosen.title });
-      }
-      void contentSessionsFor(session)
-        .target(owner, id)
-        .submit(commands)
-        .catch((error: unknown) => {
-          notify.failure(message("failure.lastEdit"), error);
-        });
+      void target.submit(prepared.actions).catch((error: unknown) => {
+        notify.failure(message("failure.lastEdit"), error);
+      });
     },
     toggleCollapse: (id) => {
       if (visualLineRef.current) clearSelection();
@@ -2725,17 +2686,8 @@ export function Outliner({
       copySelection,
     },
   };
-  // Rows keep one stable command surface. Render-time values travel separately
-  // in BlockRowView; event handlers resolve through this proxy to the newest
-  // editor after a memoized row has skipped unrelated parent renders.
+  // Event handlers read current actions; render values are ordinary row props.
   const editorRef = useLatest(editor);
-  const liveEditor = useMemo(
-    () =>
-      new Proxy(editor, {
-        get: (_target, property: keyof EditorContext) => editorRef.current[property],
-      }),
-    [editorRef],
-  );
 
   // ── One outline, two origins ──
   //
@@ -3137,8 +3089,11 @@ export function Outliner({
               >
                 <MemoBlockRow
                   row={row}
-                  editor={liveEditor}
-                  view={projectBlockRowView(editor, row)}
+                  actions={editorRef}
+                  {...blockRowProps(editor, row)}
+                  content={contentSessionsFor(session).target(owner, row.block.id)}
+                  directory={editorDirectory.current}
+                  projection={pendingProjection.content.get(row.block.id)}
                   lit={litFor(ancestors, item.index, row.depth)}
                   ancestor={ancestors.indices.includes(item.index)}
                 />
@@ -3184,9 +3139,7 @@ export function Outliner({
         <PropertyPicker
           key={`${propertyRequest.blockId}:${propertyRequest.key ?? "new"}`}
           target={{
-            kind: "block",
-            id: propertyBlock.id,
-            owner,
+            owner: { kind: "block", id: propertyBlock.id, owner },
             bag: propertyBlock.properties,
           }}
           anchor={propertyRequest.anchor}
@@ -3969,15 +3922,40 @@ function projectPendingOperations(
   return { rows: result, content };
 }
 
-interface BlockRowView {
-  value: string;
-  pageReferences: readonly PageReferenceSpan[];
+type BlockRowActions = Pick<
+  EditorContext,
+  | "activateBlock"
+  | "activationEntrance"
+  | "flushNow"
+  | "onBulletPointerDown"
+  | "onCompositionEnd"
+  | "onCompositionStart"
+  | "onGripPointerDown"
+  | "onInput"
+  | "onKeyDown"
+  | "onRowContextMenu"
+  | "openProperties"
+  | "pasteFragment"
+  | "pasteOutline"
+  | "pendingCaret"
+  | "publishSelection"
+  | "releaseFocus"
+  | "toggleCollapse"
+>;
+
+interface BlockRowProps {
+  content: BlockContentSession;
+  directory: readonly PageDirectoryEntry[];
+  projection?: InlineContentProjection;
+  row: OutlineRow;
+  actions: RefObject<BlockRowActions>;
+  lit: number;
+  ancestor: boolean;
   autoClosers: readonly AutoCloserMarker[];
   focused: boolean;
   selected: boolean;
   revealed: boolean;
   readonly: boolean;
-  revision: number;
   keymap: EditorKeymap;
   vimMode: VimMode;
   owner: OutlineOwner;
@@ -3987,29 +3965,23 @@ interface BlockRowView {
   activeDescendant?: string;
 }
 
-interface BlockRowProps {
-  row: OutlineRow;
-  editor: EditorContext;
-  view: BlockRowView;
-  lit: number;
-  /** On the path from the root to the caret: its own branch is drawn and lit. */
-  ancestor: boolean;
-}
-
-function projectBlockRowView(editor: EditorContext, row: OutlineRow): BlockRowView {
+function blockRowProps(
+  editor: EditorContext,
+  row: OutlineRow,
+): Omit<
+  BlockRowProps,
+  "row" | "actions" | "lit" | "ancestor" | "content" | "directory" | "projection"
+> {
   const focused = editor.focusedId === row.block.id;
   const slash = editor.slashRequest?.blockId === row.block.id;
   const hash = editor.hashRequest?.blockId === row.block.id;
   const page = editor.pageRequest?.blockId === row.block.id;
   return {
-    value: editor.draftOf(row),
-    pageReferences: editor.pageReferencesOf(row.block),
     autoClosers: editor.autoClosersOf(row.block.id),
     focused,
     selected: editor.covered.has(row.block.id),
     revealed: editor.revealed.has(row.block.id),
     readonly: editor.readonly,
-    revision: focused ? editor.revision : 0,
     keymap: editor.keymap,
     vimMode: editor.vim.state.mode,
     owner: editor.owner,
@@ -4036,45 +4008,24 @@ function projectBlockRowView(editor: EditorContext, row: OutlineRow): BlockRowVi
   };
 }
 
-function sameBlockRowProps(left: BlockRowProps, right: BlockRowProps): boolean {
-  const a = left.view;
-  const b = right.view;
-  return (
-    left.row.block === right.row.block &&
-    left.row.depth === right.row.depth &&
-    left.row.parentId === right.row.parentId &&
-    left.row.index === right.row.index &&
-    left.row.siblingCount === right.row.siblingCount &&
-    left.row.hasChildren === right.row.hasChildren &&
-    left.row.collapsed === right.row.collapsed &&
-    left.editor === right.editor &&
-    left.lit === right.lit &&
-    left.ancestor === right.ancestor &&
-    a.value === b.value &&
-    a.pageReferences === b.pageReferences &&
-    a.autoClosers === b.autoClosers &&
-    a.focused === b.focused &&
-    a.selected === b.selected &&
-    a.revealed === b.revealed &&
-    a.readonly === b.readonly &&
-    a.revision === b.revision &&
-    a.keymap === b.keymap &&
-    a.vimMode === b.vimMode &&
-    sameOutlineOwner(a.owner, b.owner) &&
-    a.graphId === b.graphId &&
-    a.peerNames === b.peerNames &&
-    a.controls === b.controls &&
-    a.activeDescendant === b.activeDescendant
-  );
-}
-
-function BlockRow({ row, editor, view, lit, ancestor }: BlockRowProps) {
+function BlockRow({
+  row,
+  actions,
+  lit,
+  ancestor,
+  content,
+  directory,
+  projection,
+  ...view
+}: BlockRowProps) {
+  const buffer = useContentBuffer(content);
+  const draft = projection ?? (buffer && projectBuffer(buffer, directory));
   const { message } = useI18n();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isFocused = view.focused;
   const pending = isPendingId(row.block.id);
-  const value = view.value;
-  const pageReferences = view.pageReferences;
+  const value = draft?.markdown ?? row.block.markdown;
+  const pageReferences = draft?.pageReferences ?? row.block.page_references;
   const taskStatus = stringValue(row.block.properties, TASK_STATUS_KEY);
   const taskPriority = stringValue(row.block.properties, TASK_PRIORITY_KEY);
   const tags = row.block.tags;
@@ -4101,15 +4052,15 @@ function BlockRow({ row, editor, view, lit, ancestor }: BlockRowProps) {
     // whether it fired at all depended on the row's height against the
     // viewport's, so it was a bug that came and went with the type metrics.
     textarea.focus({ preventScroll: true });
-    const caret = editor.pendingCaret.current;
+    const caret = actions.current.pendingCaret.current;
     if (caret !== null) {
       const offset = Math.min(caret, textarea.value.length);
       textarea.setSelectionRange(offset, offset);
-      editor.pendingCaret.current = null;
+      actions.current.pendingCaret.current = null;
     } else {
       textarea.setSelectionRange(textarea.value.length, textarea.value.length);
     }
-  }, [isFocused, editor.pendingCaret]);
+  }, [isFocused, actions.current.pendingCaret]);
 
   return (
     <BlockRowFrame
@@ -4140,8 +4091,8 @@ function BlockRow({ row, editor, view, lit, ancestor }: BlockRowProps) {
           className="outline-grip"
           data-testid="row-grip"
           aria-hidden
-          onPointerDown={(event) => editor.onGripPointerDown(row, event)}
-          onContextMenu={(event) => editor.onRowContextMenu(row, event)}
+          onPointerDown={(event) => actions.current.onGripPointerDown(row, event)}
+          onContextMenu={(event) => actions.current.onRowContextMenu(row, event)}
         />
       }
       gutter={
@@ -4150,7 +4101,7 @@ function BlockRow({ row, editor, view, lit, ancestor }: BlockRowProps) {
             className="outline-toggle"
             aria-label={row.collapsed ? message("outline.expand") : message("outline.collapse")}
             tabIndex={-1}
-            onClick={() => editor.toggleCollapse(row.block.id)}
+            onClick={() => actions.current.toggleCollapse(row.block.id)}
           >
             {/* One glyph, rotated by the row's `data-collapsed` state rather than
               two glyphs swapped on it. A swap changes the mark with no indication
@@ -4165,8 +4116,8 @@ function BlockRow({ row, editor, view, lit, ancestor }: BlockRowProps) {
             data-testid="block-bullet"
             tabIndex={-1}
             aria-label={message("outline.blockActions")}
-            onPointerDown={(event) => editor.onBulletPointerDown(row, event)}
-            onContextMenu={(event) => editor.onRowContextMenu(row, event)}
+            onPointerDown={(event) => actions.current.onBulletPointerDown(row, event)}
+            onContextMenu={(event) => actions.current.onRowContextMenu(row, event)}
           />
         </>
       }
@@ -4195,7 +4146,7 @@ function BlockRow({ row, editor, view, lit, ancestor }: BlockRowProps) {
           rows={1}
           value={value}
           autoClosers={view.autoClosers}
-          contentSession={contentSessionsFor(editor.session).target(view.owner, row.block.id)}
+          contentSession={content}
           data-block-editor
           hidden={previewMarkdown}
           // The browser's spell checker has no idea what a graph is. It underlines
@@ -4219,38 +4170,41 @@ function BlockRow({ row, editor, view, lit, ancestor }: BlockRowProps) {
           // the mark clear it: the gesture it belongs to is over by then, and a
           // mark left standing would tell the next keyboard arrival it was a
           // press.
-          onPointerDown={editor.activationEntrance.beginPointer}
-          onPointerUp={editor.activationEntrance.completePointer}
-          onPointerCancel={editor.activationEntrance.completePointer}
+          onPointerDown={actions.current.activationEntrance.beginPointer}
+          onPointerUp={actions.current.activationEntrance.completePointer}
+          onPointerCancel={actions.current.activationEntrance.completePointer}
           onFocus={() => {
-            const method = editor.activationEntrance.focusMethod();
+            const method = actions.current.activationEntrance.focusMethod();
             if (!isFocused) {
-              editor.activateBlock(row.block.id, -1, method);
+              actions.current.activateBlock(row.block.id, -1, method);
             }
-            if (textareaRef.current) editor.publishSelection(row.block.id, textareaRef.current);
+            if (textareaRef.current)
+              actions.current.publishSelection(row.block.id, textareaRef.current);
           }}
           onClick={() => {
-            editor.activationEntrance.completePointer();
-            editor.activateBlock(row.block.id, undefined, "pointer");
+            actions.current.activationEntrance.completePointer();
+            actions.current.activateBlock(row.block.id, undefined, "pointer");
           }}
-          onSelect={(event) => editor.publishSelection(row.block.id, event.currentTarget)}
+          onSelect={(event) => actions.current.publishSelection(row.block.id, event.currentTarget)}
           onBlur={() => {
-            editor.flushNow(row.block.id);
-            editor.releaseFocus(row.block.id);
+            actions.current.flushNow(row.block.id);
+            actions.current.releaseFocus(row.block.id);
           }}
-          onValueChange={(next, textarea, edit) => editor.onInput(row, next, textarea, edit)}
-          onPairSelection={(textarea) => editor.publishSelection(row.block.id, textarea)}
-          onCompositionStart={() => editor.onCompositionStart(row)}
-          onCompositionEnd={(event) => editor.onCompositionEnd(row, event.currentTarget)}
-          onKeyDown={(event) => editor.onKeyDown(row, event)}
+          onValueChange={(next, textarea, edit) =>
+            actions.current.onInput(row, next, textarea, edit)
+          }
+          onPairSelection={(textarea) => actions.current.publishSelection(row.block.id, textarea)}
+          onCompositionStart={() => actions.current.onCompositionStart(row)}
+          onCompositionEnd={(event) => actions.current.onCompositionEnd(row, event.currentTarget)}
+          onKeyDown={(event) => actions.current.onKeyDown(row, event)}
           onPaste={(event) => {
             const decoded = decodeOutlineClipboard(event.clipboardData);
             if (decoded.kind === "text" || view.readonly || pending) return;
             event.preventDefault();
             if (decoded.kind === "fragment") {
-              editor.pasteFragment(row, decoded.fragment);
+              actions.current.pasteFragment(row, decoded.fragment);
             } else {
-              editor.pasteOutline(row, decoded.items);
+              actions.current.pasteOutline(row, decoded.items);
             }
           }}
         />
@@ -4264,7 +4218,7 @@ function BlockRow({ row, editor, view, lit, ancestor }: BlockRowProps) {
             // and its arrow-key navigation, and `readOnly` is what refuses the
             // edit — not the absence of a way in.
             onActivate={(caret, _anchor, inputMethod) => {
-              editor.activateBlock(row.block.id, caret, inputMethod);
+              actions.current.activateBlock(row.block.id, caret, inputMethod);
             }}
           />
         )}
@@ -4280,7 +4234,7 @@ function BlockRow({ row, editor, view, lit, ancestor }: BlockRowProps) {
         {!pending && (
           <BlockChips
             block={row.block}
-            onEdit={(key, anchor) => editor.openProperties(row.block.id, key, anchor)}
+            onEdit={(key, anchor) => actions.current.openProperties(row.block.id, key, anchor)}
           />
         )}
         {!pending && queryDocument(row.block.properties) !== undefined && (
@@ -4291,7 +4245,7 @@ function BlockRow({ row, editor, view, lit, ancestor }: BlockRowProps) {
   );
 }
 
-const MemoBlockRow = memo(BlockRow, sameBlockRowProps);
+const MemoBlockRow = memo(BlockRow);
 
 /** The one contextual menu owned by an outline, positioned at its active row. */
 function BlockMenu({

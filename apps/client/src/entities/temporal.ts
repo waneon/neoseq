@@ -1,4 +1,4 @@
-import { addDays, addMonths } from "./journal";
+import { addDays, addMonths, dayOfWeek, isValidLocalDate } from "./calendar";
 
 export type TemporalUnit = "day" | "week" | "month";
 
@@ -51,27 +51,8 @@ export interface ResolvedMoment {
   readonly recurrence?: TemporalRecurrenceIntent;
 }
 
-const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
-
 function pad(value: number): string {
   return String(value).padStart(2, "0");
-}
-
-export function isCalendarDate(value: string): boolean {
-  const match = ISO_DATE.exec(value);
-  if (!match) return false;
-  const [, year, month, day] = match;
-  const parsed = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
-  return (
-    parsed.getUTCFullYear() === Number(year) &&
-    parsed.getUTCMonth() === Number(month) - 1 &&
-    parsed.getUTCDate() === Number(day)
-  );
-}
-
-function dayOfWeek(date: string): number {
-  const [year, month, day] = date.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
 }
 
 /** Resolve language-neutral calendar meaning against an explicit local day. */
@@ -79,15 +60,15 @@ export function resolveDateIntent(
   intent: TemporalDateIntent,
   context: TemporalContext,
 ): string | null {
-  if (!isCalendarDate(context.today)) return null;
+  if (!isValidLocalDate(context.today)) return null;
 
   switch (intent.kind) {
     case "absolute":
-      return isCalendarDate(intent.date) ? intent.date : null;
+      return isValidLocalDate(intent.date) ? intent.date : null;
     case "calendar": {
       const year = intent.year ?? Number(context.today.slice(0, 4));
       const candidate = `${String(year).padStart(4, "0")}-${pad(intent.month)}-${pad(intent.day)}`;
-      return isCalendarDate(candidate) ? candidate : null;
+      return isValidLocalDate(candidate) ? candidate : null;
     }
     case "relative":
       if (!Number.isInteger(intent.amount)) return null;
@@ -117,7 +98,7 @@ export function resolveMomentIntent(
   intent: TemporalMomentIntent,
   context: TemporalContext,
 ): ResolvedMoment | null {
-  if (!isCalendarDate(context.today) || (!intent.date && !intent.time && !intent.recurrence)) {
+  if (!isValidLocalDate(context.today) || (!intent.date && !intent.time && !intent.recurrence)) {
     return null;
   }
   const date = intent.date ? resolveDateIntent(intent.date, context) : context.today;

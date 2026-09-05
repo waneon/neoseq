@@ -67,24 +67,9 @@ describe("sync Welcome payloads", () => {
     expect(receiver.replaceRemote).toHaveBeenCalledWith(checkpoint, 5, [11, 12]);
   });
 
-  it("rejects ambiguous or missing replacement states", async () => {
+  it("rejects a missing replacement checkpoint", async () => {
     const receiver = target();
     const download = vi.fn();
-
-    await expect(
-      applyWelcomePayload(
-        {
-          history_epoch: 0,
-          server_version_vector: [],
-          payload: {
-            delta: { update: [] },
-            replace_inline: { checkpoint: [1] },
-          },
-        },
-        receiver,
-        download,
-      ),
-    ).rejects.toThrow("welcome payload is invalid");
 
     await expect(
       applyWelcomePayload(

@@ -93,11 +93,25 @@ export function projectContent(
   return projectInlineContent(inlineContent(atoms), directory);
 }
 
+const projections = new WeakMap<
+  ContentBuffer,
+  WeakMap<readonly PageDirectoryEntry[], InlineContentProjection>
+>();
 export function projectBuffer(
   buffer: ContentBuffer,
   directory: readonly PageDirectoryEntry[],
 ): InlineContentProjection {
-  return projectContent(bufferAtoms(buffer), directory);
+  let byDirectory = projections.get(buffer);
+  if (!byDirectory) {
+    byDirectory = new WeakMap();
+    projections.set(buffer, byDirectory);
+  }
+  let projection = byDirectory.get(directory);
+  if (!projection) {
+    projection = projectContent(bufferAtoms(buffer), directory);
+    byDirectory.set(directory, projection);
+  }
+  return projection;
 }
 
 function slicePieces(pieces: readonly Piece[], from: number, to: number): Piece[] {

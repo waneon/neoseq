@@ -55,7 +55,11 @@ describe("first-class tags and tag defaults", () => {
     expect(within(picker).queryByTestId("tag-chip")).not.toBeInTheDocument();
 
     port.beforeExecute = null;
-    await user.keyboard("{ArrowDown}{Enter}");
+    // Opening the newly filtered collection can suspend; own that keyboard event.
+    await act(async () => {
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+    });
+    await user.keyboard("{Enter}");
     await waitFor(() =>
       expect(within(picker).getByTestId("tag-chip")).toHaveTextContent("#Project"),
     );

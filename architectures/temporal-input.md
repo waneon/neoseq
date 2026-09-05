@@ -62,3 +62,8 @@ locale, impossible dates, calendar boundary arithmetic, localized clock and
 recurrence forms, suffix ordering, and locale fallback. Parser implementation
 can later be code-split or replaced
 behind the same runtime contract without changing features or stored values.
+
+Civil-date validation and arithmetic share `@internationalized/date` calendar
+values. Journal navigation, task recurrence, natural-language interpretation,
+and picker suggestions therefore use the same Gregorian rules; native `Date`
+is limited to wall-clock and formatting boundaries.

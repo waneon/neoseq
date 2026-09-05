@@ -44,6 +44,7 @@ impl Default for Limits {
     }
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Hello {
     pub protocol: u16,
@@ -58,6 +59,7 @@ pub struct Hello {
     pub version_vector: Vec<u8>,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Welcome {
     pub history_epoch: u64,
@@ -66,6 +68,7 @@ pub struct Welcome {
 }
 
 /// The one synchronization action selected for a newly opened session.
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum WelcomePayload {
@@ -77,6 +80,7 @@ pub enum WelcomePayload {
     ReplaceDownload {},
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Update {
     pub history_epoch: u64,
@@ -86,6 +90,7 @@ pub struct Update {
     pub bytes: Vec<u8>,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Ack {
     pub history_epoch: u64,
@@ -94,12 +99,14 @@ pub struct Ack {
     pub server_cursor: u64,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Presence {
     pub expires_in_ms: u32,
     pub payload: Vec<u8>,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorCode {
@@ -121,6 +128,7 @@ pub enum ErrorCode {
     Internal,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ErrorMessage {
     pub code: ErrorCode,
@@ -129,6 +137,7 @@ pub struct ErrorMessage {
     pub diagnostic: String,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResyncRequired {
     pub code: ErrorCode,
@@ -137,6 +146,7 @@ pub struct ResyncRequired {
     pub diagnostic: String,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Message {
     Hello(Hello),
@@ -163,6 +173,7 @@ impl ProtocolError {
 
 /// Canonical identity shared by an update, its outbox entry, and its durable
 /// receipt. Its serialized representation is lowercase SHA-256 hex.
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
 pub struct ContentId(String);
@@ -415,6 +426,17 @@ mod tests {
         assert!(
             serde_json::from_value::<WelcomePayload>(serde_json::json!({
                 "delta": { "update": [1], "checkpoint": [2] }
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn welcome_payload_rejects_multiple_actions() {
+        assert!(
+            serde_json::from_value::<WelcomePayload>(serde_json::json!({
+                "delta": { "update": [] },
+                "replace_inline": { "checkpoint": [1] }
             }))
             .is_err()
         );

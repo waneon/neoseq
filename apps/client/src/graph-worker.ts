@@ -1,3 +1,4 @@
+import type { Message as SyncMessage } from "./generated/domain";
 import init, {
   WasmGraphCore,
   decodeGraphArchive,
@@ -170,6 +171,9 @@ self.onmessage = async (event: MessageEvent<Message>) => {
         case "sync_next":
           value = await syncNext(payload as { graph_handle: string });
           break;
+        case "sync_next_frame":
+          value = await syncNextFrame(payload as { graph_handle: string });
+          break;
         case "sync_ack":
           value = await syncAck(payload as { graph_handle: string; message_id: string });
           break;
@@ -190,7 +194,7 @@ self.onmessage = async (event: MessageEvent<Message>) => {
           break;
         case "sync_encode":
           await ensureWasm();
-          value = syncEncode(payload);
+          value = syncEncode(payload as SyncMessage);
           break;
         case "sync_decode":
           await ensureWasm();
@@ -208,6 +212,14 @@ self.onmessage = async (event: MessageEvent<Message>) => {
       value.checkpoint instanceof ArrayBuffer
     ) {
       self.postMessage({ id, ok: true, value }, { transfer: [value.checkpoint] });
+    } else if (
+      operation === "sync_next_frame" &&
+      value &&
+      typeof value === "object" &&
+      "frame" in value &&
+      value.frame instanceof ArrayBuffer
+    ) {
+      self.postMessage({ id, ok: true, value }, { transfer: [value.frame] });
     } else if (value instanceof ArrayBuffer) {
       self.postMessage({ id, ok: true, value }, { transfer: [value] });
     } else {
@@ -742,12 +754,12 @@ async function configureSync(payload: { graph_handle: string }) {
 
 async function syncState(payload: { graph_handle: string }) {
   const state = requireState(payload.graph_handle);
-  const outbox = await state.repository.outbox(state.storageKey);
+  const pending = await state.repository.countPending(state.storageKey);
   const metadata = await state.repository.metadata(state.storageKey);
   const sync = await state.repository.syncState(state.storageKey);
   return {
     version_vector: [...state.core.versionVector()],
-    pending: outbox.length,
+    pending,
     replica_id: state.replicaId,
     history_epoch: metadata.history_epoch,
     has_server_base: sync.server_base === true,
@@ -756,7 +768,7 @@ async function syncState(payload: { graph_handle: string }) {
 
 async function syncNext(payload: { graph_handle: string }) {
   const state = requireState(payload.graph_handle);
-  const next = (await state.repository.outbox(state.storageKey))[0];
+  const next = await state.repository.peekNext(state.storageKey);
   if (!next) return null;
   const metadata = await state.repository.metadata(state.storageKey);
   return {
@@ -766,6 +778,13 @@ async function syncNext(payload: { graph_handle: string }) {
     bytes: [...new Uint8Array(next.payload)],
     history_epoch: metadata.history_epoch,
   };
+}
+
+async function syncNextFrame(payload: { graph_handle: string }) {
+  const next = await syncNext(payload);
+  if (!next) return null;
+  const { local_sequence: _, ...update } = next;
+  return { message_id: next.message_id, frame: syncEncode({ Update: update }) };
 }
 
 async function syncAck(payload: { graph_handle: string; message_id: string }) {
@@ -834,11 +853,11 @@ async function syncReplace(payload: {
   return null;
 }
 
-function syncEncode(payload: unknown): ArrayBuffer {
+function syncEncode(payload: SyncMessage): ArrayBuffer {
   return ownedBuffer(encodeSyncMessageJson(JSON.stringify(payload)));
 }
 
-function syncDecode(payload: { frame: ArrayBuffer | Uint8Array }): unknown {
+function syncDecode(payload: { frame: ArrayBuffer | Uint8Array }): SyncMessage {
   return JSON.parse(decodeSyncMessageJson(asUint8Array(payload.frame)));
 }
 

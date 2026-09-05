@@ -4,6 +4,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum OutlineOwner {
@@ -11,6 +12,7 @@ pub enum OutlineOwner {
     Tag { id: TagId },
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum EntityId {
@@ -21,6 +23,7 @@ pub enum EntityId {
 /// What a property is written on. A tag owns two bags and they mean different
 /// things: `Tag` is what the tag *is* — its own metadata, including its query —
 /// while `TagDefault` is what the tag copies onto whatever it is added to.
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PropertyOwner {
@@ -33,6 +36,7 @@ pub enum PropertyOwner {
 /// The thing whose query document is being edited. Graph default queries are
 /// not properties, but they deliberately share the same document and commands
 /// as page, block, and tag queries.
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum QueryOwner {
@@ -44,6 +48,7 @@ pub enum QueryOwner {
 
 /// Stable identity of collaborative text governed by a local byte budget.
 /// The text itself remains canonical when concurrent edits cross that budget.
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TextTarget {
@@ -60,6 +65,7 @@ pub enum TextTarget {
     },
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MarkdownSplice {
     pub block_id: BlockId,
@@ -72,6 +78,7 @@ pub struct MarkdownSplice {
 /// Unicode scalar values and semantic page-reference atoms each occupy one
 /// position, independently of the current page title used to display a
 /// reference.
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockContentSplice {
     pub block_id: BlockId,
@@ -80,6 +87,7 @@ pub struct BlockContentSplice {
     pub insert: Vec<InlineContent>,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum InlineContent {
@@ -89,12 +97,14 @@ pub enum InlineContent {
 
 /// One atomic change inside a property patch. `None` removes the complete
 /// field; a value replaces it as the field's single member.
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PropertyChange {
     pub key: PropertyKey,
     pub value: Option<PropertyValue>,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Command {
@@ -300,6 +310,7 @@ pub enum Command {
     Redo,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryViewKind {
@@ -312,6 +323,7 @@ pub enum QueryViewKind {
 /// width, and whether they are on screen at all. A variable the view does not
 /// mention stays visible at its natural position, so widening a query never
 /// hides its new column.
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueryViewColumn {
     pub variable: String,
@@ -326,6 +338,7 @@ pub struct QueryViewColumn {
 /// Presentation, not semantics: it reorders the rows the query already returned,
 /// which is why it lives beside the other view switches and not in the plan. An
 /// order that decides which rows a `LIMIT` keeps belongs to the executable query.
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueryViewSort {
     /// The result variable the rows are ordered by.
@@ -339,6 +352,7 @@ pub struct QueryViewSort {
 /// Unlike a table order, this names a field from the builder's condition
 /// vocabulary rather than a projected result variable. A list therefore does
 /// not have to ask a table to expose a value before it can order blocks by it.
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueryViewFieldSort {
     /// Stable client field ID (`content`, `tag`, or `property:<key>`, for example).
@@ -349,6 +363,7 @@ pub struct QueryViewFieldSort {
 
 /// Presentation switches that belong to one saved view rather than to the
 /// query. They never change which rows or values the query returns.
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct QueryViewOptions {
     /// Rows at the outline's own row height instead of a roomier one.
@@ -367,6 +382,7 @@ pub struct QueryViewOptions {
     pub list_sort: Vec<QueryViewFieldSort>,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueryDefinition {
     /// Authoritative only when `plan` is absent. Switching a Built definition
@@ -377,6 +393,7 @@ pub struct QueryDefinition {
     pub plan: Option<QueryPlan>,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueryView {
     pub id: QueryViewId,
@@ -390,6 +407,7 @@ pub struct QueryView {
     pub options: QueryViewOptions,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SplitPlacement {
@@ -398,6 +416,7 @@ pub enum SplitPlacement {
     FirstChild,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OutlineItem {
     pub depth: usize,
@@ -407,6 +426,7 @@ pub struct OutlineItem {
 pub const OUTLINE_FRAGMENT_KIND: &str = "neoseq.outline";
 pub const OUTLINE_FRAGMENT_VERSION: u32 = 2;
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OutlineFragment {
     pub kind: String,
@@ -419,6 +439,7 @@ pub struct OutlineFragment {
     pub pages: Vec<OutlineFragmentPage>,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OutlineFragmentItem {
     pub depth: usize,
@@ -431,12 +452,14 @@ pub struct OutlineFragmentItem {
     pub tags: Vec<TagId>,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OutlineFragmentTag {
     pub id: TagId,
     pub name: String,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OutlineFragmentPage {
     pub id: PageId,
@@ -444,6 +467,7 @@ pub struct OutlineFragmentPage {
     pub journal_date: Option<LocalDate>,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CommandEnvelope {
     pub graph_id: GraphId,
@@ -451,6 +475,7 @@ pub struct CommandEnvelope {
     pub command: Command,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CommandResult {
     pub command_id: CommandId,
@@ -460,6 +485,7 @@ pub struct CommandResult {
     pub history_effect: Option<HistoryEffect>,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HistoryScope {
@@ -468,6 +494,7 @@ pub enum HistoryScope {
     Graph,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HistoryEffect {
     pub scope: HistoryScope,
@@ -475,6 +502,7 @@ pub struct HistoryEffect {
     pub reveal: Option<EntityId>,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockSnapshot {
     pub id: BlockId,
@@ -492,6 +520,7 @@ pub struct BlockSnapshot {
 
 /// A complete authoritative content value and the ordered changes that produced
 /// it. Positions count Unicode scalars and page-reference atoms, never titles.
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockContentUpdate {
     pub owner: OutlineOwner,
@@ -503,6 +532,7 @@ pub struct BlockContentUpdate {
     pub mapping: Vec<ContentRangeChange>,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContentRangeChange {
     pub index: usize,
@@ -512,6 +542,7 @@ pub struct ContentRangeChange {
 
 /// The read-model consequence of an applied transaction. The core determines
 /// this from the prepared transition and observed document changes.
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum GraphChanges {
@@ -526,6 +557,7 @@ pub enum GraphChanges {
     },
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PageReferenceSpan {
     /// Unicode-scalar range in `BlockSnapshot.markdown`.
@@ -536,6 +568,7 @@ pub struct PageReferenceSpan {
     pub page_id: PageId,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PageSnapshot {
     pub id: PageId,
@@ -545,12 +578,14 @@ pub struct PageSnapshot {
     pub blocks: Vec<BlockSnapshot>,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OutlineSnapshot {
     pub owner: OutlineOwner,
     pub blocks: Vec<BlockSnapshot>,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GraphSnapshot {
     pub schema_version: u32,
@@ -570,6 +605,7 @@ pub struct GraphSnapshot {
     pub quarantined: Vec<String>,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GraphSummary {
     pub schema_version: u32,
@@ -589,6 +625,7 @@ pub struct GraphSummary {
 /// Unlike `quarantined`, a conflict never makes the graph unreadable. Stable
 /// entity IDs preserve every participant; the UI may resolve the conflicting
 /// attribute with an ordinary command.
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum GraphConflict {
@@ -628,6 +665,7 @@ pub enum GraphConflict {
     },
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PageDirectoryEntry {
     pub id: PageId,
@@ -637,6 +675,7 @@ pub struct PageDirectoryEntry {
     pub deleted: bool,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct GraphSettings {
     /// The first bounded window in canonical `(position, id)` order. Entries
@@ -645,6 +684,7 @@ pub struct GraphSettings {
     pub default_queries: Vec<DefaultQuerySnapshot>,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DefaultQuerySnapshot {
     pub id: DefaultQueryId,
@@ -653,6 +693,7 @@ pub struct DefaultQuerySnapshot {
     pub document: PropertyDocument,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PageSummary {
     pub id: PageId,
@@ -661,6 +702,7 @@ pub struct PageSummary {
     pub tags: Vec<TagId>,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TagSnapshot {
     pub id: TagId,
@@ -670,6 +712,7 @@ pub struct TagSnapshot {
     pub blocks: Vec<BlockSnapshot>,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TagSummary {
     pub id: TagId,

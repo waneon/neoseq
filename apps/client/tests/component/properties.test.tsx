@@ -163,7 +163,7 @@ describe("property picker", () => {
     const { session, port } = await mountAt(
       `/g/${GRAPH_ID}/custom`,
       <PropertyPicker
-        target={{ ...owner, bag: [] }}
+        target={{ owner, bag: [] }}
         initialKey="user.note"
         anchor={null}
         commandPrefix={{

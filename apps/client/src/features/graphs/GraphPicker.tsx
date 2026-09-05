@@ -15,7 +15,6 @@ import {
   installPreparedGraph,
   listGraphs,
   prepareGraphArchive,
-  processPendingDelete,
   registerGraph,
   registerRemoteGraph,
   renameGraph,
@@ -82,7 +81,6 @@ export function GraphPicker() {
   const [selectedId, setSelectedId] = useState(
     () => localStorage.getItem(SELECTED_REPOSITORY_KEY) ?? LOCAL_REPOSITORY_ID,
   );
-  const [directoryReady, setDirectoryReady] = useState(false);
   const [newName, setNewName] = useState("");
   const [dialog, setDialog] = useState<GraphDialog>(null);
   const [exporting, setExporting] = useState<string | null>(null);
@@ -91,7 +89,7 @@ export function GraphPicker() {
   const archiveInputs = useRef(new Map<string, HTMLInputElement>());
   const selected =
     repositories.find((repository) => repository.id === selectedId) ?? repositories[0];
-  const { catalogs, refreshSelected } = useRepositoryCatalogs(selected, directoryReady);
+  const { catalogs, refreshSelected } = useRepositoryCatalogs(selected);
 
   useEffect(
     () =>
@@ -105,21 +103,6 @@ export function GraphPicker() {
     if (repositories.some((repository) => repository.id === selectedId)) return;
     setSelectedId(LOCAL_REPOSITORY_ID);
   }, [repositories, selectedId]);
-
-  useEffect(() => {
-    let active = true;
-    void processPendingDelete().then(
-      () => {
-        if (active) setDirectoryReady(true);
-      },
-      () => {
-        if (active) setDirectoryReady(true);
-      },
-    );
-    return () => {
-      active = false;
-    };
-  }, []);
 
   const chooseRepository = (repositoryId: string) => {
     localStorage.setItem(SELECTED_REPOSITORY_KEY, repositoryId);

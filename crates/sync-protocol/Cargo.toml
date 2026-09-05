@@ -6,7 +6,11 @@ rust-version.workspace = true
 license.workspace = true
 publish = false
 
+[features]
+typescript = ["dep:ts-rs", "domain/typescript"]
+
 [dependencies]
+ts-rs = { workspace = true, optional = true }
 domain = { path = "../domain" }
 hex.workspace = true
 postcard.workspace = true
@@ -16,3 +20,7 @@ thiserror.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+
+[[example]]
+name = "export-types"
+required-features = ["typescript"]

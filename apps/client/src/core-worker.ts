@@ -1,3 +1,4 @@
+import type { Message as SyncMessage } from "./generated/domain";
 import type {
   CloseGraphRequest,
   CloseGraphResponse,
@@ -45,6 +46,11 @@ export interface SyncState {
   has_server_base: boolean;
 }
 
+export interface OutboxFrame {
+  message_id: string;
+  frame: ArrayBuffer;
+}
+
 export interface OutboxMessage {
   message_id: string;
   local_sequence: number;
@@ -85,6 +91,7 @@ export type WorkerOperation =
   | "sync_configure"
   | "sync_state"
   | "sync_next"
+  | "sync_next_frame"
   | "sync_ack"
   | "sync_import"
   | "sync_replace"
@@ -241,11 +248,15 @@ export class CoreWorker implements CorePort {
     );
   }
 
-  encodeSyncMessage(message: unknown): Promise<ArrayBuffer> {
+  nextSyncFrame(graphHandle: string): Promise<OutboxFrame | null> {
+    return this.request("sync_next_frame", { graph_handle: graphHandle });
+  }
+
+  encodeSyncMessage(message: SyncMessage): Promise<ArrayBuffer> {
     return this.request("sync_encode", message);
   }
 
-  decodeSyncMessage(frame: ArrayBuffer): Promise<unknown> {
+  decodeSyncMessage(frame: ArrayBuffer): Promise<SyncMessage> {
     return this.request("sync_decode", { frame });
   }
 

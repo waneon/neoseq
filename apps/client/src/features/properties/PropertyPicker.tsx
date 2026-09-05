@@ -1,20 +1,7 @@
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeftIcon, CalendarIcon, CheckIcon, Trash2Icon } from "lucide-react";
 import type { Command, PropertyChange, PropertyOwnerRef } from "../../core-port/commands";
-import type {
-  OutlineOwner,
-  PropertyField,
-  PropertyValue,
-  PropertyValueType,
-} from "../../core-port/snapshot";
+import type { PropertyField, PropertyValue, PropertyValueType } from "../../core-port/snapshot";
 import { findPage, isDeleted, pageTitle } from "../../core-port/snapshot";
 import {
   canUserWrite,
@@ -30,7 +17,8 @@ import {
   valueTypeOf,
   VALUE_TYPES,
 } from "../../entities/properties";
-import { addDays, todayLocalDate } from "../../entities/journal";
+import { todayLocalDate } from "../../entities/journal";
+import { addDays } from "../../entities/calendar";
 import {
   DEFAULT_REPEAT,
   formatRepeat,
@@ -49,7 +37,13 @@ import type { Anchor } from "@/ui/anchored";
 import { AnchoredPanel } from "@/ui/anchored-panel";
 import { Button } from "@/ui/shadcn/button";
 import { Input } from "@/ui/shadcn/input";
-import { moveOptionFocus } from "@/ui/listbox";
+import {
+  Autocomplete,
+  SearchField,
+  Input as AriaInput,
+  ListBox,
+  ListBoxItem,
+} from "react-aria-components";
 import { MenuSelect } from "@/ui/menu-select";
 import { useI18n } from "../../i18n";
 import type { AsyncRequestState } from "../../lib/async";
@@ -67,12 +61,10 @@ import {
 } from "./property-display";
 import { validationMessage } from "./property-validation";
 
-export type PropertyTarget =
-  | { kind: "page"; id: string; bag: PropertyField[] }
-  | { kind: "block"; id: string; owner: OutlineOwner; bag: PropertyField[] }
-  // A tag's *defaults*: the values copied onto a block when the tag is added.
-  // Same picker, stages, and owner-based property commands.
-  | { kind: "tag"; id: string; bag: PropertyField[] };
+export interface PropertyTarget {
+  owner: PropertyOwnerRef;
+  bag: PropertyField[];
+}
 
 type PickerStage =
   | { kind: "property" }
@@ -112,25 +104,16 @@ export function PropertyPicker({
   const initial = initialKey?.trim() || null;
   const [stage, setStage] = useState<PickerStage>(() => initialStage(initial, target.bag));
   const [query, setQuery] = useState("");
-  const [active, setActive] = useState(0);
   const [request, setRequest] = useState<AsyncRequestState>({ status: "idle" });
   const committing = request.status === "busy";
   const submitting = useRef(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const prefixPending = useRef(commandPrefix);
-  const listId = useId();
   const key = stage.kind === "property" ? null : stage.key;
 
-  const owner: PropertyOwnerRef =
-    target.kind === "page"
-      ? { kind: "page", id: target.id }
-      : target.kind === "block"
-        ? { kind: "block", owner: target.owner, id: target.id }
-        : { kind: "tag_default", tag_id: target.id };
-  // Placement checks speak the registry's language: a tag target writes the
-  // `tag_default` placement, never a bag of its own.
-  const writeTarget = target.kind === "tag" ? "tag_default" : target.kind;
+  const { owner } = target;
+  const writeTarget = owner.kind === "tag" ? "tag_metadata" : owner.kind;
   const selectedUnsupported =
     key !== null &&
     target.bag
@@ -151,7 +134,6 @@ export function PropertyPicker({
       if (submitting.current) return;
       setStage(initialStage(initial, target.bag));
       setQuery("");
-      setActive(0);
       setRequest({ status: "idle" });
     };
     invokingElement.addEventListener("click", reopenAtAnchor);
@@ -217,8 +199,6 @@ export function PropertyPicker({
     return result.slice(0, 12);
   }, [compare, message, query, writeTarget, visibleEntries]);
 
-  useEffect(() => setActive(0), [query, stage.kind]);
-
   const run = async (command: Command): Promise<boolean> => {
     if (submitting.current) return false;
     submitting.current = true;
@@ -283,14 +263,14 @@ export function PropertyPicker({
     const { key } = stage;
     const keyIssue = validateKey(key);
     const existing = target.bag.find((field) => field.key === key);
-    const cardinality = existing?.cardinality === "set" ? "repeated" : cardinalityOf(key);
+    const cardinality = existing?.cardinality ?? cardinalityOf(key);
     const issue =
       keyIssue ?? validateWriteTarget(key, writeTarget) ?? validateValue(key, value, cardinality);
     if (issue) {
       setRequest({ status: "failed", message: validationMessage(issue, message) });
       return;
     }
-    const repeated = cardinality === "repeated";
+    const repeated = cardinality === "set";
     const saved = await run(
       repeated
         ? { type: "add_repeated_property", owner, key, value }
@@ -303,7 +283,7 @@ export function PropertyPicker({
   const ensureEmpty = async () => {
     if (stage.kind !== "value" || writeDisabled) return;
     const { key, valueType } = stage;
-    const cardinality = cardinalityOf(key) === "repeated" ? "set" : "single";
+    const cardinality = cardinalityOf(key);
     const saved = await run({
       type: "ensure_property",
       owner,
@@ -389,30 +369,11 @@ export function PropertyPicker({
     if (cleared) close();
   };
 
-  const onKeyList = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.nativeEvent.isComposing) return;
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setActive((index) => Math.min(index + 1, candidates.length - 1));
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setActive((index) => Math.max(index - 1, 0));
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      if (candidates[active]) chooseKey(candidates[active]);
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      close();
-    }
-  };
-
   const selectedField = key ? visibleEntries.find((field) => field.key === key) : undefined;
   const selectedValues = selectedField?.values ?? [];
   const choices = key ? offeredChoices(key, stringChoicesOf(key)) : [];
   const selectedCardinality =
-    key === null
-      ? "single"
-      : (selectedField?.cardinality ?? (cardinalityOf(key) === "repeated" ? "set" : "single"));
+    key === null ? "single" : (selectedField?.cardinality ?? cardinalityOf(key));
   const taskMoment =
     stage.kind === "value" && isTaskDateKey(stage.key)
       ? { key: stage.key, draft: stage.draft }
@@ -475,23 +436,6 @@ export function PropertyPicker({
       // Pointer dismissal remains Radix's. Focus alone may leave briefly when
       // the command or chip that opened this staged editor restores itself.
       onFocusOutside={(event) => event.preventDefault()}
-      onKeyDown={(event) => {
-        if (event.key === "Tab") {
-          const focusable = panelRef.current?.querySelectorAll<HTMLElement>(
-            'input:not([disabled]),button:not([disabled]):not([tabindex="-1"])',
-          );
-          if (!focusable || focusable.length === 0) return;
-          const first = focusable[0];
-          const last = focusable[focusable.length - 1];
-          if (event.shiftKey && document.activeElement === first) {
-            event.preventDefault();
-            last.focus();
-          } else if (!event.shiftKey && document.activeElement === last) {
-            event.preventDefault();
-            first.focus();
-          }
-        }
-      }}
     >
       <div className="property-picker-head">
         {stage.kind !== "property" && (
@@ -521,62 +465,61 @@ export function PropertyPicker({
 
       {stage.kind === "property" && (
         <>
-          <Input
-            ref={searchRef}
-            autoFocus
-            role="combobox"
-            aria-expanded
-            aria-controls={listId}
-            aria-activedescendant={candidates[active] ? `${listId}-${active}` : undefined}
-            aria-label={message("properties.propertyKey")}
-            placeholder={message("properties.propertyKey")}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={onKeyList}
-          />
-          <div id={listId} role="listbox" className="property-picker-list">
-            {candidates.length === 0 && <p className="ac-hint">{message("properties.noKeys")}</p>}
-            {candidates.map((candidate, index) => (
-              <button
-                id={`${listId}-${index}`}
-                key={candidate.key}
-                role="option"
-                aria-selected={index === active}
-                data-active={index === active}
-                className="property-picker-option"
-                tabIndex={-1}
-                onPointerMove={() => setActive(index)}
-                onPointerDown={(event) => event.preventDefault()}
-                onClick={() => chooseKey(candidate)}
-                title={candidate.key}
-              >
-                {candidate.create ? (
-                  <TypeGlyph type={undefined} />
-                ) : (
-                  propertyGlyph(
-                    candidate.key,
-                    valueTypeOf(candidate.key) ??
-                      target.bag.find((field) => field.key === candidate.key)?.value_type,
-                  )
-                )}
-                <span className="property-picker-candidate">
-                  <span className={candidate.key.startsWith("builtin.") ? undefined : "mono"}>
-                    {candidate.create
-                      ? message("properties.createProperty", {
-                          key: propertyDisplayName(candidate.key, message),
-                        })
-                      : propertyDisplayName(candidate.key, message)}
-                  </span>
-                  {candidate.existing && (
-                    <small>
-                      {describeField(visibleEntries.find((field) => field.key === candidate.key)!)}
-                    </small>
+          <Autocomplete inputValue={query} onInputChange={setQuery}>
+            <SearchField aria-label={message("properties.propertyKey")}>
+              <AriaInput
+                render={(props) => <Input {...props} />}
+                ref={searchRef}
+                autoFocus
+                placeholder={message("properties.propertyKey")}
+              />
+            </SearchField>
+            <ListBox
+              aria-label={message("properties.addOrChange")}
+              className="property-picker-list"
+              items={candidates}
+              onAction={(id) => {
+                const candidate = candidates.find((candidate) => candidate.key === id);
+                if (candidate) chooseKey(candidate);
+              }}
+              renderEmptyState={() => <p className="ac-hint">{message("properties.noKeys")}</p>}
+            >
+              {(candidate) => (
+                <ListBoxItem
+                  id={candidate.key}
+                  textValue={propertyDisplayName(candidate.key, message)}
+                  className="property-picker-option"
+                >
+                  {candidate.create ? (
+                    <TypeGlyph type={undefined} />
+                  ) : (
+                    propertyGlyph(
+                      candidate.key,
+                      valueTypeOf(candidate.key) ??
+                        target.bag.find((field) => field.key === candidate.key)?.value_type,
+                    )
                   )}
-                </span>
-                {candidate.existing && <CheckIcon data-icon aria-hidden />}
-              </button>
-            ))}
-          </div>
+                  <span className="property-picker-candidate">
+                    <span className={candidate.key.startsWith("builtin.") ? undefined : "mono"}>
+                      {candidate.create
+                        ? message("properties.createProperty", {
+                            key: propertyDisplayName(candidate.key, message),
+                          })
+                        : propertyDisplayName(candidate.key, message)}
+                    </span>
+                    {candidate.existing && (
+                      <small>
+                        {describeField(
+                          visibleEntries.find((field) => field.key === candidate.key)!,
+                        )}
+                      </small>
+                    )}
+                  </span>
+                  {candidate.existing && <CheckIcon data-icon aria-hidden />}
+                </ListBoxItem>
+              )}
+            </ListBox>
+          </Autocomplete>
           {queryIssue && (
             <p className="field-error" role="alert" data-testid="props-error">
               {validationMessage(queryIssue, message)}
@@ -586,31 +529,26 @@ export function PropertyPicker({
       )}
 
       {stage.kind === "type" && (
-        <div
+        <ListBox
           className="property-picker-list"
-          role="listbox"
           aria-label={message("properties.newType")}
-          onKeyDown={(event) => {
-            if (moveOptionFocus(event.currentTarget, event.key)) event.preventDefault();
-          }}
+          disabledKeys={readonly ? VALUE_TYPES : []}
+          onAction={(key) => chooseType(key as PropertyValueType)}
         >
           {VALUE_TYPES.map((valueType) => (
-            <button
+            <ListBoxItem
+              id={valueType}
               key={valueType}
-              role="option"
-              aria-selected={false}
+              textValue={message(`properties.type.${valueType}`)}
               className="property-picker-option"
-              disabled={readonly}
-              onPointerMove={(event) => event.currentTarget.focus({ preventScroll: true })}
-              onClick={() => chooseType(valueType)}
             >
               <TypeGlyph type={valueType} />
               <span className="property-picker-candidate">
                 <span>{message(`properties.type.${valueType}`)}</span>
               </span>
-            </button>
+            </ListBoxItem>
           ))}
-        </div>
+        </ListBox>
       )}
 
       {stage.kind === "value" && (
@@ -784,12 +722,6 @@ function ValueInput({
 }) {
   const { message } = useI18n();
   const label = message("properties.value", { key: propertyDisplayName(entryKey, message) });
-  const listNav = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (moveOptionFocus(event.currentTarget, event.key)) event.preventDefault();
-  };
-  const hoverFocus = (event: { currentTarget: HTMLElement }) =>
-    event.currentTarget.focus({ preventScroll: true });
-
   if (type === "page") {
     if (readonly) return <Input aria-label={label} value={String(value.value)} readOnly />;
     return (
@@ -821,16 +753,16 @@ function ValueInput({
           ? priorityLabel(option, message)
           : option;
     return (
-      <div className="property-picker-list" role="listbox" aria-label={label} onKeyDown={listNav}>
+      <ListBox className="property-picker-list" aria-label={label}>
         {options.map((option) => (
-          <button
+          <ListBoxItem
+            id={option}
+            textValue={labelFor(option)}
             key={option}
-            role="option"
             aria-selected={value.type === "string" && value.value === option}
             className="property-picker-option"
-            disabled={readonly}
-            onPointerMove={hoverFocus}
-            onClick={() => onCommit({ type: "string", value: option })}
+            isDisabled={readonly}
+            onAction={() => onCommit({ type: "string", value: option })}
           >
             {glyphFor(option)}
             <span className="property-picker-candidate">
@@ -839,28 +771,28 @@ function ValueInput({
             {value.type === "string" && value.value === option && (
               <CheckIcon data-icon aria-hidden />
             )}
-          </button>
+          </ListBoxItem>
         ))}
-      </div>
+      </ListBox>
     );
   }
   if (type === "checkbox") {
     return (
-      <div className="property-picker-list" role="listbox" aria-label={label} onKeyDown={listNav}>
+      <ListBox className="property-picker-list" aria-label={label}>
         {[true, false].map((checked) => (
-          <button
+          <ListBoxItem
+            id={String(checked)}
+            textValue={checked ? message("properties.checked") : message("properties.unchecked")}
             key={String(checked)}
-            role="option"
             aria-selected={value.type === "checkbox" && value.value === checked}
             className="property-picker-option"
-            disabled={readonly}
-            onPointerMove={hoverFocus}
-            onClick={() => onCommit({ type: "checkbox", value: checked })}
+            isDisabled={readonly}
+            onAction={() => onCommit({ type: "checkbox", value: checked })}
           >
             {checked ? message("properties.checked") : message("properties.unchecked")}
-          </button>
+          </ListBoxItem>
         ))}
-      </div>
+      </ListBox>
     );
   }
   if (entryKey === TASK_REPEAT_KEY) {
@@ -922,8 +854,6 @@ function DateValueInput({
 }) {
   const { message, temporal, formatJournalDate } = useI18n();
   const [text, setText] = useState("");
-  const [active, setActive] = useState(0);
-  const listId = useId();
   const today = todayLocalDate();
   const parsedResult = text.trim()
     ? temporal.parseDate(text, { today })
@@ -935,93 +865,57 @@ function DateValueInput({
     { id: "tomorrow", label: message("properties.tomorrow"), date: addDays(today, 1) },
     { id: "next-week", label: message("properties.nextWeek"), date: addDays(today, 7) },
   ];
-  // What the keyboard walks: the parsed day while there is text, else the
-  // quick answers. Same combobox contract as the property search above it.
-  const rows: { id: string; date: string }[] =
-    text.trim().length > 0
-      ? parsed
-        ? [{ id: "parsed", date: parsed }]
-        : []
-      : quick.map(({ id, date }) => ({ id, date }));
-  const activeRow = Math.min(active, Math.max(rows.length - 1, 0));
+  const rows = text.trim()
+    ? parsed
+      ? [
+          {
+            id: "parsed",
+            date: parsed,
+            label: message("properties.dateOn", { date: formatJournalDate(parsed) }),
+          },
+        ]
+      : []
+    : quick;
 
   return (
     <div className="property-date-editor">
-      <Input
-        autoFocus
-        role="combobox"
-        aria-expanded={rows.length > 0}
-        aria-controls={listId}
-        aria-activedescendant={rows[activeRow] ? `${listId}-${rows[activeRow].id}` : undefined}
-        aria-label={message("properties.dateText")}
-        placeholder={message("properties.datePlaceholder")}
-        value={text}
-        readOnly={readonly}
-        onChange={(event) => {
-          setText(event.target.value);
-          setActive(0);
-        }}
-        onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing) return;
-          if (event.key === "ArrowDown") {
-            event.preventDefault();
-            setActive((index) => Math.min(index + 1, Math.max(rows.length - 1, 0)));
-          } else if (event.key === "ArrowUp") {
-            event.preventDefault();
-            setActive((index) => Math.max(index - 1, 0));
-          } else if (event.key === "Enter") {
-            event.preventDefault();
-            const row = rows[activeRow];
+      <Autocomplete inputValue={text} onInputChange={setText}>
+        <SearchField aria-label={message("properties.dateText")} isReadOnly={readonly}>
+          <AriaInput
+            render={(props) => <Input {...props} />}
+            autoFocus
+            placeholder={message("properties.datePlaceholder")}
+          />
+        </SearchField>
+        <ListBox
+          className="property-picker-list"
+          aria-label={label}
+          items={rows}
+          disabledKeys={readonly ? rows.map((row) => row.id) : []}
+          onAction={(id) => {
+            const row = rows.find((row) => row.id === id);
             if (row) commitDate(row.date);
-          }
-        }}
-      />
-      <div id={listId} className="property-picker-list" role="listbox" aria-label={label}>
-        {text.trim().length > 0 ? (
-          parsed ? (
-            <button
-              id={`${listId}-parsed`}
-              role="option"
-              aria-selected
+          }}
+          renderEmptyState={() => <p className="ac-hint">{message("properties.noKeys")}</p>}
+        >
+          {(option) => (
+            <ListBoxItem
+              id={option.id}
+              textValue={option.label}
               className="property-picker-option"
-              data-active="true"
-              data-testid="date-parsed"
-              disabled={readonly}
-              onPointerDown={(event) => event.preventDefault()}
-              onClick={() => commitDate(parsed)}
-            >
-              <CalendarIcon data-type-glyph aria-hidden />
-              <span className="property-picker-candidate">
-                <span>{message("properties.dateOn", { date: formatJournalDate(parsed) })}</span>
-                <small>{parsed}</small>
-              </span>
-            </button>
-          ) : (
-            <p className="ac-hint">{message("properties.noKeys")}</p>
-          )
-        ) : (
-          quick.map((option, index) => (
-            <button
-              id={`${listId}-${option.id}`}
-              key={option.id}
-              role="option"
-              aria-selected={value.type === "date" && value.value === option.date}
-              data-active={index === activeRow}
-              className="property-picker-option"
-              disabled={readonly}
-              onPointerMove={() => setActive(index)}
-              onPointerDown={(event) => event.preventDefault()}
-              onClick={() => commitDate(option.date)}
+              data-testid={option.id === "parsed" ? "date-parsed" : undefined}
             >
               <CalendarIcon data-type-glyph aria-hidden />
               <span className="property-picker-candidate">
                 <span>{option.label}</span>
-                <small>{formatJournalDate(option.date)}</small>
+                <small>
+                  {option.id === "parsed" ? option.date : formatJournalDate(option.date)}
+                </small>
               </span>
-            </button>
-          ))
-        )}
-      </div>
+            </ListBoxItem>
+          )}
+        </ListBox>
+      </Autocomplete>
       <div className="property-date-native">
         <Input
           type="date"

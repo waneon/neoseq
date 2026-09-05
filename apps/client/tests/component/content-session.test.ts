@@ -83,6 +83,27 @@ describe("graph content sessions", () => {
     expect(findPage(session.getState().snapshot, owner.id)!.blocks[0].markdown).toBe("aXbY");
   });
 
+  it("retains a rejected semantic action across surfaces even without a text diff", async () => {
+    const { session, port, store, target, block } = await openContent("ab");
+    const stop = target.observe(() => {});
+    port.beforeExecute = async () => {
+      port.beforeExecute = null;
+      throw new Error("rejected");
+    };
+    await expect(
+      target.submit([{ type: "ensure_page", page_id: "chosen", title: "Chosen" }]),
+    ).rejects.toThrow();
+    stop();
+    expect(target.hasPendingActions).toBe(true);
+    expect(store.buffers(owner).has(block.id)).toBe(true);
+    const nextSurface = store.open(owner, block.id, block.content);
+    nextSurface.edit("ab tail", []);
+    await nextSurface.submit();
+    expect(findPage(session.getState().snapshot, "chosen")).toBeDefined();
+    expect(findPage(session.getState().snapshot, owner.id)!.blocks[0].markdown).toBe("ab tail");
+    expect(nextSurface.hasPendingActions).toBe(false);
+  });
+
   it("keeps applied but unsaved content as the source of subsequent input", async () => {
     const { session, port, target } = await openContent("ab");
     target.replace(spliceBuffer(target.buffer, 1, 0, [{ type: "markdown", value: "X" }]));

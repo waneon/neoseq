@@ -12,6 +12,7 @@ pub const PLAN_MAX_DEPTH: usize = 4;
 pub const QUERY_PLAN_SOURCE_PROVENANCE: &str = "# neoseq:query-plan=";
 
 /// Closed vocabulary for the user-visible meaning of accepted graph transitions.
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum SemanticEvent {
     CommandDeduplicated,
@@ -107,6 +108,7 @@ pub const SEMANTIC_EVENTS: &[SemanticEvent] = &[
     SemanticEvent::LocalRedo,
 ];
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EventSource {
@@ -114,6 +116,7 @@ pub enum EventSource {
     Remote,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum GraphEventKind {
@@ -128,6 +131,7 @@ pub enum GraphEventKind {
     RemoteImported,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct GraphEvent {
     pub cursor: u64,
@@ -135,12 +139,14 @@ pub struct GraphEvent {
     pub kind: GraphEventKind,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct GraphLocatorDto {
     pub repository_id: String,
     pub graph_id: String,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct StorageCapabilitiesDto {
     pub durable: bool,
@@ -149,6 +155,7 @@ pub struct StorageCapabilitiesDto {
     pub usage_bytes: Option<u64>,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct RecoveryDto {
     pub checkpoint_sequence: u64,
@@ -156,6 +163,7 @@ pub struct RecoveryDto {
     pub quarantined_records: Vec<String>,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct OpenGraphRequest {
     pub contract_version: u32,
@@ -163,6 +171,7 @@ pub struct OpenGraphRequest {
     pub peer_id: u64,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct OpenGraphResponse {
     pub graph_handle: String,
@@ -171,6 +180,7 @@ pub struct OpenGraphResponse {
     pub recovery: RecoveryDto,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ExecuteRequest {
     pub graph_handle: String,
@@ -178,6 +188,7 @@ pub struct ExecuteRequest {
     pub timeout_ms: u32,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum SaveStatusDto {
@@ -191,6 +202,7 @@ pub enum SaveStatusDto {
     Unchanged,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ExecuteResponse {
     pub result: CommandResult,
@@ -198,44 +210,52 @@ pub struct ExecuteResponse {
     pub save_status: SaveStatusDto,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ReadRequest {
     pub graph_handle: String,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ReadResponse {
     pub summary: GraphSummary,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ReadOutlineRequest {
     pub graph_handle: String,
     pub owner: OutlineOwner,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ReadOutlineResponse {
     pub outline: OutlineSnapshot,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct QueryRequestDto {
     pub graph_handle: String,
     pub query: Value,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct QueryResponseDto {
     pub result: Value,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SubscribeRequest {
     pub graph_handle: String,
     pub after_cursor: u64,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct SubscribeResponse {
     pub events: Vec<GraphEvent>,
@@ -243,16 +263,19 @@ pub struct SubscribeResponse {
     pub resync_required: bool,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CloseGraphRequest {
     pub graph_handle: String,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CloseGraphResponse {
     pub closed: bool,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CorePortErrorCode {
@@ -282,6 +305,7 @@ pub enum CorePortErrorCode {
     Internal,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CorePortError {
     pub code: CorePortErrorCode,

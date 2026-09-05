@@ -1,4 +1,5 @@
-import type { OutboxMessage, SyncState } from "../../core-worker";
+import type { Message as SyncMessage, Welcome, Presence } from "../../generated/domain";
+import type { OutboxFrame, SyncState } from "../../core-worker";
 import type { RemoteGraphConnection } from "../../core-port/directory";
 import type { OutlineOwner } from "../../core-port/snapshot";
 import { SCHEMA_VERSION } from "../../generated/graph-schema";
@@ -34,10 +35,10 @@ export interface SyncAgentState {
 
 export interface SyncAgentPort {
   syncState(graphHandle: string): Promise<SyncState>;
-  nextOutbox(graphHandle: string): Promise<OutboxMessage | null>;
+  nextSyncFrame(graphHandle: string): Promise<OutboxFrame | null>;
   acknowledgeOutbox(graphHandle: string, messageId: string): Promise<void>;
-  encodeSyncMessage(message: unknown): Promise<ArrayBuffer>;
-  decodeSyncMessage(frame: ArrayBuffer): Promise<unknown>;
+  encodeSyncMessage(message: SyncMessage): Promise<ArrayBuffer>;
+  decodeSyncMessage(frame: ArrayBuffer): Promise<SyncMessage>;
 }
 
 interface WelcomeTarget {
@@ -52,8 +53,6 @@ interface WelcomeTarget {
 interface SyncAgentDelegate extends WelcomeTarget {
   changed(state: SyncAgentState): void;
 }
-
-type WireMessage = Record<string, Record<string, unknown>>;
 
 const MAX_RECONNECT_MS = 30_000;
 const PRESENCE_TTL_MS = 10_000;
@@ -220,8 +219,8 @@ export class SyncAgent {
   }
 
   private async receive(frame: ArrayBuffer): Promise<void> {
-    const message = (await this.port.decodeSyncMessage(frame)) as WireMessage;
-    if (message.Welcome) {
+    const message = await this.port.decodeSyncMessage(frame);
+    if ("Welcome" in message) {
       const welcome = message.Welcome;
       await applyWelcomePayload(welcome, this.delegate, async () => {
         const auth = readAuthSession(this.connection.repository_id);
@@ -235,29 +234,29 @@ export class SyncAgent {
       await this.flush();
       return;
     }
-    if (message.Ack) {
+    if ("Ack" in message) {
       const ack = message.Ack;
-      const messageId = String(ack.message_id);
+      const messageId = ack.message_id;
       await this.port.acknowledgeOutbox(this.graphHandle, messageId);
       if (this.inFlight === messageId) this.inFlight = null;
       await this.refreshPending();
       await this.flush();
       return;
     }
-    if (message.Update) {
-      await this.delegate.applyRemote(numberArray(message.Update.bytes));
+    if ("Update" in message) {
+      await this.delegate.applyRemote(message.Update.bytes);
       return;
     }
-    if (message.Presence) {
+    if ("Presence" in message) {
       this.receivePresence(message.Presence);
       return;
     }
-    if (message.ResyncRequired) {
+    if ("ResyncRequired" in message) {
       this.socket?.close(CLOSE_RESYNC, "resync required");
       return;
     }
-    if (message.Error) {
-      const code = String(message.Error.code);
+    if ("Error" in message) {
+      const code = message.Error.code;
       if (["access_denied", "membership_revoked"].includes(code)) {
         this.patch({
           sync: { kind: "paused", reason: code === "membership_revoked" ? "revoked" : "auth" },
@@ -267,10 +266,10 @@ export class SyncAgent {
       } else if (["unsupported_protocol", "unsupported_schema"].includes(code)) {
         this.patch({ sync: { kind: "paused", reason: "incompatible" }, live: "paused" });
         this.socket?.close(CLOSE_INCOMPATIBLE, "incompatible sync protocol");
-      } else if (Boolean(message.Error.recoverable)) {
+      } else if (message.Error.recoverable) {
         this.socket?.close(CLOSE_RETRY, "retryable sync error");
       } else {
-        this.patch({ sync: { kind: "error", message: String(message.Error.diagnostic) } });
+        this.patch({ sync: { kind: "error", message: message.Error.diagnostic } });
       }
     }
   }
@@ -278,21 +277,13 @@ export class SyncAgent {
   private async flush(): Promise<void> {
     const socket = this.socket;
     if (!socket || socket.readyState !== WebSocket.OPEN || !this.welcomed || this.inFlight) return;
-    const next = await this.port.nextOutbox(this.graphHandle);
+    const next = await this.port.nextSyncFrame(this.graphHandle);
     if (!next) {
       this.patch({ sync: { kind: "synced" } });
       return;
     }
-    const frame = await this.port.encodeSyncMessage({
-      Update: {
-        history_epoch: next.history_epoch,
-        message_id: next.message_id,
-        base_version_vector: next.base_version_vector,
-        bytes: next.bytes,
-      },
-    });
     this.inFlight = next.message_id;
-    socket.send(frame);
+    socket.send(next.frame);
   }
 
   private async refreshPending(): Promise<void> {
@@ -303,11 +294,12 @@ export class SyncAgent {
     });
   }
 
-  private receivePresence(raw: Record<string, unknown>): void {
+  private receivePresence(raw: Presence): void {
     try {
-      const decoded = JSON.parse(
-        new TextDecoder().decode(new Uint8Array(numberArray(raw.payload))),
-      ) as Omit<PeerPresence, "expires_at">;
+      const decoded = JSON.parse(new TextDecoder().decode(new Uint8Array(raw.payload))) as Omit<
+        PeerPresence,
+        "expires_at"
+      >;
       if (!decoded.session_id || decoded.session_id === this.transportSessionId) return;
       this.presence.set(decoded.session_id, {
         ...decoded,
@@ -407,16 +399,12 @@ export class SyncAgent {
  * interpretation separate makes the Rust sum type explicit at the TypeScript
  * boundary instead of recreating a matrix of booleans and empty byte arrays. */
 export async function applyWelcomePayload(
-  welcome: Record<string, unknown>,
+  welcome: Welcome,
   target: WelcomeTarget,
   downloadCheckpoint: () => Promise<RemoteCheckpoint>,
 ): Promise<void> {
-  const payload = record(welcome.payload, "welcome payload");
-  const variants = Object.keys(payload);
-  if (variants.length !== 1) throw new Error("welcome payload is invalid");
-
-  if (variants[0] === "replace_download") {
-    exactKeys(record(payload.replace_download, "welcome download"), [], "welcome download");
+  const payload = welcome.payload;
+  if ("replace_download" in payload) {
     const downloaded = await downloadCheckpoint();
     if (checkpointBytes(downloaded.checkpoint) === 0) {
       throw new Error("replacement checkpoint is missing");
@@ -429,28 +417,21 @@ export async function applyWelcomePayload(
     return;
   }
 
-  if (variants[0] === "delta") {
-    const delta = record(payload.delta, "welcome delta");
-    exactKeys(delta, ["update"], "welcome delta");
-    const update = byteArray(delta.update, "welcome delta");
+  if ("delta" in payload) {
+    const { update } = payload.delta;
     if (update.length > 0) await target.applyRemote(update);
     return;
   }
 
-  if (variants[0] === "replace_inline") {
-    const replacement = record(payload.replace_inline, "welcome replacement");
-    exactKeys(replacement, ["checkpoint"], "welcome replacement");
-    const checkpoint = byteArray(replacement.checkpoint, "welcome replacement");
+  if ("replace_inline" in payload) {
+    const { checkpoint } = payload.replace_inline;
     if (checkpoint.length === 0) throw new Error("replacement checkpoint is missing");
-    await target.replaceRemote(
-      checkpoint,
-      Number(welcome.history_epoch),
-      numberArray(welcome.server_version_vector),
-    );
+    await target.replaceRemote(checkpoint, welcome.history_epoch, welcome.server_version_vector);
     return;
   }
 
-  throw new Error("welcome payload is invalid");
+  const unreachable: never = payload;
+  throw new Error(`unexpected Welcome payload: ${unreachable}`);
 }
 
 /** A peer-supplied lifetime, clamped to the protocol ceiling. Anything that is
@@ -459,35 +440,6 @@ export async function applyWelcomePayload(
 function presenceTtl(value: unknown): number {
   const requested = Number(value);
   return Number.isFinite(requested) ? Math.max(0, Math.min(requested, PRESENCE_TTL_MS)) : 0;
-}
-
-function numberArray(value: unknown): number[] {
-  return Array.isArray(value) ? value.map(Number) : [];
-}
-
-function byteArray(value: unknown, label: string): number[] {
-  if (
-    !Array.isArray(value) ||
-    value.some((byte) => !Number.isInteger(byte) || Number(byte) < 0 || Number(byte) > 255)
-  ) {
-    throw new Error(`${label} is invalid`);
-  }
-  return value.map(Number);
-}
-
-function record(value: unknown, label: string): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`${label} is invalid`);
-  }
-  return value as Record<string, unknown>;
-}
-
-function exactKeys(value: Record<string, unknown>, expected: string[], label: string): void {
-  const actual = Object.keys(value).sort();
-  const wanted = [...expected].sort();
-  if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
-    throw new Error(`${label} is invalid`);
-  }
 }
 
 function checkpointBytes(value: number[] | ArrayBuffer): number {

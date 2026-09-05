@@ -36,6 +36,7 @@ fn validate(value: &str, kind: &'static str, max: usize) -> Result<(), IdError> 
 macro_rules! opaque_string {
     ($name:ident, $kind:literal) => {
         #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+        #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
         #[serde(transparent)]
         pub struct $name(String);
 
@@ -104,6 +105,7 @@ fn hex_lower(bytes: &[u8]) -> String {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(transparent)]
 pub struct PropertyKey(String);
 
@@ -177,6 +179,7 @@ impl<'de> Deserialize<'de> for PropertyKey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(transparent)]
 pub struct LocalDate(String);
 

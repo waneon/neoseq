@@ -293,6 +293,10 @@ follows the surface, which opens it for a query that has no conditions yet.
 
 ## Editable Result Projection
 
+Table presentation consumes the answer's columns and rows directly. Visibility,
+ordering, and transient resize state belong to the query view; no second table
+row or cell model reinterprets the answer.
+
 Query evaluation remains read-only. A builder-authored block result can be
 edited only when the executed answer declares entity grain and its column
 descriptor names a direct block field. The client combines the row's explicit subject,

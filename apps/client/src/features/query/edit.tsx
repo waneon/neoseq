@@ -68,15 +68,13 @@ import {
   type BlockPageOption,
   type BlockTagOption,
 } from "../blocks/editor/BlockCompletions";
-import { planPageReference } from "../blocks/editor/inline-content";
-import { CorePortFailure } from "../../core-worker";
+import { preparePageCompletion } from "../blocks/editor/completion-edit";
 import { useContentSessions, type BlockContentSession } from "../blocks/editor/content-session";
 import {
   bufferCommand,
   bufferIsClean,
   editBuffer,
   projectBuffer,
-  spliceBuffer,
   type ContentBuffer,
 } from "../blocks/editor/content-buffer";
 import { buildSlashItems, filterSlashItems, type SlashItem } from "../blocks/editor/slash-commands";
@@ -85,7 +83,6 @@ import { hasMarkdownSyntax } from "../markdown/profile";
 import { priorityLabel, statusLabel } from "../tasks/labels";
 import { useSessionSelector } from "../shell/session-context";
 import { CellValue, type CellContext, type ResultColumn, type ResultViewRow } from "./cells";
-import { randomUUID } from "@/lib/crypto";
 
 const EDIT_DEBOUNCE_MS = 400;
 
@@ -136,7 +133,6 @@ type ActiveEdit =
       saving: boolean;
       closeAfterSave: boolean;
       error: string | null;
-      retrySave?: PrepareSave;
     }
   | {
       phase: "picker";
@@ -321,8 +317,8 @@ export function useQueryResultEditor({
       if (current?.phase !== "markdown" || current.saving) return false;
       const prepared = prepare(current);
       const { buffer, actions } = prepared;
-      if (bufferIsClean(buffer) && actions.length === 0) {
-        setActive({ ...current, error: null, retrySave: undefined });
+      if (bufferIsClean(buffer) && actions.length === 0 && !current.content.hasPendingActions) {
+        setActive({ ...current, error: null });
         return true;
       }
       current.content.replace(buffer);
@@ -338,7 +334,6 @@ export function useQueryResultEditor({
         saving: true,
         closeAfterSave: close || current.closeAfterSave,
         error: null,
-        retrySave: undefined,
       });
       try {
         const settled = await current.content.submit(actions);
@@ -361,7 +356,6 @@ export function useQueryResultEditor({
         saved = true;
         return true;
       } catch (cause) {
-        const applied = cause instanceof CorePortFailure && cause.applied !== undefined;
         setActive((latest) => {
           if (
             latest?.phase !== "markdown" ||
@@ -374,11 +368,6 @@ export function useQueryResultEditor({
             saving: false,
             closeAfterSave: false,
             error: failureReason(cause, message),
-            // The rejected intent is retained independently of input authored
-            // after it. Retrying replays that intent, then drains the tail.
-            retrySave: applied
-              ? undefined
-              : (latest) => ({ buffer: latest.content.buffer, actions }),
           };
         });
         if (!mounted.current) notify.failure(message("failure.lastEdit"), cause);
@@ -418,14 +407,10 @@ export function useQueryResultEditor({
           return false;
         return commit(close, draftOverride, action, source);
       }
-      if (current.retrySave) {
-        if (!(await save(current.retrySave, false))) return false;
-        return commit(close, draftOverride, action, source);
-      }
       const buffer =
         draftOverride === undefined ? current.content.buffer : withDraft(current, draftOverride);
       const command = bufferCommand(buffer, current.binding.block.owner, current.binding.block.id);
-      if (!command && !action) {
+      if (!command && !action && !current.content.hasPendingActions) {
         if (close) setActive(null);
         return true;
       }
@@ -707,27 +692,12 @@ export function useQueryResultEditor({
     (completion: BlockCompletionRequest, option: BlockPageOption): number | null => {
       const current = activeRef.current;
       if (!canAcceptCompletion(current)) return null;
-      const blockId = current.binding.block.id;
-      const pageId = option.create ? `p-${randomUUID()}` : option.id;
-      const projection = project(current);
-      const replacement = planPageReference(
-        blockId,
-        projection.markdown,
-        projection.pageReferences,
-        completion.start,
-        completion.end,
-        pageId,
-        option.title,
-      );
-      const buffer = spliceBuffer(
+      const { buffer, actions, caret } = preparePageCompletion(
         current.content.buffer,
-        replacement.plan.splice.index,
-        replacement.plan.splice.delete,
-        replacement.plan.splice.insert,
+        session.getState().snapshot.page_directory,
+        completion,
+        option,
       );
-      const actions: Command[] = option.create
-        ? [{ type: "ensure_page", page_id: pageId, title: option.title }]
-        : [];
       setActive({
         ...replaceBuffer(current, buffer),
         autoClosers: [],
@@ -737,7 +707,7 @@ export function useQueryResultEditor({
       // The prepared semantic edit owns the accepted PageId across retry; its
       // displayed title and the completion's original offsets are not replayed.
       void save(() => ({ buffer, actions }), false);
-      return replacement.caret;
+      return caret;
     },
     [save, setActive],
   );
@@ -856,9 +826,7 @@ export function QueryEditPortals({ editor }: { editor: QueryResultEditor }) {
     return (
       <PropertyPicker
         target={{
-          kind: "block",
-          id: block.id,
-          owner: active.binding.block.owner,
+          owner: { kind: "block", id: block.id, owner: active.binding.block.owner },
           bag: block.properties,
         }}
         anchor={active.anchor}

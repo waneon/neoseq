@@ -10,7 +10,6 @@ import {
 } from "../persistence";
 
 const DATABASE = "neoseq-local-v1";
-const VERSION = 1;
 
 export type FaultPoint =
   | "append_before"
@@ -174,7 +173,7 @@ export class TestIndexedDbGraphRepository extends IndexedDbGraphRepository {
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const open = indexedDB.open(DATABASE, VERSION);
+    const open = indexedDB.open(DATABASE);
     open.onsuccess = () => resolve(open.result);
     open.onerror = () => reject(open.error ?? new Error("failed to open test database"));
   });

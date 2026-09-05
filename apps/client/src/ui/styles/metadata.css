@@ -92,6 +92,7 @@
    state, so "where am I" never has two answers. The *chosen* value is not a
    position: it says so with its check mark, never a second wash. */
 .property-picker-option[data-active="true"],
+.property-picker-option[data-focused],
 .property-picker-option:focus {
   background: var(--surface-2);
 }

@@ -1,3 +1,4 @@
+import { IndexedDbGraphRepository } from "./persistence";
 import { CORE_PORT_VERSION } from "./generated/core-port";
 import type { CommandEnvelope, OpenGraphRequest, ExecuteResponse } from "./generated/core-port";
 import { SCHEMA_VERSION } from "./generated/graph-schema";
@@ -76,7 +77,73 @@ async function expectAppliedUnsaved(action: Promise<ExecuteResponse>, code: stri
   return response.save_status.error;
 }
 
+/** A populated v1 database must gain the ordered index without losing its records. */
+async function verifyOutboxIndexUpgrade() {
+  const graph = "v1-index-upgrade";
+  const payload = new Uint8Array([1, 2, 3]).buffer;
+  const messageId = await sha256Hex(payload);
+  await new Promise<void>((resolve, reject) => {
+    const open = indexedDB.open("neoseq-local-v1", 1);
+    open.onupgradeneeded = () => {
+      const db = open.result;
+      db.createObjectStore("metadata", { keyPath: "graph_id" });
+      for (const name of ["updates", "checkpoints"]) {
+        const store = db.createObjectStore(name, { keyPath: ["graph_id", "local_sequence"] });
+        store.createIndex("by_graph", "graph_id");
+        if (name === "updates")
+          store.createIndex("by_checksum", ["graph_id", "checksum"], { unique: true });
+      }
+      db.createObjectStore("quarantine", { keyPath: ["graph_id", "export_handle"] }).createIndex(
+        "by_graph",
+        "graph_id",
+      );
+      db.createObjectStore("outbox", { keyPath: ["graph_id", "message_id"] }).createIndex(
+        "by_graph",
+        "graph_id",
+      );
+      db.createObjectStore("sync-state", { keyPath: "graph_id" });
+    };
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const db = open.result;
+      const tx = db.transaction(["updates", "outbox"], "readwrite");
+      tx.objectStore("updates").put({
+        graph_id: graph,
+        local_sequence: 7,
+        checksum: messageId,
+        payload,
+        created_at: "2026-01-01",
+      });
+      tx.objectStore("outbox").put({
+        graph_id: graph,
+        local_sequence: 7,
+        message_id: messageId,
+        base_version_vector: new ArrayBuffer(0),
+        created_at: "2026-01-01",
+      });
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(tx.error);
+      };
+    };
+  });
+  const repository = new IndexedDbGraphRepository();
+  assert((await repository.countPending(graph)) === 1, "upgrade lost an outbox record");
+  const next = await repository.peekNext(graph);
+  assert(
+    next?.local_sequence === 7 && next.message_id === messageId,
+    "upgrade did not index the existing outbox",
+  );
+  assert(next.payload.byteLength === 3, "upgrade lost the referenced update payload");
+  await repository.deleteLocal(graph);
+}
+
 export async function runIndexedDbPersistenceCorpus() {
+  await verifyOutboxIndexUpgrade();
   const graph = graphId("indexeddb-corpus");
   const creator = new TestCoreWorker();
   const opened = await creator.openGraph(openRequest(graph, 201));
@@ -616,6 +683,17 @@ export async function runRemoteOutboxCorpus() {
     queued.message_id === (await sha256Hex(new Uint8Array(queued.bytes))),
     "outbox key must be the update content ID",
   );
+  const nextFrame = await writer.nextSyncFrame(opened.graph_handle);
+  assert(
+    nextFrame?.frame instanceof ArrayBuffer,
+    "outbox frame must cross the Worker boundary as binary",
+  );
+  assert(nextFrame.message_id === queued.message_id, "encoded frame changed the pending identity");
+  const nextMessage = await writer.decodeSyncMessage(nextFrame.frame);
+  assert(
+    "Update" in nextMessage && nextMessage.Update.message_id === queued.message_id,
+    "encoded outbox frame did not preserve its update",
+  );
   const retried = await writer.nextOutbox(opened.graph_handle);
   assert(
     retried?.message_id === queued.message_id,
@@ -780,7 +858,23 @@ export async function runRemoteOutboxCorpus() {
   });
   const corruptQueued = await corruptWriter.nextOutbox(corruptOpen.graph_handle);
   assert(corruptQueued, "corrupt-outbox fixture did not create a Tail record");
-  await corruptWriter.corruptUpdate(corruptGraph, corruptQueued.local_sequence);
+  const later = await corruptWriter.execute({
+    graph_handle: corruptOpen.graph_handle,
+    command: ensurePage(corruptGraph, "later-corrupt-outbox", "later-corrupt-outbox"),
+    timeout_ms: 1_000,
+  });
+  assert(later.save_status.status === "saved_locally", "second outbox entry was not durable");
+  await corruptWriter.corruptUpdate(corruptGraph, later.save_status.local_sequence);
+  assert(
+    (await corruptWriter.syncState(corruptOpen.graph_handle)).pending === 2,
+    "counting pending entries must not read their payloads",
+  );
+  assert(
+    (await corruptWriter.nextOutbox(corruptOpen.graph_handle))?.message_id ===
+      corruptQueued.message_id,
+    "peeking the oldest entry must not read later payloads",
+  );
+  await corruptWriter.acknowledgeOutbox(corruptOpen.graph_handle, corruptQueued.message_id);
   await expectCode(corruptWriter.nextOutbox(corruptOpen.graph_handle), "storage_corrupt");
   await corruptWriter.closeGraph({ graph_handle: corruptOpen.graph_handle });
   await corruptWriter.deleteGraph(corruptGraph);

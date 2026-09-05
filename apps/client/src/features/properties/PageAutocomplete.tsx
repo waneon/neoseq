@@ -5,10 +5,17 @@
 // The option list renders in a portal so it escapes the outline's scroll
 // container and virtualized stacking context (which otherwise clipped it).
 
-import { useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useMemo, useRef, useState } from "react";
+import { canonicalEntityName } from "../../entities/names";
 import type { Command } from "../../core-port/commands";
 import { isDeleted, pageKind, pageTitle } from "../../core-port/snapshot";
-import { canonicalEntityName } from "../../entities/names";
+import {
+  Autocomplete,
+  SearchField,
+  Input as AriaInput,
+  ListBox,
+  ListBoxItem,
+} from "react-aria-components";
 import { AnchoredPanel } from "@/ui/anchored-panel";
 import { elementAnchor } from "@/ui/anchored";
 import { Input } from "@/ui/shadcn/input";
@@ -50,12 +57,10 @@ export function PageAutocomplete({
   );
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
-  const [active, setActive] = useState(0);
+  const listRef = useRef<HTMLDivElement>(null);
   const [pending, setPending] = useState(false);
   const submitting = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
-  const listId = useId();
   const notify = useNotify();
   const { message, compare } = useI18n();
 
@@ -76,7 +81,7 @@ export function PageAutocomplete({
     const exact = entities.some((entity) => canonicalEntityName(entity.label) === canonical);
     const result: Option[] = matches.map(({ id, label }) => ({ id, label }));
     if (allowCreate && canonical.length > 0 && !exact) {
-      result.push({ id: "", label: query.trim(), create: true });
+      result.push({ id: "__create", label: query.trim(), create: true });
     }
     return result;
   }, [state.snapshot, query, allowCreate, kind, compare]);
@@ -85,6 +90,7 @@ export function PageAutocomplete({
     if (submitting.current) return;
     submitting.current = true;
     setPending(true);
+    setOpen(false);
     try {
       if (option.create) {
         const id = `${kind === "tag" ? "t" : "p"}-${randomUUID()}`;
@@ -102,13 +108,11 @@ export function PageAutocomplete({
       } else {
         await onPick(option.id);
       }
-      setOpen(false);
       setQuery("");
     } catch (cause) {
       // The list closes and the value never lands, which on its own reads as an
       // autocomplete that lost the pick. What was typed stays in the field so
       // the choice can be made again.
-      setOpen(false);
       setQuery(option.label);
       notify.failure(
         option.create
@@ -122,119 +126,91 @@ export function PageAutocomplete({
     }
   };
 
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.nativeEvent.isComposing || submitting.current) return;
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setOpen(true);
-      setActive((index) => (open ? Math.min(index + 1, Math.max(0, options.length - 1)) : 0));
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setOpen(true);
-      setActive((index) => (open ? Math.max(index - 1, 0) : Math.max(0, options.length - 1)));
-    } else if (event.key === "Enter" && open) {
-      event.preventDefault();
-      const option = options[active];
-      if (option) void pick(option);
-    } else if (event.key === "Escape") {
-      setOpen(false);
-    }
-  };
-
-  const optionId = (index: number) => `${listId}-opt-${index}`;
-
   return (
     <div className="autocomplete">
-      <Input
-        ref={inputRef}
-        id={inputId}
-        role="combobox"
-        aria-expanded={open}
-        aria-controls={open ? listId : undefined}
-        aria-autocomplete="list"
-        aria-busy={pending}
-        aria-label={placeholder}
-        aria-activedescendant={open && options[active] ? optionId(active) : undefined}
-        placeholder={placeholder}
-        value={query}
-        readOnly={pending}
-        autoFocus={autoFocus}
-        data-testid={`${kind}-autocomplete`}
-        onChange={(event) => {
-          setQuery(event.target.value);
+      <Autocomplete
+        inputValue={query}
+        onInputChange={(value) => {
+          setQuery(value);
           setOpen(true);
-          setActive(0);
         }}
-        onFocus={() => {
-          // An empty, untyped list offers no action. Keeping it closed also
-          // leaves Escape for the picker that owns this field.
-          setOpen(options.length > 0);
-        }}
-        onBlur={(event) => {
-          // Options keep the caret in this field on pointerdown. Only a real
-          // focus transfer out of the field and its list ends the interaction.
-          if (!listRef.current?.contains(event.relatedTarget)) setOpen(false);
-        }}
-        onKeyDown={onKeyDown}
-      />
-      {open && inputRef.current && (
-        <AnchoredPanel
-          anchor={elementAnchor(inputRef.current)}
-          id={listId}
-          role="listbox"
-          label={placeholder}
-          className="ac-popover"
-          options={{ matchAnchorWidth: true, maxWidth: 320, maxHeight: 264 }}
-          revision={options.length}
-          surfaceRef={listRef}
-          dismissOnExternalScroll
-          preserveAnchorFocus
-          onClose={() => setOpen(false)}
-        >
-          {options.length === 0 ? (
-            <div role="status" className="ac-hint">
-              {message(kind === "tag" ? "properties.noTags" : "properties.noPages")}
-            </div>
-          ) : (
-            <ul role="presentation" className="m-0 list-none p-0">
-              {options.map((option, index) => (
-                <li key={option.create ? "__create" : option.id} role="presentation">
-                  <button
-                    id={optionId(index)}
-                    role="option"
-                    aria-selected={index === active}
-                    data-active={index === active}
-                    className="property-picker-option"
-                    tabIndex={-1}
-                    disabled={pending}
-                    onPointerMove={() => setActive(index)}
-                    onPointerDown={(event) => {
-                      // Keep the field focused until the complete pointer
-                      // gesture selects this row. Starting `pick` here can
-                      // reconcile and close the portal before mouseup/click,
-                      // leaving the browser to finish a gesture on a node
-                      // that no longer exists.
-                      event.preventDefault();
-                    }}
-                    onClick={() => void pick(option)}
-                  >
-                    <span className="property-picker-candidate">
-                      <span>
-                        {option.create
-                          ? message("properties.createEntity", {
-                              kind: message(kind === "tag" ? "common.tag" : "common.page"),
-                              name: option.label,
-                            })
-                          : option.label}
-                      </span>
+      >
+        <SearchField aria-label={placeholder} isReadOnly={pending}>
+          <AriaInput
+            render={(props) => <Input {...props} />}
+            ref={inputRef}
+            id={inputId}
+            role="combobox"
+            aria-expanded={open}
+            aria-busy={pending}
+            placeholder={placeholder}
+            autoFocus={autoFocus}
+            data-testid={`${kind}-autocomplete`}
+            onFocus={() => setOpen(options.length > 0)}
+            onBlur={(event) => {
+              if (!listRef.current?.contains(event.relatedTarget)) setOpen(false);
+            }}
+            onKeyDown={(event) => {
+              if (
+                !open &&
+                !pending &&
+                !event.nativeEvent.isComposing &&
+                (event.key === "ArrowDown" || event.key === "ArrowUp")
+              ) {
+                event.preventDefault();
+                setOpen(true);
+              }
+            }}
+          />
+        </SearchField>
+        {open && inputRef.current && (
+          <AnchoredPanel
+            anchor={elementAnchor(inputRef.current)}
+            label={placeholder}
+            className="ac-popover"
+            options={{ matchAnchorWidth: true, maxWidth: 320, maxHeight: 264 }}
+            surfaceRef={listRef}
+            preserveAnchorFocus
+            dismissOnExternalScroll
+            onClose={() => setOpen(false)}
+          >
+            <ListBox
+              autoFocus="first"
+              aria-label={placeholder}
+              items={options}
+              disabledKeys={pending ? options.map((option) => option.id) : []}
+              onAction={(id) => {
+                const option = options.find((option) => option.id === id);
+                if (option) void pick(option);
+              }}
+              renderEmptyState={() => (
+                <div className="ac-hint">
+                  {message(kind === "tag" ? "properties.noTags" : "properties.noPages")}
+                </div>
+              )}
+            >
+              {(option) => (
+                <ListBoxItem
+                  id={option.id}
+                  textValue={option.label}
+                  className="property-picker-option"
+                >
+                  <span className="property-picker-candidate">
+                    <span>
+                      {option.create
+                        ? message("properties.createEntity", {
+                            kind: message(kind === "tag" ? "common.tag" : "common.page"),
+                            name: option.label,
+                          })
+                        : option.label}
                     </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </AnchoredPanel>
-      )}
+                  </span>
+                </ListBoxItem>
+              )}
+            </ListBox>
+          </AnchoredPanel>
+        )}
+      </Autocomplete>
     </div>
   );
 }

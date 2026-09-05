@@ -7,7 +7,7 @@ import { SCHEMA_VERSION } from "./generated/graph-schema";
 import { sha256Hex } from "@/lib/crypto";
 
 const DATABASE = "neoseq-local-v1";
-const VERSION = 1;
+const VERSION = 2;
 const STORES = {
   metadata: "metadata",
   updates: "updates",
@@ -331,8 +331,27 @@ export class IndexedDbGraphRepository {
     }
   }
 
-  async outbox(graphId: string): Promise<ResolvedOutboxRecord[]> {
-    const inspected = await this.inspectOutbox(graphId);
+  async countPending(graphId: string): Promise<number> {
+    const database = await openDatabase();
+    const transaction = database.transaction(STORES.outbox, "readonly");
+    const count = await request<number>(
+      transaction.objectStore(STORES.outbox).index("by_graph").count(graphId),
+    );
+    await complete(transaction);
+    database.close();
+    return count;
+  }
+
+  async peekNext(graphId: string): Promise<ResolvedOutboxRecord | null> {
+    return (await this.readOutbox(graphId, true))[0] ?? null;
+  }
+
+  outbox(graphId: string): Promise<ResolvedOutboxRecord[]> {
+    return this.readOutbox(graphId, false);
+  }
+
+  private async readOutbox(graphId: string, first: boolean): Promise<ResolvedOutboxRecord[]> {
+    const inspected = await this.inspectOutbox(graphId, first);
     for (const { persisted, contentId } of inspected) {
       if (persisted.message_id !== contentId) {
         throw new StorageError(
@@ -345,11 +364,14 @@ export class IndexedDbGraphRepository {
     return inspected.map(({ resolved }) => resolved);
   }
 
-  private async inspectOutbox(graphId: string): Promise<InspectedOutboxRecord[]> {
+  private async inspectOutbox(graphId: string, first = false): Promise<InspectedOutboxRecord[]> {
     const database = await openDatabase();
     const transaction = database.transaction([STORES.outbox, STORES.updates], "readonly");
+    const store = transaction.objectStore(STORES.outbox);
     const records = await request<OutboxRecord[]>(
-      transaction.objectStore(STORES.outbox).index("by_graph").getAll(graphId),
+      store
+        .index("by_graph_sequence")
+        .getAll(IDBKeyRange.bound([graphId], [graphId, []]), first ? 1 : undefined),
     );
     const updateStore = transaction.objectStore(STORES.updates);
     const candidates: Array<{
@@ -357,7 +379,7 @@ export class IndexedDbGraphRepository {
       payload: ArrayBuffer;
       storedChecksum?: string;
     }> = [];
-    for (const record of records.sort(bySequence)) {
+    for (const record of records) {
       let payload = record.payload;
       let storedChecksum: string | undefined;
       if (!payload) {
@@ -856,27 +878,32 @@ export class IndexedDbGraphRepository {
 async function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const open = indexedDB.open(DATABASE, VERSION);
-    open.onupgradeneeded = () => {
+    open.onupgradeneeded = (event) => {
       const database = open.result;
-      database.createObjectStore(STORES.metadata, { keyPath: "graph_id" });
-      for (const name of [STORES.updates, STORES.checkpoints]) {
-        const store = database.createObjectStore(name, {
-          keyPath: ["graph_id", "local_sequence"],
+      if (event.oldVersion === 0) {
+        database.createObjectStore(STORES.metadata, { keyPath: "graph_id" });
+        for (const name of [STORES.updates, STORES.checkpoints]) {
+          const store = database.createObjectStore(name, {
+            keyPath: ["graph_id", "local_sequence"],
+          });
+          store.createIndex("by_graph", "graph_id", { unique: false });
+        }
+        const quarantine = database.createObjectStore(STORES.quarantine, {
+          keyPath: ["graph_id", "export_handle"],
         });
-        store.createIndex("by_graph", "graph_id", { unique: false });
+        quarantine.createIndex("by_graph", "graph_id", { unique: false });
+        const outbox = database.createObjectStore(STORES.outbox, {
+          keyPath: ["graph_id", "message_id"],
+        });
+        outbox.createIndex("by_graph", "graph_id", { unique: false });
+        database.createObjectStore(STORES.syncState, { keyPath: "graph_id" });
+        open
+          .transaction!.objectStore(STORES.updates)
+          .createIndex("by_checksum", ["graph_id", "checksum"], { unique: true });
       }
-      const quarantine = database.createObjectStore(STORES.quarantine, {
-        keyPath: ["graph_id", "export_handle"],
-      });
-      quarantine.createIndex("by_graph", "graph_id", { unique: false });
-      const outbox = database.createObjectStore(STORES.outbox, {
-        keyPath: ["graph_id", "message_id"],
-      });
-      outbox.createIndex("by_graph", "graph_id", { unique: false });
-      database.createObjectStore(STORES.syncState, { keyPath: "graph_id" });
       open
-        .transaction!.objectStore(STORES.updates)
-        .createIndex("by_checksum", ["graph_id", "checksum"], { unique: true });
+        .transaction!.objectStore(STORES.outbox)
+        .createIndex("by_graph_sequence", ["graph_id", "local_sequence"], { unique: false });
     };
     open.onsuccess = () => resolve(open.result);
     open.onerror = () => reject(mapDomError(open.error));

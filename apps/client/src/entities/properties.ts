@@ -1,3 +1,4 @@
+import { isValidLocalDate } from "./calendar";
 // Client-side view of the uniform property model. The checked-in contract is
 // shared with the domain registry, so shape and placement policy stay aligned.
 // Presentation remains a sparse client concern.
@@ -145,9 +146,9 @@ export function canUserWrite(key: string, target: WritableTarget): boolean {
   return PROPERTY_KEY_PATTERN.test(key) && key.startsWith("user.");
 }
 
-export function cardinalityOf(key: string): "single" | "repeated" {
+export function cardinalityOf(key: string): "single" | "set" {
   const spec = definition(key);
-  return spec && "set" in spec.shape ? "repeated" : "single";
+  return spec && "set" in spec.shape ? "set" : "single";
 }
 
 export interface ValidationIssue {
@@ -229,7 +230,7 @@ export function validateWriteTarget(key: string, target: WritableTarget): Valida
 export function validateValue(
   key: string,
   value: PropertyValue,
-  cardinality: "single" | "repeated",
+  cardinality: "single" | "set",
 ): ValidationIssue | null {
   if (value.type === "number" && !Number.isFinite(value.value)) {
     return { code: "finite_number", message: "Number must be finite." };
@@ -260,7 +261,7 @@ export function validateValue(
       values: { key, type: expectedType },
     };
   }
-  const expectedCardinality = "set" in spec.shape ? "repeated" : "single";
+  const expectedCardinality = "set" in spec.shape ? "set" : "single";
   if (expectedCardinality !== cardinality) {
     return {
       code: "property_cardinality",
@@ -290,7 +291,7 @@ export function validateValue(
 export function validateFieldShape(
   key: string,
   valueType: PropertyValueType,
-  cardinality: "single" | "repeated",
+  cardinality: "single" | "set",
 ): ValidationIssue | null {
   const spec = definition(key);
   if (!spec) return null;
@@ -302,7 +303,7 @@ export function validateFieldShape(
       values: { key, type: expectedType },
     };
   }
-  const expectedCardinality = "set" in spec.shape ? "repeated" : "single";
+  const expectedCardinality = "set" in spec.shape ? "set" : "single";
   if (expectedCardinality !== cardinality) {
     return {
       code: "property_cardinality",
@@ -311,18 +312,6 @@ export function validateFieldShape(
     };
   }
   return null;
-}
-
-export function isValidLocalDate(value: string): boolean {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) return false;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  if (year === 0 || month < 1 || month > 12) return false;
-  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-  const days = month === 2 ? (leap ? 29 : 28) : [4, 6, 9, 11].includes(month) ? 30 : 31;
-  return day >= 1 && day <= days;
 }
 
 export function defaultValueFor(type: PropertyValueType, today: string): PropertyValue {

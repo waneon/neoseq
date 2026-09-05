@@ -42,7 +42,8 @@ to submit stale positions. Clean sources can be replaced directly.
 Submission lowers the current pieces inside the graph command queue, after
 preceding canonical publications. Separate text edits remain separate ordered
 splices in one atomic command and history unit. Settlement advances the source
-while preserving subsequent input. A rejected command restores its edits; an
+while preserving subsequent input. A rejected command restores its edits and retains its semantic actions in the
+target, so another surface can retry the same intent and identity; an
 applied command whose local save failed remains applied. Idle clean buffers are
 released, while lightweight target identities live with the graph so native
 observers survive effect reattachment.
@@ -59,17 +60,24 @@ and overlay dismissal; host-level window listeners must not compete with it.
 
 A surface owns focus, composition boundaries, completion state, flush scheduling,
 failure presentation, and the meaning of structural keys. Its content comes from
-the shared target. All writes use ordinary `GraphSession` commands; a query
+the shared target. Structural hosts edit, splice, adopt, or reset individual
+targets; they never replace the graph's buffer collection or discard drafts by
+comparing display strings. Rows subscribe to their own target, while ordinary
+props describe focus and selection and an action reference supplies current
+event handlers. Immutable tree and page-directory indexes are shared by outline
+and query projections. All writes use ordinary `GraphSession` commands; a query
 result never writes through the derived index. Both coordinators flush final
-debounced input when their route unmounts. Query
-commits wait for an in-flight write before draining newer input or running
+debounced input when their route unmounts. Both hosts wait for a successful
+content submission before document history; rejection retains the draft and
+stops the history request. Query commits wait for an in-flight write before draining newer input or running
 document history; a failed write ends that drain and remains an explicit failure.
 Result switching and contextual pickers wait for the current draft to settle.
 Semantic completion choices remain visibly unavailable while a prior write is
 pending or rejected; refusing them preserves the token and completion menu.
 Background drains pause at an open completion, while explicit blur, navigation,
 and history requests still flush the draft.
-Page completion uses the same save lifecycle as ordinary text; retries lower
+Page completion prepares its semantic buffer and entity commands in the shared
+editor layer and uses the same save lifecycle as ordinary text; retries lower
 the retained semantic pieces and preserve newer local input.
 Only editor activation assigns focus, so save notifications cannot reclaim focus
 from a subsequently requested control.

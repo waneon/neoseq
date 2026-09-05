@@ -14,7 +14,12 @@ all persistence and validation stay in the domain and graph core.
 Every property-field route resolves one stable owner and opens
 the same `PropertyPicker`. The picker owns only transient navigation and input
 state. Canonical properties remain in immutable session snapshots, and every
-mutation travels through `GraphSession.execute`.
+mutation travels through `GraphSession.execute`. The target is the domain
+property-owner union, including tag defaults, rather than a second picker-only
+owner model. General search fields, entity completion, and choice lists use
+React Aria collection semantics; the surrounding anchored panel owns focus
+containment and dismissal. Editor token completion retains its own text-input
+contract.
 
 ```mermaid
 flowchart LR

@@ -3,17 +3,14 @@ import { useCallback } from "react";
 import type { GraphSession } from "../../core-port/session";
 import type { OutlineOwner, PageDirectoryEntry, PageReferenceSpan } from "../../core-port/snapshot";
 import { useImmediateState } from "../../lib/react";
-import { useContentSessions } from "../blocks/editor/content-session";
+import { ContentSessions, useContentSessions } from "../blocks/editor/content-session";
 import type { InlineContentProjection } from "../blocks/editor/inline-content";
 import type { InlineContent } from "../../core-port/commands";
 import {
   bufferIsClean,
   contentFromProjection,
   createContentBuffer,
-  editBuffer,
-  projectBuffer,
   settleBuffer,
-  spliceBuffer,
   type ContentBuffer,
 } from "../blocks/editor/content-buffer";
 
@@ -57,21 +54,23 @@ export interface PendingMergeOperation extends PendingOutlineOperationBase {
 export type PendingCreationOperation = PendingInsertOperation | PendingSplitOperation;
 export type PendingOutlineOperation = PendingCreationOperation | PendingMergeOperation;
 
-export interface OutlineDraftState {
-  buffers: ReadonlyMap<string, ContentBuffer>;
+export interface OutlineInteractionState {
   autoClosers: ReadonlyMap<string, readonly AutoCloserMarker[]>;
   pendingOperations: readonly PendingOutlineOperation[];
 }
 
-export const initialOutlineDraftState: OutlineDraftState = {
-  buffers: new Map(),
+export interface OutlineDraftState extends OutlineInteractionState {
+  buffers: ReadonlyMap<string, ContentBuffer>;
+}
+
+export const initialOutlineDraftState: OutlineInteractionState = {
   autoClosers: new Map(),
   pendingOperations: [],
 };
 
 /** The surface owns structural projections; semantic buffers belong to graph targets. */
 export function useOutlineDraftState(graph: GraphSession, owner: OutlineOwner) {
-  const sessions = useContentSessions(graph);
+  const sessions = useContentSessions(graph, owner);
   const [interaction, setInteraction, interactionRef] = useImmediateState({
     autoClosers: initialOutlineDraftState.autoClosers,
     pendingOperations: initialOutlineDraftState.pendingOperations,
@@ -83,15 +82,15 @@ export function useOutlineDraftState(graph: GraphSession, owner: OutlineOwner) {
     }),
     [owner, sessions],
   );
-  const update = useCallback(
-    (reduce: (state: OutlineDraftState) => OutlineDraftState) => {
-      const next = reduce(read());
-      setInteraction({ autoClosers: next.autoClosers, pendingOperations: next.pendingOperations });
-      sessions.replace(owner, next.buffers);
+  const dispatch = useCallback(
+    (action: OutlineDraftAction, directory: readonly PageDirectoryEntry[] = []) => {
+      setInteraction(
+        applyOutlineDraftAction(interactionRef.current, sessions, owner, action, directory),
+      );
     },
-    [owner, read, sessions, setInteraction],
+    [owner, sessions, setInteraction],
   );
-  return { state: { ...interaction, buffers: sessions.buffers(owner) }, read, update };
+  return { state: { ...interaction, buffers: sessions.buffers(owner) }, read, dispatch };
 }
 
 export type OutlineDraftAction =
@@ -115,7 +114,6 @@ export type OutlineDraftAction =
   | { type: "settle"; id: string }
   | { type: "clear"; ids: readonly string[] }
   | { type: "clear-auto-closers"; ids: readonly string[] }
-  | { type: "reconcile"; draftIds: readonly string[]; autoCloserIds: readonly string[] }
   | { type: "enqueue"; operation: PendingOutlineOperation }
   | { type: "mark-dispatched"; id: string }
   | { type: "adopt"; tempId: string; blockId: string; typed: string }
@@ -142,91 +140,52 @@ function withAutoClosers(
   return next;
 }
 
-export function outlineDraftReducer(
-  state: OutlineDraftState,
+export function applyOutlineDraftAction(
+  state: OutlineInteractionState,
+  sessions: ContentSessions,
+  owner: OutlineOwner,
   action: OutlineDraftAction,
   directory: readonly PageDirectoryEntry[] = [],
-): OutlineDraftState {
+): OutlineInteractionState {
+  const target = (id: string) => sessions.target(owner, id);
+  const reset = (ids: readonly string[]) => ids.forEach((id) => target(id).reset());
   switch (action.type) {
     case "edit": {
-      const current =
-        state.buffers.get(action.id) ??
-        createContentBuffer(
-          action.contentIfAbsent ??
-            contentFromProjection(
-              action.baselineIfAbsent ?? "",
-              action.pageReferencesIfAbsent ?? [],
-            ),
-        );
-      const buffer = editBuffer(current, projectBuffer(current, directory), action.value);
+      const content =
+        action.contentIfAbsent ??
+        contentFromProjection(action.baselineIfAbsent ?? "", action.pageReferencesIfAbsent ?? []);
+      sessions.open(owner, action.id, content).edit(action.value, directory);
       return {
         ...state,
-        buffers: new Map(state.buffers).set(action.id, buffer),
         autoClosers:
           action.autoClosers === undefined
             ? state.autoClosers
             : withAutoClosers(state.autoClosers, action.id, action.autoClosers),
       };
     }
-    case "splice": {
-      const buffer = state.buffers.get(action.id) ?? createContentBuffer(action.source);
-      return {
-        ...state,
-        buffers: new Map(state.buffers).set(
-          action.id,
-          spliceBuffer(buffer, action.index, action.delete, action.insert),
-        ),
-      };
-    }
+    case "splice":
+      sessions
+        .open(owner, action.id, action.source)
+        .splice(action.index, action.delete, action.insert);
+      return state;
     case "settle": {
-      const buffer = state.buffers.get(action.id);
-      return buffer
-        ? { ...state, buffers: new Map(state.buffers).set(action.id, settleBuffer(buffer)) }
-        : state;
+      const buffer = sessions.buffers(owner).get(action.id);
+      if (buffer) target(action.id).replace(settleBuffer(buffer));
+      return state;
     }
     case "clear":
-      return {
-        ...state,
-        buffers: without(state.buffers, action.ids),
-        autoClosers: without(state.autoClosers, action.ids),
-      };
+      reset(action.ids);
+      return { ...state, autoClosers: without(state.autoClosers, action.ids) };
     case "clear-auto-closers":
       return { ...state, autoClosers: without(state.autoClosers, action.ids) };
-    case "reconcile":
-      return {
-        ...state,
-        buffers: without(state.buffers, action.draftIds),
-        autoClosers: without(state.autoClosers, [...action.draftIds, ...action.autoCloserIds]),
-      };
-    case "enqueue":
-      if (action.operation.kind === "merge") {
-        return {
-          ...state,
-          buffers: new Map(state.buffers).set(
-            action.operation.targetId,
-            createContentBuffer(
-              contentFromProjection(
-                action.operation.merged.markdown,
-                action.operation.merged.pageReferences,
-              ),
-            ),
-          ),
-          pendingOperations: [...state.pendingOperations, action.operation],
-        };
-      }
-      return {
-        ...state,
-        buffers: new Map(state.buffers).set(
-          action.operation.tempId,
-          createContentBuffer(
-            contentFromProjection(
-              action.operation.created.markdown,
-              action.operation.created.pageReferences,
-            ),
-          ),
-        ),
-        pendingOperations: [...state.pendingOperations, action.operation],
-      };
+    case "enqueue": {
+      const operation = action.operation;
+      const projection = operation.kind === "merge" ? operation.merged : operation.created;
+      target(operation.kind === "merge" ? operation.targetId : operation.tempId).replace(
+        createContentBuffer(contentFromProjection(projection.markdown, projection.pageReferences)),
+      );
+      return { ...state, pendingOperations: [...state.pendingOperations, operation] };
+    }
     case "mark-dispatched":
       return {
         ...state,
@@ -239,14 +198,11 @@ export function outlineDraftReducer(
       if (!operation || operation.kind === "merge" || operation.tempId !== action.tempId) {
         return state;
       }
-      const buffers = without(state.buffers, [action.tempId]);
+      target(action.tempId).adopt(action.blockId);
       const autoClosers = without(state.autoClosers, [action.tempId]);
-      const buffer = state.buffers.get(action.tempId);
-      if (buffer && !bufferIsClean(buffer)) buffers.set(action.blockId, buffer);
       const generatedClosers = state.autoClosers.get(action.tempId);
       if (generatedClosers) autoClosers.set(action.blockId, generatedClosers);
       return {
-        buffers,
         autoClosers,
         pendingOperations: state.pendingOperations.slice(1).map((pending) => {
           if (pending.kind === "merge") {
@@ -267,8 +223,8 @@ export function outlineDraftReducer(
       if (!operation || operation.kind === "merge" || operation.tempId !== action.tempId) {
         return state;
       }
+      reset([action.tempId]);
       return {
-        buffers: without(state.buffers, [action.tempId]),
         autoClosers: without(state.autoClosers, [action.tempId]),
         pendingOperations: state.pendingOperations.slice(1),
       };
@@ -276,12 +232,12 @@ export function outlineDraftReducer(
     case "complete-merge": {
       const operation = state.pendingOperations[0];
       if (operation?.kind !== "merge" || operation.id !== action.id) return state;
-      const buffer = state.buffers.get(operation.targetId);
+      const buffer = sessions.buffers(owner).get(operation.targetId);
       const unchanged = !buffer || bufferIsClean(buffer);
       const ids = unchanged ? [operation.targetId] : [];
+      reset(ids);
       return {
         ...state,
-        buffers: without(state.buffers, ids),
         autoClosers: without(state.autoClosers, ids),
         pendingOperations: state.pendingOperations.slice(1),
       };
@@ -289,9 +245,9 @@ export function outlineDraftReducer(
     case "fail-merge": {
       const operation = state.pendingOperations[0];
       if (operation?.kind !== "merge" || operation.id !== action.id) return state;
+      reset([operation.targetId]);
       return {
         ...state,
-        buffers: without(state.buffers, [operation.targetId]),
         autoClosers: without(state.autoClosers, [operation.targetId]),
         pendingOperations: state.pendingOperations.slice(1),
       };
@@ -309,8 +265,8 @@ export function outlineDraftReducer(
       const ids = state.pendingOperations.map((operation) =>
         operation.kind === "merge" ? operation.targetId : operation.tempId,
       );
+      reset(ids);
       return {
-        buffers: without(state.buffers, ids),
         autoClosers: without(state.autoClosers, ids),
         pendingOperations: [],
       };

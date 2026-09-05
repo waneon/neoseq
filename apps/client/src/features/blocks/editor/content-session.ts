@@ -8,10 +8,14 @@ import {
   findOutline,
   outlineOwnerKey,
   type ContentRangeChange,
+  type BlockSnapshot,
   type OutlineOwner,
   type PageDirectoryEntry,
 } from "../../../core-port/snapshot";
 import {
+  editBuffer,
+  projectBuffer,
+  spliceBuffer,
   bufferAtoms,
   bufferCommand,
   bufferIsClean,
@@ -44,19 +48,43 @@ export class BlockContentSession {
     readonly blockId: string,
   ) {}
 
+  getSnapshot = (): ContentBuffer | undefined =>
+    this.store.buffers(this.owner).get(this.blockId) ??
+    this.store.canonical(this.owner, this.blockId);
+
+  subscribe = (listener: () => void): (() => void) => this.store.subscribe(listener);
+
+  get hasPendingActions(): boolean {
+    return this.store.hasPendingActions(this);
+  }
+
   get buffer(): ContentBuffer {
-    const buffer =
-      this.store.buffers(this.owner).get(this.blockId) ??
-      this.store.canonical(this.owner, this.blockId);
+    const buffer = this.getSnapshot();
     if (!buffer) throw new Error("Content session has no source");
     return buffer;
   }
 
   replace(buffer: ContentBuffer): void {
-    this.store.replace(
-      this.owner,
-      new Map(this.store.buffers(this.owner)).set(this.blockId, buffer),
-    );
+    this.store.set(this, buffer);
+  }
+
+  edit(value: string, directory: readonly PageDirectoryEntry[]): void {
+    this.replace(editBuffer(this.buffer, projectBuffer(this.buffer, directory), value));
+  }
+
+  splice(index: number, deleteCount: number, insert: readonly InlineContent[]): void {
+    this.replace(spliceBuffer(this.buffer, index, deleteCount, insert));
+  }
+
+  /** Discard an explicit provisional edit or restore a history result. */
+  reset(): void {
+    this.store.reset(this);
+  }
+
+  adopt(blockId: string): void {
+    const buffer = this.store.buffers(this.owner).get(this.blockId);
+    if (buffer && !bufferIsClean(buffer)) this.store.target(this.owner, blockId).replace(buffer);
+    this.reset();
   }
 
   /** All surfaces submit against one target buffer and keep subsequent input. */
@@ -95,11 +123,13 @@ export class BlockContentSession {
 }
 
 export class ContentSessions {
+  private readonly canonicalBuffers = new WeakMap<BlockSnapshot, ContentBuffer>();
   private readonly owners = new Map<string, ReadonlyMap<string, ContentBuffer>>();
   private readonly ownerRefs = new Map<string, OutlineOwner>();
   private readonly targets = new Map<string, BlockContentSession>();
   private readonly listeners = new Set<() => void>();
   private revision = 0;
+  private readonly retryActions = new Map<BlockContentSession, readonly Command[]>();
   private readonly pending = new Map<BlockContentSession, number>();
   private readonly unavailable = new Map<BlockContentSession, string>();
   private readonly compositions = new Map<
@@ -224,7 +254,13 @@ export class ContentSessions {
     if (!this.graph) return undefined;
     const outline = findOutline(this.graph.getState().snapshot, owner);
     const block = outline && findBlock(outline, blockId);
-    return block ? createContentBuffer(block.content) : undefined;
+    if (!block) return undefined;
+    let buffer = this.canonicalBuffers.get(block);
+    if (!buffer) {
+      buffer = createContentBuffer(block.content);
+      this.canonicalBuffers.set(block, buffer);
+    }
+    return buffer;
   }
 
   async applyProjected(
@@ -250,6 +286,7 @@ export class ContentSessions {
   ): Promise<{ newerInput: boolean }> {
     if (!this.graph) throw new Error("Content submission requires a graph session");
     let submitted: ContentBuffer | undefined;
+    let submittedActions: readonly Command[] = [];
     try {
       await this.graph.executePrepared(() => {
         const unavailable = this.unavailable.get(target);
@@ -261,8 +298,10 @@ export class ContentSessions {
           });
         const buffer = target.buffer;
         const content = bufferCommand(buffer, target.owner, target.blockId);
-        const commands = [...actions, ...(content ? [content] : [])];
+        submittedActions = [...(this.retryActions.get(target) ?? []), ...actions];
+        const commands = [...submittedActions, ...(content ? [content] : [])];
         if (commands.length === 0) return null;
+        this.retryActions.delete(target);
         submitted = buffer;
         this.pending.set(target, (this.pending.get(target) ?? 0) + 1);
         target.replace(settleBuffer(buffer));
@@ -282,6 +321,7 @@ export class ContentSessions {
       return { newerInput };
     } catch (error) {
       if (submitted && !(error instanceof CorePortFailure && error.applied)) {
+        if (submittedActions.length) this.retryActions.set(target, submittedActions);
         target.replace(restoreBuffer(submitted, target.buffer));
       }
       throw error;
@@ -295,19 +335,31 @@ export class ContentSessions {
     }
   }
 
+  hasPendingActions(target: BlockContentSession): boolean {
+    return this.retryActions.has(target);
+  }
+
   buffers(owner: OutlineOwner): ReadonlyMap<string, ContentBuffer> {
     return this.owners.get(outlineOwnerKey(owner)) ?? EMPTY_BUFFERS;
   }
 
-  replace(owner: OutlineOwner, buffers: ReadonlyMap<string, ContentBuffer>): void {
+  reset(target: BlockContentSession): void {
+    this.retryActions.delete(target);
+    this.unavailable.delete(target);
+    this.set(target, target.observed ? this.canonical(target.owner, target.blockId) : undefined);
+  }
+
+  set(target: BlockContentSession, buffer: ContentBuffer | undefined): void {
+    if (this.buffers(target.owner).get(target.blockId) === buffer) return;
+    const next = new Map(this.buffers(target.owner));
+    if (buffer) next.set(target.blockId, buffer);
+    else next.delete(target.blockId);
+    this.replace(target.owner, next);
+  }
+
+  private replace(owner: OutlineOwner, buffers: ReadonlyMap<string, ContentBuffer>): void {
     if (this.buffers(owner) === buffers) return;
-    const next = new Map(buffers);
-    for (const id of this.buffers(owner).keys()) {
-      if (next.has(id)) continue;
-      const target = this.targets.get(`${outlineOwnerKey(owner)}:${id}`);
-      const canonical = target?.observed && this.canonical(owner, id);
-      if (canonical) next.set(id, canonical);
-    }
+    const next = buffers;
     this.owners.set(outlineOwnerKey(owner), next);
     this.ownerRefs.set(outlineOwnerKey(owner), owner);
     this.revision += 1;
@@ -318,7 +370,7 @@ export class ContentSessions {
     if (target.observed || this.pending.has(target) || this.compositions.has(target)) return;
     const buffers = this.buffers(target.owner);
     const buffer = buffers.get(target.blockId);
-    if (buffer && !bufferIsClean(buffer)) return;
+    if (this.retryActions.has(target) || (buffer && !bufferIsClean(buffer))) return;
     const next = new Map(buffers);
     next.delete(target.blockId);
     const ownerKey = outlineOwnerKey(target.owner);
@@ -371,8 +423,13 @@ export function contentSessionsFor(graph: GraphSession): ContentSessions {
   return sessions;
 }
 
-export function useContentSessions(graph: GraphSession): ContentSessions {
+export function useContentSessions(graph: GraphSession, owner?: OutlineOwner): ContentSessions {
   const sessions = contentSessionsFor(graph);
-  useSyncExternalStore(sessions.subscribe, sessions.getSnapshot, sessions.getSnapshot);
+  const snapshot = () => (owner ? sessions.buffers(owner) : sessions.getSnapshot());
+  useSyncExternalStore(sessions.subscribe, snapshot, snapshot);
   return sessions;
+}
+
+export function useContentBuffer(target: BlockContentSession): ContentBuffer | undefined {
+  return useSyncExternalStore(target.subscribe, target.getSnapshot, target.getSnapshot);
 }

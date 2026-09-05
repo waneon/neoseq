@@ -66,11 +66,20 @@ inline and directs larger replacements to an authenticated HTTP download;
 `SyncAgent` verifies its checksum and uses the response's atomic epoch and
 version vector before asking the Worker to adopt it.
 
+Editing, directory export, and deletion acquire the same repository-qualified
+graph lease. Editors may open read-only when another tab holds it; directory
+operations wait. Web Locks and BroadcastChannel election implement the same
+policy, and every acquired lease has a paired release.
+
 ## Browser Adapter
 
 `core-worker.ts` implements CorePort messaging on the main thread;
 `graph-worker.ts` owns Wasm and persistence. Transferable `ArrayBuffer`s carry
-binary CRDT or archive data without cloning. Wasm initializes only when a graph
+binary CRDT or archive data without cloning. Rust validates and decodes network
+messages once; generated discriminated unions remain typed across the Worker
+boundary. The Worker reads and encodes the next outbox entry and transfers its
+frame directly to the socket owner. Pending counts read index metadata, and
+next-entry reads use document sequence order without inspecting later payloads. Wasm initializes only when a graph
 opens, so graph listing and deletion do not pay core startup cost.
 
 The production build uses the wall clock and ordinary adapter operations. Vite

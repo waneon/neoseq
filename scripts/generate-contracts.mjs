@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 
 const args = process.argv.slice(2);
@@ -97,6 +98,7 @@ pub const PLAN_MAX_DEPTH: usize = ${queryPlan.depthMax};
 pub const QUERY_PLAN_SOURCE_PROVENANCE: &str = ${JSON.stringify(queryPlan.sourceProvenance)};
 
 /// Closed vocabulary for the user-visible meaning of accepted graph transitions.
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum SemanticEvent {
     ${rustSemanticEvents},
@@ -120,6 +122,7 @@ pub const SEMANTIC_EVENTS: &[SemanticEvent] = &[
 ${rustSemanticValues}
 ];
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EventSource {
@@ -127,6 +130,7 @@ pub enum EventSource {
     Remote,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum GraphEventKind {
@@ -141,6 +145,7 @@ pub enum GraphEventKind {
     RemoteImported,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct GraphEvent {
     pub cursor: u64,
@@ -148,12 +153,14 @@ pub struct GraphEvent {
     pub kind: GraphEventKind,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct GraphLocatorDto {
     pub repository_id: String,
     pub graph_id: String,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct StorageCapabilitiesDto {
     pub durable: bool,
@@ -162,6 +169,7 @@ pub struct StorageCapabilitiesDto {
     pub usage_bytes: Option<u64>,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct RecoveryDto {
     pub checkpoint_sequence: u64,
@@ -169,6 +177,7 @@ pub struct RecoveryDto {
     pub quarantined_records: Vec<String>,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct OpenGraphRequest {
     pub contract_version: u32,
@@ -176,6 +185,7 @@ pub struct OpenGraphRequest {
     pub peer_id: u64,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct OpenGraphResponse {
     pub graph_handle: String,
@@ -184,6 +194,7 @@ pub struct OpenGraphResponse {
     pub recovery: RecoveryDto,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ExecuteRequest {
     pub graph_handle: String,
@@ -191,6 +202,7 @@ pub struct ExecuteRequest {
     pub timeout_ms: u32,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum SaveStatusDto {
@@ -204,6 +216,7 @@ pub enum SaveStatusDto {
     Unchanged,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ExecuteResponse {
     pub result: ${domainPayload("execute.response.result")},
@@ -211,44 +224,52 @@ pub struct ExecuteResponse {
     pub save_status: SaveStatusDto,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ReadRequest {
     pub graph_handle: String,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ReadResponse {
     pub summary: ${domainPayload("read.response.summary")},
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ReadOutlineRequest {
     pub graph_handle: String,
     pub owner: ${domainPayload("read_outline.request.owner")},
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ReadOutlineResponse {
     pub outline: ${domainPayload("read_outline.response.outline")},
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct QueryRequestDto {
     pub graph_handle: String,
     pub query: Value,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct QueryResponseDto {
     pub result: Value,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SubscribeRequest {
     pub graph_handle: String,
     pub after_cursor: u64,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct SubscribeResponse {
     pub events: Vec<GraphEvent>,
@@ -256,22 +277,26 @@ pub struct SubscribeResponse {
     pub resync_required: bool,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CloseGraphRequest {
     pub graph_handle: String,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CloseGraphResponse {
     pub closed: bool,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CorePortErrorCode {
     ${rustCodes},
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CorePortError {
     pub code: CorePortErrorCode,
@@ -439,4 +464,28 @@ if (check && stale.length > 0) {
 }
 if (!check) {
   await Promise.all(stale.map(([path, content]) => writeFile(path, content)));
+}
+
+// Payload DTOs come from their actual Rust serde declarations. Version contracts
+// above are generated first so this also bootstraps a changed Rust contract.
+const domainTypescript = execFileSync(
+  "cargo",
+  [
+    "run",
+    "--quiet",
+    "--locked",
+    "-p",
+    "sync-protocol",
+    "--example",
+    "export-types",
+    "--features",
+    "typescript",
+  ],
+  { encoding: "utf8", maxBuffer: 4 * 1024 * 1024 },
+);
+const domainPath = "apps/client/src/generated/domain.ts";
+const currentDomain = await readFile(domainPath, "utf8").catch(() => "");
+if (currentDomain !== domainTypescript) {
+  if (check) throw new Error(`generated Rust payload bindings are stale (${domainPath})`);
+  await writeFile(domainPath, domainTypescript);
 }

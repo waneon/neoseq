@@ -57,6 +57,34 @@ function waitForPendingRowsToSettle(): Promise<void> {
 }
 
 describe("outliner keyboard commands", () => {
+  it("keeps rejected input and stops history until the shared target can save", async () => {
+    const { session, port } = await mountOutline();
+    const user = userEvent.setup();
+    const input = (await screen.findAllByLabelText("Block text"))[0];
+    let rejected!: () => void;
+    const rejection = new Promise<void>((resolve) => {
+      rejected = resolve;
+    });
+    port.beforeExecute = async (command) => {
+      if (command.type === "splice_block_content" || command.type === "splice_block_contents") {
+        rejected();
+        throw new Error("Rejected edit");
+      }
+    };
+    await user.click(input);
+    await act(async () => {
+      fireEvent.change(input, { target: { value: "alpha tail" } });
+      fireEvent.keyDown(input, { key: "z", metaKey: true });
+      await rejection;
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    });
+    expect(input).toHaveValue("alpha tail");
+    expect(findPage(session.getState().snapshot, "home")!.blocks).toHaveLength(1);
+    port.beforeExecute = null;
+    await user.keyboard("{Meta>}z{/Meta}");
+    await waitFor(() => expect(input).toHaveValue("alpha"));
+  });
+
   it("leaves completion open when Escape closes a dialog above the editor", async () => {
     let openHelp!: () => void;
     function PageWithHelp() {

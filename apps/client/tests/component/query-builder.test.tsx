@@ -500,7 +500,7 @@ describe("the query builder", () => {
     await user.type(textarea, "/prop");
     await user.keyboard("{Enter}");
     const picker = await screen.findByTestId("property-picker");
-    await user.type(within(picker).getByRole("combobox"), "query");
+    await user.type(within(picker).getByRole("searchbox"), "query");
     // Not as a candidate, and not as an existing row either: the query block is
     // the only surface that edits it.
     expect(within(picker).queryByRole("option", { name: /Query/ })).not.toBeInTheDocument();

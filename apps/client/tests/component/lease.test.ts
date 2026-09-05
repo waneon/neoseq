@@ -56,14 +56,17 @@ describe("graph lease lifecycle", () => {
     const second = await anotherTab();
     const third = await anotherTab();
 
-    const holder = await first.acquireLease("elected-graph");
+    const holder = await first.acquireLease({ repository_id: "local", graph_id: "elected-graph" });
     expect(holder.mode).toBe("exclusive");
-    const reader = await second.acquireLease("elected-graph");
+    const reader = await second.acquireLease({ repository_id: "local", graph_id: "elected-graph" });
     expect(reader.mode).toBe("readonly");
 
     holder.release();
     reader.release();
-    const successor = await third.acquireLease("elected-graph");
+    const successor = await third.acquireLease({
+      repository_id: "local",
+      graph_id: "elected-graph",
+    });
     expect(successor.mode).toBe("exclusive");
     successor.release();
   });
@@ -71,10 +74,40 @@ describe("graph lease lifecycle", () => {
   it("settles simultaneous claims on exactly one writable tab", async () => {
     Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });
     const tabs = [await anotherTab(), await anotherTab(), await anotherTab()];
-    const leases = await Promise.all(tabs.map((tab) => tab.acquireLease("contended-graph")));
+    const leases = await Promise.all(
+      tabs.map((tab) => tab.acquireLease({ repository_id: "local", graph_id: "contended-graph" })),
+    );
 
     expect(leases.filter((lease) => lease.mode === "exclusive")).toHaveLength(1);
     for (const lease of leases) lease.release();
+  });
+
+  it("waits for an HTTP editor before running a directory operation and releases on failure", async () => {
+    Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });
+    const editor = await anotherTab();
+    const directory = await anotherTab();
+    const locator = { repository_id: "remote", graph_id: "directory-wait" };
+    const holder = await editor.acquireLease(locator);
+    // An existing read-only session in this tab cannot authorize the operation.
+    const reader = await directory.acquireLease(locator);
+    expect(reader.mode).toBe("readonly");
+    const action = vi.fn(async () => {
+      throw new Error("export failed");
+    });
+    const operation = directory.withGraphLease(locator, action);
+    const rejected = expect(operation).rejects.toThrow("export failed");
+    // A competing acquisition proves that the original editor still holds it.
+    const competing = await (await anotherTab()).acquireLease(locator);
+    expect(competing.mode).toBe("readonly");
+    expect(action).not.toHaveBeenCalled();
+    holder.release();
+    await rejected;
+    expect(action).toHaveBeenCalledTimes(1);
+    reader.release();
+    competing.release();
+    const successor = await editor.acquireLease(locator);
+    expect(successor.mode).toBe("exclusive");
+    successor.release();
   });
 
   it("never reuses a runtime peer id after a tab session closes", async () => {

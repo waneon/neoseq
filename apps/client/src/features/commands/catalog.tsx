@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import type { PageSnapshot, TagSnapshot } from "../../core-port/snapshot";
 import { pageTitle } from "../../core-port/snapshot";
-import { addDays } from "../../entities/journal";
+import { addDays } from "../../entities/calendar";
 import type { MessageFunction } from "../../i18n";
 import { nextTheme, type Theme } from "../../ui/theme";
 import type { HistoryActions, HistoryInvocation } from "../history/context";

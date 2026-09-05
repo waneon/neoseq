@@ -1,3 +1,4 @@
+import { addDays } from "../../entities/calendar";
 // Settings is a dialog with two explicit scopes. Browser preferences apply to
 // every graph; graph settings travel with the current graph. Keeping the active
 // section in the URL makes sections linkable and lets Back close the dialog
@@ -12,7 +13,6 @@ import {
   subscribeGraphDirectory,
 } from "../../core-port/directory";
 import {
-  addDays,
   availableTimezones,
   setConfiguredTimezone,
   setJournalDateFormat,
