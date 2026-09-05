@@ -95,9 +95,9 @@ export function orderResultRows(
     for (const sort of sorts) {
       const column = byVariable.get(sort.variable);
       if (!column?.sortable) continue;
-      const comparison = compareResultTerms(
-        left.values[sort.variable],
-        right.values[sort.variable],
+      const comparison = compareTermLists(
+        left.values[sort.variable] ?? [],
+        right.values[sort.variable] ?? [],
         column.ordering,
         context,
         sort.descending,
@@ -182,7 +182,13 @@ function compareTermLists(
   const rightValues = [...right].sort(compare);
   const shared = Math.min(leftValues.length, rightValues.length);
   for (let index = 0; index < shared; index += 1) {
-    const comparison = compare(leftValues[index], rightValues[index]);
+    const comparison = compareResultTerms(
+      leftValues[index],
+      rightValues[index],
+      semantics,
+      context,
+      descending,
+    );
     if (comparison !== 0) return comparison;
   }
   return leftValues.length - rightValues.length;

@@ -5,8 +5,8 @@ use crate::{
     logical::{GraphPattern, NamedNode, OrderExpression, TermPattern, Variable, bgp, triple},
 };
 use domain::{
-    GraphId, LocalDate, PropertyKey, PropertyType, PropertyValueSpec, QueryPlan as StoredQueryPlan,
-    StringSpec, definition,
+    GraphId, LocalDate, PropertyKey, PropertyValueSpec, QueryPlan as StoredQueryPlan, StringSpec,
+    definition,
 };
 pub use domain::{
     PLAN_ANY_OF_MAX, PLAN_LIMIT_MAX, PLAN_MAX_CONDITIONS, PLAN_MAX_DEPTH, QUERY_PLAN_VERSION,
@@ -20,8 +20,7 @@ use std::collections::{BTreeMap, HashSet};
 
 const PLAN_MAX_NODES: usize = 256;
 const PLAN_MAX_COLUMNS: usize = 128;
-const SUBJECT_VARIABLE: &str = "q_subject";
-const LIST_SEPARATOR: &str = "\u{1f}";
+pub(crate) const SUBJECT_VARIABLE: &str = "q_subject";
 pub const DERIVED_SOURCE_PROVENANCE: &str = domain::QUERY_PLAN_SOURCE_PROVENANCE;
 
 /// A builder result bound that is valid by construction.
@@ -169,7 +168,6 @@ pub enum PlanColumnSource {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanAggregate {
-    List,
     Count,
     Sum,
     Avg,
@@ -191,21 +189,33 @@ pub struct PlanColumn {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BuiltQueryPlan {
     pub version: u32,
+    pub grain: QueryGrain,
     pub subject: PlanSubject,
     #[serde(rename = "where")]
     pub where_clause: PlanNode,
     pub columns: Vec<PlanColumn>,
     pub limit: PlanLimit,
-    #[serde(default)]
-    pub distinct: bool,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum BuiltQueryProjection {
-    #[default]
-    View,
-    Entities,
+pub enum QueryGrain {
+    Entity,
+    Summary,
+}
+
+/// The authored identity and provenance of a result column. Compiler variables
+/// are deliberately absent: a renderer reads values by the stable column id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BuiltResultColumn {
+    pub id: String,
+    pub source: PlanColumnSource,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aggregate: Option<PlanAggregate>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time_column: Option<String>,
 }
 
 /// The authored query crossing CorePort.
@@ -218,8 +228,6 @@ pub enum AuthoredQueryRequest {
     Built {
         plan: BuiltQueryPlan,
         today: LocalDate,
-        #[serde(default)]
-        projection: BuiltQueryProjection,
         #[serde(default)]
         budget: QueryBudget,
     },
@@ -238,10 +246,9 @@ impl BuiltQueryPlan {
         &self,
         graph_id: &GraphId,
         today: &LocalDate,
-        projection: BuiltQueryProjection,
     ) -> Result<LogicalQuery, QueryError> {
         self.validate()?;
-        PlanCompiler::direct(graph_id, today, self.subject).compile(self, projection)
+        PlanCompiler::direct(graph_id, today, self.subject).compile(self)
     }
 
     fn validate(&self) -> Result<(), QueryError> {
@@ -254,15 +261,24 @@ impl BuiltQueryPlan {
         if self.columns.is_empty() || self.columns.len() > PLAN_MAX_COLUMNS {
             return Err(invalid_plan("plan column count is out of range"));
         }
-        let mut variables = HashSet::new();
+        if self.grain == QueryGrain::Entity
+            && self.columns.iter().any(|column| column.aggregate.is_some())
+        {
+            return Err(invalid_plan("entity fields are values, not aggregates"));
+        }
+        if self.grain == QueryGrain::Summary
+            && !self.columns.iter().any(|column| column.aggregate.is_some())
+        {
+            return Err(invalid_plan("a summary requires an explicit aggregate"));
+        }
+        let mut ids = HashSet::new();
         for column in &self.columns {
             if column.id.is_empty() {
                 return Err(invalid_plan("column id must not be empty"));
             }
             validate_column_source(self.subject, &column.source)?;
-            let variable = column_variable(column);
-            if !variables.insert(variable) {
-                return Err(invalid_plan("column ids produce duplicate variables"));
+            if !ids.insert(&column.id) {
+                return Err(invalid_plan("column ids must be unique"));
             }
         }
         let PlanNode::Group { .. } = &self.where_clause else {
@@ -293,8 +309,7 @@ pub fn derive_plan_source(plan: &StoredQueryPlan) -> Result<String, QueryError> 
         return Err(invalid_plan("plan envelope and payload versions disagree"));
     }
     typed.validate()?;
-    let logical =
-        PlanCompiler::parameterized(typed.subject).compile(&typed, BuiltQueryProjection::View)?;
+    let logical = PlanCompiler::parameterized(typed.subject).compile(&typed)?;
     Ok(format!(
         "{}{version};fnv1a32={hash:08x}\n{}\n",
         DERIVED_SOURCE_PROVENANCE,
@@ -582,11 +597,7 @@ impl<'a> PlanCompiler<'a> {
         }
     }
 
-    fn compile(
-        mut self,
-        plan: &BuiltQueryPlan,
-        projection: BuiltQueryProjection,
-    ) -> Result<LogicalQuery, QueryError> {
+    fn compile(mut self, plan: &BuiltQueryPlan) -> Result<LogicalQuery, QueryError> {
         let subject_type = named(&format!(
             "{}{}",
             crate::NEO_NS,
@@ -602,19 +613,24 @@ impl<'a> PlanCompiler<'a> {
             subject_type,
         )]);
         let (mut pattern, _) = self.apply_node(root, &plan.where_clause)?;
+        if plan.grain == QueryGrain::Entity {
+            // Cardinality is fixed before any display field is read. Neither a
+            // repeated relation nor an absent field can change membership.
+            return Ok(
+                LogicalQuery::select(pattern, [self.subject_variable.clone()])
+                    .order_by([OrderExpression::Asc(self.subject_variable.clone().into())])
+                    .distinct()
+                    .limit(plan.limit.get())
+                    .build(),
+            );
+        }
 
         let mut projection_variables = Vec::new();
         let mut grouped_variables = Vec::new();
         let mut aggregates = Vec::new();
-        let mut aggregated = false;
-        let columns: &[PlanColumn] = match projection {
-            BuiltQueryProjection::View => &plan.columns,
-            BuiltQueryProjection::Entities => &[],
-        };
-        for column in columns {
-            let variable = Variable::new(column_variable(column)).map_err(term_error)?;
+        for (index, column) in plan.columns.iter().enumerate() {
+            let variable = Variable::new(column_variable(index)).map_err(term_error)?;
             if let Some(aggregate) = column.aggregate {
-                aggregated = true;
                 let inner = if matches!(column.source, PlanColumnSource::Subject) {
                     self.subject_variable.clone()
                 } else {
@@ -647,24 +663,14 @@ impl<'a> PlanCompiler<'a> {
             }
         }
 
-        if aggregated {
-            pattern = GraphPattern::Group {
-                inner: Box::new(pattern),
-                variables: grouped_variables,
-                aggregates,
-            };
-        } else {
-            projection_variables.insert(0, self.subject_variable.clone());
-        }
-
-        let mut select = LogicalQuery::select(pattern, projection_variables);
-        if !aggregated {
-            select = select.order_by([OrderExpression::Asc(self.subject_variable.clone().into())]);
-            if plan.distinct {
-                select = select.distinct();
-            }
-        }
-        Ok(select.limit(plan.limit.get()).build())
+        let summary = GraphPattern::Group {
+            inner: Box::new(pattern),
+            variables: grouped_variables,
+            aggregates,
+        };
+        Ok(LogicalQuery::select(summary, projection_variables)
+            .limit(plan.limit.get())
+            .build())
     }
 
     fn apply_node(
@@ -857,60 +863,14 @@ impl<'a> PlanCompiler<'a> {
         column: &PlanColumn,
         target: Variable,
     ) -> Result<GraphPattern, QueryError> {
-        let right = match &column.source {
-            PlanColumnSource::Subject => return Ok(base),
-            PlanColumnSource::Tags => {
-                let tag = self.local("t");
-                bgp([
-                    triple(
-                        self.subject_variable.clone(),
-                        named(&format!("{}tag", crate::NEO_NS))?,
-                        tag.clone(),
-                    ),
-                    triple(tag, named(&format!("{}name", crate::NEO_NS))?, target),
-                ])
-            }
-            PlanColumnSource::Property { key }
-                if matches!(column.aggregate, Some(PlanAggregate::List))
-                    && property_type(key) == PropertyType::Page =>
-            {
-                let reference = self.local("r");
-                optional(
-                    bgp([triple(
-                        self.subject_variable.clone(),
-                        property_predicate(key)?,
-                        reference.clone(),
-                    )]),
-                    bgp([triple(
-                        reference,
-                        named(&format!("{}content", crate::NEO_NS))?,
-                        target,
-                    )]),
-                )
-            }
-            PlanColumnSource::Property { key } => bgp([triple(
-                self.subject_variable.clone(),
-                property_predicate(key)?,
-                target,
-            )]),
-            source => {
-                let local = match source {
-                    PlanColumnSource::Content if matches!(self.subject, PlanSubject::Tag) => "name",
-                    PlanColumnSource::Content => "content",
-                    PlanColumnSource::Page => "page",
-                    PlanColumnSource::Parent => "parent",
-                    PlanColumnSource::SiblingIndex => "siblingIndex",
-                    PlanColumnSource::Subject
-                    | PlanColumnSource::Property { .. }
-                    | PlanColumnSource::Tags => unreachable!(),
-                };
-                bgp([triple(
-                    self.subject_variable.clone(),
-                    named(&format!("{}{local}", crate::NEO_NS))?,
-                    target,
-                )])
-            }
+        let Some(predicate) = column_predicate(&column.source, self.subject)? else {
+            return Ok(GraphPattern::Extend {
+                inner: Box::new(base),
+                variable: target,
+                expression: self.subject_variable.clone().into(),
+            });
         };
+        let right = bgp([triple(self.subject_variable.clone(), predicate, target)]);
         Ok(optional(base, right))
     }
 
@@ -1006,7 +966,26 @@ fn relation(subject: Variable, predicate: FieldPredicate, object: TermPattern) -
     }
 }
 
-fn property_predicate(key: &str) -> Result<NamedNode, QueryError> {
+/// The same field meaning drives relational joins and entity projection.
+/// A subject has no predicate: its identity already comes from selection.
+pub(crate) fn column_predicate(
+    source: &PlanColumnSource,
+    subject: PlanSubject,
+) -> Result<Option<NamedNode>, QueryError> {
+    let local = match source {
+        PlanColumnSource::Subject => return Ok(None),
+        PlanColumnSource::Property { key } => return property_predicate(key).map(Some),
+        PlanColumnSource::Content if subject == PlanSubject::Tag => "name",
+        PlanColumnSource::Content => "content",
+        PlanColumnSource::Tags => "tag",
+        PlanColumnSource::Page => "page",
+        PlanColumnSource::Parent => "parent",
+        PlanColumnSource::SiblingIndex => "siblingIndex",
+    };
+    named(&format!("{}{local}", crate::NEO_NS)).map(Some)
+}
+
+pub(crate) fn property_predicate(key: &str) -> Result<NamedNode, QueryError> {
     named(&format!("{}{}", crate::PROPERTY_NS, encode_component(key)))
 }
 
@@ -1074,22 +1053,8 @@ fn equals_by_term(field: &PlanField) -> bool {
     !matches!(field_type(field), FieldType::Number | FieldType::Integer)
 }
 
-fn property_type(key: &str) -> PropertyType {
-    PropertyKey::new(key.to_owned())
-        .ok()
-        .and_then(|key| definition(&key))
-        .map(|spec| spec.shape.value().property_type())
-        .unwrap_or(PropertyType::String)
-}
-
 fn aggregate_expression(aggregate: PlanAggregate, inner: Variable) -> AggregateExpression {
     let (name, distinct) = match aggregate {
-        PlanAggregate::List => (
-            AggregateFunction::GroupConcat {
-                separator: Some(LIST_SEPARATOR.to_owned()),
-            },
-            true,
-        ),
         PlanAggregate::Count => (AggregateFunction::Count, true),
         PlanAggregate::Sum => (AggregateFunction::Sum, false),
         PlanAggregate::Avg => (AggregateFunction::Avg, false),
@@ -1103,28 +1068,11 @@ fn aggregate_expression(aggregate: PlanAggregate, inner: Variable) -> AggregateE
     }
 }
 
-fn column_variable(column: &PlanColumn) -> String {
-    let cleaned = column
-        .id
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || character == '_' {
-                character
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>();
-    if !cleaned.starts_with(|character: char| character.is_ascii_alphabetic())
-        || cleaned.starts_with("q_")
-    {
-        format!("c_{cleaned}")
-    } else {
-        cleaned
-    }
+pub(crate) fn column_variable(index: usize) -> String {
+    format!("c{index}")
 }
 
-fn moment_time_key(column: &PlanColumn) -> Option<&'static str> {
+pub(crate) fn moment_time_key(column: &PlanColumn) -> Option<&'static str> {
     if column.aggregate.is_some() {
         return None;
     }
@@ -1234,7 +1182,8 @@ mod tests {
     #[test]
     fn core_port_json_uses_the_typescript_plan_shape() {
         let value = json!({
-            "version": 1,
+            "version": QUERY_PLAN_VERSION,
+            "grain": "entity",
             "subject": "block",
             "where": {
                 "id": "root",
@@ -1249,8 +1198,7 @@ mod tests {
                 }]
             },
             "columns": [{ "id": "text", "source": { "kind": "content" } }],
-            "limit": 100,
-            "distinct": false
+            "limit": 100
         });
         let plan: BuiltQueryPlan = serde_json::from_value(value.clone()).unwrap();
         assert_eq!(plan.limit.get(), 100);
@@ -1262,13 +1210,40 @@ mod tests {
         };
         let source = derive_plan_source(&stored).unwrap();
         let marker = format!(
-            "{DERIVED_SOURCE_PROVENANCE}1;fnv1a32={:08x}\n",
+            "{DERIVED_SOURCE_PROVENANCE}{QUERY_PLAN_VERSION};fnv1a32={:08x}\n",
             fnv1a32(stored.payload.as_bytes())
         );
         assert!(source.starts_with(&marker));
         assert!(source.contains("?q_p0"));
         assert!(source.contains("?q_p1"));
         LogicalQuery::from_sparql(source.strip_prefix(&marker).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn grain_is_explicit_and_old_plans_are_never_reinterpreted() {
+        let base = json!({
+            "version": QUERY_PLAN_VERSION, "grain": "entity", "subject": "block",
+            "where": { "id": "root", "kind": "group", "match": "all", "children": [] },
+            "columns": [{ "id": "text", "source": { "kind": "content" } }],
+            "limit": 100
+        });
+        let parse = |value| serde_json::from_value::<BuiltQueryPlan>(value).unwrap();
+        assert!(parse(base.clone()).validate().is_ok());
+        let mut old = base.clone();
+        old["version"] = json!(1);
+        assert!(parse(old.clone()).validate().is_err());
+        old.as_object_mut().unwrap().remove("grain");
+        assert!(serde_json::from_value::<BuiltQueryPlan>(old).is_err());
+        let mut aggregate = base.clone();
+        aggregate["columns"][0]["aggregate"] = json!("count");
+        assert!(parse(aggregate.clone()).validate().is_err());
+        aggregate["grain"] = json!("summary");
+        assert!(parse(aggregate.clone()).validate().is_ok());
+        aggregate["columns"][0]["aggregate"] = json!("list");
+        assert!(serde_json::from_value::<BuiltQueryPlan>(aggregate).is_err());
+        let mut empty_summary = base;
+        empty_summary["grain"] = json!("summary");
+        assert!(parse(empty_summary).validate().is_err());
     }
 
     #[test]

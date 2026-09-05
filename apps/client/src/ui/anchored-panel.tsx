@@ -31,17 +31,24 @@ interface Measurable {
   contextElement?: Element;
 }
 
+type AnchorSource = Anchor | (() => Anchor);
+
+function resolveAnchor(source: AnchorSource): Anchor {
+  return typeof source === "function" ? source() : source;
+}
+
 function measurableAnchor(
-  anchor: Anchor,
+  anchor: AnchorSource,
   lastValid: { current: DOMRectReadOnly | null },
 ): Measurable {
-  const initial = measureAnchor(anchor);
+  const initial = measureAnchor(resolveAnchor(anchor));
   if (initial) lastValid.current = initial;
-  const contextElement = anchorElement(anchor) ?? undefined;
   return {
-    contextElement,
+    get contextElement() {
+      return anchorElement(resolveAnchor(anchor)) ?? undefined;
+    },
     getBoundingClientRect: () => {
-      const current = measureAnchor(anchor);
+      const current = measureAnchor(resolveAnchor(anchor));
       if (current) lastValid.current = current;
       const rect =
         lastValid.current ??
@@ -97,7 +104,7 @@ export function AnchoredPanel({
   children,
 }: {
   /** The control the panel hangs off and returns focus to after an inside action. */
-  anchor: Anchor;
+  anchor: AnchorSource;
   label: string;
   id?: string;
   role?: "dialog" | "listbox";
@@ -127,8 +134,7 @@ export function AnchoredPanel({
   const root = useOverlayRoot();
   const [surface, setSurface] = useState<HTMLDivElement | null>(null);
   const lastValid = useRef<DOMRectReadOnly | null>(null);
-  const liveElement = anchorElement(anchor);
-  const owner = anchor?.owner ?? null;
+  const liveElement = anchorElement(resolveAnchor(anchor));
   const virtualRef = useMemo(() => ({ current: measurableAnchor(anchor, lastValid) }), [anchor]);
   const rememberSurface = useCallback(
     (node: HTMLDivElement | null) => {
@@ -145,13 +151,14 @@ export function AnchoredPanel({
   useLayoutEffect(() => {
     if (!liveElement) return;
     const closeIfDetached = () => {
-      if (!liveElement.isConnected) onClose();
+      const current = anchorElement(resolveAnchor(anchor));
+      if (current && !current.isConnected) onClose();
     };
     closeIfDetached();
     const observer = new MutationObserver(closeIfDetached);
     observer.observe(liveElement.ownerDocument, { childList: true, subtree: true });
     return () => observer.disconnect();
-  }, [liveElement, onClose]);
+  }, [anchor, liveElement, onClose]);
 
   useEffect(() => {
     if (!dismissOnExternalScroll) return;
@@ -205,10 +212,13 @@ export function AnchoredPanel({
             // otherwise calls it "outside" and removes the panel on pointerdown.
             // That can detach the pressed control before its click gets to
             // toggle or retarget the panel. The anchor owns that gesture.
-            if (target instanceof Node && liveElement?.contains(target)) event.preventDefault();
+            if (target instanceof Node && anchorElement(resolveAnchor(anchor))?.contains(target))
+              event.preventDefault();
           }}
           onKeyDown={onKeyDown}
-          onCloseAutoFocus={(event) => restoreOverlayFocus(event, returnFocus?.() ?? owner)}
+          onCloseAutoFocus={(event) =>
+            restoreOverlayFocus(event, returnFocus?.() ?? resolveAnchor(anchor)?.owner ?? null)
+          }
         >
           <OverlayRoot node={surface}>{children}</OverlayRoot>
         </PopoverContent>

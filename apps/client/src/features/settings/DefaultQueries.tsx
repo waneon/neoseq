@@ -50,7 +50,6 @@ import { QUERY_LANGUAGE } from "../../entities/query-document";
 import {
   columnSourceKey,
   columnSourcesFor,
-  columnVariable,
   decodePlan,
   defaultPlan,
   encodePlan,
@@ -254,7 +253,7 @@ function DefaultQueryRow({
         plan.columns,
         new Set(
           plan.columns
-            .filter((column) => hiddenVariables.has(columnVariable(column)))
+            .filter((column) => hiddenVariables.has(column.id))
             .map((column) => columnSourceKey(column.source)),
         ),
         plan.subject,
@@ -269,7 +268,7 @@ function DefaultQueryRow({
         void commitPlan(withColumn(plan, choice.source));
         return;
       }
-      const variable = columnVariable(choice.column);
+      const variable = choice.column.id;
       if (hiddenVariables.has(variable)) {
         save({
           type: "put_query_view",
@@ -287,7 +286,7 @@ function DefaultQueryRow({
     if (!choice.column) return;
     const next = withoutColumn(plan, choice.column.id);
     if (next === plan) return;
-    const variable = columnVariable(choice.column);
+    const variable = choice.column.id;
     void (async () => {
       await commitPlan(next);
       if (activeView.columns.some((column) => column.variable === variable)) {

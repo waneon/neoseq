@@ -322,10 +322,10 @@ export interface MessageArgumentMap {
   "query.addCondition": undefined;
   "query.addGroup": undefined;
   "query.addSort": undefined;
+  "query.addSummaryField": undefined;
   "query.addValue": undefined;
   "query.aggregate.avg": undefined;
   "query.aggregate.count": undefined;
-  "query.aggregate.list": undefined;
   "query.aggregate.max": undefined;
   "query.aggregate.min": undefined;
   "query.aggregate.sum": undefined;
@@ -365,6 +365,10 @@ export interface MessageArgumentMap {
   "query.fieldLabel": undefined;
   "query.find": undefined;
   "query.findColumn": undefined;
+  "query.grain": undefined;
+  "query.grain.entity": undefined;
+  "query.grain.summary": undefined;
+  "query.groupBy": undefined;
   "query.hideColumn": undefined;
   "query.hideSource": undefined;
   "query.layout": undefined;
@@ -420,6 +424,7 @@ export interface MessageArgumentMap {
   "query.removeCondition": { readonly "field": string | number };
   "query.removeGroup": undefined;
   "query.removeSort": { readonly "column": string | number };
+  "query.removeSummaryField": undefined;
   "query.removeValue": { readonly "value": string | number };
   "query.renameView": undefined;
   "query.resetWidth": undefined;
@@ -445,10 +450,11 @@ export interface MessageArgumentMap {
   "query.subject.tag": undefined;
   "query.subjectLabel": undefined;
   "query.summaryAny": { readonly "conditions": string | number };
+  "query.summaryFields": undefined;
   "query.summaryMore": { readonly "count": string | number };
   "query.summaryNone": { readonly "conditions": string | number };
+  "query.summaryOperation": undefined;
   "query.summaryQuoted": { readonly "value": string | number };
-  "query.uniqueRows": undefined;
   "query.unsupportedPlan": undefined;
   "query.valueLabel": undefined;
   "query.valuePlaceholder": undefined;

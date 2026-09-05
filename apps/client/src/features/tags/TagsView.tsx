@@ -959,7 +959,7 @@ function useTagUsage(): Map<string, number> {
 
   return useMemo(() => {
     const counts = new Map<string, number>();
-    const result = execution.result;
+    const result = execution.frame?.result;
     if (result?.kind !== "select") return counts;
     for (const row of result.rows) {
       const tag = row.tag;
@@ -969,5 +969,5 @@ function useTagUsage(): Map<string, number> {
       if (Number.isFinite(count)) counts.set(tag.entity.id, count);
     }
     return counts;
-  }, [execution.result]);
+  }, [execution.frame]);
 }

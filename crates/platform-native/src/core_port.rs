@@ -143,9 +143,13 @@ impl NativeCorePort {
                 }
             }
             RuntimePersistence::Unchanged => SaveStatusDto::Unchanged,
+            RuntimePersistence::Unsaved { kind, message } => SaveStatusDto::Unsaved {
+                error: map_runtime_error(RuntimeError::DirtyUnsaved { kind, message }),
+            },
         };
         Ok(ExecuteResponse {
             result: execution.result,
+            changes: execution.changes,
             save_status,
         })
     }
@@ -334,7 +338,8 @@ fn map_query_error(error: query::QueryError) -> CorePortError {
         query::QueryError::SourceBudget
         | query::QueryError::BindingBudget
         | query::QueryError::AlgebraBudget
-        | query::QueryError::RowBudget => CorePortErrorCode::QueryBudgetExceeded,
+        | query::QueryError::RowBudget
+        | query::QueryError::ResultBudget => CorePortErrorCode::QueryBudgetExceeded,
         query::QueryError::Index(_) => CorePortErrorCode::Internal,
         _ => CorePortErrorCode::InvalidQuery,
     };

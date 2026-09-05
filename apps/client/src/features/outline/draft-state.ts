@@ -1,6 +1,21 @@
 import type { AutoCloserMarker } from "../blocks/editor/auto-pair";
-import type { PageReferenceSpan } from "../../core-port/snapshot";
+import { useCallback } from "react";
+import type { GraphSession } from "../../core-port/session";
+import type { OutlineOwner, PageDirectoryEntry, PageReferenceSpan } from "../../core-port/snapshot";
+import { useImmediateState } from "../../lib/react";
+import { useContentSessions } from "../blocks/editor/content-session";
 import type { InlineContentProjection } from "../blocks/editor/inline-content";
+import type { InlineContent } from "../../core-port/commands";
+import {
+  bufferIsClean,
+  contentFromProjection,
+  createContentBuffer,
+  editBuffer,
+  projectBuffer,
+  settleBuffer,
+  spliceBuffer,
+  type ContentBuffer,
+} from "../blocks/editor/content-buffer";
 
 interface PendingOutlineOperationBase {
   id: string;
@@ -43,21 +58,41 @@ export type PendingCreationOperation = PendingInsertOperation | PendingSplitOper
 export type PendingOutlineOperation = PendingCreationOperation | PendingMergeOperation;
 
 export interface OutlineDraftState {
-  drafts: ReadonlyMap<string, string>;
-  baselines: ReadonlyMap<string, string>;
+  buffers: ReadonlyMap<string, ContentBuffer>;
   autoClosers: ReadonlyMap<string, readonly AutoCloserMarker[]>;
-  /** Semantic spans aligned with the current local baseline. */
-  pageReferences: ReadonlyMap<string, readonly PageReferenceSpan[]>;
   pendingOperations: readonly PendingOutlineOperation[];
 }
 
 export const initialOutlineDraftState: OutlineDraftState = {
-  drafts: new Map(),
-  baselines: new Map(),
+  buffers: new Map(),
   autoClosers: new Map(),
-  pageReferences: new Map(),
   pendingOperations: [],
 };
+
+/** The surface owns structural projections; semantic buffers belong to graph targets. */
+export function useOutlineDraftState(graph: GraphSession, owner: OutlineOwner) {
+  const sessions = useContentSessions(graph);
+  const [interaction, setInteraction, interactionRef] = useImmediateState({
+    autoClosers: initialOutlineDraftState.autoClosers,
+    pendingOperations: initialOutlineDraftState.pendingOperations,
+  });
+  const read = useCallback(
+    (): OutlineDraftState => ({
+      ...interactionRef.current,
+      buffers: sessions.buffers(owner),
+    }),
+    [owner, sessions],
+  );
+  const update = useCallback(
+    (reduce: (state: OutlineDraftState) => OutlineDraftState) => {
+      const next = reduce(read());
+      setInteraction({ autoClosers: next.autoClosers, pendingOperations: next.pendingOperations });
+      sessions.replace(owner, next.buffers);
+    },
+    [owner, read, sessions, setInteraction],
+  );
+  return { state: { ...interaction, buffers: sessions.buffers(owner) }, read, update };
+}
 
 export type OutlineDraftAction =
   | {
@@ -65,26 +100,21 @@ export type OutlineDraftAction =
       id: string;
       value: string;
       baselineIfAbsent?: string;
+      contentIfAbsent?: readonly InlineContent[];
       autoClosers?: readonly AutoCloserMarker[];
       pageReferencesIfAbsent?: readonly PageReferenceSpan[];
     }
   | {
-      type: "set-baseline";
+      type: "splice";
       id: string;
-      value: string;
-      pageReferences?: readonly PageReferenceSpan[];
+      source: readonly InlineContent[];
+      index: number;
+      delete: number;
+      insert: readonly InlineContent[];
     }
+  | { type: "settle"; id: string }
   | { type: "clear"; ids: readonly string[] }
   | { type: "clear-auto-closers"; ids: readonly string[] }
-  | {
-      type: "reproject";
-      entries: readonly {
-        id: string;
-        baseline: string;
-        draft: string;
-        pageReferences: readonly PageReferenceSpan[];
-      }[];
-    }
   | { type: "reconcile"; draftIds: readonly string[]; autoCloserIds: readonly string[] }
   | { type: "enqueue"; operation: PendingOutlineOperation }
   | { type: "mark-dispatched"; id: string }
@@ -115,93 +145,85 @@ function withAutoClosers(
 export function outlineDraftReducer(
   state: OutlineDraftState,
   action: OutlineDraftAction,
+  directory: readonly PageDirectoryEntry[] = [],
 ): OutlineDraftState {
   switch (action.type) {
     case "edit": {
-      const drafts = new Map(state.drafts).set(action.id, action.value);
-      const baselines = new Map(state.baselines);
-      if (action.baselineIfAbsent !== undefined && !baselines.has(action.id)) {
-        baselines.set(action.id, action.baselineIfAbsent);
-      }
-      const pageReferences = new Map(state.pageReferences);
-      if (action.pageReferencesIfAbsent !== undefined && !pageReferences.has(action.id)) {
-        pageReferences.set(action.id, action.pageReferencesIfAbsent);
-      }
+      const current =
+        state.buffers.get(action.id) ??
+        createContentBuffer(
+          action.contentIfAbsent ??
+            contentFromProjection(
+              action.baselineIfAbsent ?? "",
+              action.pageReferencesIfAbsent ?? [],
+            ),
+        );
+      const buffer = editBuffer(current, projectBuffer(current, directory), action.value);
       return {
         ...state,
-        drafts,
-        baselines,
-        pageReferences,
+        buffers: new Map(state.buffers).set(action.id, buffer),
         autoClosers:
           action.autoClosers === undefined
             ? state.autoClosers
             : withAutoClosers(state.autoClosers, action.id, action.autoClosers),
       };
     }
-    case "set-baseline":
+    case "splice": {
+      const buffer = state.buffers.get(action.id) ?? createContentBuffer(action.source);
       return {
         ...state,
-        baselines: new Map(state.baselines).set(action.id, action.value),
-        pageReferences:
-          action.pageReferences === undefined
-            ? state.pageReferences
-            : new Map(state.pageReferences).set(action.id, action.pageReferences),
+        buffers: new Map(state.buffers).set(
+          action.id,
+          spliceBuffer(buffer, action.index, action.delete, action.insert),
+        ),
       };
+    }
+    case "settle": {
+      const buffer = state.buffers.get(action.id);
+      return buffer
+        ? { ...state, buffers: new Map(state.buffers).set(action.id, settleBuffer(buffer)) }
+        : state;
+    }
     case "clear":
       return {
         ...state,
-        drafts: without(state.drafts, action.ids),
-        baselines: without(state.baselines, action.ids),
+        buffers: without(state.buffers, action.ids),
         autoClosers: without(state.autoClosers, action.ids),
-        pageReferences: without(state.pageReferences, action.ids),
       };
     case "clear-auto-closers":
       return { ...state, autoClosers: without(state.autoClosers, action.ids) };
-    case "reproject": {
-      const drafts = new Map(state.drafts);
-      const baselines = new Map(state.baselines);
-      const pageReferences = new Map(state.pageReferences);
-      const autoClosers = new Map(state.autoClosers);
-      for (const entry of action.entries) {
-        drafts.set(entry.id, entry.draft);
-        baselines.set(entry.id, entry.baseline);
-        pageReferences.set(entry.id, entry.pageReferences);
-        autoClosers.delete(entry.id);
-      }
-      return { ...state, drafts, baselines, pageReferences, autoClosers };
-    }
     case "reconcile":
       return {
         ...state,
-        drafts: without(state.drafts, action.draftIds),
-        baselines: without(state.baselines, action.draftIds),
+        buffers: without(state.buffers, action.draftIds),
         autoClosers: without(state.autoClosers, [...action.draftIds, ...action.autoCloserIds]),
-        pageReferences: without(state.pageReferences, action.draftIds),
       };
     case "enqueue":
       if (action.operation.kind === "merge") {
         return {
           ...state,
-          drafts: new Map(state.drafts).set(
+          buffers: new Map(state.buffers).set(
             action.operation.targetId,
-            action.operation.merged.markdown,
-          ),
-          baselines: new Map(state.baselines).set(
-            action.operation.targetId,
-            action.operation.merged.markdown,
-          ),
-          pageReferences: new Map(state.pageReferences).set(
-            action.operation.targetId,
-            action.operation.merged.pageReferences,
+            createContentBuffer(
+              contentFromProjection(
+                action.operation.merged.markdown,
+                action.operation.merged.pageReferences,
+              ),
+            ),
           ),
           pendingOperations: [...state.pendingOperations, action.operation],
         };
       }
       return {
         ...state,
-        drafts: new Map(state.drafts).set(
+        buffers: new Map(state.buffers).set(
           action.operation.tempId,
-          action.operation.created.markdown,
+          createContentBuffer(
+            contentFromProjection(
+              action.operation.created.markdown,
+              action.operation.created.pageReferences,
+            ),
+          ),
         ),
         pendingOperations: [...state.pendingOperations, action.operation],
       };
@@ -217,21 +239,15 @@ export function outlineDraftReducer(
       if (!operation || operation.kind === "merge" || operation.tempId !== action.tempId) {
         return state;
       }
-      const drafts = without(state.drafts, [action.tempId]);
-      const baselines = without(state.baselines, [action.tempId]);
+      const buffers = without(state.buffers, [action.tempId]);
       const autoClosers = without(state.autoClosers, [action.tempId]);
-      const pageReferences = without(state.pageReferences, [action.tempId]);
-      if (action.typed !== operation.created.markdown) {
-        drafts.set(action.blockId, action.typed);
-        baselines.set(action.blockId, operation.created.markdown);
-      }
+      const buffer = state.buffers.get(action.tempId);
+      if (buffer && !bufferIsClean(buffer)) buffers.set(action.blockId, buffer);
       const generatedClosers = state.autoClosers.get(action.tempId);
       if (generatedClosers) autoClosers.set(action.blockId, generatedClosers);
       return {
-        drafts,
-        baselines,
+        buffers,
         autoClosers,
-        pageReferences,
         pendingOperations: state.pendingOperations.slice(1).map((pending) => {
           if (pending.kind === "merge") {
             return {
@@ -252,24 +268,21 @@ export function outlineDraftReducer(
         return state;
       }
       return {
-        drafts: without(state.drafts, [action.tempId]),
-        baselines: without(state.baselines, [action.tempId]),
+        buffers: without(state.buffers, [action.tempId]),
         autoClosers: without(state.autoClosers, [action.tempId]),
-        pageReferences: without(state.pageReferences, [action.tempId]),
         pendingOperations: state.pendingOperations.slice(1),
       };
     }
     case "complete-merge": {
       const operation = state.pendingOperations[0];
       if (operation?.kind !== "merge" || operation.id !== action.id) return state;
-      const unchanged = state.drafts.get(operation.targetId) === operation.merged.markdown;
+      const buffer = state.buffers.get(operation.targetId);
+      const unchanged = !buffer || bufferIsClean(buffer);
       const ids = unchanged ? [operation.targetId] : [];
       return {
         ...state,
-        drafts: without(state.drafts, ids),
-        baselines: without(state.baselines, ids),
+        buffers: without(state.buffers, ids),
         autoClosers: without(state.autoClosers, ids),
-        pageReferences: without(state.pageReferences, ids),
         pendingOperations: state.pendingOperations.slice(1),
       };
     }
@@ -278,10 +291,8 @@ export function outlineDraftReducer(
       if (operation?.kind !== "merge" || operation.id !== action.id) return state;
       return {
         ...state,
-        drafts: without(state.drafts, [operation.targetId]),
-        baselines: without(state.baselines, [operation.targetId]),
+        buffers: without(state.buffers, [operation.targetId]),
         autoClosers: without(state.autoClosers, [operation.targetId]),
-        pageReferences: without(state.pageReferences, [operation.targetId]),
         pendingOperations: state.pendingOperations.slice(1),
       };
     }
@@ -299,10 +310,8 @@ export function outlineDraftReducer(
         operation.kind === "merge" ? operation.targetId : operation.tempId,
       );
       return {
-        drafts: without(state.drafts, ids),
-        baselines: without(state.baselines, ids),
+        buffers: without(state.buffers, ids),
         autoClosers: without(state.autoClosers, ids),
-        pageReferences: without(state.pageReferences, ids),
         pendingOperations: [],
       };
     }

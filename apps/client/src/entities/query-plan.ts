@@ -8,7 +8,6 @@
 import type { GraphSnapshot, PropertyValueType } from "../core-port/snapshot";
 import type {
   BuiltQueryPlan,
-  PlanAggregate,
   PlanColumn,
   PlanColumnSource,
   PlanCondition,
@@ -44,13 +43,7 @@ export type {
   PlanValue,
 } from "../generated/core-port";
 import { FAVOURITE_ORDER_KEY } from "./favourites";
-import {
-  cardinalityOf,
-  isGenericProperty,
-  REGISTRY,
-  stringChoicesOf,
-  valueTypeOf,
-} from "./properties";
+import { isGenericProperty, REGISTRY, stringChoicesOf, valueTypeOf } from "./properties";
 
 export const PLAN_SUBJECTS: PlanSubject[] = ["block", "page", "tag"];
 
@@ -89,11 +82,11 @@ export function defaultPlan(subject: PlanSubject = "block"): QueryPlan {
   if (subject === "block") columns.push({ id: "page", source: { kind: "page" } });
   return {
     version: QUERY_PLAN_VERSION,
+    grain: "entity",
     subject,
     where: emptyGroup("all"),
     columns,
     limit: 100,
-    distinct: false,
   };
 }
 
@@ -331,23 +324,6 @@ export function graphPropertyKeys(snapshot: GraphSnapshot): string[] {
   return keys;
 }
 
-/** A repeated relation yields a row per value unless the column folds them. */
-function isMultiValued(source: PlanColumnSource): boolean {
-  if (source.kind === "tags") return true;
-  if (source.kind === "property") return cardinalityOf(source.key) === "repeated";
-  return false;
-}
-
-/**
- * How a column arrives: folded when its relation repeats, otherwise as its own
- * value. Counting the subject remains here only to read plans from older peers;
- * it is no longer an offered display field.
- */
-export function defaultAggregateFor(source: PlanColumnSource): PlanAggregate | undefined {
-  if (source.kind === "subject") return "count";
-  return isMultiValued(source) ? "list" : undefined;
-}
-
 /**
  * What a condition starts on. A date starts *relative* — “today”, not the day
  * the condition was written — because that is what a saved query almost always
@@ -420,22 +396,6 @@ export function appendNode(root: PlanGroup, groupId: string, node: PlanNode): Pl
   };
 }
 
-/**
- * Column ids double as SPARQL variable names. `q_` is reserved for the
- * compiler's own scratch variables, so a column that would land there is moved
- * aside rather than shadowing one.
- */
-export function columnVariable(column: PlanColumn): string {
-  // Iterate Unicode scalars, as Rust does. JavaScript's regex replacement
-  // visits the two UTF-16 surrogates of an astral character separately and
-  // would otherwise give the UI and the logical compiler different variables.
-  const cleaned = [...column.id]
-    .map((character) => (/^[a-zA-Z0-9_]$/.test(character) ? character : "_"))
-    .join("");
-  if (!/^[a-zA-Z]/.test(cleaned) || cleaned.startsWith("q_")) return `c_${cleaned}`;
-  return cleaned;
-}
-
 export function nextColumnId(plan: QueryPlan, base: string): string {
   const taken = new Set(plan.columns.map((column) => column.id));
   if (!taken.has(base)) return base;
@@ -466,9 +426,8 @@ export function columnBaseId(source: PlanColumnSource): string {
 // ── Column edits ──────────────────────────────────────────────────────────────
 
 /**
- * The plan with one more column, named after its source. A relation with many
- * values folds into one cell by default; a row per tag would multiply the answer
- * rather than describe it.
+ * Adding an entity field changes what each result shows, never which entities
+ * the query selected or how many rows they occupy.
  */
 export function withColumn(plan: QueryPlan, source: PlanColumnSource): QueryPlan {
   return {
@@ -478,7 +437,6 @@ export function withColumn(plan: QueryPlan, source: PlanColumnSource): QueryPlan
       {
         id: nextColumnId(plan, columnBaseId(source)),
         source,
-        aggregate: defaultAggregateFor(source),
       },
     ],
   };
@@ -487,7 +445,9 @@ export function withColumn(plan: QueryPlan, source: PlanColumnSource): QueryPlan
 /** The plan with one column gone. The last one standing is never dropped. */
 export function withoutColumn(plan: QueryPlan, id: string): QueryPlan {
   if (plan.columns.length <= 1) return plan;
-  return { ...plan, columns: plan.columns.filter((column) => column.id !== id) };
+  const columns = plan.columns.filter((column) => column.id !== id);
+  if (plan.grain === "summary" && !columns.some((column) => column.aggregate)) return plan;
+  return { ...plan, columns };
 }
 
 // ── Serialization ─────────────────────────────────────────────────────────────
@@ -511,21 +471,27 @@ export function decodePlan(payload: string, version: number): QueryPlan | null {
   if (!validPlan(parsed)) return null;
   return {
     version: QUERY_PLAN_VERSION,
+    grain: parsed.grain,
     subject: parsed.subject,
     where: parsed.where,
     columns: parsed.columns,
     limit: parsed.limit,
-    distinct: parsed.distinct === true,
   };
 }
 
 function validPlan(value: unknown): value is QueryPlan {
   if (typeof value !== "object" || value === null) return false;
   const plan = value as Partial<QueryPlan>;
+  if (plan.version !== QUERY_PLAN_VERSION) return false;
+  if (plan.grain !== "entity" && plan.grain !== "summary") return false;
   if (!PLAN_SUBJECTS.includes(plan.subject as PlanSubject)) return false;
   if (!plan.where || !validNode(plan.where)) return false;
   if (!Array.isArray(plan.columns) || plan.columns.length === 0) return false;
   if (!plan.columns.every(validColumn)) return false;
+  if (plan.grain === "entity" && plan.columns.some((column) => column.aggregate !== undefined))
+    return false;
+  if (plan.grain === "summary" && !plan.columns.some((column) => column.aggregate !== undefined))
+    return false;
   if (typeof plan.limit !== "number" || plan.limit < 1 || plan.limit > PLAN_LIMIT_MAX) return false;
   if (countConditions(plan.where) > PLAN_MAX_CONDITIONS) return false;
   if (groupDepth(plan.where) > PLAN_MAX_DEPTH) return false;
@@ -557,5 +523,10 @@ function validColumn(value: unknown): value is PlanColumn {
   const column = value as PlanColumn;
   if (typeof column.id !== "string" || column.id.length === 0) return false;
   if (typeof column.source !== "object" || column.source === null) return false;
+  if (
+    column.aggregate !== undefined &&
+    !["count", "sum", "avg", "min", "max"].includes(column.aggregate)
+  )
+    return false;
   return true;
 }

@@ -20,6 +20,7 @@ import {
   CorePortFailure,
   type OutboxMessage,
   type SavedReceipt,
+  type RemoteReceipt,
   type SyncState,
 } from "../core-worker";
 import type { RemoteGraphConnection } from "./directory";
@@ -30,11 +31,11 @@ import {
   type RemoteSyncState,
   type SyncAgentPort,
 } from "../features/sync/SyncAgent";
-import type { BlockContentSplice, Command } from "./commands";
+import type { Command } from "./commands";
 import { envelope } from "./commands";
-import type { GraphSnapshot, OutlineOwner } from "./snapshot";
+import type { GraphChanges, GraphSnapshot, OutlineOwner } from "./snapshot";
 import { EMPTY_SNAPSHOT, mergeOutline, mergeSummary, outlineOwnerKey } from "./snapshot";
-import { applyAcknowledgedContentSplices } from "./content-patch";
+import { applyContentUpdates } from "./content-patch";
 import { acquireLease, type Lease, type LeaseMode } from "./lease";
 import { LOCAL_REPOSITORY_ID } from "../features/repositories/directory";
 import { randomUUID } from "@/lib/crypto";
@@ -65,10 +66,19 @@ export interface SessionState {
   revision: number;
   /** Increments only when canonical graph data may have changed. */
   canonicalRevision: number;
+  /** The last canonical publication; hydration and status updates do not replace it. */
+  lastChange: { commandId: string | null; changes: GraphChanges } | null;
   hydratedOutlines: ReadonlySet<string>;
   sync: RemoteSyncState;
   live: LiveState;
   presence: ReadonlyMap<string, PeerPresence>;
+}
+
+/** An answer and the exact session state against which its request ran. */
+export interface QueryFrame {
+  readonly request: AuthoredQueryRequest;
+  readonly result: SparqlQueryResult;
+  readonly canonicalRevision: number;
 }
 
 export interface SessionPort extends CorePort {
@@ -78,7 +88,7 @@ export interface SessionPort extends CorePort {
   syncState?(graphHandle: string): Promise<SyncState>;
   nextOutbox?(graphHandle: string): Promise<OutboxMessage | null>;
   acknowledgeOutbox?(graphHandle: string, messageId: string): Promise<void>;
-  importRemote?(graphHandle: string, bytes: number[]): Promise<SavedReceipt>;
+  importRemote?(graphHandle: string, bytes: number[]): Promise<RemoteReceipt>;
   replaceRemote?(
     graphHandle: string,
     checkpoint: number[] | ArrayBuffer,
@@ -92,7 +102,6 @@ export interface SessionPort extends CorePort {
 
 type ReconcileScope =
   | { kind: "summary" }
-  | { kind: "outline"; owner: OutlineOwner }
   | { kind: "outlines"; owners: readonly OutlineOwner[] }
   | { kind: "all-hydrated-outlines" };
 
@@ -100,6 +109,7 @@ export class GraphSession {
   private state: SessionState;
   private handle = "";
   private cursor = 0;
+  private needsReconcile = false;
   private lease: Lease | null = null;
   private opening: Promise<void> | null = null;
   private closing: Promise<void> | null = null;
@@ -126,6 +136,7 @@ export class GraphSession {
       error: null,
       revision: 0,
       canonicalRevision: 0,
+      lastChange: null,
       hydratedOutlines: new Set(),
       sync: remote ? { kind: "pending", count: 0 } : { kind: "local" },
       live: remote ? "connecting" : "local",
@@ -211,6 +222,17 @@ export class GraphSession {
     return tracked;
   }
 
+  /** Lowers an ephemeral edit only after earlier canonical changes are published. */
+  executePrepared(prepare: () => Command | null): Promise<CommandResult | null> {
+    const tracked = this.queue.then(async () => {
+      await this.ensureCurrent();
+      const command = prepare();
+      return command ? this.executeNow(command) : null;
+    });
+    this.queue = tracked.catch(() => undefined);
+    return tracked;
+  }
+
   async refreshCapabilities(): Promise<void> {
     if (this.state.status !== "ready" || !this.port.storageCapabilities) return;
     const handle = this.handle;
@@ -261,7 +283,13 @@ export class GraphSession {
 
   /** Executes against the published derived index after prior mutations settle. */
   query(query: AuthoredQueryRequest): Promise<SparqlQueryResult> {
-    return this.queue.then(async () => {
+    return this.queryFrame(query).then((frame) => frame.result);
+  }
+
+  queryFrame(query: AuthoredQueryRequest): Promise<QueryFrame> {
+    const request = structuredClone(query);
+    const run = this.queue.then(async () => {
+      await this.ensureCurrent();
       if (this.state.status !== "ready") {
         throw new CorePortFailure({
           code: "graph_not_open",
@@ -269,9 +297,12 @@ export class GraphSession {
           retryable: false,
         });
       }
-      const response = await this.port.query({ graph_handle: this.handle, query });
-      return response.result;
+      const canonicalRevision = this.state.canonicalRevision;
+      const response = await this.port.query({ graph_handle: this.handle, query: request });
+      return { request, result: response.result, canonicalRevision };
     });
+    this.queue = run.catch(() => undefined);
+    return run;
   }
 
   close(): Promise<void> {
@@ -303,6 +334,7 @@ export class GraphSession {
   }
 
   private async executeNow(command: Command): Promise<CommandResult> {
+    await this.ensureCurrent();
     if (this.state.status !== "ready") {
       const error = new CorePortFailure({
         code: "graph_not_open",
@@ -322,6 +354,8 @@ export class GraphSession {
     // A command rejected before it applies leaves canonical state and the
     // save state it started from untouched, so remember that state here.
     const stableSave = this.state.save;
+    let applied: CommandResult | undefined;
+    let appliedSave = stableSave;
     this.patch({ save: { kind: "saving" } });
     try {
       const response = await this.port.execute({
@@ -329,77 +363,78 @@ export class GraphSession {
         command: envelope(this.graphId, command),
         timeout_ms: COMMAND_TIMEOUT_MS,
       });
-      const save: SaveState =
-        response.save_status.status === "saved_locally"
-          ? { kind: "saved", sequence: response.save_status.local_sequence }
-          : stableSave;
-      const changed = response.save_status.status === "saved_locally";
       const result = response.result;
-      if (!changed) {
-        // Duplicate replays and semantic no-ops carry useful cached result
-        // metadata, but cannot invalidate any canonical client projection.
-        this.patch({ save });
-        await this.syncAgent?.wake();
+      const status = response.save_status;
+      if (status.status === "unchanged") {
+        this.patch({ save: stableSave });
         return result;
       }
-      const content = contentSplices(command);
-      const patched =
-        content && changed
-          ? applyAcknowledgedContentSplices(this.state.snapshot, content.owner, content.splices)
-          : content
-            ? this.state.snapshot
-            : null;
-      if (patched && (await this.consumeLocalEvents())) {
-        this.patch({
-          snapshot: patched,
-          save,
-          revision: this.state.revision + Number(changed),
-          canonicalRevision: this.state.canonicalRevision + Number(changed),
-        });
-      } else {
-        await this.reconcile(save, commandReconcileScope(command, result), changed);
-      }
-      await this.syncAgent?.wake();
+      const save: SaveState =
+        status.status === "saved_locally"
+          ? { kind: "saved", sequence: status.local_sequence }
+          : { kind: "unsaved", ...status.error };
+      applied = result;
+      appliedSave = save;
+      await this.publishChanges(response.changes, save, result.command_id);
+      // Application and durability are independent outcomes. Structural hosts
+      // must acknowledge created identities even while exact bytes await retry.
+      if (status.status === "saved_locally") await this.syncAgent?.wake();
       return result;
     } catch (error) {
-      const detail = toPortError(error);
-      if (detail.code === "dirty_unsaved" || detail.code === "storage_full") {
-        // The command applied in memory but is not durable. Show the state
-        // and keep the exact bytes pending for retry.
-        await this.reconcile(
-          {
-            kind: "unsaved",
-            code: detail.code,
-            message: detail.message,
-            retryable: detail.retryable,
-          },
-          commandReconcileScope(command),
-          true,
-        );
-      } else {
-        this.patch({ save: stableSave });
-      }
-      throw new CorePortFailure(detail);
+      if (error instanceof CorePortFailure && error.applied) throw error;
+      this.patch({ save: appliedSave });
+      throw new CorePortFailure(toPortError(error), applied);
     }
+  }
+
+  private async publishChanges(
+    changes: GraphChanges,
+    save: SaveState,
+    commandId: string | null,
+  ): Promise<void> {
+    if (changes.kind === "content" && (await this.consumeLocalEvents())) {
+      this.patch({
+        snapshot: applyContentUpdates(this.state.snapshot, changes.blocks),
+        save,
+        revision: this.state.revision + 1,
+        canonicalRevision: this.state.canonicalRevision + 1,
+        lastChange: { commandId, changes },
+      });
+      return;
+    }
+    const scope: ReconcileScope =
+      changes.kind === "refresh" && changes.outlines !== null
+        ? { kind: "outlines", owners: changes.outlines }
+        : { kind: "all-hydrated-outlines" };
+    // A missed event invalidates the mapping from the client's old baseline.
+    // Refresh publications arrive through the serialized import/command path.
+    await this.reconcile(
+      save,
+      scope,
+      true,
+      changes.kind === "content" ? null : { commandId, changes },
+    );
   }
 
   private async retryNow(): Promise<void> {
     if (this.state.status !== "ready" || this.state.save.kind !== "unsaved") return;
     this.patch({ save: { kind: "saving" } });
+    let saved: SaveState | undefined;
     try {
       const receipt = await this.port.retryPending(this.handle);
-      await this.reconcile({ kind: "saved", sequence: receipt.local_sequence });
+      saved = { kind: "saved", sequence: receipt.local_sequence };
+      await this.reconcile(saved);
       await this.syncAgent?.wake();
     } catch (error) {
       const detail = toPortError(error);
-      this.patch({
-        save: {
-          kind: "unsaved",
-          code: detail.code,
-          message: detail.message,
-          retryable: detail.retryable,
-        },
-      });
+      // A later read or transport failure cannot revoke a durable receipt.
+      this.patch({ save: saved ?? { kind: "unsaved", ...detail } });
+    }
+  }
+
+  private async ensureCurrent(): Promise<void> {
+    if (this.needsReconcile) {
+      await this.reconcile(this.state.save, { kind: "all-hydrated-outlines" }, true);
     }
   }
 
@@ -407,8 +442,8 @@ export class GraphSession {
     const run = this.queue.then(async () => {
       const importRemote = this.port.importRemote;
       if (!importRemote) throw new Error("remote import is unavailable");
-      await importRemote.call(this.port, this.handle, bytes);
-      await this.reconcile(this.state.save, { kind: "all-hydrated-outlines" }, true);
+      const receipt = await importRemote.call(this.port, this.handle, bytes);
+      await this.publishChanges(receipt.changes, this.state.save, null);
     });
     this.queue = run.catch(() => undefined);
     return run;
@@ -474,7 +509,14 @@ export class GraphSession {
     save: SaveState,
     scope: ReconcileScope = { kind: "summary" },
     canonicalChanged = false,
+    lastChange: SessionState["lastChange"] = null,
   ): Promise<void> {
+    if (this.needsReconcile) {
+      scope = { kind: "all-hydrated-outlines" };
+      canonicalChanged = true;
+      lastChange = null;
+    }
+    this.needsReconcile = true;
     try {
       const batch = await this.port.subscribe({
         graph_handle: this.handle,
@@ -491,9 +533,7 @@ export class GraphSession {
         ? [...this.state.hydratedOutlines].map(parseOutlineKey)
         : scope.kind === "outlines"
           ? scope.owners.filter((owner) => this.state.hydratedOutlines.has(outlineOwnerKey(owner)))
-          : scope.kind === "outline"
-            ? [scope.owner]
-            : [];
+          : [];
     for (const owner of ownersToRead) {
       if (!outlineExists(snapshot, owner)) continue;
       const response = await this.port.readOutline({ graph_handle: this.handle, owner });
@@ -507,6 +547,7 @@ export class GraphSession {
     for (const owner of ownersToRead) {
       if (outlineExists(snapshot, owner)) hydratedOutlines.add(outlineOwnerKey(owner));
     }
+    this.needsReconcile = false;
     this.patch({
       snapshot,
       hydratedOutlines,
@@ -515,6 +556,7 @@ export class GraphSession {
       canonicalRevision: canonicalChanged
         ? this.state.canonicalRevision + 1
         : this.state.canonicalRevision,
+      lastChange: canonicalChanged ? lastChange : this.state.lastChange,
     });
   }
 
@@ -538,112 +580,6 @@ export class GraphSession {
   private patch(partial: Partial<SessionState>): void {
     this.state = { ...this.state, ...partial };
     for (const listener of this.listeners) listener();
-  }
-}
-
-function contentSplices(command: Command): {
-  owner: OutlineOwner;
-  splices: BlockContentSplice[];
-} | null {
-  switch (command.type) {
-    case "splice_block_content":
-      return { owner: command.owner, splices: [command] };
-    case "splice_block_contents":
-      return { owner: command.owner, splices: command.splices };
-    default:
-      return null;
-  }
-}
-
-function commandReconcileScope(command: Command, result?: CommandResult): ReconcileScope {
-  switch (command.type) {
-    case "batch":
-      // A batch deliberately crosses existing ownership boundaries. Re-read
-      // every mounted outline as well as the summary rather than guessing
-      // which of its independently valid steps dominates reconciliation.
-      return { kind: "all-hydrated-outlines" };
-    case "ensure_page":
-    case "rename_page":
-    case "delete_page":
-    case "restore_page":
-      return { kind: "outline", owner: { kind: "page", id: command.page_id } };
-    case "insert_block":
-    case "split_block":
-    case "merge_block_backward":
-    case "insert_outline":
-    case "paste_outline":
-    case "edit_markdown":
-    case "splice_markdown":
-    case "splice_markdowns":
-    case "splice_block_content":
-    case "splice_block_contents":
-    case "move_blocks":
-    case "indent_blocks":
-    case "outdent_blocks":
-    case "delete_blocks":
-      return { kind: "outline", owner: command.owner };
-    case "add_tag":
-    case "remove_tag":
-      return {
-        kind: "outline",
-        owner:
-          command.entity.kind === "block"
-            ? command.entity.owner
-            : { kind: "page", id: command.entity.id },
-      };
-    case "ensure_property":
-    case "set_property":
-    case "set_properties":
-    case "clear_property_values":
-    case "remove_property":
-    case "add_repeated_property":
-    case "remove_repeated_property":
-      return command.owner.kind === "tag" || command.owner.kind === "tag_default"
-        ? { kind: "summary" }
-        : {
-            kind: "outline",
-            owner:
-              command.owner.kind === "block"
-                ? command.owner.owner
-                : { kind: "page", id: command.owner.id },
-          };
-    case "set_query_source":
-    case "splice_query_source":
-    case "set_query_plan":
-    case "put_query_view":
-    case "remove_query_view":
-    case "set_query_default_view":
-      return command.owner.kind === "tag" || command.owner.kind === "graph_default"
-        ? { kind: "summary" }
-        : {
-            kind: "outline",
-            owner:
-              command.owner.kind === "block"
-                ? command.owner.owner
-                : { kind: "page", id: command.owner.id },
-          };
-    case "create_default_query":
-    case "rename_default_query":
-    case "move_default_query":
-    case "delete_default_query":
-      return { kind: "summary" };
-    case "ensure_journal":
-      return result?.created_page
-        ? { kind: "outline", owner: { kind: "page", id: result.created_page } }
-        : { kind: "summary" };
-    case "delete_tag":
-      return { kind: "all-hydrated-outlines" };
-    case "undo":
-    case "redo":
-      if (!result) return { kind: "all-hydrated-outlines" };
-      if (!result.history_effect) {
-        throw new Error("changed history command omitted its effect");
-      }
-      return { kind: "outlines", owners: result.history_effect.affected_outlines };
-    case "ensure_tag":
-    case "rename_tag":
-    case "restore_tag":
-      return { kind: "summary" };
   }
 }
 
@@ -701,7 +637,7 @@ function accessFor(
 type RequiredSyncPort = SessionPort &
   SyncAgentPort & {
     configureSync(graphHandle: string): Promise<void>;
-    importRemote(graphHandle: string, bytes: number[]): Promise<SavedReceipt>;
+    importRemote(graphHandle: string, bytes: number[]): Promise<RemoteReceipt>;
     replaceRemote(
       graphHandle: string,
       checkpoint: number[] | ArrayBuffer,

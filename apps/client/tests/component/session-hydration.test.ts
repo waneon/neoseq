@@ -143,6 +143,7 @@ describe("outline hydration", () => {
       index: 0,
       markdown: "Before",
     });
+    await session.hydratePage("home");
     port.readOwners.length = 0;
     port.summaryReads = 0;
 
@@ -157,6 +158,43 @@ describe("outline hydration", () => {
 
     expect(port.summaryReads).toBe(0);
     expect(port.readOwners).toEqual([]);
+    const page = findPage(session.getState().snapshot, "home");
+    expect(page && findBlock(page, inserted.created_block!)?.markdown).toBe("After");
+    await session.close();
+  });
+
+  it("keeps structural and content writes to an unhydrated owner as demand reads", async () => {
+    const port = new TrackingCorePort();
+    const session = new GraphSession("unhydrated-write-test", port);
+    await session.open();
+    await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
+    const inserted = await session.execute({
+      type: "insert_block",
+      owner: { kind: "page", id: "home" },
+      parent: null,
+      index: 0,
+      markdown: "Before",
+    });
+    expect(port.readOwners).toEqual([]);
+    expect(findPage(session.getState().snapshot, "home")?.blocks).toEqual([]);
+    expect(session.getState().hydratedOutlines.has("page:home")).toBe(false);
+    port.summaryReads = 0;
+
+    await session.execute({
+      type: "splice_block_content",
+      owner: { kind: "page", id: "home" },
+      block_id: inserted.created_block!,
+      index: 0,
+      delete: 6,
+      insert: [{ type: "markdown", value: "After" }],
+    });
+    expect(port.summaryReads).toBe(0);
+    expect(port.readOwners).toEqual([]);
+    expect(findPage(session.getState().snapshot, "home")?.blocks).toEqual([]);
+    expect(session.getState().hydratedOutlines.has("page:home")).toBe(false);
+
+    await session.hydratePage("home");
+    expect(port.readOwners).toEqual(["page:home"]);
     const page = findPage(session.getState().snapshot, "home");
     expect(page && findBlock(page, inserted.created_block!)?.markdown).toBe("After");
     await session.close();

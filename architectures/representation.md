@@ -13,9 +13,8 @@ Command intent
     -> deterministic Projection + typed conflicts
     -> disposable indexes and UI views
 
-Raw SPARQL ---------\
-                     -> LogicalQuery -> budgeted execution
-Builder QueryPlan --/
+Raw SPARQL -> LogicalQuery -> generic typed bindings
+Builder QueryPlan -> entity selection + typed value vectors | summary groups
 ```
 
 ## Canonical State
@@ -99,17 +98,42 @@ than independent interpretations of the causal document.
 
 ## Query Representation
 
-The query builder persists a versioned typed `QueryPlan`; advanced input may
-provide raw SPARQL. Both are source forms and compile once to `LogicalQuery`,
-the only representation validated, budgeted, and executed. Generated SPARQL is
-an explanation or compatibility artifact, never a second semantic authority.
-Bindings remain typed values and enter algebraically rather than through text
-substitution.
+The query builder persists a versioned typed `QueryPlan` with explicit entity or
+summary grain. Entity execution selects and limits identities before extracting
+repeated fields as typed vectors. Summary execution groups and aggregates with
+no editable entity identity. Switching renderer does not change the question.
+Raw SPARQL remains a separate generic binding surface. Both paths share the
+budgeted relational evaluator; generated source is explanatory, not executable
+authority for typed entity extraction.
+
+A built answer carries stable column IDs, authored provenance, typed values,
+and optional subject identity directly. A request, its answer, and its actual
+canonical revision form one frame; the current editor plan is not an answer's
+schema. Variable spellings and text separators carry no product meaning.
 
 The RDF store and text accelerators are frontier-keyed projections. They may be
 dropped and rebuilt from the graph document without losing information. Their
 invalidation is either a full rebuild or a set of affected publication units;
 an incremental delta gives each unit exactly one upsert-or-remove state.
+
+## Ephemeral Editing
+
+One graph-scoped content session identifies an outline owner and block. Its
+buffer stores semantic source atoms and ordered source or insertion pieces;
+untouched source ranges retain identity. Markdown and page-reference spans are
+projections at display, native input, and clipboard boundaries.
+
+The core publishes final content plus actual sequential position mappings.
+Local input composes into the buffer, canonical changes rebase it, and a write
+lowers inside the session queue after earlier changes publish. Neither a second
+surface nor a new page title creates a second editing baseline. Focus, IME
+composition, selection, completion, and pending tree structure remain transient
+surface concerns.
+
+Creation identities still belong to the CRDT tree. A pending structural row is
+an explicit temporary projection until the core supplies its created identity;
+changing durable IDs solely to eliminate that handoff would add a migration and
+alias authority without removing the structural transaction boundary.
 
 ## Limits and Failure
 

@@ -1,5 +1,5 @@
 import { CORE_PORT_VERSION } from "./generated/core-port";
-import type { CommandEnvelope, OpenGraphRequest } from "./generated/core-port";
+import type { CommandEnvelope, OpenGraphRequest, ExecuteResponse } from "./generated/core-port";
 import { SCHEMA_VERSION } from "./generated/graph-schema";
 import golden from "../../../fixtures/core-port/current.json";
 import { CorePortFailure } from "./core-worker";
@@ -62,6 +62,18 @@ async function expectCode(
     return error.detail;
   }
   throw new Error(`expected ${code} failure`);
+}
+
+async function expectAppliedUnsaved(action: Promise<ExecuteResponse>, code: string) {
+  const response = await action;
+  assert(
+    response.save_status.status === "unsaved",
+    "applied mutation must retain its unsaved outcome",
+  );
+  assert(response.save_status.error.code === code, `expected unsaved ${code}`);
+  assert(response.result.created_page, "unsaved mutation lost its applied result");
+  assert(response.changes.kind === "refresh", "unsaved mutation lost its publication");
+  return response.save_status.error;
 }
 
 export async function runIndexedDbPersistenceCorpus() {
@@ -313,6 +325,36 @@ export async function runWorkerCorePortCorpus() {
     (outline.outline as { owner: { id: string } }).owner.id === "home",
     "worker outline read returned the wrong owner",
   );
+  const built = await worker.query({
+    graph_handle: opened.graph_handle,
+    query: {
+      kind: "built",
+      plan: {
+        version: 2,
+        grain: "entity",
+        subject: "page",
+        where: { id: "root", kind: "group", match: "all", children: [] },
+        columns: [{ id: "text", source: { kind: "content" } }],
+        limit: 100,
+      },
+      today: "2026-08-03",
+    },
+  });
+  assert(golden.transcript.query === "built_entity_result", "golden query result changed");
+  assert(
+    built.result.kind === "built" && built.result.grain === "entity",
+    "built answer lost its grain",
+  );
+  assert(
+    built.result.rows.length === 1 &&
+      built.result.rows[0].subject?.kind === "page" &&
+      built.result.rows[0].subject.id === "home",
+    "built answer lost canonical subject identity",
+  );
+  assert(
+    built.result.columns[0].id === "text" && Array.isArray(built.result.rows[0].values.text),
+    "built answer lost its descriptor or typed value vector",
+  );
   const queried = await worker.query({
     graph_handle: opened.graph_handle,
     query: {
@@ -378,7 +420,7 @@ export async function runIndexedDbFaultCorpus() {
   const after = new TestCoreWorker();
   const afterOpen = await after.openGraph(openRequest(afterGraph, 221));
   await after.injectFault(afterOpen.graph_handle, "append_after");
-  await expectCode(
+  await expectAppliedUnsaved(
     after.execute({
       graph_handle: afterOpen.graph_handle,
       command: ensurePage(afterGraph, "after-commit", "after"),
@@ -455,7 +497,7 @@ export async function runIndexedDbFaultCorpus() {
   const abortWorker = new TestCoreWorker();
   const abortOpen = await abortWorker.openGraph(openRequest(abortGraph, 241));
   await abortWorker.injectFault(abortOpen.graph_handle, "quota");
-  await expectCode(
+  await expectAppliedUnsaved(
     abortWorker.execute({
       graph_handle: abortOpen.graph_handle,
       command: ensurePage(abortGraph, "quota", "quota"),
@@ -476,7 +518,7 @@ export async function runIndexedDbFaultCorpus() {
   const transactionWorker = new TestCoreWorker();
   const transactionOpen = await transactionWorker.openGraph(openRequest(transactionGraph, 245));
   await transactionWorker.injectFault(transactionOpen.graph_handle, "abort");
-  const aborted = await expectCode(
+  const aborted = await expectAppliedUnsaved(
     transactionWorker.execute({
       graph_handle: transactionOpen.graph_handle,
       command: ensurePage(transactionGraph, "abort", "abort"),
@@ -621,7 +663,13 @@ export async function runRemoteOutboxCorpus() {
   const replacedStats = await writer.storageStats(graph);
   assert(replacedStats.update_count === 1, "rebased intent was not normalized to one tail row");
   assert(replacedStats.outbox_bytes === 0, "rebased outbox duplicated its tail payload");
-  await writer.importRemote(opened.graph_handle, serverTail);
+  const imported = await writer.importRemote(opened.graph_handle, serverTail);
+  assert(imported.status === "saved_locally", "remote import lost its durability receipt");
+  assert(imported.changes.kind === "refresh", "remote import lost its authoritative publication");
+  assert(
+    imported.changes.outlines?.some((owner) => owner.kind === "page" && owner.id === "server-page"),
+    "remote import lost its affected outline",
+  );
   const resynced = await writer.read({ graph_handle: opened.graph_handle });
   assert(
     (resynced.summary as Snapshot).pages.length === 2,

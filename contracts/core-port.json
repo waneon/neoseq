@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Neoseq CorePort v4",
-  "contractVersion": 4,
+  "title": "Neoseq CorePort v5",
+  "contractVersion": 5,
   "semanticEvents": [
     "CommandDeduplicated",
     "PageEnsured",
@@ -30,7 +30,7 @@
     "LocalRedo"
   ],
   "queryPlan": {
-    "version": 1,
+    "version": 2,
     "limitMax": 1000,
     "anyOfMax": 32,
     "conditionMax": 64,
@@ -41,6 +41,7 @@
     "open_graph.response.summary": "GraphSummary",
     "execute.request.command": "CommandEnvelope",
     "execute.response.result": "CommandResult",
+    "execute.response.changes": "GraphChanges",
     "read.response.summary": "GraphSummary",
     "read_outline.request.owner": "OutlineOwner",
     "read_outline.response.outline": "OutlineSnapshot"

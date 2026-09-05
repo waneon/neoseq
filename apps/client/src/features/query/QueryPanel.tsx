@@ -59,7 +59,11 @@ import {
   Table2Icon,
   Trash2Icon,
 } from "lucide-react";
-import type { AuthoredQueryRequest, QueryEntityRef } from "../../generated/core-port";
+import type {
+  AuthoredQueryRequest,
+  QueryEntityRef,
+  SparqlQueryResult,
+} from "../../generated/core-port";
 import type { Command, QueryOwnerRef } from "../../core-port/commands";
 import type {
   OutlineOwner,
@@ -89,7 +93,7 @@ import { newQueryDocument } from "../../entities/query-document";
 import { isSettledStatus, TASK_STATUS_KEY } from "../../entities/tasks";
 import { taskMomentDue } from "../tasks/moment-presentation";
 import { canonicalEntityName, nextAvailableEntityName } from "../../entities/names";
-import { isCompilerVariable, planProjection, QUERY_LANGUAGE } from "../../entities/query-compile";
+import { QUERY_LANGUAGE } from "../../entities/query-compile";
 import {
   inferOrderSemantics,
   orderSemanticsForColumn,
@@ -98,7 +102,6 @@ import {
 import {
   columnSourceKey,
   columnSourcesFor,
-  columnVariable,
   decodePlan,
   encodePlan,
   graphPropertyKeys,
@@ -107,7 +110,6 @@ import {
   QUERY_PLAN_VERSION,
   withColumn,
   withoutColumn,
-  type PlanColumn,
   type QueryPlan,
 } from "../../entities/query-plan";
 import { useNotify } from "../notify/context";
@@ -261,7 +263,7 @@ function QueryPanelSurface({
   // A tab change is synchronous identity change. Until the effect adopts its
   // saved draft, render the incoming definition directly so one view can never
   // execute or save the previous view's plan for even a frame.
-  const plan = draft.viewId === activeView.id ? draft.plan : incomingPlan;
+  const plan = unsupportedPlan ? null : draft.viewId === activeView.id ? draft.plan : incomingPlan;
   const viewExecutionKey = JSON.stringify([executionKey, activeView.id]);
   // The editor opens for a query that has not been written yet and stays shut for
   // one that has: a query with no conditions has nothing to say about itself, so
@@ -310,15 +312,6 @@ function QueryPanelSurface({
     setLocalTableSorts([]);
     setLocalListSorts([]);
   }, [incomingPlanRef, session.graphId, viewExecutionKey]);
-  // Renderer identity decides this path, not the shape of the last response.
-  // In particular, a table aggregate may omit q_subject; that must never turn a
-  // block list back into a query-cell list while its own request is in flight.
-  const canonicalBlockView = activeView.kind === "list" && plan?.subject === "block";
-
-  const projection = useMemo(
-    () => (plan ? planProjection(plan, canonicalBlockView ? "entities" : "view") : null),
-    [canonicalBlockView, plan],
-  );
   const today = useMemo(() => todayLocalDate(), [state.snapshot.graph_id]);
   // A built query runs from the plan in hand, so a result follows an edit
   // without waiting for the write that persists it. Without a plan there is only
@@ -338,7 +331,6 @@ function QueryPanelSurface({
             kind: "built",
             plan,
             today,
-            projection: canonicalBlockView ? "entities" : "view",
           }
         : unsupportedPlan
           ? null
@@ -347,13 +339,46 @@ function QueryPanelSurface({
               language: QUERY_LANGUAGE,
               source,
             },
-    [canonicalBlockView, plan, source, today, unsupportedPlan],
+    [plan, source, today, unsupportedPlan],
   );
-  const { result, error, loading, run } = useQueryAnswer(
+  const {
+    frame: incomingFrame,
+    error: incomingError,
+    loading,
+    run,
+  } = useQueryAnswer(
     viewExecutionKey,
     request,
     unsupportedPlan ? message("query.unsupportedPlan") : null,
   );
+  const resultEditor = useQueryResultEditor({
+    session,
+    state,
+    // Edit authority comes from the displayed row and its descriptor. A newer
+    // answer must not cancel an editor that still owns an unsaved target.
+    enabled: !readonly,
+    message,
+  });
+  const displayedFrame = useRef(incomingFrame);
+  const holdFrame = Boolean(
+    resultEditor.active &&
+    displayedFrame.current &&
+    (incomingError ||
+      answerDescriptor(displayedFrame.current.result) !==
+        answerDescriptor(incomingFrame?.result ?? null)),
+  );
+  // Membership refreshes can pin a removed row. A changed descriptor instead
+  // keeps the complete old frame until its editor settles, so old values never
+  // acquire the field meaning or authority of a newer question.
+  if (!holdFrame) displayedFrame.current = incomingFrame;
+  const frame = displayedFrame.current;
+  const error = holdFrame ? null : incomingError;
+  const result = frame?.result ?? null;
+  const canonicalBlockView =
+    activeView.kind === "list" &&
+    result?.kind === "built" &&
+    result.grain === "entity" &&
+    result.subject === "block";
 
   const execute = (command: (target: QueryOwnerRef) => Command): Promise<void> =>
     session.execute(command(owner)).then(() => undefined);
@@ -421,10 +446,10 @@ function QueryPanelSurface({
     storedPayload,
   ]);
 
-  const select = result?.kind === "select" ? result : null;
+  const select = result && result.kind !== "ask" ? result : null;
   const columns = useMemo(
-    () => (select ? resultColumns(select, plan, activeView, message) : []),
-    [select, activeView, plan, message],
+    () => (select ? resultColumns(select, activeView, message) : []),
+    [select, activeView, message],
   );
   /** Where a row states its own task status, which is what settles a moment. */
   const statusVariable = columns.find(
@@ -444,7 +469,7 @@ function QueryPanelSurface({
    */
   const momentDue = useCallback(
     (date: string, time: string | undefined, row: ResultRow) => {
-      const status = statusVariable ? row[statusVariable] : undefined;
+      const status = statusVariable ? row[statusVariable]?.[0] : undefined;
       return taskMomentDue({
         date,
         time,
@@ -463,7 +488,6 @@ function QueryPanelSurface({
   const cellContext = useMemo<CellContext>(
     () => ({
       snapshot: state.snapshot,
-      subjectVariable: projection?.subjectVariable ?? null,
       message,
       formatDate: formatJournalDate,
       formatTime: formatTimeOfDay,
@@ -473,29 +497,10 @@ function QueryPanelSurface({
         history.open(entity);
       },
     }),
-    [
-      state.snapshot,
-      projection?.subjectVariable,
-      message,
-      formatJournalDate,
-      formatTimeOfDay,
-      compare,
-      momentDue,
-      history,
-    ],
+    [state.snapshot, message, formatJournalDate, formatTimeOfDay, compare, momentDue, history],
   );
 
-  const resultEditor = useQueryResultEditor({
-    session,
-    state,
-    enabled: Boolean(plan && projection?.subjectVariable) && !readonly,
-    message,
-  });
-
-  const resultRows = useMemo(
-    () => resultViewRows((select?.rows ?? []) as ResultRow[], cellContext),
-    [select, cellContext],
-  );
+  const resultRows = useMemo(() => (select ? resultViewRows(select) : []), [select]);
   const resultBlockOwners = useMemo(
     () =>
       [
@@ -543,13 +548,14 @@ function QueryPanelSurface({
     return stored.filter((sort) => orderableVariables.has(sort.variable));
   }, [activeView.options.sort, columns, localTableSorts, canEditCurrentView]);
   const listSortFields = useMemo<ListSortField[]>(() => {
-    if (!plan || plan.subject !== "block") return [];
-    return queryFieldsFor(plan.subject, graphPropertyKeys(state.snapshot)).map((field) => ({
+    if (result?.kind !== "built" || result.grain !== "entity" || result.subject !== "block")
+      return [];
+    return queryFieldsFor(result.subject, graphPropertyKeys(state.snapshot)).map((field) => ({
       id: queryFieldId(field),
       field,
       ordering: orderSemanticsForField(field),
     }));
-  }, [plan, state.snapshot]);
+  }, [result, state.snapshot]);
   const listSorts = useMemo(() => {
     const stored = canEditCurrentView ? (activeView.options.list_sort ?? []) : localListSorts;
     const orderableFields = new Set(listSortFields.map((field) => field.id));
@@ -572,7 +578,7 @@ function QueryPanelSurface({
     () => orderBlockRows(resultAndPinnedRows, listSorts, listSortFields, cellContext),
     [cellContext, listSortFields, listSorts, resultAndPinnedRows],
   );
-  const visibleRows = activeView.kind === "list" ? listRows : tableRows;
+  const visibleRows = canonicalBlockView ? listRows : tableRows;
 
   // The plan read back as a phrase, following the plan in hand rather than the
   // saved one so it tracks the builder keystroke for keystroke. It is no longer
@@ -593,6 +599,12 @@ function QueryPanelSurface({
   if (!document && !seedPlan) return null;
 
   const report = (cause: unknown) => notify.failure(message("failure.saveQuery"), cause);
+
+  const settleResultEditor = async (): Promise<boolean> => {
+    if (resultEditor.active?.phase === "markdown") return resultEditor.commit(true);
+    if (resultEditor.active) resultEditor.cancel();
+    return true;
+  };
 
   const definitionInHand = plan
     ? ({
@@ -628,11 +640,12 @@ function QueryPanelSurface({
 
   const selectView = (viewId: string) => {
     if (viewId === activeView.id) return;
-    if (!canManageViews) {
-      setLocalViewId(viewId);
-      return;
-    }
     void (async () => {
+      if (!(await settleResultEditor())) return;
+      if (!canManageViews) {
+        setLocalViewId(viewId);
+        return;
+      }
       await flushDefinition();
       await writeViewCollection((target) => ({
         type: "set_query_default_view",
@@ -644,6 +657,12 @@ function QueryPanelSurface({
 
   const putCurrentView = async (next: QueryView): Promise<boolean> => {
     try {
+      const hidesColumn = next.columns.some(
+        (column) =>
+          column.hidden &&
+          !activeView.columns.find((current) => current.variable === column.variable)?.hidden,
+      );
+      if (hidesColumn && !(await settleResultEditor())) return false;
       if (binding.kind === "managed") await materialize();
       await writeCurrentView((target) => ({
         type: "put_query_view",
@@ -682,6 +701,7 @@ function QueryPanelSurface({
     const position = views.reduce((highest, view) => Math.max(highest, view.position), -1) + 1;
     const definition = definitionInHand;
     void (async () => {
+      if (!(await settleResultEditor())) return;
       await flushDefinition();
       await writeViewCollectionBatch((target) => [
         {
@@ -714,6 +734,7 @@ function QueryPanelSurface({
     const position = views.reduce((highest, item) => Math.max(highest, item.position), -1) + 1;
     const definition = view.id === activeView.id ? definitionInHand : view.definition;
     void (async () => {
+      if (!(await settleResultEditor())) return;
       if (view.id === activeView.id) await flushDefinition();
       else await materialize();
       await writeViewCollectionBatch((target) => [
@@ -754,6 +775,7 @@ function QueryPanelSurface({
   const removeView = (view: QueryView) => {
     if (views.length <= 1) return;
     void (async () => {
+      if (view.id === activeView.id && !(await settleResultEditor())) return;
       await materialize();
       await writeViewCollection((target) => ({
         type: "remove_query_view",
@@ -808,7 +830,8 @@ function QueryPanelSurface({
    * A list has nothing to choose between — it draws canonical entities, not a
    * grid — so it has no panel and does not participate in this projection.
    */
-  const choosesColumns = activeView.kind === "table" && canEditDefinition && plan !== null;
+  const choosesColumns =
+    activeView.kind === "table" && canEditDefinition && plan?.grain === "entity";
   const choices =
     choosesColumns && plan
       ? columnChoices(
@@ -816,7 +839,7 @@ function QueryPanelSurface({
           plan.columns,
           new Set(
             plan.columns
-              .filter((column) => hidden.has(columnVariable(column)))
+              .filter((column) => hidden.has(column.id))
               .map((column) => columnSourceKey(column.source)),
           ),
           plan.subject,
@@ -862,9 +885,17 @@ function QueryPanelSurface({
    * flag is what turns a seed nobody has touched into a document; the write
    * itself is the debounced one above.
    */
-  const changePlan = (next: QueryPlan) => {
+  const changePlan = async (next: QueryPlan): Promise<boolean> => {
+    if (
+      plan &&
+      JSON.stringify([plan.grain, plan.subject, plan.columns]) !==
+        JSON.stringify([next.grain, next.subject, next.columns]) &&
+      !(await settleResultEditor())
+    )
+      return false;
     shaped.current = true;
     setDraft({ viewId: activeView.id, plan: next });
+    return true;
   };
 
   /**
@@ -872,25 +903,25 @@ function QueryPanelSurface({
    * table draws it. Because every view owns its own query definition, turning a
    * column off can remove it from this plan without consulting any sibling view.
    */
-  const toggleColumn = (choice: ColumnChoice, shown: boolean) => {
+  const toggleColumn = async (choice: ColumnChoice, shown: boolean) => {
     if (!plan) return;
     const existing = choice.column;
     if (shown) {
       if (!existing) {
-        changePlan(withColumn(plan, choice.source));
+        await changePlan(withColumn(plan, choice.source));
         return;
       }
-      const variable = columnVariable(existing);
+      const variable = existing.id;
       if (hidden.has(variable)) void setColumn(variable, { hidden: false });
       return;
     }
     if (!existing) return;
-    const variable = columnVariable(existing);
+    const variable = existing.id;
     // The last column standing is not a switch a reader can throw, and the panel
     // says so; the plan refuses it too rather than trusting that it does.
     const next = withoutColumn(plan, existing.id);
     if (next === plan) return;
-    changePlan(next);
+    if (!(await changePlan(next))) return;
     // The view's record of a column the query no longer has is not a memory of
     // anything, so it goes with it.
     if (activeView.columns.some((column) => column.variable === variable)) {
@@ -949,28 +980,26 @@ function QueryPanelSurface({
   const setOption = (patch: Partial<QueryView["options"]>) =>
     putCurrentView({ ...activeView, options: { ...activeView.options, ...patch } });
 
-  const sortOptions =
-    activeView.kind === "list"
-      ? (canonicalBlockView ? listSortFields : []).map((descriptor) => ({
-          key: descriptor.id,
-          label: fieldLabel(descriptor.field, "block", message),
-        }))
-      : columns.flatMap((column) =>
-          column.sortable ? [{ key: column.variable, label: column.label }] : [],
-        );
-  const sortEntries: SortControlEntry[] =
-    activeView.kind === "list"
-      ? listSorts.map((sort) => ({ key: sort.field, descending: sort.descending }))
-      : tableSorts.map((sort) => ({ key: sort.variable, descending: sort.descending }));
+  const sortOptions = canonicalBlockView
+    ? listSortFields.map((descriptor) => ({
+        key: descriptor.id,
+        label: fieldLabel(descriptor.field, "block", message),
+      }))
+    : columns.flatMap((column) =>
+        column.sortable ? [{ key: column.variable, label: column.label }] : [],
+      );
+  const sortEntries: SortControlEntry[] = canonicalBlockView
+    ? listSorts.map((sort) => ({ key: sort.field, descending: sort.descending }))
+    : tableSorts.map((sort) => ({ key: sort.variable, descending: sort.descending }));
   const setSortEntries = (next: SortControlEntry[]) => {
-    if (activeView.kind === "list") {
+    if (canonicalBlockView) {
       setListSorts(next.map((sort) => ({ field: sort.key, descending: sort.descending })));
     } else {
       setTableSorts(next.map((sort) => ({ variable: sort.key, descending: sort.descending })));
     }
   };
 
-  const resultLabel = answerLabel({ result, error, loading, run }, visibleRows.length, message);
+  const resultLabel = answerLabel({ frame, error, loading, run }, visibleRows.length, message);
   const resultCanCollapse = Boolean(
     error || result?.kind === "ask" || (select && visibleRows.length > 0),
   );
@@ -1373,43 +1402,51 @@ function unwritten(plan: QueryPlan | null): boolean {
 }
 
 /**
- * The result's columns, told apart by the plan that asked for them. A variable
- * the plan does not know — a plan-less document, or one the builder has since
- * changed — still gets a column, named after itself.
+ * The executed descriptor owns column meaning for as long as its answer is
+ * visible. A draft may already ask another question while this frame remains.
  */
-function resultColumns(
-  select: { variables: string[]; rows: ResultRow[] },
-  plan: QueryPlan | null,
+function answerDescriptor(result: SparqlQueryResult | null): string {
+  if (result?.kind === "built") {
+    return JSON.stringify([result.kind, result.grain, result.subject, result.columns]);
+  }
+  return JSON.stringify(
+    result?.kind === "select" ? [result.kind, result.variables] : (result?.kind ?? null),
+  );
+}
+
+export function resultColumns(
+  select: Exclude<SparqlQueryResult, { kind: "ask" }>,
   view: QueryView,
   message: ReturnType<typeof useI18n>["message"],
 ): ResultColumn[] {
-  const planned = new Map<string, PlanColumn>();
-  if (plan) for (const column of plan.columns) planned.set(columnVariable(column), column);
   const widths = new Map(view.columns.map((column) => [column.variable, column.width]));
-  // What the compiler selected for itself is carried, not shown: row identity,
-  // which is what a text cell links to, and the time of day that refines a
-  // moment's column. Neither is ever a column, whether or not *this* plan still
-  // carries one — a plan that has just gained a summary drops the subject, and
-  // the answer it drops it from is on screen until the next one lands. A
-  // hand-written query keeps every variable it selected: they are its own.
-  return select.variables
-    .filter((variable) => !(plan && isCompilerVariable(variable)))
-    .map((variable) => {
-      const column = planned.get(variable);
-      const ordering = column
-        ? orderSemanticsForColumn(column)
-        : inferOrderSemantics(select.rows.map((row) => row[variable]));
+  if (select.kind === "built") {
+    return select.columns.map((column) => {
+      const ordering = orderSemanticsForColumn(column);
       return {
-        variable,
-        label: column && plan ? columnLabel(column, plan.subject, message) : `?${variable}`,
-        source: column?.source,
-        aggregate: column?.aggregate,
+        variable: column.id,
+        label: columnLabel(column, select.subject, message),
+        source: column.source,
+        aggregate: column.aggregate,
+        timeColumn: column.time_column,
         ordering,
-        sortable: ordering.kind !== "unsupported_list",
+        sortable: true,
         numeric: ordering.kind === "number",
-        width: widths.get(variable) ?? null,
+        width: widths.get(column.id) ?? null,
       };
     });
+  }
+  return select.variables.map((variable) => {
+    const ordering = inferOrderSemantics(select.rows.map((row) => row[variable]));
+    return {
+      variable,
+      label: `?${variable}`,
+      ordering,
+      sortable: true,
+      numeric: ordering.kind === "number",
+      width: widths.get(variable) ?? null,
+    };
+  });
 }
 
 /** The reader's order first; anything the view has never seen keeps its place. */

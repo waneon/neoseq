@@ -69,8 +69,8 @@ describe("query column ordering", () => {
     expect(orderSemanticsForColumn({ source: { kind: "sibling_index" } })).toEqual({
       kind: "number",
     });
-    expect(orderSemanticsForColumn({ source: { kind: "tags" }, aggregate: "list" })).toEqual({
-      kind: "unsupported_list",
+    expect(orderSemanticsForColumn({ source: { kind: "tags" } })).toEqual({
+      kind: "entity_label",
     });
   });
 
@@ -123,8 +123,8 @@ describe("query column ordering", () => {
     const row = (key: string, group: string, rank: string): ResultViewRow => ({
       key,
       values: {
-        group: string(group),
-        rank: { kind: "literal", value: rank, datatype: `${XSD}integer` },
+        group: [string(group)],
+        rank: [{ kind: "literal", value: rank, datatype: `${XSD}integer` }],
       },
     });
     const rows = [row("b", "B", "3"), row("a1", "A", "1"), row("a2", "A", "2")];
@@ -141,6 +141,31 @@ describe("query column ordering", () => {
       ).map((item) => item.key),
     ).toEqual(["a2", "a1", "b"]);
     expect(rows.map((item) => item.key)).toEqual(["b", "a1", "a2"]);
+  });
+
+  it("keeps unknown ranked values last when descending vector cells are compared", () => {
+    const column: ResultColumn = {
+      variable: "priority",
+      label: "Priority",
+      source: { kind: "property", key: "builtin.task-priority" },
+      ordering: orderSemanticsForColumn({
+        source: { kind: "property", key: "builtin.task-priority" },
+      }),
+      sortable: true,
+      numeric: false,
+      width: null,
+    };
+    const rows: ResultViewRow[] = [
+      { key: "unknown", values: { priority: [string("urgent")] } },
+      { key: "high", values: { priority: [string("high")] } },
+      { key: "low", values: { priority: [string("low")] } },
+      { key: "missing", values: {} },
+    ];
+    expect(
+      orderResultRows(rows, [{ variable: "priority", descending: true }], [column], context).map(
+        (row) => row.key,
+      ),
+    ).toEqual(["high", "low", "missing", "unknown"]);
   });
 
   it("orders canonical blocks by a repeated field absent from the result projection", () => {

@@ -19,25 +19,49 @@ navigation or structural ownership.
   outline, query list, and query table hosts;
 - block completion modules own `/`, `#`, and `[[` token detection, ranking, token
   removal, and menu presentation; and
-- text diffs translate drafts to canonical inline-content splice payloads.
+- graph-scoped content sessions own semantic edits and their canonical settlement.
 
-For blocks containing semantic references, the same draft path uses an inline
-content projection: untouched reference spans map to one logical atom, while an
-edit through a span demotes it to readable source. Completion inserts a page
-atom through `splice_block_content`; surface hosts never manipulate Loro marks.
+One content session addresses an outline owner and block ID, independently of
+the surface displaying it. Its buffer is an immutable semantic source plus
+pieces that retain source ranges or insert authored atoms. A Unicode scalar and
+a page reference are each one atom. Markdown and reference offsets are derived
+from those pieces and the current page directory; renaming a page does not
+rewrite a draft. A native edit through a reference demotes only that reference
+to readable source. Completion inserts a page atom; hosts never manipulate Loro
+marks.
+
+The session consumes each canonical publication synchronously. It maps retained
+source ranges and native selection through the actual ordered edits supplied by
+the core, including remote edits and history. Equal final text does not imply
+equal edit history. Local deletions remove observed source atoms and preserve
+concurrent insertions. Native composition keeps its original input projection;
+canonical mappings accumulate until composition ends. A missing mapping across
+a changed dirty source, or deletion of its target, retains the draft and refuses
+to submit stale positions. Clean sources can be replaced directly.
+
+Submission lowers the current pieces inside the graph command queue, after
+preceding canonical publications. Separate text edits remain separate ordered
+splices in one atomic command and history unit. Settlement advances the source
+while preserving subsequent input. A rejected command restores its edits; an
+applied command whose local save failed remains applied. Idle clean buffers are
+released, while lightweight target identities live with the graph so native
+observers survive effect reattachment.
 
 Completion menus follow their focused editor through list, caret, and document
 scrolling. Reconciliation may replace the textarea, but the completion remains
 attached to the focused canonical editor until selection, outside press, or
 Escape closes it. Outline and query-result hosts share this interaction through
-the completion presentation. The shared anchored panel alone owns outside press
+the completion presentation. An outline completion addresses its surface and
+block identity; the panel resolves its current native anchor when measuring or
+checking detachment, including during pending-to-canonical adoption.
+The shared anchored panel alone owns outside press
 and overlay dismissal; host-level window listeners must not compete with it.
 
-An editor surface owns the draft session around that input. It reconciles a
-canonical `BlockSnapshot`, schedules or flushes writes, reports failure, and
-chooses the meaning of structural keys. All writes still use ordinary
-`GraphSession` commands; a query result never writes through the derived index.
-Both coordinators flush final debounced input when their route unmounts. Query
+A surface owns focus, composition boundaries, completion state, flush scheduling,
+failure presentation, and the meaning of structural keys. Its content comes from
+the shared target. All writes use ordinary `GraphSession` commands; a query
+result never writes through the derived index. Both coordinators flush final
+debounced input when their route unmounts. Query
 commits wait for an in-flight write before draining newer input or running
 document history; a failed write ends that drain and remains an explicit failure.
 Result switching and contextual pickers wait for the current draft to settle.
@@ -45,8 +69,8 @@ Semantic completion choices remain visibly unavailable while a prior write is
 pending or rejected; refusing them preserves the token and completion menu.
 Background drains pause at an open completion, while explicit blur, navigation,
 and history requests still flush the draft.
-Page completion uses the same save lifecycle as ordinary text; retries rebuild
-semantic commands from the canonical baseline and preserve newer local input.
+Page completion uses the same save lifecycle as ordinary text; retries lower
+the retained semantic pieces and preserve newer local input.
 Only editor activation assigns focus, so save notifications cannot reclaim focus
 from a subsequently requested control.
 
@@ -59,9 +83,15 @@ rebase with their half of the projection.
 
 Deleting a block boundary uses the same separation. The pending merge projects one
 combined target and removes the source while the complete canonical merge is in
-flight. Its join caret is stable, and edits arriving there use the merged content
-as their persistence baseline. Failure removes the whole projection and restores
-the source caret.
+flight. Dirty endpoints settle before this projection replaces their sources.
+Its join caret is stable, and edits arriving there use the merged content
+as their source. The content session explicitly acknowledges this predicted
+structural source so the merge's mapping is not applied a second time. A rejected
+command removes the whole projection and restores the source caret.
+An authoritative read failure after application retains the known result and
+pending projection. Dependent placements wait for a successful reread; repeated
+read failures keep queued input visible. The structural command is never
+replayed to recover its presentation.
 
 Editable plain text keeps one textarea DOM boundary at rest and while focused.
 Focus starts the surface's draft session, so the browser retains the pointer's
@@ -76,15 +106,15 @@ Text-local and entity-local behavior is invariant: pairing, IME handling,
 Markdown completions, properties, tags, task commands, and document history use
 the shared paths. Surface-local behavior is explicit:
 
-| Behavior                          | Outline              | Query list              | Query table             |
-| --------------------------------- | -------------------- | ----------------------- | ----------------------- |
-| Markdown and entity commands      | shared               | shared                  | shared                  |
-| Reading projection                | full block           | full block              | compact phrasing        |
-| `Enter`                           | split canonical tree | commit edit             | commit edit             |
-| Structural mutation and selection | owned                | unavailable             | unavailable             |
-| Cross-block Vim motion            | owned                | unavailable             | unavailable             |
-| Draft lifetime                    | focused row          | query coordinator       | same query coordinator  |
-| Result invalidation               | not applicable       | active stale row pinned | active stale row pinned |
+| Behavior                          | Outline              | Query list               | Query table              |
+| --------------------------------- | -------------------- | ------------------------ | ------------------------ |
+| Markdown and entity commands      | shared               | shared                   | shared                   |
+| Reading projection                | full block           | full block               | compact phrasing         |
+| `Enter`                           | split canonical tree | commit edit              | commit edit              |
+| Structural mutation and selection | owned                | unavailable              | unavailable              |
+| Cross-block Vim motion            | owned                | unavailable              | unavailable              |
+| Content target                    | graph-scoped         | same graph-scoped target | same graph-scoped target |
+| Result invalidation               | not applicable       | active stale row pinned  | active stale row pinned  |
 
 The policy matrix is executable configuration rather than scattered conditionals.
 Hosts consume it, but domain and interaction primitives never inspect the current

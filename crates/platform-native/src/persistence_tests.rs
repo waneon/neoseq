@@ -385,17 +385,26 @@ fn persistence_append_faults_preserve_dirty_bytes_and_after_commit_is_idempotent
     runtime
         .repository_mut()
         .inject_once(FaultPoint::AppendBeforeCommit);
+    let before = runtime
+        .execute(envelope(
+            &graph,
+            "before-failure",
+            Command::EnsurePage {
+                page_id: PageId::new("before").unwrap(),
+                title: "Before".to_owned(),
+            },
+        ))
+        .unwrap();
+    assert!(matches!(
+        before.persistence,
+        RuntimePersistence::Unsaved { .. }
+    ));
+    assert_eq!(
+        before.result.created_page,
+        Some(PageId::new("before").unwrap())
+    );
     assert!(
-        runtime
-            .execute(envelope(
-                &graph,
-                "before-failure",
-                Command::EnsurePage {
-                    page_id: PageId::new("before").unwrap(),
-                    title: "Before".to_owned(),
-                },
-            ))
-            .is_err()
+        matches!(before.changes, domain::GraphChanges::Refresh { outlines: Some(ref outlines), .. } if outlines.len() == 1)
     );
     assert!(runtime.is_dirty_unsaved());
     assert_eq!(runtime.repository().update_count().unwrap(), 0);
@@ -405,22 +414,38 @@ fn persistence_append_faults_preserve_dirty_bytes_and_after_commit_is_idempotent
     runtime
         .repository_mut()
         .inject_once(FaultPoint::AppendAfterCommit);
-    assert!(
-        runtime
-            .execute(envelope(
-                &graph,
-                "after-failure",
-                Command::EnsurePage {
-                    page_id: PageId::new("after").unwrap(),
-                    title: "After".to_owned(),
-                },
-            ))
-            .is_err()
+    let after = runtime
+        .execute(envelope(
+            &graph,
+            "after-failure",
+            Command::EnsurePage {
+                page_id: PageId::new("after").unwrap(),
+                title: "After".to_owned(),
+            },
+        ))
+        .unwrap();
+    assert!(matches!(
+        after.persistence,
+        RuntimePersistence::Unsaved { .. }
+    ));
+    assert_eq!(
+        after.result.created_page,
+        Some(PageId::new("after").unwrap())
     );
+    assert!(
+        matches!(after.changes, domain::GraphChanges::Refresh { outlines: Some(ref outlines), .. } if outlines.len() == 1)
+    );
+    let applied_frontier = runtime.core().frontier();
     assert!(runtime.is_dirty_unsaved());
     assert_eq!(runtime.repository().update_count().unwrap(), 2);
     runtime.retry_pending().unwrap();
     assert_eq!(runtime.repository().update_count().unwrap(), 2);
+    assert_eq!(runtime.core().frontier(), applied_frontier);
+    assert!(!runtime.is_dirty_unsaved());
+    let summary = runtime.read_summary().unwrap();
+    drop(runtime);
+    let (reopened, _) = open(database.path(), &graph, 52);
+    assert_eq!(reopened.read_summary().unwrap(), summary);
 }
 
 #[test]

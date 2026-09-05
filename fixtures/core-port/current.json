@@ -1,5 +1,5 @@
 {
-  "contract_version": 4,
+  "contract_version": 5,
   "operations": [
     "open_graph",
     "execute",
@@ -39,6 +39,7 @@
     "open_graph.response.summary": "GraphSummary",
     "execute.request.command": "CommandEnvelope",
     "execute.response.result": "CommandResult",
+    "execute.response.changes": "GraphChanges",
     "read.response.summary": "GraphSummary",
     "read_outline.request.owner": "OutlineOwner",
     "read_outline.response.outline": "OutlineSnapshot"
@@ -48,7 +49,7 @@
     "execute": "saved_locally",
     "read": "schema_v7_summary",
     "read_outline": "outline_snapshot",
-    "query": "select_result",
+    "query": "built_entity_result",
     "query_request": "built_plan",
     "subscribe": ["semantic", "saved_locally"],
     "timeout_error": "command_timeout"

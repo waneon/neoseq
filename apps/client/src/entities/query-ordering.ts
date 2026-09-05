@@ -18,9 +18,7 @@ export type OrderSemantics =
   | { kind: "date" }
   | { kind: "boolean" }
   | { kind: "text" }
-  | { kind: "entity_label" }
-  /** A folded collection has no defined member order in the query profile. */
-  | { kind: "unsupported_list" };
+  | { kind: "entity_label" };
 
 function propertyOrderSemantics(key: string): OrderSemantics {
   if (orderingOf(key)?.kind === "choice_order") {
@@ -53,6 +51,7 @@ function sourceOrderSemantics(source: PlanColumnSource): OrderSemantics {
     case "page":
     case "parent":
     case "subject":
+    case "tags":
       return { kind: "entity_label" };
     case "property":
       return propertyOrderSemantics(source.key);
@@ -85,8 +84,6 @@ export function orderSemanticsForColumn(
     case "sum":
     case "avg":
       return { kind: "number" };
-    case "list":
-      return { kind: "unsupported_list" };
     default:
       return sourceOrderSemantics(column.source);
   }

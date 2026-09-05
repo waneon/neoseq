@@ -9,7 +9,7 @@
 
 import type { ReactNode } from "react";
 import { CheckIcon, MinusIcon } from "lucide-react";
-import type { QueryEntityRef, RdfTerm } from "../../generated/core-port";
+import type { QueryEntityRef, RdfTerm, SparqlQueryResult } from "../../generated/core-port";
 import type { GraphSnapshot } from "../../core-port/snapshot";
 import type { OrderSemantics } from "../../entities/query-ordering";
 import {
@@ -20,7 +20,6 @@ import {
   pageTitle,
 } from "../../core-port/snapshot";
 import { valueTypeOf } from "../../entities/properties";
-import { LIST_SEPARATOR, momentTimeVariable } from "../../entities/query-compile";
 import type { PlanAggregate, PlanColumnSource } from "../../entities/query-plan";
 import {
   isTaskDateKey,
@@ -37,8 +36,8 @@ import { presentTaskMoment, type TaskMomentDuePresentation } from "../tasks/mome
 import { BlockMarkdown } from "../markdown/BlockMarkdown";
 import { hasMarkdownSyntax } from "../markdown/profile";
 
-/** One result row: the terms one solution bound, keyed by variable. */
-export type ResultRow = Record<string, RdfTerm>;
+/** Values preserve cardinality and entity identity through every renderer. */
+export type ResultRow = Record<string, RdfTerm[]>;
 
 /**
  * A result row with presentation identity separated from its RDF bindings.
@@ -54,12 +53,14 @@ export interface ResultViewRow {
 
 /** One column of a result, as both views understand it. */
 export interface ResultColumn {
-  /** The SPARQL variable this column reads. */
+  /** Stable authored column id, or a raw SPARQL variable. */
   variable: string;
   label: string;
   /** What the plan asked for. Absent for a hand-written query. */
   source?: PlanColumnSource;
   aggregate?: PlanAggregate;
+  /** The result descriptor names the companion; renderers never invent one. */
+  timeColumn?: string;
   /** The value's semantic order, kept separate from the words rendered below. */
   ordering: OrderSemantics;
   sortable: boolean;
@@ -70,8 +71,6 @@ export interface ResultColumn {
 
 export interface CellContext {
   snapshot: GraphSnapshot;
-  /** The result variable carrying which thing each row is, when there is one. */
-  subjectVariable?: string | null;
   message: MessageFunction;
   formatDate: (date: string) => string;
   /** The reader's own clock, so a moment reads here as it reads under a block. */
@@ -100,15 +99,23 @@ export function entityRefKey(entity: QueryEntityRef): string {
 }
 
 /** Stable row ids for both renderers. Duplicate SPARQL solutions get a suffix. */
-export function resultViewRows(rows: ResultRow[], context: CellContext): ResultViewRow[] {
+export function resultViewRows(
+  result: Exclude<SparqlQueryResult, { kind: "ask" }>,
+): ResultViewRow[] {
   const occurrences = new Map<string, number>();
-  return rows.map((values) => {
-    const subject = rowSubject(values, context);
+  const rows =
+    result.kind === "built"
+      ? result.rows
+      : result.rows.map((row) => ({
+          subject: null,
+          values: Object.fromEntries(Object.entries(row).map(([key, term]) => [key, [term]])),
+        }));
+  return rows.map(({ values, subject: entity }) => {
+    const subject = entity ?? undefined;
     const subjectKey = subject ? entityRefKey(subject) : undefined;
-    const terms = Object.entries(values)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([variable, term]) => `${variable}:${term.kind}:${term.value}`)
-      .join("|");
+    const terms = JSON.stringify(
+      Object.entries(values).sort(([left], [right]) => left.localeCompare(right)),
+    );
     const base = subjectKey ?? `terms:${terms}`;
     const occurrence = occurrences.get(base) ?? 0;
     occurrences.set(base, occurrence + 1);
@@ -165,14 +172,14 @@ export function termText(term: RdfTerm | undefined, context: CellContext): strin
  * on, so the order a reader sees matches the words they see.
  */
 export function cellText(
-  term: RdfTerm | undefined,
+  terms: RdfTerm[] | undefined,
   column: ResultColumn,
   context: CellContext,
 ): string {
-  if (!term) return "";
-  if (column.aggregate === "list" || column.source?.kind === "tags") {
-    return splitList(term).join(", ");
-  }
+  return (terms ?? []).map((term) => cellTermText(term, column, context)).join(", ");
+}
+
+function cellTermText(term: RdfTerm, column: ResultColumn, context: CellContext): string {
   const key = column.source?.kind === "property" ? column.source.key : null;
   if (key === TASK_STATUS_KEY && term.kind === "literal") {
     return statusLabel(term.value, context.message);
@@ -181,11 +188,6 @@ export function cellText(
     return priorityLabel(term.value, context.message);
   }
   return termText(term, context);
-}
-
-function splitList(term: RdfTerm): string[] {
-  if (term.kind !== "literal" || term.value.length === 0) return [];
-  return term.value.split(LIST_SEPARATOR).filter((member) => member.length > 0);
 }
 
 function EntityLink({
@@ -215,22 +217,15 @@ function EntityLink({
   );
 }
 
-/** The entity a result row is about, when the query carries one. */
-export function rowSubject(row: ResultRow, context: CellContext): QueryEntityRef | undefined {
-  if (!context.subjectVariable) return undefined;
-  const term = row[context.subjectVariable];
-  return term?.kind === "iri" ? (term.entity ?? undefined) : undefined;
-}
-
 /** A cell, rendered by what its column asked the graph for. */
 export function CellValue({
-  term,
+  terms,
   column,
   context,
   subject,
   row,
 }: {
-  term: RdfTerm | undefined;
+  terms: RdfTerm[] | undefined;
   column: ResultColumn;
   context: CellContext;
   /** The row's own entity, which lets the result layer route or edit it. */
@@ -239,6 +234,43 @@ export function CellValue({
    * The row this cell is one of. A moment reads by how far off it is, and
    * whether there is any urgency left to report is a fact about the row.
    */
+  row?: ResultRow;
+}): ReactNode {
+  if (!terms?.length) return <span className="query-empty-cell">—</span>;
+  if (column.source?.kind === "tags" && !column.aggregate) {
+    return (
+      <span className="query-tags">
+        {terms.map((term, index) => (
+          <span key={index} className="query-tag-chip">
+            {term.kind === "iri" && term.entity ? (
+              <EntityLink entity={term.entity} context={context} />
+            ) : (
+              termText(term, context)
+            )}
+          </span>
+        ))}
+      </span>
+    );
+  }
+  return terms.map((term, index) => (
+    <span key={index}>
+      {index > 0 && ", "}
+      <TermValue term={term} column={column} context={context} subject={subject} row={row} />
+    </span>
+  ));
+}
+
+function TermValue({
+  term,
+  column,
+  context,
+  subject,
+  row,
+}: {
+  term: RdfTerm;
+  column: ResultColumn;
+  context: CellContext;
+  subject?: QueryEntityRef;
   row?: ResultRow;
 }): ReactNode {
   // A row's text is its name. The result layer may wrap it with an editor and a
@@ -261,27 +293,9 @@ export function CellValue({
       </EntityLink>
     );
   }
-  if (column.aggregate && column.aggregate !== "list") {
+  if (column.aggregate === "count" || column.aggregate === "sum" || column.aggregate === "avg") {
     return <span className="query-num">{term ? formatNumber(term.value) : "0"}</span>;
   }
-  const folded = column.aggregate === "list" || column.source?.kind === "tags";
-  if (folded) {
-    const members = term ? splitList(term) : [];
-    if (members.length === 0) return <span className="query-empty-cell">—</span>;
-    if (column.source?.kind === "tags") {
-      return (
-        <span className="query-tags">
-          {members.map((name) => (
-            <span key={name} className="query-tag-chip">
-              {name}
-            </span>
-          ))}
-        </span>
-      );
-    }
-    return <span>{members.join(", ")}</span>;
-  }
-  if (!term) return <span className="query-empty-cell">—</span>;
 
   const key = column.source?.kind === "property" ? column.source.key : null;
   if (key === TASK_STATUS_KEY && term.kind === "literal") {
@@ -332,7 +346,7 @@ export function CellValue({
  * time of day where there is one, in a pill the tone of how far off it is.
  *
  * The time is not a column of its own and never was — it rides along with the
- * day's column in the compiler's own namespace (§ momentTimeVariable), because
+ * day's column through its result descriptor, because
  * a moment is a day plus an optional time and half of one is not a moment. That
  * also makes the tier here the *moment's*: a job due at nine this morning is
  * overdue by ten, and receives the same overdue tone as it does in the outline.
@@ -350,7 +364,7 @@ function DueValue({
   context: CellContext;
   row?: ResultRow;
 }) {
-  const companion = row?.[momentTimeVariable(column.variable)];
+  const companion = column.timeColumn ? row?.[column.timeColumn]?.[0] : undefined;
   // A stored time that is not one is the reader's own string: it does not
   // refine the day and it does not get drawn as if it did.
   const time =

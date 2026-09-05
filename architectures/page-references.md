@@ -16,9 +16,9 @@ until an explicit completion resolves it.
 ## Projection
 
 Graph summaries expose a page directory containing live and deleted page IDs,
-titles, journal dates, and lifecycle state. A block snapshot keeps its
-materialized Markdown for existing readers and adds reference spans that map
-each displayed token to its one canonical logical position. Changing a page
+titles, journal dates, and lifecycle state. A block snapshot carries semantic
+content. Materialized Markdown and reference spans are disposable reader
+projections, mapping each displayed token to its one canonical logical position. Changing a page
 title therefore changes only the directory; mounted references immediately
 materialize the new title without mutating their blocks.
 Journals use their ISO local date as this shared, locale-independent title;
@@ -41,7 +41,9 @@ overlay, and placement cannot change what accepting a reference replaces.
 `splice_block_content` accepts a bounded sequence of Markdown and page-reference
 insertions in logical coordinates. Creating a page and inserting its reference
 uses one flat batch. The core validates the complete splice and page targets
-before applying one Loro transaction and history item.
+before applying one Loro transaction and history item. The plural content splice
+accepts ordered edits, including multiple edits to one block; each range is
+validated against the preceding edits before the transaction applies.
 
 Reference marks use `ExpandType::None`. A valid mark covers exactly one reserved
 object-replacement character and carries one valid `PageId`. Invalid remote or

@@ -44,7 +44,7 @@ focused design boundaries under [`designs/`](designs/).
 flowchart LR
     UI[React UI] --> Session[GraphSession]
     UI --> Directory[Repository + graph directory]
-    Session --> Port[CorePort v4]
+    Session --> Port[CorePort v5]
     Session --> Agent[SyncAgent]
     Port --> Worker[Web Worker adapter]
     Worker --> Core[Rust/Wasm graph core]
@@ -121,16 +121,16 @@ Detailed contracts:
 
 ## CorePort
 
-The asynchronous CorePort v4 contract has seven operations. Every graph locator
+The asynchronous CorePort v5 contract has seven operations. Every graph locator
 contains a client repository ID and the graph ID assigned within that
 repository:
 
 ```text
 open_graph(locator) -> graph_handle + graph_summary
-execute(graph_handle, command) -> command_result + saved receipt | unchanged
+execute(graph_handle, command) -> command_result + graph_changes + save_outcome
 read(graph_handle) -> graph_summary
 read_outline(graph_handle, page_or_tag_owner) -> outline_view
-query(graph_handle, built_plan | raw_sparql) -> select_result | ask_result
+query(graph_handle, built_plan | raw_sparql) -> built_result | select_result | ask_result
 subscribe(graph_handle, cursor) -> graph_events
 close_graph(graph_handle)
 ```
@@ -181,8 +181,9 @@ CorePort.
   controls. Those controls resolve the row's stable entity reference and submit
   ordinary domain commands; the derived query index remains a read-only
   selection path and is never a mutation API.
-- Editable block projections share one native input and completion kernel while
-  their surfaces retain separate structural controllers. Contextual commands
+- Editable block projections share one semantic edit session per owner and block,
+  alongside the native input and completion kernel. Surfaces own focus and tree
+  interaction; they do not maintain independent text baselines. Contextual commands
   resolve the most recently focused block target before falling back to a page.
 
 One user intent lowers once to a typed normalized transition, then becomes one
@@ -192,7 +193,8 @@ timestamps, history, result shape, and event semantics. A batch prepares its
 ordered sequence against an isolated evolving candidate, then commits one outer
 transaction. An update is reported saved only after the repository append
 commits; a failed append holds the exact bytes for retry and blocks additional
-mutation.
+mutation. The execute outcome retains the applied result and authoritative
+read-model changes even when saving fails; rejection is a separate outcome.
 
 ## Local Write Flow
 

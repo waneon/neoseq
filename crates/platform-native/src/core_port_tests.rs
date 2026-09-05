@@ -1,7 +1,7 @@
 use crate::{FaultPoint, NativeCorePort, SqliteGraphRepository};
 use domain::{
     CORE_PORT_VERSION, CloseGraphRequest, Command, CommandEnvelope, CommandId, CorePortErrorCode,
-    ExecuteRequest, GraphId, GraphLocatorDto, OpenGraphRequest, OutlineOwner, PageId,
+    ExecuteRequest, GraphChanges, GraphId, GraphLocatorDto, OpenGraphRequest, OutlineOwner, PageId,
     QueryRequestDto, ReadOutlineRequest, ReadRequest, SaveStatusDto, SubscribeRequest,
 };
 use graph_core::{GraphLocator, SCHEMA_VERSION};
@@ -148,7 +148,8 @@ fn core_port_native_contract_suite_matches_current_golden() {
             query: json!({
                 "kind": "built",
                 "plan": {
-                    "version": 1,
+                    "version": domain::QUERY_PLAN_VERSION,
+                    "grain": "entity",
                     "subject": "page",
                     "where": {
                         "id": "root",
@@ -157,18 +158,21 @@ fn core_port_native_contract_suite_matches_current_golden() {
                         "children": []
                     },
                     "columns": [{ "id": "text", "source": { "kind": "content" } }],
-                    "limit": 100,
-                    "distinct": false
+                    "limit": 100
                 },
-                "today": "2026-08-03",
-                "projection": "entities"
+                "today": "2026-08-03"
             }),
         })
         .unwrap();
-    assert_eq!(queried.result["kind"], "select");
-    assert_eq!(queried.result["variables"], json!(["q_subject"]));
+    assert_eq!(queried.result["kind"], "built");
+    assert_eq!(queried.result["grain"], "entity");
+    assert_eq!(queried.result["columns"][0]["id"], "text");
+    assert_eq!(
+        queried.result["rows"][0]["subject"],
+        json!({"kind": "page", "id": "home"})
+    );
     assert_eq!(queried.result["rows"].as_array().unwrap().len(), 1);
-    assert_eq!(golden["transcript"]["query"], "select_result");
+    assert_eq!(golden["transcript"]["query"], "built_entity_result");
     assert_eq!(golden["transcript"]["query_request"], "built_plan");
 
     let raw = port
@@ -258,53 +262,110 @@ fn core_port_native_contract_suite_matches_current_golden() {
         CorePortErrorCode::CommandTimeout
     );
 
-    port.inject_fault(&opened.graph_handle, FaultPoint::AppendBeforeCommit)
-        .unwrap();
-    assert_eq!(
-        port.execute(ExecuteRequest {
-            graph_handle: opened.graph_handle.clone(),
-            command: command("port-native", "dirty", "notes"),
-            timeout_ms: 1_000,
-        })
-        .unwrap_err()
-        .code,
-        CorePortErrorCode::DirtyUnsaved
-    );
-    assert_eq!(
-        port.close_graph(CloseGraphRequest {
-            graph_handle: opened.graph_handle.clone(),
-        })
-        .unwrap_err()
-        .code,
-        CorePortErrorCode::DirtyUnsaved
-    );
-    port.retry_pending(&opened.graph_handle).unwrap();
-    port.inject_fault(&opened.graph_handle, FaultPoint::Busy)
-        .unwrap();
-    assert_eq!(
-        port.execute(ExecuteRequest {
-            graph_handle: opened.graph_handle.clone(),
-            command: command("port-native", "busy", "busy"),
-            timeout_ms: 1_000,
-        })
-        .unwrap_err()
-        .code,
-        CorePortErrorCode::DirtyUnsaved
-    );
-    port.retry_pending(&opened.graph_handle).unwrap();
-    port.inject_fault(&opened.graph_handle, FaultPoint::DiskFull)
-        .unwrap();
-    assert_eq!(
-        port.execute(ExecuteRequest {
-            graph_handle: opened.graph_handle.clone(),
-            command: command("port-native", "full", "full"),
-            timeout_ms: 1_000,
-        })
-        .unwrap_err()
-        .code,
-        CorePortErrorCode::StorageFull
-    );
-    port.retry_pending(&opened.graph_handle).unwrap();
+    for (fault, command_id, page_id, code) in [
+        (
+            FaultPoint::AppendBeforeCommit,
+            "dirty",
+            "notes",
+            CorePortErrorCode::DirtyUnsaved,
+        ),
+        (
+            FaultPoint::Busy,
+            "busy",
+            "busy",
+            CorePortErrorCode::DirtyUnsaved,
+        ),
+        (
+            FaultPoint::DiskFull,
+            "full",
+            "full",
+            CorePortErrorCode::StorageFull,
+        ),
+    ] {
+        let before = port
+            .subscribe(SubscribeRequest {
+                graph_handle: opened.graph_handle.clone(),
+                after_cursor: 0,
+            })
+            .unwrap()
+            .next_cursor;
+        port.inject_fault(&opened.graph_handle, fault).unwrap();
+        let applied = port
+            .execute(ExecuteRequest {
+                graph_handle: opened.graph_handle.clone(),
+                command: command("port-native", command_id, page_id),
+                timeout_ms: 1_000,
+            })
+            .unwrap();
+        assert!(
+            matches!(&applied.save_status, SaveStatusDto::Unsaved { error } if error.code == code)
+        );
+        assert_eq!(
+            applied.result.created_page,
+            Some(PageId::new(page_id).unwrap())
+        );
+        assert_eq!(
+            applied.changes,
+            GraphChanges::Refresh {
+                outlines: Some(vec![OutlineOwner::Page {
+                    id: PageId::new(page_id).unwrap()
+                }]),
+                blocks: vec![],
+            }
+        );
+        let summary = port
+            .read(ReadRequest {
+                graph_handle: opened.graph_handle.clone(),
+            })
+            .unwrap()
+            .summary;
+        assert!(summary.pages.iter().any(|page| page.id.as_str() == page_id));
+        assert!(
+            port.subscribe(SubscribeRequest {
+                graph_handle: opened.graph_handle.clone(),
+                after_cursor: before,
+            })
+            .unwrap()
+            .events
+            .is_empty()
+        );
+        assert_eq!(
+            port.execute(ExecuteRequest {
+                graph_handle: opened.graph_handle.clone(),
+                command: command("port-native", &format!("blocked-{command_id}"), "blocked"),
+                timeout_ms: 1_000,
+            })
+            .unwrap_err()
+            .code,
+            CorePortErrorCode::DirtyUnsaved
+        );
+        assert_eq!(
+            port.close_graph(CloseGraphRequest {
+                graph_handle: opened.graph_handle.clone(),
+            })
+            .unwrap_err()
+            .code,
+            CorePortErrorCode::DirtyUnsaved
+        );
+        port.retry_pending(&opened.graph_handle).unwrap();
+        let saved = port
+            .subscribe(SubscribeRequest {
+                graph_handle: opened.graph_handle.clone(),
+                after_cursor: before,
+            })
+            .unwrap();
+        assert_eq!(saved.events.len(), 2);
+        port.retry_pending(&opened.graph_handle).unwrap();
+        assert!(
+            port.subscribe(SubscribeRequest {
+                graph_handle: opened.graph_handle.clone(),
+                after_cursor: saved.next_cursor,
+            })
+            .unwrap()
+            .events
+            .is_empty()
+        );
+    }
 
     // A compaction probe happens only after the append is durable. Failure to
     // read its maintenance metadata must not reject the acknowledged command.

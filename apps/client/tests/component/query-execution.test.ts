@@ -39,7 +39,7 @@ describe("query execution store", () => {
   it("deduplicates an activation and reuses its fresh answer", async () => {
     const pending = deferred<SparqlQueryResult>();
     const query = vi.fn(() => pending.promise);
-    const store = new QueryExecutionStore({ query } as unknown as GraphSession);
+    const store = new QueryExecutionStore(mockSession(query));
     const signature = queryExecutionSignature(REQUEST_A);
 
     const first = store.run("home:block", signature, 1, REQUEST_A);
@@ -50,7 +50,7 @@ describe("query execution store", () => {
     pending.resolve(RESULT_TRUE);
     await Promise.all([first, duplicate]);
     expect(store.snapshot("home:block", signature, 1)).toMatchObject({
-      result: RESULT_TRUE,
+      frame: { request: REQUEST_A, result: RESULT_TRUE, canonicalRevision: 1 },
       error: null,
       loading: false,
     });
@@ -64,7 +64,7 @@ describe("query execution store", () => {
     const query = vi.fn((request: SparqlQueryRequest) =>
       request.source === REQUEST_A.source ? Promise.resolve(RESULT_TRUE) : pendingB.promise,
     );
-    const store = new QueryExecutionStore({ query } as unknown as GraphSession);
+    const store = new QueryExecutionStore(mockSession(query));
     const signatureA = queryExecutionSignature(REQUEST_A);
     const signatureB = queryExecutionSignature(REQUEST_B);
 
@@ -74,7 +74,44 @@ describe("query execution store", () => {
 
     pendingB.resolve(RESULT_FALSE);
     await obsolete;
-    expect(store.snapshot("home:block", signatureA, 1).result).toEqual(RESULT_TRUE);
+    expect(store.snapshot("home:block", signatureA, 1).frame?.result).toEqual(RESULT_TRUE);
+  });
+
+  it("retains the executed question with a stale visible answer", async () => {
+    const pending = deferred<SparqlQueryResult>();
+    const query = vi.fn((request: SparqlQueryRequest) =>
+      request.source === REQUEST_A.source ? Promise.resolve(RESULT_TRUE) : pending.promise,
+    );
+    const store = new QueryExecutionStore(mockSession(query));
+    const signatureA = queryExecutionSignature(REQUEST_A);
+    const signatureB = queryExecutionSignature(REQUEST_B);
+    await store.run("answer", signatureA, 1, REQUEST_A);
+    const refresh = store.run("answer", signatureB, 1, REQUEST_B);
+    expect(store.snapshot("answer", signatureB, 1)).toMatchObject({
+      frame: { request: REQUEST_A, result: RESULT_TRUE, canonicalRevision: 1 },
+      loading: true,
+    });
+    pending.resolve(RESULT_FALSE);
+    await refresh;
+    expect(store.snapshot("answer", signatureB, 1).frame).toEqual({
+      request: REQUEST_B,
+      result: RESULT_FALSE,
+      canonicalRevision: 1,
+    });
+  });
+
+  it("caches the actual execution revision rather than the scheduling revision", async () => {
+    const queryFrame = vi.fn(async (request: SparqlQueryRequest) => ({
+      request,
+      result: RESULT_TRUE,
+      canonicalRevision: 2,
+    }));
+    const store = new QueryExecutionStore({ queryFrame } as unknown as GraphSession);
+    const signature = queryExecutionSignature(REQUEST_A);
+    await store.run("answer", signature, 1, REQUEST_A);
+    expect(store.snapshot("answer", signature, 2).frame?.canonicalRevision).toBe(2);
+    await store.run("answer", signature, 2, REQUEST_A);
+    expect(queryFrame).toHaveBeenCalledTimes(1);
   });
 
   it("owns every in-flight answer until the store is idle", async () => {
@@ -83,7 +120,7 @@ describe("query execution store", () => {
     const query = vi.fn((request: SparqlQueryRequest) =>
       request.source === REQUEST_A.source ? first.promise : second.promise,
     );
-    const store = new QueryExecutionStore({ query } as unknown as GraphSession);
+    const store = new QueryExecutionStore(mockSession(query));
     const signatureA = queryExecutionSignature(REQUEST_A);
     const signatureB = queryExecutionSignature(REQUEST_B);
     store.run("home:first", signatureA, 1, REQUEST_A);
@@ -158,4 +195,17 @@ function deferred<T>(): {
     resolve = done;
   });
   return { promise, resolve };
+}
+
+function mockSession(
+  query: (request: SparqlQueryRequest) => Promise<SparqlQueryResult>,
+): GraphSession {
+  return {
+    queryFrame: (request: SparqlQueryRequest) =>
+      query(request).then((result) => ({
+        request,
+        result,
+        canonicalRevision: 1,
+      })),
+  } as unknown as GraphSession;
 }

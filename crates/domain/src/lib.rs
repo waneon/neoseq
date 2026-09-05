@@ -15,14 +15,15 @@ pub use ids::{
     QueryViewId, TagId,
 };
 pub use model::{
-    BlockContentSplice, BlockSnapshot, Command, CommandEnvelope, CommandResult,
-    DefaultQuerySnapshot, EntityId, GraphConflict, GraphSettings, GraphSnapshot, GraphSummary,
-    HistoryEffect, HistoryScope, InlineContent, MarkdownSplice, OUTLINE_FRAGMENT_KIND,
-    OUTLINE_FRAGMENT_VERSION, OutlineFragment, OutlineFragmentItem, OutlineFragmentPage,
-    OutlineFragmentTag, OutlineItem, OutlineOwner, OutlineSnapshot, PageDirectoryEntry,
-    PageReferenceSpan, PageSnapshot, PageSummary, PropertyChange, PropertyOwner, QueryDefinition,
-    QueryOwner, QueryView, QueryViewColumn, QueryViewFieldSort, QueryViewKind, QueryViewOptions,
-    QueryViewSort, SplitPlacement, TagSnapshot, TagSummary, TextTarget,
+    BlockContentSplice, BlockContentUpdate, BlockSnapshot, Command, CommandEnvelope, CommandResult,
+    ContentRangeChange, DefaultQuerySnapshot, EntityId, GraphChanges, GraphConflict, GraphSettings,
+    GraphSnapshot, GraphSummary, HistoryEffect, HistoryScope, InlineContent, MarkdownSplice,
+    OUTLINE_FRAGMENT_KIND, OUTLINE_FRAGMENT_VERSION, OutlineFragment, OutlineFragmentItem,
+    OutlineFragmentPage, OutlineFragmentTag, OutlineItem, OutlineOwner, OutlineSnapshot,
+    PageDirectoryEntry, PageReferenceSpan, PageSnapshot, PageSummary, PropertyChange,
+    PropertyOwner, QueryDefinition, QueryOwner, QueryView, QueryViewColumn, QueryViewFieldSort,
+    QueryViewKind, QueryViewOptions, QueryViewSort, SplitPlacement, TagSnapshot, TagSummary,
+    TextTarget,
 };
 pub use property::{
     Cardinality, DocumentSpec, MAX_QUERY_SOURCE_BYTES, MAX_QUERY_VIEWS, PropertyAccess,

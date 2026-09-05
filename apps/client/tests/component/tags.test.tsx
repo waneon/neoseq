@@ -549,6 +549,7 @@ describe("a tag's own page", () => {
       const tag = session.getState().snapshot.tags.find((item) => item.id === "project");
       expect(tag?.blocks[0]?.markdown).toBe("Notes that belong to the tag");
     });
+    await session.hydratePage("home");
     expect(session.getState().snapshot.pages[0].blocks[0].markdown).toBe("ship the thing");
   });
 
@@ -596,6 +597,7 @@ describe("a tag's own page", () => {
       entity: { kind: "block", owner: { kind: "page", id: "home" }, id: blockId },
       tag_id: "project",
     });
+    await session.hydratePage("home");
     const inherited = session
       .getState()
       .snapshot.pages[0].blocks[0].properties.find(

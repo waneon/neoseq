@@ -422,12 +422,14 @@ async function execute(request: ExecuteRequest) {
   const raw = state.core.executeJson(JSON.stringify(request.command), now());
   const execution = JSON.parse(raw) as {
     result: CommandResult;
+    changes: import("./core-port/snapshot").GraphChanges;
     semantic: SemanticEvent;
   };
   const update = ownedBuffer(state.core.takeUpdate());
   if (update.byteLength === 0) {
     return {
       result: execution.result,
+      changes: execution.changes,
       save_status: { status: "unchanged" },
     };
   }
@@ -441,13 +443,24 @@ async function execute(request: ExecuteRequest) {
   state.pending = pending;
   try {
     const receipt = await persistPending(state);
-    return { result: execution.result, save_status: { status: "saved_locally", ...receipt } };
+    return {
+      result: execution.result,
+      changes: execution.changes,
+      save_status: { status: "saved_locally", ...receipt },
+    };
   } catch (error) {
-    if (error instanceof StorageError) {
-      if (error.code === "storage_full") throw error;
-      throw failure("dirty_unsaved", error.message, error.retryable);
-    }
-    throw failure("dirty_unsaved", error instanceof Error ? error.message : String(error), true);
+    const detail = normalizeError(error);
+    return {
+      result: execution.result,
+      changes: execution.changes,
+      save_status: {
+        status: "unsaved",
+        error: {
+          ...detail,
+          code: detail.code === "storage_full" ? "storage_full" : "dirty_unsaved",
+        },
+      },
+    };
   }
 }
 
@@ -769,10 +782,10 @@ async function syncImport(payload: { graph_handle: string; bytes: ArrayBuffer | 
   const bytes = asUint8Array(payload.bytes);
   state.core.validateUpdate(bytes);
   const receipt = await state.repository.appendUpdate(state.storageKey, ownedBuffer(bytes), now());
-  state.core.importUpdate(bytes);
+  const changes = JSON.parse(state.core.importUpdate(bytes));
   push(state, "remote", { type: "remote_imported" });
   push(state, "remote", { type: "saved_locally", ...receipt });
-  return receipt;
+  return { status: "saved_locally", ...receipt, changes };
 }
 
 async function syncReplace(payload: {

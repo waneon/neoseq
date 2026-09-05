@@ -47,6 +47,11 @@ with one lead column and groups expressed as depth rather than nested cards. A
 row limit is another clause, not an unrelated control bar. Builder state that has
 no semantic effect is omitted from storage.
 
+The question explicitly returns entities or a summary. An entity answer has one
+row per selected thing; a summary states its grouping fields and scalar
+aggregates and is read-only. These are different questions, so their choice
+belongs in the builder. Repeated entity fields need no aggregation control.
+
 How the answer is read belongs on the answer itself. Layout, sort, visible table
 columns, and density are view controls rather than query clauses. There is one
 authoring grammar; generated query text may be inspected, but hand-written query
@@ -75,14 +80,26 @@ until commit.
 
 ## Table and List Views
 
-Columns are a table concern. The table's column panel adds or removes query
-fields and controls their visibility for that view. Repeated fields fold into one
-cell; singular fields render directly. Structural bookkeeping and subject counts
-are not display columns.
+Table and List are two readings of the same answer. Switching layout preserves
+the selected entities or summary groups. Entity table columns add or remove
+display fields and control their visibility for that view; repeated values share
+one cell and retain their individual references. Column choices do not change
+the answer's membership or row count. Summary fields and aggregates belong to
+the question; structural bookkeeping is not an entity display column.
 
-A list has no column-visibility control because it presents entities rather than
-a grid; it states the facts returned for each entity using the outline's content
-language.
+An entity block list has no column-visibility control because it presents blocks
+using the outline's content language. Summary and other result lists present
+their returned fields without becoming editable blocks.
+
+An answer may remain visible while a changed question runs. Its labels, value
+meaning, and editing authority continue to describe the execution that produced
+it until the replacement arrives. A newer draft never changes the meaning of
+older visible values.
+
+Changing the question's returned fields or switching saved questions saves an
+active result edit first. A failed save leaves that edit available for retry.
+A remotely changed answer waits to replace an incompatible active editor until
+the edit closes; its visible values keep their original meaning throughout.
 
 Tables initially share available width. Once the reader resizes a column, all
 visible columns adopt the geometry already on screen before the drag continues,

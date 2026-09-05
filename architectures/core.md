@@ -251,12 +251,17 @@ the exact bytes and event metadata remain in memory; another mutation and clean
 close are rejected until retry succeeds. After-commit retries are idempotent at
 the repository checksum boundary. A duplicate or semantic no-op returns the
 explicit `Unchanged` save outcome and never borrows a receipt from another
-update. CorePort adapters preserve this post-mutation stage as `dirty_unsaved`
-(`storage_full` remains the actionable special case), rather than exposing a
-repository cause that a client could mistake for a pre-mutation rejection.
-Command results contain only identity and history metadata. Update bytes, and
-their `SavedLocally`/`Unchanged` runtime projection, are the sole change
-authority used for persistence, client revisions, and reconciliation.
+update. An applied outcome always carries the command result and authoritative
+`GraphChanges`, alongside `SavedLocally` or `Unsaved`; a rejected command has no
+applied result. `Unsaved` retains the actionable persistence cause. Clients must
+never retry the semantic command after receiving an applied result.
+
+`GraphChanges` installs final semantic content and derived fields or names a
+refresh scope. Actual document deltas supply sequential text mappings for local
+edits, batches, undo/redo, and remote imports. Positions count Unicode scalars or
+one page-reference atom. Structural refreshes retain known text mappings; a
+history replacement establishes a new baseline. The frontend does not infer
+impact from command variants or diff rendered snapshots to recover causality.
 The runtime publishes the exact pending bytes immediately after authoritative
 mutation, before touching the disposable query index. An index update failure
 therefore invalidates only the index; it cannot erase durability responsibility

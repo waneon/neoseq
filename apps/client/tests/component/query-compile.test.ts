@@ -3,44 +3,31 @@ import {
   DERIVED_SOURCE_PROVENANCE,
   derivedSourceMarker,
   derivedSourceProvenance,
-  isCompilerVariable,
-  momentTimeVariable,
-  planProjection,
 } from "../../src/entities/query-compile";
-import { defaultPlan, type QueryPlan } from "../../src/entities/query-plan";
+import { defaultPlan, decodePlan, QUERY_PLAN_VERSION } from "../../src/entities/query-plan";
 
-describe("query plan presentation metadata", () => {
-  it("predicts ordinary and entity projection names without compiling query semantics", () => {
-    const plan: QueryPlan = {
-      ...defaultPlan("block"),
-      columns: [
-        { id: "body", source: { kind: "content" } },
-        {
-          id: "scheduled",
-          source: { kind: "property", key: "builtin.task-scheduled" },
-        },
-      ],
+describe("query plan grain", () => {
+  it("preserves explicit entity and summary identity across persistence", () => {
+    const entity = defaultPlan("block");
+    expect(decodePlan(JSON.stringify(entity), QUERY_PLAN_VERSION)?.grain).toBe("entity");
+    const summary = {
+      ...entity,
+      grain: "summary",
+      columns: [{ id: "count", source: { kind: "subject" }, aggregate: "count" }],
     };
-
-    expect(planProjection(plan)).toEqual({
-      variables: ["q_subject", "body", "scheduled", momentTimeVariable("scheduled")],
-      subjectVariable: "q_subject",
-    });
-    expect(planProjection(plan, "entities")).toEqual({
-      variables: ["q_subject"],
-      subjectVariable: "q_subject",
-    });
+    expect(decodePlan(JSON.stringify(summary), QUERY_PLAN_VERSION)?.grain).toBe("summary");
+    expect(
+      decodePlan(JSON.stringify({ ...summary, grain: "entity" }), QUERY_PLAN_VERSION),
+    ).toBeNull();
+    expect(
+      decodePlan(JSON.stringify({ ...entity, grain: "summary" }), QUERY_PLAN_VERSION),
+    ).toBeNull();
   });
 
-  it("omits subject identity from aggregate-shaped answers", () => {
-    const plan: QueryPlan = {
-      ...defaultPlan("block"),
-      columns: [{ id: "total", source: { kind: "subject" }, aggregate: "count" }],
-    };
-
-    expect(planProjection(plan)).toEqual({ variables: ["total"], subjectVariable: null });
-    expect(isCompilerVariable("q_subject")).toBe(true);
-    expect(isCompilerVariable("total")).toBe(false);
+  it("does not reinterpret a v1 query whose renderer used to choose its row grain", () => {
+    const { grain: _, ...old } = defaultPlan("block");
+    expect(decodePlan(JSON.stringify({ ...old, version: 1 }), 1)).toBeNull();
+    expect(decodePlan(JSON.stringify(old), QUERY_PLAN_VERSION)).toBeNull();
   });
 });
 
@@ -52,13 +39,16 @@ describe("Rust-derived source provenance", () => {
 
     expect(marker).toMatch(
       new RegExp(
-        `^${DERIVED_SOURCE_PROVENANCE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}1;fnv1a32=[0-9a-f]{8}\\n$`,
+        `^${DERIVED_SOURCE_PROVENANCE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}${QUERY_PLAN_VERSION};fnv1a32=[0-9a-f]{8}\\n$`,
       ),
     );
     expect(derivedSourceProvenance(`${marker}SELECT * WHERE {}\n`, storedPlan)).toBe("current");
     expect(derivedSourceProvenance("SELECT * WHERE {}", storedPlan)).toBe("legacy_unmarked");
     expect(
-      derivedSourceProvenance(`${DERIVED_SOURCE_PROVENANCE}1;fnv1a32=00000000\n`, storedPlan),
+      derivedSourceProvenance(
+        `${DERIVED_SOURCE_PROVENANCE}${QUERY_PLAN_VERSION};fnv1a32=00000000\n`,
+        storedPlan,
+      ),
     ).toBe("stale");
   });
 });

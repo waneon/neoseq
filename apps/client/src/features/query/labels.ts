@@ -161,12 +161,13 @@ export function relativeDateLabel(id: string, message: MessageFunction): string 
  * `null` means "however many came back".
  */
 export function answerLabel(
-  { result, error, loading }: QueryAnswer,
+  { frame, error, loading }: QueryAnswer,
   rows: number | null,
   message: MessageFunction,
 ): string | null {
+  const result = frame?.result;
   if (error) return message("query.failed");
-  if (result?.kind === "select") {
+  if (result?.kind === "select" || result?.kind === "built") {
     return message("query.results", { count: rows ?? result.rows.length });
   }
   if (loading) return message("query.running");

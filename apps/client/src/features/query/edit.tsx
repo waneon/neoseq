@@ -18,13 +18,8 @@ import {
 import type { QueryEntityRef, RdfTerm } from "../../generated/core-port";
 import type { GraphSession, SessionState } from "../../core-port/session";
 import type { Command } from "../../core-port/commands";
-import type { BlockSnapshot, PageReferenceSpan } from "../../core-port/snapshot";
-import {
-  findBlock,
-  findOutline,
-  materializePageReferences,
-  outlineOwnerKey,
-} from "../../core-port/snapshot";
+import type { BlockSnapshot, PageDirectoryEntry } from "../../core-port/snapshot";
+import { findBlock, findOutline, outlineOwnerKey } from "../../core-port/snapshot";
 import { canUserWrite, valueTypeOf } from "../../entities/properties";
 import { useI18n, type MessageFunction } from "../../i18n";
 import { useImmediateState, useLatest } from "../../lib/react";
@@ -73,7 +68,17 @@ import {
   type BlockPageOption,
   type BlockTagOption,
 } from "../blocks/editor/BlockCompletions";
-import { planInlineEdit, planPageReference } from "../blocks/editor/inline-content";
+import { planPageReference } from "../blocks/editor/inline-content";
+import { CorePortFailure } from "../../core-worker";
+import { useContentSessions, type BlockContentSession } from "../blocks/editor/content-session";
+import {
+  bufferCommand,
+  bufferIsClean,
+  editBuffer,
+  projectBuffer,
+  spliceBuffer,
+  type ContentBuffer,
+} from "../blocks/editor/content-buffer";
 import { buildSlashItems, filterSlashItems, type SlashItem } from "../blocks/editor/slash-commands";
 import { BlockMarkdown } from "../markdown/BlockMarkdown";
 import { hasMarkdownSyntax } from "../markdown/profile";
@@ -101,9 +106,8 @@ interface EditOrigin {
 }
 
 interface PreparedSave {
-  expected: string;
-  references: PageReferenceSpan[];
-  commands: Command[];
+  buffer: ContentBuffer;
+  actions: Command[];
 }
 
 type ActiveEdit =
@@ -125,9 +129,7 @@ type ActiveEdit =
       binding: Extract<QueryEditBinding, { kind: "markdown" }>;
       origin: EditOrigin;
       anchor: Anchor;
-      baseline: string;
-      references: PageReferenceSpan[];
-      draft: string;
+      content: BlockContentSession;
       composing: boolean;
       completing: boolean;
       autoClosers: AutoCloserMarker[];
@@ -149,7 +151,15 @@ type ActiveEdit =
 type PrepareSave = (current: Extract<ActiveEdit, { phase: "markdown" }>) => PreparedSave;
 
 export interface QueryResultEditor {
-  active: ActiveEdit | null;
+  active:
+    | (
+        | Exclude<ActiveEdit, { phase: "markdown" }>
+        | (Extract<ActiveEdit, { phase: "markdown" }> & {
+            draft: string;
+            references: ReturnType<typeof projectBuffer>["pageReferences"];
+          })
+      )
+    | null;
   activeBlock?: BlockSnapshot;
   message: MessageFunction;
   keymap: EditorKeymap;
@@ -215,6 +225,7 @@ export function useQueryResultEditor({
 }): QueryResultEditor {
   const commands = useCommands();
   const history = useHistoryActions();
+  const contentSessions = useContentSessions(session);
   const notify = useNotify();
   const keymap = useEditorKeymap();
   const vim = useVimSession(keymap === "vim");
@@ -223,6 +234,7 @@ export function useQueryResultEditor({
   const preserveOnNextBlur = useRef(false);
   const mounted = useRef(true);
   const pendingCommit = useRef<Promise<boolean> | null>(null);
+  const editorDirectory = useRef<readonly PageDirectoryEntry[]>([]);
   const pageDirectory = useMemo(
     () =>
       state.snapshot.page_directory ??
@@ -233,6 +245,27 @@ export function useQueryResultEditor({
         deleted: false,
       })),
     [state.snapshot.page_directory, state.snapshot.pages],
+  );
+
+  if (active?.phase !== "markdown" || (!active.composing && !active.completing)) {
+    editorDirectory.current = pageDirectory;
+  }
+  const project = useCallback(
+    (current: Extract<ActiveEdit, { phase: "markdown" }>) =>
+      projectBuffer(current.content.buffer, editorDirectory.current),
+    [],
+  );
+  const replaceBuffer = useCallback(
+    (current: Extract<ActiveEdit, { phase: "markdown" }>, buffer: ContentBuffer) => {
+      current.content.replace(buffer);
+      return current;
+    },
+    [],
+  );
+  const withDraft = useCallback(
+    (current: Extract<ActiveEdit, { phase: "markdown" }>, value: string) =>
+      editBuffer(current.content.buffer, project(current), value),
+    [project],
   );
 
   const cancel = useCallback(() => {
@@ -267,7 +300,7 @@ export function useQueryResultEditor({
   const bindingFor = useCallback(
     (subject: QueryEntityRef | undefined, column: ResultColumn): QueryEditBinding | null => {
       if (!column.source) return null;
-      if (column.aggregate && column.aggregate !== "list") return null;
+      if (column.aggregate) return null;
       if (
         column.source.kind !== "content" &&
         column.source.kind !== "property" &&
@@ -287,11 +320,12 @@ export function useQueryResultEditor({
       const current = activeRef.current;
       if (current?.phase !== "markdown" || current.saving) return false;
       const prepared = prepare(current);
-      const { expected, references, commands } = prepared;
-      if (commands.length === 0) {
+      const { buffer, actions } = prepared;
+      if (bufferIsClean(buffer) && actions.length === 0) {
         setActive({ ...current, error: null, retrySave: undefined });
         return true;
       }
+      current.content.replace(buffer);
       const targetKey = bindingKey(current.binding);
       let finishCommit!: (saved: boolean) => void;
       const pending = new Promise<boolean>((resolve) => {
@@ -301,17 +335,13 @@ export function useQueryResultEditor({
       let saved = false;
       setActive({
         ...current,
-        baseline: expected,
-        references,
         saving: true,
         closeAfterSave: close || current.closeAfterSave,
         error: null,
         retrySave: undefined,
       });
       try {
-        await session.execute(commands.length === 1 ? commands[0] : { type: "batch", commands });
-        const canonicalBlock = blockFrom(session.getState(), current.binding.block);
-        const canonical = canonicalBlock?.markdown ?? expected;
+        const settled = await current.content.submit(actions);
         setActive((latest) => {
           if (
             latest?.phase !== "markdown" ||
@@ -319,13 +349,10 @@ export function useQueryResultEditor({
             bindingKey(latest.binding) !== targetKey
           )
             return latest;
-          if (latest.draft === expected) {
+          if (!settled.newerInput) {
             if (latest.closeAfterSave) return null;
             return {
               ...latest,
-              baseline: canonical,
-              draft: canonical,
-              references: canonicalBlock?.page_references ?? references,
               saving: false,
             };
           }
@@ -334,7 +361,7 @@ export function useQueryResultEditor({
         saved = true;
         return true;
       } catch (cause) {
-        const canonical = blockFrom(session.getState(), current.binding.block);
+        const applied = cause instanceof CorePortFailure && cause.applied !== undefined;
         setActive((latest) => {
           if (
             latest?.phase !== "markdown" ||
@@ -344,12 +371,14 @@ export function useQueryResultEditor({
             return latest;
           return {
             ...latest,
-            baseline: canonical?.markdown ?? current.baseline,
-            references: canonical?.page_references ?? current.references,
             saving: false,
             closeAfterSave: false,
             error: failureReason(cause, message),
-            retrySave: prepare,
+            // The rejected intent is retained independently of input authored
+            // after it. Retrying replays that intent, then drains the tail.
+            retrySave: applied
+              ? undefined
+              : (latest) => ({ buffer: latest.content.buffer, actions }),
           };
         });
         if (!mounted.current) notify.failure(message("failure.lastEdit"), cause);
@@ -393,39 +422,18 @@ export function useQueryResultEditor({
         if (!(await save(current.retrySave, false))) return false;
         return commit(close, draftOverride, action, source);
       }
-      const expected = draftOverride ?? current.draft;
-      const plan = planInlineEdit(
-        current.binding.block.id,
-        current.baseline,
-        current.references,
-        expected,
-      );
-      if (!plan && !action) {
+      const buffer =
+        draftOverride === undefined ? current.content.buffer : withDraft(current, draftOverride);
+      const command = bufferCommand(buffer, current.binding.block.owner, current.binding.block.id);
+      if (!command && !action) {
         if (close) setActive(null);
         return true;
       }
       if (
         !(await save((latest) => {
-          const value = draftOverride ?? latest.draft;
-          const nextPlan = planInlineEdit(
-            latest.binding.block.id,
-            latest.baseline,
-            latest.references,
-            value,
-          );
-          const commands: Command[] = [];
-          if (nextPlan)
-            commands.push({
-              type: "splice_block_content",
-              owner: latest.binding.block.owner,
-              ...nextPlan.splice,
-            });
-          if (action) commands.push(action);
-          return {
-            expected: value,
-            references: nextPlan?.references ?? latest.references,
-            commands,
-          };
+          const buffer =
+            draftOverride === undefined ? latest.content.buffer : withDraft(latest, draftOverride);
+          return { buffer, actions: action ? [action] : [] };
         }, close))
       )
         return false;
@@ -433,7 +441,7 @@ export function useQueryResultEditor({
       if (
         latest?.phase === "markdown" &&
         latest.origin === current.origin &&
-        latest.draft !== latest.baseline
+        !bufferIsClean(latest.content.buffer)
       ) {
         return commit(close, undefined, undefined, source);
       }
@@ -454,9 +462,7 @@ export function useQueryResultEditor({
             binding,
             origin,
             anchor,
-            baseline: block.markdown,
-            references: block.page_references ?? [],
-            draft: block.markdown,
+            content: contentSessions.open(binding.block.owner, binding.block.id, block.content),
             composing: false,
             completing: false,
             autoClosers: [],
@@ -521,7 +527,7 @@ export function useQueryResultEditor({
         // A rejected write must remain available for explicit Retry or Cancel.
         // Opening a different cell must never erase its only copy of the draft.
         if (previous.error || previous.composing) return;
-        if (previous.saving || previous.draft !== previous.baseline) {
+        if (previous.saving || !bufferIsClean(previous.content.buffer)) {
           void commit(false).then((saved) => {
             if (saved && mounted.current && sequence === request.current) activate();
           });
@@ -554,7 +560,7 @@ export function useQueryResultEditor({
       active.completing ||
       active.saving ||
       active.error ||
-      active.draft === active.baseline
+      bufferIsClean(active.content.buffer)
     )
       return;
     const timer = window.setTimeout(
@@ -564,72 +570,12 @@ export function useQueryResultEditor({
     return () => window.clearTimeout(timer);
   }, [active, commit]);
 
-  const activeComposing = active?.phase === "markdown" && active.composing;
-  const activeCompleting = active?.phase === "markdown" && active.completing;
-
-  // Directory-only title changes reproject even dirty local text. A semantic
-  // atom that the draft already edited through is absent from `pending` and
-  // therefore stays ordinary Markdown. Other remote block changes still stand
-  // down only when the editor is clean.
-  useEffect(() => {
-    setActive((current) => {
-      if (
-        !current ||
-        current.phase !== "markdown" ||
-        current.saving ||
-        current.composing ||
-        current.completing
-      )
-        return current;
-      if (current.draft !== current.baseline) {
-        const pending = planInlineEdit(
-          current.binding.block.id,
-          current.baseline,
-          current.references,
-          current.draft,
-        );
-        const baseline = materializePageReferences(
-          current.baseline,
-          current.references,
-          pageDirectory,
-        );
-        const draft = materializePageReferences(
-          current.draft,
-          pending?.references ?? current.references,
-          pageDirectory,
-        );
-        if (baseline.markdown === current.baseline && draft.markdown === current.draft) {
-          return current;
-        }
-        return {
-          ...current,
-          baseline: baseline.markdown,
-          draft: draft.markdown,
-          references: baseline.pageReferences,
-          autoClosers: [],
-        };
-      }
-      const canonicalBlock = blockFrom(state, current.binding.block);
-      const canonical = canonicalBlock?.markdown;
-      if (canonical === undefined || canonical === current.baseline) {
-        return current;
-      }
-      return {
-        ...current,
-        baseline: canonical,
-        draft: canonical,
-        references: canonicalBlock?.page_references ?? [],
-        autoClosers: [],
-      };
-    });
-  }, [activeCompleting, activeComposing, pageDirectory, setActive, state]);
-
   const setDraft = useCallback(
     (value: string, edit?: BlockTextEdit) => {
       setActive((current) => {
         if (current?.phase !== "markdown") return current;
         let autoClosers = transformAutoClosers(
-          current.draft,
+          project(current).markdown,
           value,
           current.autoClosers,
           edit?.preferredStart,
@@ -645,7 +591,7 @@ export function useQueryResultEditor({
             edit.autoCloser,
           ];
         }
-        return { ...current, draft: value, autoClosers, error: null };
+        return { ...replaceBuffer(current, withDraft(current, value)), autoClosers, error: null };
       });
     },
     [setActive],
@@ -673,8 +619,13 @@ export function useQueryResultEditor({
       // Choosing a completion consumes its token. An earlier rejected write
       // must not discard that intent before this action can own its own save.
       if (!canAcceptCompletion(current)) return false;
-      const next = removeCompletionToken(current.draft, completion).value;
-      setActive({ ...current, draft: next, autoClosers: [], completing: false, error: null });
+      const next = removeCompletionToken(project(current).markdown, completion).value;
+      setActive({
+        ...replaceBuffer(current, withDraft(current, next)),
+        autoClosers: [],
+        completing: false,
+        error: null,
+      });
 
       void (async () => {
         const owner = {
@@ -695,12 +646,12 @@ export function useQueryResultEditor({
           await commit(false, next, createQueryCommand(owner));
           return;
         }
-        const plan = planInlineEdit(
-          current.binding.block.id,
-          current.baseline,
-          current.references,
-          next,
-        );
+        const commandPrefix =
+          bufferCommand(
+            withDraft(current, next),
+            current.binding.block.owner,
+            current.binding.block.id,
+          ) ?? undefined;
         setActive({
           phase: "picker",
           binding: {
@@ -711,13 +662,7 @@ export function useQueryResultEditor({
           origin: current.origin,
           anchor: snapshotAnchor(completionAnchor(completion)),
           taskMenu: false,
-          commandPrefix: plan
-            ? {
-                type: "splice_block_content",
-                owner: current.binding.block.owner,
-                ...plan.splice,
-              }
-            : undefined,
+          commandPrefix,
         });
       })();
       return true;
@@ -729,8 +674,13 @@ export function useQueryResultEditor({
     (completion: BlockCompletionRequest, option: BlockTagOption) => {
       const current = activeRef.current;
       if (!canAcceptCompletion(current)) return false;
-      const next = removeCompletionToken(current.draft, completion).value;
-      setActive({ ...current, draft: next, autoClosers: [], completing: false, error: null });
+      const next = removeCompletionToken(project(current).markdown, completion).value;
+      setActive({
+        ...replaceBuffer(current, withDraft(current, next)),
+        autoClosers: [],
+        completing: false,
+        error: null,
+      });
       void (async () => {
         await commit(
           false,
@@ -759,49 +709,34 @@ export function useQueryResultEditor({
       if (!canAcceptCompletion(current)) return null;
       const blockId = current.binding.block.id;
       const pageId = option.create ? `p-${randomUUID()}` : option.id;
-      const prepare = (base: Extract<ActiveEdit, { phase: "markdown" }>) => {
-        // Rebuild a rejected completion from the latest canonical baseline.
-        // Replaying the old absolute splice after a remote edit would be unsafe.
-        const pendingText = planInlineEdit(blockId, base.baseline, base.references, current.draft);
-        const replacement = planPageReference(
-          blockId,
-          current.draft,
-          pendingText?.references ?? base.references,
-          completion.start,
-          completion.end,
-          pageId,
-          option.title,
-        );
-        const commands: Command[] = [];
-        if (option.create)
-          commands.push({ type: "ensure_page", page_id: pageId, title: option.title });
-        if (pendingText)
-          commands.push({
-            type: "splice_block_content",
-            owner: current.binding.block.owner,
-            ...pendingText.splice,
-          });
-        commands.push({
-          type: "splice_block_content",
-          owner: current.binding.block.owner,
-          ...replacement.plan.splice,
-        });
-        return {
-          expected: replacement.value,
-          references: replacement.plan.references,
-          commands,
-          caret: replacement.caret,
-        };
-      };
-      const replacement = prepare(current);
+      const projection = project(current);
+      const replacement = planPageReference(
+        blockId,
+        projection.markdown,
+        projection.pageReferences,
+        completion.start,
+        completion.end,
+        pageId,
+        option.title,
+      );
+      const buffer = spliceBuffer(
+        current.content.buffer,
+        replacement.plan.splice.index,
+        replacement.plan.splice.delete,
+        replacement.plan.splice.insert,
+      );
+      const actions: Command[] = option.create
+        ? [{ type: "ensure_page", page_id: pageId, title: option.title }]
+        : [];
       setActive({
-        ...current,
-        draft: replacement.expected,
+        ...replaceBuffer(current, buffer),
         autoClosers: [],
         completing: false,
         error: null,
       });
-      void save(prepare, false);
+      // The prepared semantic edit owns the accepted PageId across retry; its
+      // displayed title and the completion's original offsets are not replayed.
+      void save(() => ({ buffer, actions }), false);
       return replacement.caret;
     },
     [save, setActive],
@@ -881,8 +816,12 @@ export function useQueryResultEditor({
     });
   }, [activeBlockKey, begin, commands]);
 
+  const presentedActive =
+    active?.phase === "markdown"
+      ? { ...active, draft: project(active).markdown, references: project(active).pageReferences }
+      : active;
   return {
-    active,
+    active: presentedActive,
     activeBlock,
     message,
     keymap,
@@ -1124,6 +1063,7 @@ function QueryMarkdownField({
         className="query-result-input"
         value={projected}
         autoClosers={markdown?.autoClosers ?? []}
+        contentSession={markdown?.content}
         data-block-editor
         data-query-column={column?.variable}
         dir="auto"
@@ -1692,20 +1632,21 @@ export function EditableBlockTaskMark({
 }
 
 export function EditableCellValue({
-  term,
+  terms,
   column,
   context,
   row,
   editor,
   className,
 }: {
-  term: RdfTerm | undefined;
+  terms: RdfTerm[] | undefined;
   column: ResultColumn;
   context: CellContext;
   row: ResultViewRow;
   editor: QueryResultEditor;
   className?: string;
 }): ReactNode {
+  const term = terms?.[0];
   const binding = editor.bindingFor(row.subject, column);
   const current = binding && editor.isActive(binding, row) ? editor.active : null;
   if (binding?.kind === "markdown") {
@@ -1725,7 +1666,7 @@ export function EditableCellValue({
   const displayContext = binding ? { ...context, onOpen: undefined } : context;
   const value = (
     <CellValue
-      term={term}
+      terms={terms}
       column={column}
       context={displayContext}
       subject={row.subject}
@@ -1790,18 +1731,19 @@ export function EditableCellValue({
 }
 
 export function EditableStatusValue({
-  term,
+  terms,
   column,
   context,
   row,
   editor,
 }: {
-  term: RdfTerm | undefined;
+  terms: RdfTerm[] | undefined;
   column: ResultColumn;
   context: CellContext;
   row: ResultViewRow;
   editor: QueryResultEditor;
 }) {
+  const term = terms?.[0];
   const binding = editor.bindingFor(row.subject, column);
   if (term?.kind !== "literal" && !binding) return null;
   const status = term?.kind === "literal" ? term.value : "";

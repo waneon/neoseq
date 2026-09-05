@@ -8,6 +8,7 @@ import { useState, type ReactElement } from "react";
 import { PageView } from "../../src/features/page/PageView";
 import { Dialog } from "../../src/ui/components";
 import { findPage } from "../../src/core-port/snapshot";
+import { CorePortFailure } from "../../src/core-worker";
 import { resetAppSettingsCache, setEditorKeymap } from "../../src/entities/settings";
 import { openWasmSession } from "./wasm-test-port";
 import { Outliner } from "../../src/features/outline/Outliner";
@@ -78,7 +79,10 @@ describe("outliner keyboard commands", () => {
     await user.click(textarea);
     await user.type(textarea, "/");
     expect(await screen.findByTestId("slash-menu")).toBeInTheDocument();
-    await harness.settle(() => fireEvent.blur(textarea));
+    await harness.settle(async () => {
+      fireEvent.blur(textarea);
+      await harness.session.executePrepared(() => null);
+    });
     await waitFor(() =>
       expect(findPage(harness.session.getState().snapshot, "home")?.blocks[0].markdown).toBe("/"),
     );
@@ -727,6 +731,7 @@ describe("outliner keyboard commands", () => {
       index: 0,
       markdown: "alpha",
     });
+    await session.hydrateOutline({ kind: "page", id: "home" });
     const frozenPage = findPage(session.getState().snapshot, "home");
     if (!frozenPage) throw new Error("test page was not created");
     let releaseSplit = () => undefined;
@@ -931,6 +936,257 @@ describe("outliner keyboard commands", () => {
     port.beforeExecute = null;
   });
 
+  it.each([
+    { command: "split_block", initial: "abcd", tail: "cd" },
+    { command: "insert_block", initial: "", tail: "" },
+  ])(
+    "adopts an applied but unsaved $command without abandoning raced input",
+    async ({ command: type, initial, tail }) => {
+      const harness = await mountOutline([initial]);
+      const { session, port } = harness;
+      let release!: () => void;
+      let entered!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const started = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      port.beforeExecute = async (command) => {
+        if (command.type !== type) return;
+        port.beforeExecute = null;
+        entered();
+        await gate;
+      };
+      const user = userEvent.setup();
+      const source = screen.getByLabelText("Block text") as HTMLTextAreaElement;
+      await user.click(source);
+      source.setSelectionRange(2, 2);
+      await user.keyboard("{Enter}");
+      await started;
+      await user.keyboard("X");
+      port.failNextSave = { code: "storage_full", message: "disk full", retryable: true };
+      await harness.settle(async () => {
+        release();
+        await session.executePrepared(() => null);
+      });
+      await waitFor(() => {
+        expect(document.querySelector('[data-block-id^="pending-"]')).toBeNull();
+        expect(document.activeElement).toHaveValue(`X${tail}`);
+      });
+      expect(session.getState().save.kind).toBe("unsaved");
+      await harness.settle(() => session.retry());
+      fireEvent.blur(document.activeElement!);
+      await waitFor(() => {
+        expect(
+          findPage(session.getState().snapshot, "home")?.blocks.map((block) => block.markdown),
+        ).toEqual([initial.slice(0, 2), `X${tail}`]);
+      });
+    },
+  );
+
+  it.each([
+    { command: "split_block", initial: "abcd", tail: "cd", input: "X" },
+    { command: "insert_block", initial: "", tail: "", input: "X" },
+    { command: "insert_block", initial: "", tail: "", input: "" },
+  ])(
+    "retains an applied $command with input '$input' when its authoritative read fails",
+    async ({ command: type, initial, tail, input }) => {
+      const { session, port } = await mountOutline([initial]);
+      let release!: () => void;
+      let entered!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const started = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      let creations = 0;
+      port.beforeExecute = async (command) => {
+        if (command.type !== type) return;
+        creations += 1;
+        if (creations === 1) {
+          entered();
+          await gate;
+        }
+      };
+      const user = userEvent.setup();
+      const source = screen.getByLabelText("Block text") as HTMLTextAreaElement;
+      await user.click(source);
+      source.setSelectionRange(2, 2);
+      await user.keyboard("{Enter}");
+      await started;
+      if (input) await user.keyboard(input);
+      const read = port.read.bind(port);
+      port.read = async () => {
+        port.read = read;
+        throw new CorePortFailure({
+          code: "internal",
+          message: "Authoritative read failed",
+          retryable: true,
+        });
+      };
+      const persisted = new Promise<void>((resolve) => {
+        const unsubscribe = session.subscribe(() => {
+          const blocks = findPage(session.getState().snapshot, "home")?.blocks;
+          if (blocks?.length !== 2 || blocks[1].markdown !== `${input}${tail}`) return;
+          unsubscribe();
+          resolve();
+        });
+      });
+      await act(async () => {
+        release();
+        await persisted;
+      });
+      expect(creations).toBe(1);
+      expect(
+        findPage(session.getState().snapshot, "home")?.blocks.map((block) => block.markdown),
+      ).toEqual([initial.slice(0, 2), `${input}${tail}`]);
+      expect(document.querySelector('[data-block-id^="pending-"]')).toBeNull();
+      expect(document.activeElement).toHaveValue(`${input}${tail}`);
+    },
+  );
+
+  it.each([
+    { initial: "abcd", command: "split_block", reads: 1, middle: "Xcd" },
+    { initial: "", command: "insert_block", reads: 1, middle: "X" },
+    { initial: "abcd", command: "split_block", reads: 2, middle: "Xcd" },
+    { initial: "", command: "insert_block", reads: 2, middle: "X" },
+  ])(
+    "keeps chained Enter input after $command with $reads failed reads",
+    async ({ initial, command: type, reads, middle }) => {
+      const { session, port } = await mountOutline([initial]);
+      let release!: () => void;
+      let entered!: () => void;
+      let recoveryFailed!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const started = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const failedRecovery = new Promise<void>((resolve) => {
+        recoveryFailed = resolve;
+      });
+      let creations = 0;
+      port.beforeExecute = async (command) => {
+        if (command.type !== "insert_block" && command.type !== "split_block") return;
+        creations += 1;
+        if (creations === 1) {
+          expect(command.type).toBe(type);
+          entered();
+          await gate;
+        }
+      };
+      const user = userEvent.setup();
+      const source = screen.getByLabelText("Block text") as HTMLTextAreaElement;
+      await user.click(source);
+      source.setSelectionRange(2, 2);
+      await user.keyboard("{Enter}");
+      await started;
+      await user.keyboard("X{End}{Enter}Y");
+      const read = port.read.bind(port);
+      let failures = reads;
+      port.read = async (request) => {
+        if (failures > 0) {
+          failures -= 1;
+          if (failures === 0) recoveryFailed();
+          throw new CorePortFailure({
+            code: "internal",
+            message: "Authoritative read failed",
+            retryable: true,
+          });
+        }
+        return read(request);
+      };
+      const persisted = new Promise<void>((resolve) => {
+        const unsubscribe = session.subscribe(() => {
+          const blocks = findPage(session.getState().snapshot, "home")?.blocks;
+          if (blocks?.length !== 3 || blocks[1].markdown !== middle || blocks[2].markdown !== "Y")
+            return;
+          unsubscribe();
+          resolve();
+        });
+      });
+      if (reads > 1) {
+        await act(async () => {
+          release();
+          await failedRecovery;
+        });
+        expect(creations).toBe(1);
+        expect(
+          screen
+            .getAllByLabelText("Block text")
+            .map((input) => (input as HTMLTextAreaElement).value),
+        ).toEqual([initial.slice(0, 2), middle, "Y"]);
+        expect(document.activeElement).toHaveValue("Y");
+        await act(async () => {
+          await session.executePrepared(() => null);
+          await persisted;
+        });
+      } else {
+        await act(async () => {
+          release();
+          await persisted;
+        });
+      }
+      expect(creations).toBe(2);
+      expect(document.querySelector('[data-block-id^="pending-"]')).toBeNull();
+      expect(document.activeElement).toHaveValue("Y");
+      expect(
+        findPage(session.getState().snapshot, "home")?.blocks.map((block) => block.markdown),
+      ).toEqual([initial.slice(0, 2), middle, "Y"]);
+    },
+  );
+
+  it.each([
+    { token: "/scheduled", menu: "slash-menu" },
+    { token: "#project", menu: "tag-menu" },
+  ])("keeps $token completion through pending-row adoption", async ({ token, menu }) => {
+    const harness = await mountOutline(["alpha"]);
+    const { session, port } = harness;
+    await harness.settle(() =>
+      session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" }),
+    );
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    port.beforeExecute = async (command) => {
+      if (command.type !== "split_block") return;
+      port.beforeExecute = null;
+      entered();
+      await gate;
+    };
+    const user = userEvent.setup();
+    const source = screen.getByLabelText("Block text") as HTMLTextAreaElement;
+    await user.click(source);
+    source.setSelectionRange(source.value.length, source.value.length);
+    await user.keyboard("{Enter}");
+    await started;
+    await user.keyboard(token);
+    expect(screen.getByTestId(menu)).toBeInTheDocument();
+    await harness.settle(async () => {
+      release();
+      await session.executePrepared(() => null);
+    });
+    expect(document.querySelector('[data-block-id^="pending-"]')).toBeNull();
+    expect(screen.getByTestId(menu)).toBeInTheDocument();
+    expect(document.activeElement).toHaveValue(token);
+    await user.keyboard("{Enter}");
+    if (token.startsWith("/")) {
+      expect(await screen.findByTestId("property-picker")).toBeInTheDocument();
+    } else {
+      await waitFor(() =>
+        expect(findPage(session.getState().snapshot, "home")?.blocks[1].tags).toEqual(["project"]),
+      );
+    }
+  });
+
   it("removes the complete split projection when the canonical split fails", async () => {
     const { port } = await mountOutline(["headtail"]);
     let rejectSplit = () => undefined;
@@ -1026,63 +1282,94 @@ describe("outliner keyboard commands", () => {
     });
   });
 
-  it("merges backward at the content boundary and serializes raced typing after it", async () => {
-    const { session, port } = await mountOutline(["head", "tail"]);
-    let releaseMerge = () => undefined;
-    const mergeGate = new Promise<void>((resolve) => {
-      releaseMerge = resolve;
-    });
-    let signalMergeStarted = () => undefined;
-    const mergeStarted = new Promise<void>((resolve) => {
-      signalMergeStarted = resolve;
-    });
-    port.beforeExecute = async (command) => {
-      if (command.type !== "merge_block_backward") return;
-      signalMergeStarted();
-      await mergeGate;
-    };
-
-    const user = userEvent.setup();
-    const source = screen.getAllByLabelText("Block text")[1] as HTMLTextAreaElement;
-    await user.click(source);
+  it("preserves both dirty endpoints before projecting a backward merge", async () => {
+    const { session } = await mountOutline(["head", "tail"]);
+    const [target, source] = screen.getAllByLabelText("Block text") as HTMLTextAreaElement[];
+    fireEvent.focus(target);
+    fireEvent.change(target, { target: { value: "head!" } });
+    fireEvent.focus(source);
+    fireEvent.change(source, { target: { value: "tail?" } });
     source.setSelectionRange(0, 0);
-    await user.keyboard("{Backspace}");
-    await act(async () => mergeStarted);
-
-    const target = screen.getByLabelText("Block text") as HTMLTextAreaElement;
-    expect(screen.getAllByLabelText("Block text")).toHaveLength(1);
-    expect(target).toHaveValue("headtail");
-    expect(target).toHaveFocus();
-    expect([target.selectionStart, target.selectionEnd]).toEqual([4, 4]);
-    await user.keyboard("!");
-    expect(target).toHaveValue("head!tail");
-
-    const persisted = new Promise<void>((resolve) => {
-      const unsubscribe = session.subscribe(() => {
-        const page = findPage(session.getState().snapshot, "home");
-        if (page?.blocks.length !== 1 || page.blocks[0].markdown !== "head!tail") return;
-        unsubscribe();
-        resolve();
-      });
-    });
-    await act(async () => {
-      releaseMerge();
-      await persisted;
-    });
-    port.beforeExecute = null;
-    expect(findPage(session.getState().snapshot, "home")?.blocks[0].markdown).toBe("head!tail");
-
-    await user.keyboard("{Meta>}z{/Meta}");
+    fireEvent.keyDown(source, { key: "Backspace" });
     await waitFor(() => {
-      const page = findPage(session.getState().snapshot, "home");
-      expect(page?.blocks.map((block) => block.markdown)).toEqual(["headtail"]);
-    });
-    await user.keyboard("{Meta>}z{/Meta}");
-    await waitFor(() => {
-      const page = findPage(session.getState().snapshot, "home");
-      expect(page?.blocks.map((block) => block.markdown)).toEqual(["head", "tail"]);
+      expect(
+        findPage(session.getState().snapshot, "home")?.blocks.map((block) => block.markdown),
+      ).toEqual(["head!tail?"]);
     });
   });
+
+  it.each([false, true])(
+    "merges backward and serializes raced typing after it (read failure: %s)",
+    async (readFailure) => {
+      const { session, port } = await mountOutline(["head", "tail"]);
+      let releaseMerge = () => undefined;
+      const mergeGate = new Promise<void>((resolve) => {
+        releaseMerge = resolve;
+      });
+      let signalMergeStarted = () => undefined;
+      const mergeStarted = new Promise<void>((resolve) => {
+        signalMergeStarted = resolve;
+      });
+      port.beforeExecute = async (command) => {
+        if (command.type !== "merge_block_backward") return;
+        signalMergeStarted();
+        await mergeGate;
+      };
+
+      const user = userEvent.setup();
+      const source = screen.getAllByLabelText("Block text")[1] as HTMLTextAreaElement;
+      await user.click(source);
+      source.setSelectionRange(0, 0);
+      await user.keyboard("{Backspace}");
+      await act(async () => mergeStarted);
+
+      const target = screen.getByLabelText("Block text") as HTMLTextAreaElement;
+      expect(screen.getAllByLabelText("Block text")).toHaveLength(1);
+      expect(target).toHaveValue("headtail");
+      expect(target).toHaveFocus();
+      expect([target.selectionStart, target.selectionEnd]).toEqual([4, 4]);
+      await user.keyboard("!");
+      expect(target).toHaveValue("head!tail");
+
+      if (readFailure) {
+        const read = port.read.bind(port);
+        port.read = async () => {
+          port.read = read;
+          throw new CorePortFailure({
+            code: "internal",
+            message: "Authoritative read failed",
+            retryable: true,
+          });
+        };
+      }
+
+      const persisted = new Promise<void>((resolve) => {
+        const unsubscribe = session.subscribe(() => {
+          const page = findPage(session.getState().snapshot, "home");
+          if (page?.blocks.length !== 1 || page.blocks[0].markdown !== "head!tail") return;
+          unsubscribe();
+          resolve();
+        });
+      });
+      await act(async () => {
+        releaseMerge();
+        await persisted;
+      });
+      port.beforeExecute = null;
+      expect(findPage(session.getState().snapshot, "home")?.blocks[0].markdown).toBe("head!tail");
+
+      await user.keyboard("{Meta>}z{/Meta}");
+      await waitFor(() => {
+        const page = findPage(session.getState().snapshot, "home");
+        expect(page?.blocks.map((block) => block.markdown)).toEqual(["headtail"]);
+      });
+      await user.keyboard("{Meta>}z{/Meta}");
+      await waitFor(() => {
+        const page = findPage(session.getState().snapshot, "home");
+        expect(page?.blocks.map((block) => block.markdown)).toEqual(["head", "tail"]);
+      });
+    },
+  );
 
   it("restores both blocks and the source caret when a backward merge fails", async () => {
     const { port } = await mountOutline(["head", "tail"]);
@@ -1250,6 +1537,51 @@ describe("outliner keyboard commands", () => {
         }),
       ]);
     });
+  });
+
+  it("maps a focused native caret through disjoint canonical edits", async () => {
+    const { session } = await mountOutline(["abcdef"]);
+    const textarea = screen.getByLabelText("Block text") as HTMLTextAreaElement;
+    await userEvent.setup().click(textarea);
+    textarea.setSelectionRange(3, 3);
+    const block = findPage(session.getState().snapshot, "home")!.blocks[0];
+    await act(async () => {
+      await session.execute({
+        type: "splice_block_contents",
+        owner: { kind: "page", id: "home" },
+        splices: [
+          { block_id: block.id, index: 1, delete: 0, insert: [{ type: "markdown", value: "X" }] },
+          { block_id: block.id, index: 5, delete: 0, insert: [{ type: "markdown", value: "Y" }] },
+        ],
+      });
+    });
+    expect(textarea).toHaveValue("aXbcdYef");
+    expect([textarea.selectionStart, textarea.selectionEnd]).toEqual([4, 4]);
+  });
+
+  it("rebases composed input only after the native composition boundary", async () => {
+    const { session } = await mountOutline(["abc"]);
+    const textarea = screen.getByLabelText("Block text") as HTMLTextAreaElement;
+    await userEvent.setup().click(textarea);
+    fireEvent.compositionStart(textarea);
+    fireEvent.change(textarea, { target: { value: "abc한" } });
+    const block = findPage(session.getState().snapshot, "home")!.blocks[0];
+    await act(async () => {
+      await session.execute({
+        type: "splice_block_content",
+        owner: { kind: "page", id: "home" },
+        block_id: block.id,
+        index: 0,
+        delete: 0,
+        insert: [{ type: "markdown", value: "X" }],
+      });
+    });
+    expect(textarea).toHaveValue("abc한");
+    fireEvent.compositionEnd(textarea);
+    await waitFor(() => expect(textarea).toHaveValue("Xabc한"));
+    await waitFor(() =>
+      expect(findPage(session.getState().snapshot, "home")!.blocks[0].markdown).toBe("Xabc한"),
+    );
   });
 
   it("dismisses an open menu when the empty region below the writing is clicked", async () => {

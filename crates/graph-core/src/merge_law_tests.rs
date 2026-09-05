@@ -1288,6 +1288,7 @@ fn query_plan(subject: &str) -> QueryPlan {
         version: domain::QUERY_PLAN_VERSION,
         payload: serde_json::json!({
             "version": domain::QUERY_PLAN_VERSION,
+            "grain": "entity",
             "subject": subject,
             "where": {
                 "kind": "group",
@@ -1300,7 +1301,6 @@ fn query_plan(subject: &str) -> QueryPlan {
                 "source": { "kind": "subject" },
             }],
             "limit": 100,
-            "distinct": false,
         })
         .to_string(),
     }

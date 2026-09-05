@@ -573,8 +573,8 @@ export function QueryTableView({
                               className="query-cell-open"
                               aria-label={message("query.openResult", {
                                 name:
-                                  term?.kind === "literal" && term.value
-                                    ? term.value
+                                  term?.[0]?.kind === "literal" && term[0].value
+                                    ? term[0].value
                                     : column.label,
                               })}
                               onClick={() => context.onOpen?.(row.original.subject!)}
@@ -585,7 +585,7 @@ export function QueryTableView({
                         }
                       >
                         <EditableCellValue
-                          term={term}
+                          terms={term}
                           column={column}
                           context={context}
                           row={row.original}

@@ -247,7 +247,8 @@ describe("wiring", () => {
     port.failNextSave = { code: "dirty_unsaved", message: "append failed", retryable: true };
     await expect(
       session.execute({ type: "rename_page", page_id: "home", title: "Renamed" }),
-    ).rejects.toThrow();
+    ).resolves.toMatchObject({ command_id: expect.any(String) });
+    expect(session.getState().save.kind).toBe("unsaved");
     expect(screen.queryByTestId("toast")).not.toBeInTheDocument();
   });
 });

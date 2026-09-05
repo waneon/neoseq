@@ -127,7 +127,8 @@ fn map_query_error(error: query::QueryError) -> CorePortError {
         query::QueryError::SourceBudget
         | query::QueryError::BindingBudget
         | query::QueryError::AlgebraBudget
-        | query::QueryError::RowBudget => CorePortErrorCode::QueryBudgetExceeded,
+        | query::QueryError::RowBudget
+        | query::QueryError::ResultBudget => CorePortErrorCode::QueryBudgetExceeded,
         query::QueryError::Index(_) => CorePortErrorCode::Internal,
         query::QueryError::UnsupportedLanguage(_)
         | query::QueryError::Syntax(_)
@@ -327,8 +328,10 @@ impl WasmGraphCore {
             self.pending_update = Some(std::mem::take(&mut execution.update));
         }
         self.advance_index(&execution.changes);
+        let changes = self.inner.publication(&execution);
         serde_json::to_string(&serde_json::json!({
             "result": execution.result,
+            "changes": changes,
             "semantic": execution.semantic
         }))
         .map_err(js_internal_error)
@@ -340,18 +343,18 @@ impl WasmGraphCore {
     }
 
     #[wasm_bindgen(js_name = importUpdate)]
-    pub fn import_update(&mut self, update: &[u8]) -> Result<(), JsValue> {
+    pub fn import_update(&mut self, update: &[u8]) -> Result<String, JsValue> {
         if self.pending_update.is_some() {
             return Err(js_dirty_unsaved("take the pending update before importing"));
         }
-        let changes = self
+        let (changes, publication) = self
             .inner
-            .import_remote_with_changes(update)
+            .import_remote_with_publication(update)
             .map_err(js_core_error)?;
         // Inbound bytes are durable before this API is called. An index error
         // invalidates only the disposable projection, not the accepted import.
         self.advance_index(&changes);
-        Ok(())
+        serde_json::to_string(&publication).map_err(js_internal_error)
     }
 
     #[wasm_bindgen(js_name = validateUpdate)]

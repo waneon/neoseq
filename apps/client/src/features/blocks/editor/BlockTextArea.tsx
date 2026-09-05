@@ -22,6 +22,9 @@ import {
   type PairSelectionDirection,
   type TextEditPlan,
 } from "./auto-pair";
+import type { BlockContentSession } from "./content-session";
+import { transformProjectedSelection } from "./selection";
+import { projectContent } from "./content-buffer";
 
 export interface BlockTextEdit {
   autoCloser?: AutoCloserMarker;
@@ -35,6 +38,7 @@ export interface BlockTextAreaProps extends Omit<
 > {
   value: string;
   autoClosers: readonly AutoCloserMarker[];
+  contentSession?: BlockContentSession;
   /** False in a modal command mode: selection stays native, text insertion does not. */
   acceptsTextInput?: boolean;
   onValueChange(value: string, textarea: HTMLTextAreaElement, edit?: BlockTextEdit): void;
@@ -72,6 +76,7 @@ export const BlockTextArea = forwardRef<HTMLTextAreaElement, BlockTextAreaProps>
   function BlockTextArea(
     {
       autoClosers,
+      contentSession,
       value,
       acceptsTextInput = true,
       onValueChange,
@@ -87,6 +92,11 @@ export const BlockTextArea = forwardRef<HTMLTextAreaElement, BlockTextAreaProps>
     const beforeInputSnapshot = useRef<BeforeInputSnapshot | null>(null);
     const pendingInputRepair = useRef<PendingInputRepair | null>(null);
     const composing = useRef(false);
+    const mappedSelection = useRef<{
+      start: number;
+      end: number;
+      direction: "forward" | "backward" | "none";
+    } | null>(null);
     const latest = useRef({
       autoClosers,
       value,
@@ -111,6 +121,51 @@ export const BlockTextArea = forwardRef<HTMLTextAreaElement, BlockTextAreaProps>
       },
       [forwardedRef],
     );
+
+    useLayoutEffect(
+      () =>
+        contentSession?.observe((change) => {
+          const textarea = textareaRef.current;
+          if (!textarea || document.activeElement !== textarea) return;
+          const previous = mappedSelection.current;
+          const selection = transformProjectedSelection(change, {
+            anchor: previous?.start ?? textarea.selectionStart,
+            head: previous?.end ?? textarea.selectionEnd,
+          });
+          if (
+            !previous &&
+            selection.anchor === textarea.selectionStart &&
+            selection.head === textarea.selectionEnd &&
+            projectContent(change.before, change.beforeDirectory).markdown ===
+              projectContent(change.after, change.afterDirectory).markdown
+          )
+            return;
+          mappedSelection.current = {
+            start: selection.anchor,
+            end: selection.head,
+            direction: previous?.direction ?? textarea.selectionDirection,
+          };
+        }),
+      [contentSession],
+    );
+
+    useLayoutEffect(() => {
+      const textarea = textareaRef.current;
+      const selection = mappedSelection.current;
+      if (!textarea || !selection || composing.current) return;
+      mappedSelection.current = null;
+      if (textarea.selectionStart === selection.start && textarea.selectionEnd === selection.end)
+        return;
+      const scroll: Array<{ element: HTMLElement; top: number; left: number }> = [];
+      for (let element: HTMLElement | null = textarea; element; element = element.parentElement) {
+        scroll.push({ element, top: element.scrollTop, left: element.scrollLeft });
+      }
+      textarea.setSelectionRange(selection.start, selection.end, selection.direction);
+      for (const { element, top, left } of scroll) {
+        element.scrollTop = top;
+        element.scrollLeft = left;
+      }
+    });
 
     useLayoutEffect(() => {
       const textarea = textareaRef.current;
@@ -255,11 +310,13 @@ export const BlockTextArea = forwardRef<HTMLTextAreaElement, BlockTextAreaProps>
         onChange={handleChange}
         onCompositionStart={(event) => {
           composing.current = true;
+          contentSession?.setComposing(true);
           onCompositionStart?.(event);
         }}
         onCompositionEnd={(event) => {
           composing.current = false;
           onCompositionEnd?.(event);
+          contentSession?.setComposing(false);
         }}
       />
     );

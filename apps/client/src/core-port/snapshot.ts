@@ -116,6 +116,8 @@ export interface PropertyField {
 
 export interface BlockSnapshot {
   id: string;
+  /** Semantic content; markdown and spans are disposable display projections. */
+  content: import("./commands").InlineContent[];
   /** Current-title projection; page-reference identity lives in `page_references`. */
   markdown: string;
   page_references?: PageReferenceSpan[];
@@ -123,6 +125,26 @@ export interface BlockSnapshot {
   tags: string[];
   children: BlockSnapshot[];
 }
+
+export interface ContentRangeChange {
+  index: number;
+  delete: number;
+  insert: number;
+}
+
+export interface BlockContentUpdate {
+  owner: OutlineOwner;
+  block_id: string;
+  content: import("./commands").InlineContent[];
+  markdown: string;
+  page_references: PageReferenceSpan[];
+  properties: PropertyField[];
+  mapping: ContentRangeChange[];
+}
+
+export type GraphChanges =
+  | { kind: "content"; blocks: BlockContentUpdate[] }
+  | { kind: "refresh"; outlines: OutlineOwner[] | null; blocks: BlockContentUpdate[] };
 
 export interface PageReferenceSpan {
   /** Unicode-scalar range in `markdown`. */
@@ -241,36 +263,35 @@ export function mergeSummary(
   };
 }
 
-export function materializePageReferences(
-  markdown: string,
-  referencesInput: readonly PageReferenceSpan[],
+/** Projects semantic content; display offsets never become an editing baseline. */
+export function projectInlineContent(
+  content: readonly import("./commands").InlineContent[],
   pages: readonly PageDirectoryEntry[] | ReadonlyMap<string, PageDirectoryEntry>,
 ): { markdown: string; pageReferences: PageReferenceSpan[] } {
-  if (referencesInput.length === 0) return { markdown, pageReferences: [] };
   const directory: ReadonlyMap<string, PageDirectoryEntry> = isPageDirectoryMap(pages)
     ? pages
     : new Map(pages.map((page) => [page.id, page]));
-  const references = [...referencesInput].sort((left, right) => left.start - right.start);
-  const source = Array.from(markdown);
-  let cursor = 0;
-  let displayIndex = 0;
-  let projectedMarkdown = "";
-  const projected: PageReferenceSpan[] = [];
-  for (const reference of references) {
-    const prefix = source.slice(cursor, reference.start).join("");
-    projectedMarkdown += prefix;
-    displayIndex += Array.from(prefix).length;
-    const page = directory.get(reference.page_id);
-    const title = page?.journal_date ?? page?.title ?? reference.page_id;
-    const token = `[[${title}]]`;
-    const length = Array.from(token).length;
-    projectedMarkdown += token;
-    projected.push({ ...reference, start: displayIndex, end: displayIndex + length });
-    displayIndex += length;
-    cursor = reference.end;
+  let markdown = "";
+  let display = 0;
+  let index = 0;
+  const pageReferences: PageReferenceSpan[] = [];
+  for (const part of content) {
+    if (part.type === "markdown") {
+      markdown += part.value;
+      const length = Array.from(part.value).length;
+      display += length;
+      index += length;
+    } else {
+      const page = directory.get(part.page_id);
+      const token = `[[${page?.journal_date ?? page?.title ?? part.page_id}]]`;
+      const end = display + Array.from(token).length;
+      pageReferences.push({ start: display, end, index, page_id: part.page_id });
+      markdown += token;
+      display = end;
+      index += 1;
+    }
   }
-  projectedMarkdown += source.slice(cursor).join("");
-  return { markdown: projectedMarkdown, pageReferences: projected };
+  return { markdown, pageReferences };
 }
 
 function isPageDirectoryMap(
@@ -289,7 +310,7 @@ function rematerializeBlock(
   if (references.length === 0) {
     return childrenChanged ? { ...block, children } : block;
   }
-  const projection = materializePageReferences(block.markdown, references, directory);
+  const projection = projectInlineContent(block.content, directory);
   const referencesChanged =
     projection.pageReferences.length !== references.length ||
     projection.pageReferences.some((reference, index) => {

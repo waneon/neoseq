@@ -70,13 +70,19 @@ pub enum RuntimeError {
 #[derive(Debug, Clone, PartialEq)]
 pub struct RuntimeExecution {
     pub result: CommandResult,
+    pub changes: domain::GraphChanges,
     pub persistence: RuntimePersistence,
 }
 
-/// Durable effect of one successful runtime command.
+/// Persistence outcome of an applied runtime command. An unsaved outcome still
+/// carries the command result; admission failures remain errors.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimePersistence {
     Appended(AppendReceipt),
+    Unsaved {
+        kind: StorageErrorKind,
+        message: String,
+    },
     /// A duplicate or semantic no-op produced no bytes that needed persistence.
     Unchanged,
 }
@@ -147,6 +153,9 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
         let now = self.clock.now();
         let command_id = command.command_id.to_string();
         let execution = self.core.execute(command, &now)?;
+        // Publication failure falls back to authoritative reads; exact update
+        // bytes must always continue to the persistence boundary.
+        let changes = self.core.publication(&execution);
         let persistence = if execution.update.is_empty() {
             self.advance_index(&execution.changes);
             RuntimePersistence::Unchanged
@@ -162,10 +171,17 @@ impl<R: GraphRepository, C: Clock> GraphRuntime<R, C> {
                 },
             });
             self.advance_index(&execution.changes);
-            RuntimePersistence::Appended(self.persist_pending()?)
+            match self.persist_pending() {
+                Ok(receipt) => RuntimePersistence::Appended(receipt),
+                Err(RuntimeError::DirtyUnsaved { kind, message }) => {
+                    RuntimePersistence::Unsaved { kind, message }
+                }
+                Err(error) => return Err(error),
+            }
         };
         Ok(RuntimeExecution {
             result: execution.result,
+            changes,
             persistence,
         })
     }
@@ -606,13 +622,27 @@ mod tests {
             },
             8,
         );
+        let applied = runtime.execute(envelope(&graph, 1)).unwrap();
         assert!(matches!(
-            runtime.execute(envelope(&graph, 1)),
-            Err(RuntimeError::DirtyUnsaved {
+            applied.persistence,
+            RuntimePersistence::Unsaved {
                 kind: StorageErrorKind::Busy,
                 ..
-            })
+            }
         ));
+        let page = PageId::new("page-1").unwrap();
+        assert_eq!(applied.result.created_page, Some(page.clone()));
+        assert_eq!(
+            applied.changes,
+            domain::GraphChanges::Refresh {
+                outlines: Some(vec![OutlineOwner::Page { id: page.clone() }]),
+                blocks: vec![],
+            }
+        );
+        assert_eq!(runtime.read_summary().unwrap().pages[0].id, page);
+        let pending_bytes = runtime.pending.as_ref().unwrap().update.clone();
+        assert!(!pending_bytes.is_empty());
+        assert!(runtime.repository().records.is_empty());
         assert!(runtime.is_dirty_unsaved());
         assert!(matches!(
             runtime.subscribe(0),
@@ -622,13 +652,20 @@ mod tests {
             runtime.execute(envelope(&graph, 2)),
             Err(RuntimeError::DirtyUnsaved { .. })
         ));
+        assert!(matches!(
+            runtime.retry_pending(),
+            Err(RuntimeError::DirtyUnsaved { .. })
+        ));
+        assert_eq!(runtime.pending.as_ref().unwrap().update, pending_bytes);
         runtime.repository_mut().fail = false;
         runtime.retry_pending().unwrap();
         assert!(!runtime.is_dirty_unsaved());
-        assert_eq!(runtime.repository().records.len(), 1);
+        assert_eq!(runtime.repository().records, vec![pending_bytes]);
+        runtime.retry_pending().unwrap();
         let EventBatch::Events { events, .. } = runtime.subscribe(0) else {
             panic!("events expected after durable retry");
         };
+        assert_eq!(events.len(), 2);
         assert!(matches!(
             events[0].kind,
             GraphEventKind::Semantic {
@@ -664,13 +701,27 @@ mod tests {
         );
         runtime.fail_next_index_update = true;
 
+        let applied = runtime.execute(envelope(&graph, 1)).unwrap();
         assert!(matches!(
-            runtime.execute(envelope(&graph, 1)),
-            Err(RuntimeError::DirtyUnsaved {
+            applied.persistence,
+            RuntimePersistence::Unsaved {
                 kind: StorageErrorKind::Busy,
                 ..
-            })
+            }
         ));
+        let page = PageId::new("page-1").unwrap();
+        assert_eq!(applied.result.created_page, Some(page.clone()));
+        assert_eq!(
+            applied.changes,
+            domain::GraphChanges::Refresh {
+                outlines: Some(vec![OutlineOwner::Page { id: page.clone() }]),
+                blocks: vec![],
+            }
+        );
+        assert_eq!(runtime.read_summary().unwrap().pages[0].id, page);
+        let pending_bytes = runtime.pending.as_ref().unwrap().update.clone();
+        assert!(!pending_bytes.is_empty());
+        assert!(runtime.repository().records.is_empty());
         assert!(runtime.is_dirty_unsaved());
         assert!(runtime.index.is_none());
         assert!(matches!(
@@ -682,9 +733,14 @@ mod tests {
             Err(RuntimeError::DirtyUnsaved { .. })
         ));
 
+        assert!(matches!(
+            runtime.retry_pending(),
+            Err(RuntimeError::DirtyUnsaved { .. })
+        ));
+        assert_eq!(runtime.pending.as_ref().unwrap().update, pending_bytes);
         runtime.repository_mut().fail = false;
         runtime.retry_pending().unwrap();
-        assert_eq!(runtime.repository().records.len(), 1);
+        assert_eq!(runtime.repository().records, vec![pending_bytes]);
         assert!(matches!(
             runtime.query(page_exists_query("Page 1")).unwrap(),
             QueryResult::Ask { value: true, .. }
@@ -769,7 +825,21 @@ mod tests {
             8,
         );
         runtime.fail_next_index_update = true;
-        assert!(runtime.execute(envelope(&graph, 1)).is_err());
+        let applied = runtime.execute(envelope(&graph, 1)).unwrap();
+        assert!(matches!(
+            applied.persistence,
+            RuntimePersistence::Unsaved { .. }
+        ));
+        assert_eq!(
+            applied.result.created_page,
+            Some(PageId::new("page-1").unwrap())
+        );
+        assert!(
+            matches!(applied.changes, domain::GraphChanges::Refresh { outlines: Some(ref outlines), .. } if outlines.len() == 1)
+        );
+        assert!(runtime.is_dirty_unsaved());
+        assert!(!runtime.pending.as_ref().unwrap().update.is_empty());
+        assert!(runtime.repository().records.is_empty());
 
         assert!(matches!(
             runtime.close(),

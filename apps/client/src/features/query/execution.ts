@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
-import type { GraphSession } from "../../core-port/session";
-import type { AuthoredQueryRequest, SparqlQueryResult } from "../../generated/core-port";
+import type { GraphSession, QueryFrame } from "../../core-port/session";
+import type { AuthoredQueryRequest } from "../../generated/core-port";
 import { useI18n } from "../../i18n";
 import { failureReason } from "../notify/errors";
 import { useSession, useSessionSelector } from "../shell/session-context";
@@ -16,10 +16,12 @@ const RUN_DEBOUNCE_MS = 300;
 const stores = new WeakMap<GraphSession, QueryExecutionStore>();
 const MAX_CACHED_QUERIES = 64;
 
+/** One executed question and the answer published from that execution. */
+export type AnswerFrame = QueryFrame;
+
 interface TaggedResult {
   signature: string;
-  canonicalRevision: number;
-  value: SparqlQueryResult;
+  frame: AnswerFrame;
 }
 
 interface TaggedError {
@@ -42,7 +44,7 @@ interface QueryExecutionEntry {
 }
 
 export interface QueryExecutionSnapshot {
-  result: SparqlQueryResult | null;
+  frame: AnswerFrame | null;
   error: unknown | null;
   loading: boolean;
 }
@@ -74,14 +76,14 @@ export class QueryExecutionStore {
 
   snapshot(owner: string, signature: string, canonicalRevision: number): QueryExecutionSnapshot {
     const entry = this.entries.get(owner);
-    if (!entry) return { result: null, error: null, loading: false };
+    if (!entry) return { frame: null, error: null, loading: false };
     const matches = (tagged: { signature: string; canonicalRevision: number }) =>
       tagged.signature === signature && tagged.canonicalRevision === canonicalRevision;
     return {
       // Keep the last answer visible while a changed query or graph revision is
       // waiting to run. This is the same stale-while-revalidate behaviour the
       // mounted QueryBlock had before its result acquired a session lifetime.
-      result: entry.result?.value ?? null,
+      frame: entry.result?.frame ?? null,
       error: entry.error && matches(entry.error) ? entry.error.cause : null,
       loading: Boolean(entry.pending && matches(entry.pending)),
     };
@@ -110,7 +112,8 @@ export class QueryExecutionStore {
     if (
       !options.force &&
       entry.result &&
-      same(entry.result) &&
+      entry.result.signature === signature &&
+      entry.result.frame.canonicalRevision === canonicalRevision &&
       !(entry.error && same(entry.error))
     ) {
       // Returning to a cached identity supersedes work for an identity the
@@ -126,11 +129,11 @@ export class QueryExecutionStore {
 
     const token = {};
     entry.error = null;
-    const promise = this.session.query(request).then(
-      (result) => {
+    const promise = this.session.queryFrame(request).then(
+      (frame) => {
         const current = this.entries.get(owner);
         if (current?.pending?.token !== token) return;
-        current.result = { signature, canonicalRevision, value: result };
+        current.result = { signature, frame };
         current.error = null;
         current.pending = null;
         this.touch(owner);
@@ -246,7 +249,7 @@ function canonical(value: unknown): unknown {
  * `request` must be memoized by the caller: it is the query's identity here.
  */
 export interface QueryAnswer {
-  result: SparqlQueryResult | null;
+  frame: AnswerFrame | null;
   /** The failure, already read into words. */
   error: string | null;
   loading: boolean;
@@ -306,7 +309,7 @@ export function useQueryAnswer(
   }, [executable, key, revision, run, signature, store]);
 
   return {
-    result: executable ? snapshot.result : null,
+    frame: executable ? snapshot.frame : null,
     error:
       request === null
         ? unavailableError

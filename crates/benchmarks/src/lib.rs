@@ -126,6 +126,9 @@ fn block(index: usize) -> BlockSnapshot {
 
     BlockSnapshot {
         id: BlockId::new(format!("block-{index:06}")).expect("generated benchmark block id"),
+        content: vec![domain::InlineContent::Markdown {
+            value: markdown.clone(),
+        }],
         markdown,
         page_references: Vec::new(),
         properties: PropertyBag::try_from_fields([

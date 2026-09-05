@@ -45,7 +45,7 @@ describe("save status", () => {
     port.failNextSave = { code: "dirty_unsaved", message: "append failed", retryable: true };
     await expect(
       session.execute({ type: "rename_page", page_id: "home", title: "Renamed" }),
-    ).rejects.toThrow();
+    ).resolves.toMatchObject({ command_id: expect.any(String) });
     expect(screen.getByTestId("save-status")).toHaveAttribute("data-save", "unsaved");
 
     await user.click(screen.getByTestId("retry-save"));
@@ -64,7 +64,7 @@ describe("save status", () => {
     port.failNextSave = { code: "storage_full", message: "quota exceeded", retryable: true };
     await expect(
       session.execute({ type: "rename_page", page_id: "home", title: "Again" }),
-    ).rejects.toThrow();
+    ).resolves.toMatchObject({ command_id: expect.any(String) });
     expect(screen.getByTestId("save-status")).toHaveTextContent("Storage full");
     await session.close();
   });

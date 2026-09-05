@@ -152,26 +152,39 @@ literal parameter. The core validates this shape before planning so postings
 cannot change its meaning. Its normalization and matching rules are part of the
 analyzer-version fixture. All other expressions follow SPARQL 1.1 semantics.
 
-CorePort v4 makes authorship explicit rather than accepting two fields that can
+CorePort v5 makes authorship explicit rather than accepting two fields that can
 disagree:
 
 ```text
 query(graph_handle, {
-  kind: "built", plan: QueryPlan, today, projection: view | entities, budget
+  kind: "built", plan: QueryPlan v2, today, budget
 } | {
   kind: "raw_sparql", language: "sparql-1.1/neoseq-v1",
   source, bindings: Map<Variable, RdfTerm>, budget
-}) -> QueryResult (select | ask)
+}) -> QueryResult (built | select | ask)
 ```
 
 The built compiler validates the complete plan grammar and constructs algebra
 directly; it never serializes or parses SPARQL. `today` resolves relative dates
-at execution, and `projection: entities` removes display-column joins and
-aggregates for canonical entity renderers. Raw bindings become the query's
+at execution. A plan declares its result grain independently of its renderer:
+
+- `entity` selects distinct subject identities in stable order, applies the
+  limit, then reads each selected entity's fields from the same index revision.
+  Repeated fields are typed value vectors; adding a column cannot multiply rows,
+  remove entities, or change which entities survive the limit.
+- `summary` groups explicit fields and requires at least one `count`, `sum`,
+  `avg`, `min`, or `max` aggregate. Its rows carry no editable subject identity.
+
+There is no independent distinct flag or list aggregate in v2. Raw bindings become the query's
 initial solution mapping and are never inserted through string substitution.
 A select result preserves declared variable order and returns unbound, IRI, or
 typed-literal cells plus index revision/frontier. Entity IRIs are additionally
 decoded to typed entity references at the CorePort boundary.
+A built answer instead carries a descriptor and rows with explicit subject
+references and typed value vectors keyed by authored column ID. The descriptor
+contains the subject kind, grain, column sources, authored labels, aggregates,
+and moment companions. Compiler variables and string separators are private;
+the client never reconstructs column meaning from their spelling.
 
 For example, a hand-authored raw request may bind `?today` and `?needle` as typed
 values:
@@ -198,7 +211,10 @@ the sole authored authority, and the Rust core regenerates its marked source as
 an inspectable explanation; that artifact
 is not independently executable because operands may remain parameterized. A
 plan version this build cannot understand stays visibly unavailable rather than
-silently running the explanation as raw SPARQL. Only ordering and the default
+silently running the explanation as raw SPARQL. Existing v1 plans remain opaque,
+read-only data with their payload and any source preserved. Their source may be
+empty; they are not reinterpreted as v2 because their previous grain depended on
+the renderer. Only ordering and the default
 view are document-wide. Table and list are the current renderers.
 
 Blocks, pages, and tags may own one. A tag's is the tag's own view of the graph
@@ -210,7 +226,7 @@ reader may narrow it, widen it, or point it somewhere else entirely.
 
 A view keeps renderer-specific ordering, and each order is a bounded list of at
 most eight distinct terms, most significant first. A table term names a projected
-result variable. A block-list term names a stable field from the builder's
+authored column ID, or a variable for raw SPARQL. A block-list term names a stable field from the builder's
 condition vocabulary, including graph-visible properties, so filtering and list
 ordering cannot offer different fields. Unknown or no-longer-applicable terms
 remain readable and simply stop applying. Table deserialization also accepts the
@@ -223,20 +239,12 @@ Markdown, task marks, tags, and generic property chips. Result cells never becom
 supplemental block facts, and a table's hidden or selected columns cannot change
 the list. Children and embedded feature surfaces do not render through the
 reference; feature-only properties such as `builtin.query` are therefore neither
-chips nor recursively mounted queries. Plan-less and non-block SELECT results
-retain a separate query-shaped list fallback when no block plan can provide an
-entity contract.
+chips nor recursively mounted queries. Summary, raw, and non-block results
+use a generic list over the same returned rows and columns.
 
-The active view's plan columns are that view's logical result projection. A
-table column switch adds to or removes from only that projection; sibling views
-never participate in the decision.
-When a block list runs, it sends the same plan with the typed `entities`
-projection. The Rust compiler keeps subject type, conditions, distinctness,
-limit, and subject order while omitting every table-column pattern and
-aggregate. The stored source remains only the full-plan explanation. This is
-necessary because a table aggregate may remove or group subject identity; a
-block list must still receive one `q_subject` binding to hydrate each canonical
-block.
+The active view's columns describe its entity fields or summary. Sibling views
+never participate in a column edit. Table and List execute the identical authored
+request and preserve its result grain; changing layout never changes the question.
 
 Every plan-carrying view is built. A view with no plan still runs and reads from
 its source, but the client offers no builder for it.
@@ -259,7 +267,7 @@ property registry resolve to one semantic order: declared choices use their
 stored-value rank, numbers and dates use typed value order, references use their
 resolved label, and ordinary text uses text collation. Rendering is a separate
 projection, so a translated label cannot change a ranked order. A table compares
-raw result terms. A block list first hydrates result owners and compares values
+typed value vectors. A block list first hydrates result owners and compares values
 from canonical block snapshots; repeated fields compare as semantically sorted
 vectors. Missing values remain last in either direction except task priority,
 where absence is the rank below Low. Equal rows use stable entity identity as the
@@ -286,16 +294,16 @@ follows the surface, which opens it for a query that has no conditions yet.
 ## Editable Result Projection
 
 Query evaluation remains read-only. A builder-authored block result can be
-edited only when its compiled plan carries a stable subject variable and its
-column provenance names a direct block field. The client combines that subject,
-the plan's column source, the property registry, and the current writable lease
+edited only when the executed answer declares entity grain and its column
+descriptor names a direct block field. The client combines the row's explicit subject,
+the descriptor, the property registry, and the current writable lease
 into an ephemeral edit binding. It never infers a write target from a variable
 name, RDF datatype, or displayed value.
 
-Direct block content writes `splice_markdown`; direct writable properties use
+Direct block content writes semantic content splices; direct writable properties use
 the owner-based property commands; tag collections use `add_tag` and
-`remove_tag`. Aggregates other than a complete list, structural relations,
-unknown plan versions, and plan-less results remain read-only. SPARQL Update is
+`remove_tag`. Summary rows, structural relations,
+unknown plan versions, and raw results remain read-only. SPARQL Update is
 not introduced.
 
 RDF rows are display data rather than edit baselines. Entering an editor lazily
@@ -315,10 +323,16 @@ structural controllers. Pairing, IME repair, `/` and `#` completions, document
 history, and entity commands therefore have one behavior. Outline focus,
 selection, dragging, structure, presence, and pending rows remain outline-owned;
 query navigation and stale-row pinning remain query-owned. One query-level
-coordinator owns a canonical draft across Table/List presentation changes,
+coordinator binds the graph-scoped content session across Table/List presentation changes,
 keeps identity by entity and field rather than row position, and pins an active
 row if its write makes the row stop matching. The row leaves after the editor
 closes. A failed write keeps its draft and an in-place retry route.
+
+Changing an authored result descriptor or selecting another saved view first
+settles the active content edit. A rejected edit keeps the old surface available.
+If a remote question produces a different descriptor while editing, the complete
+previous answer frame remains displayed until that editor closes. Membership-only
+refreshes still update normally and may pin the active row.
 
 Writable plain content uses one textarea before and after focus, so a pointer
 press places the native caret and starts editing in the same interaction.
@@ -333,9 +347,10 @@ invalidate query results by itself.
 ## Authoring: the Query Builder
 
 A **query plan** is the product builder's typed authored representation: a
-subject kind, a nested all/any/none tree of typed conditions, output columns, and
-a bounded integer row limit. Repeated columns fold according to their
-cardinality rather than a reader-facing mode. The generated CorePort types and
+subject kind, a nested all/any/none tree of typed conditions, explicit entity or
+summary grain, output fields, and a bounded integer row limit. Entity values
+preserve their cardinality without aggregation. Summary authoring owns grouping
+and scalar aggregation. The generated CorePort types and
 the Rust `query` crate describe the same versioned grammar.
 
 When a view carries a plan, that plan is its sole authority. The browser sends
@@ -364,10 +379,9 @@ SPARQL artifacts. Three lowering properties are contractual:
 - Alternatives are a disjunction of correlated `EXISTS`, not `UNION`, so each
   branch asks its question of the subject already in hand.
 
-A repeated relation folded into one cell lowers to `GROUP_CONCAT` with the
-remaining columns as group keys. The same Rust compiler produces the table
-projection and the entity-only projection; the projection tag changes only the
-result shape, never the authored question.
+Entity selection and field projection are separate stages at one index frontier.
+Summary grouping belongs to its explicit algebra; it cannot be introduced by a
+table display field or removed by switching to List.
 
 ## Planning, Reactivity, and Budgets
 
@@ -379,12 +393,18 @@ Execution never falls back to scanning Loro containers.
 The client treats a mounted query as a demand read: activation runs immediately,
 while changes to its authored request or canonical session revision are
 debounced. A bounded per-session result cache lets route and virtualized-row
-remounts paint a current answer synchronously and deduplicates identical work;
-signature and revision tags prevent obsolete responses from replacing it.
+remounts paint a current answer synchronously and deduplicates identical work.
+One answer frame retains the executed request, its result descriptor and rows,
+and the canonical session revision captured when execution begins in the command
+queue. The scheduling revision never labels the answer. A stale frame remains
+visible while its replacement runs and is interpreted solely by its own
+descriptor; a newer draft cannot relabel its fields or grant editing authority.
+Request identity and execution tokens prevent superseded work from replacing it.
 Predicate-level dependency tracking is a future optimization and must preserve
 this conservative invalidation behavior.
 
-V1 limits authored bytes, algebra operators, raw initial bindings, and output rows.
+The query boundary limits authored bytes, algebra operators, raw initial
+bindings, output rows, values, and result bytes.
 Request budgets may tighten but cannot raise the runtime ceilings. Budget failures
 use a typed CorePort error and never return partial rows. Browser
 evaluation runs in the graph Worker so it cannot occupy the UI thread. Elapsed

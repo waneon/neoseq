@@ -28,11 +28,13 @@ const domainPayloadPaths = [
   "open_graph.response.summary",
   "execute.request.command",
   "execute.response.result",
+  "execute.response.changes",
   "read.response.summary",
   "read_outline.request.owner",
   "read_outline.response.outline",
 ];
 const tsDomainTypeModules = new Map([
+  ["GraphChanges", "../core-port/snapshot"],
   ["CommandEnvelope", "../core-port/commands"],
   ["CommandResult", "../core-port/commands"],
   ["GraphSummary", "../core-port/snapshot"],
@@ -196,12 +198,16 @@ pub enum SaveStatusDto {
         local_sequence: u64,
         checksum: String,
     },
+    Unsaved {
+        error: CorePortError,
+    },
     Unchanged,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ExecuteResponse {
     pub result: ${domainPayload("execute.response.result")},
+    pub changes: ${domainPayload("execute.response.changes")},
     pub save_status: SaveStatusDto,
 }
 
@@ -303,8 +309,8 @@ export interface RecoveryDto { checkpoint_sequence: number; replayed_updates: nu
 export interface OpenGraphRequest { contract_version: number; locator: GraphLocatorDto; peer_id: number; }
 export interface OpenGraphResponse { graph_handle: string; summary: ${domainPayload("open_graph.response.summary")}; capabilities?: StorageCapabilitiesDto | null; recovery: RecoveryDto; }
 export interface ExecuteRequest { graph_handle: string; command: ${domainPayload("execute.request.command")}; timeout_ms: number; }
-export type SaveStatusDto = { status: "saved_locally"; local_sequence: number; checksum: string } | { status: "unchanged" };
-export interface ExecuteResponse { result: ${domainPayload("execute.response.result")}; save_status: SaveStatusDto; }
+export type SaveStatusDto = { status: "saved_locally"; local_sequence: number; checksum: string } | { status: "unsaved"; error: CorePortError } | { status: "unchanged" };
+export interface ExecuteResponse { result: ${domainPayload("execute.response.result")}; changes: ${domainPayload("execute.response.changes")}; save_status: SaveStatusDto; }
 export interface ReadRequest { graph_handle: string; }
 export interface ReadResponse { summary: ${domainPayload("read.response.summary")}; }
 export type OutlineOwnerDto = ${domainPayload("read_outline.request.owner")};
@@ -317,7 +323,7 @@ export type QueryEntityRef =
 export type RdfTerm =
   | { kind: "iri"; value: string; entity?: QueryEntityRef | null }
   | { kind: "literal"; value: string; datatype: string; language?: string | null };
-export interface QueryBudget { max_source_bytes: number; max_algebra_operators: number; max_bindings: number; max_rows: number; }
+export interface QueryBudget { max_source_bytes: number; max_algebra_operators: number; max_bindings: number; max_rows: number; max_values: number; max_result_bytes: number; }
 export type PlanSubject = "block" | "page" | "tag";
 export type PlanField =
   | { kind: "content" }
@@ -352,14 +358,18 @@ export type PlanColumnSource =
   | { kind: "tags" }
   | { kind: "parent" }
   | { kind: "sibling_index" };
-export type PlanAggregate = "list" | "count" | "sum" | "avg" | "min" | "max";
+export type PlanAggregate = "count" | "sum" | "avg" | "min" | "max";
 export interface PlanColumn { id: string; source: PlanColumnSource; label?: string; aggregate?: PlanAggregate; }
-export interface BuiltQueryPlan { version: number; subject: PlanSubject; where: PlanGroup; columns: PlanColumn[]; limit: number; distinct: boolean; }
-export type BuiltQueryProjection = "view" | "entities";
-export interface BuiltQueryRequest { kind: "built"; plan: BuiltQueryPlan; today: string; projection?: BuiltQueryProjection; budget?: Partial<QueryBudget>; }
+export type QueryGrain = "entity" | "summary";
+export interface BuiltQueryPlan { version: number; grain: QueryGrain; subject: PlanSubject; where: PlanGroup; columns: PlanColumn[]; limit: number; }
+export interface BuiltQueryRequest { kind: "built"; plan: BuiltQueryPlan; today: string; budget?: Partial<QueryBudget>; }
 export interface SparqlQueryRequest { kind: "raw_sparql"; language: "sparql-1.1/neoseq-v1"; source: string; bindings?: Record<string, RdfTerm>; budget?: Partial<QueryBudget>; }
 export type AuthoredQueryRequest = BuiltQueryRequest | SparqlQueryRequest;
+export interface BuiltResultColumn { id: string; source: PlanColumnSource; label?: string; aggregate?: PlanAggregate; time_column?: string; }
+export interface BuiltResultRow { subject: QueryEntityRef | null; values: Record<string, RdfTerm[]>; }
+export interface BuiltQueryResult { kind: "built"; grain: QueryGrain; subject: PlanSubject; columns: BuiltResultColumn[]; rows: BuiltResultRow[]; revision: number; frontier: string; }
 export type SparqlQueryResult =
+  | BuiltQueryResult
   | { kind: "select"; variables: string[]; rows: Array<Record<string, RdfTerm>>; revision: number; frontier: string }
   | { kind: "ask"; value: boolean; revision: number; frontier: string };
 export interface QueryRequest { graph_handle: string; query: AuthoredQueryRequest; }

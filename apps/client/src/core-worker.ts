@@ -3,6 +3,7 @@ import type {
   CloseGraphResponse,
   CorePort,
   CorePortError,
+  CommandResult,
   ExecuteRequest,
   ExecuteResponse,
   GraphLocatorDto,
@@ -30,6 +31,10 @@ export interface SavedReceipt {
   status: "saved_locally";
   local_sequence: number;
   checksum: string;
+}
+
+export interface RemoteReceipt extends SavedReceipt {
+  changes: import("./core-port/snapshot").GraphChanges;
 }
 
 export interface SyncState {
@@ -95,7 +100,10 @@ interface WorkerResponse {
 }
 
 export class CorePortFailure extends Error {
-  constructor(public readonly detail: CorePortError) {
+  constructor(
+    public readonly detail: CorePortError,
+    public readonly applied?: CommandResult,
+  ) {
     super(detail.message);
   }
 }
@@ -211,7 +219,7 @@ export class CoreWorker implements CorePort {
     return this.request("sync_ack", { graph_handle: graphHandle, message_id: messageId });
   }
 
-  importRemote(graphHandle: string, bytes: number[]): Promise<SavedReceipt> {
+  importRemote(graphHandle: string, bytes: number[]): Promise<RemoteReceipt> {
     return this.request("sync_import", { graph_handle: graphHandle, bytes });
   }
 

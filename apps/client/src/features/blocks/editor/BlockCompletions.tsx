@@ -23,6 +23,8 @@ export interface BlockCompletionRequest {
   /** Visual token origin; independent of the range accepting a choice replaces. */
   anchorOffset: number;
   anchor: HTMLTextAreaElement;
+  /** Surface whose block identity survives replacement of the native editor. */
+  scope?: ParentNode;
 }
 
 export type BlockCompletion =
@@ -214,7 +216,7 @@ export function BlockPageMenu({
 
   return (
     <AnchoredPanel
-      anchor={completionAnchor(request)}
+      anchor={() => completionAnchor(request)}
       id="page-reference-menu"
       className="slash-menu page-reference-menu"
       role="listbox"
@@ -259,6 +261,13 @@ export function BlockPageMenu({
 
 /** Resolves an optimistic editor request to the canonical textarea that replaced it. */
 export function liveCompletionAnchor(request: BlockCompletionRequest): HTMLTextAreaElement {
+  if (request.scope) {
+    const row = [...request.scope.querySelectorAll<HTMLElement>("[data-block-id]")].find(
+      (element) => element.dataset.blockId === request.blockId,
+    );
+    const current = row?.querySelector<HTMLTextAreaElement>("textarea[data-block-editor]");
+    return current ?? request.anchor;
+  }
   const focused = document.activeElement;
   return request.anchor.isConnected
     ? request.anchor
@@ -300,7 +309,7 @@ export function BlockTagMenu({
 
   return (
     <AnchoredPanel
-      anchor={completionAnchor(request)}
+      anchor={() => completionAnchor(request)}
       id="tag-suggest-menu"
       className="slash-menu tag-menu"
       role="listbox"
@@ -404,7 +413,7 @@ export function BlockSlashMenu({
 
   return (
     <AnchoredPanel
-      anchor={completionAnchor(request)}
+      anchor={() => completionAnchor(request)}
       id="slash-command-menu"
       className="slash-menu"
       role="listbox"

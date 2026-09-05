@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { GraphSnapshot, GraphSummary } from "../../src/core-port/snapshot";
+import type { BlockSnapshot, GraphSnapshot, GraphSummary } from "../../src/core-port/snapshot";
 import { mergeSummary } from "../../src/core-port/snapshot";
 
 describe("graph summary projection", () => {
@@ -16,6 +16,11 @@ describe("graph summary projection", () => {
           blocks: [
             {
               id: "block",
+              content: [
+                { type: "markdown", value: "See " },
+                { type: "page_reference", page_id: "target" },
+                { type: "markdown", value: " now" },
+              ],
               markdown: "See [[Old]] now",
               page_references: [{ start: 4, end: 11, index: 4, page_id: "target" }],
               properties: [],
@@ -64,8 +69,9 @@ describe("graph summary projection", () => {
   });
 
   it("preserves unrelated hydrated block identities", () => {
-    const untouched = {
+    const untouched: BlockSnapshot = {
       id: "plain",
+      content: [{ type: "markdown", value: "No references here" }],
       markdown: "No references here",
       page_references: [],
       properties: [],

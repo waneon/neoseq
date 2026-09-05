@@ -16,7 +16,7 @@ defines presentation-only localization.
 
 ## CorePort and Session
 
-The frontend depends on the asynchronous CorePort v4 operations:
+The frontend depends on the asynchronous CorePort v5 operations:
 
 ```text
 open_graph, execute, read, read_outline, query, subscribe, close_graph
@@ -28,14 +28,27 @@ call Wasm, IndexedDB, or native APIs directly. Browser-only graph listing,
 deletion, copy import/export, pending-write retry, storage capabilities, and test
 fault controls are adapter operations outside the portable product contract.
 
-`GraphSession` serializes local commands and remote imports. It drains semantic
-events and rehydrates affected summaries or owner outlines for structural,
-remote, stale, and resync-required changes. An acknowledged local inline-content
-splice updates its hydrated owner by structural sharing without an owner read.
-It owns subscription cursors, turns an ambiguous storage failure into a
-retry of the exact pending update, and delegates remote transport state to one
-`SyncAgent` per remote graph. Callers see immutable DTOs and cannot hold a Loro
-container.
+`GraphSession` serializes commands, remote imports, and query execution. The core
+publishes authoritative values and text mappings or an outline refresh scope.
+The session installs those values with structural sharing and reads only affected
+hydrated owners; writing an unhydrated owner does not hydrate it. It neither
+classifies commands nor replays them against a frontend graph replica.
+
+An execute outcome distinguishes rejection from an applied but unsaved change.
+Applied results retain their identity, history, and read-model publication even
+when the exact update bytes must be retried. One `SyncAgent` owns remote transport
+state. A published applied result resolves the command promise even when unsaved,
+so structural controllers can adopt created identities and preserve subsequent
+input. Callers see immutable DTOs and cannot hold a Loro container.
+
+A failed presentation read cannot revoke a durable receipt. Before preparing
+another edit or recording a query frame, the session recovers any unpublished
+canonical state. A missed event resets the mapping baseline; a partial local
+mapping cannot describe the unseen changes.
+
+A query answer retains the executed request, result descriptors, and canonical
+revision as one frame. A later authored plan cannot reinterpret an earlier
+answer's identity or editable fields.
 
 Graph readiness means the canonical document is recovered and its summary is
 validated. Storage capability discovery, remote connection, owner hydration, and
@@ -138,8 +151,9 @@ or block menu overlay may be open, and a pointer is exactly idle, selecting, or
 dragging with an optional drop target. Reducer transitions replace independent
 nullable flags so impossible combinations cannot be rendered or handed to a row.
 
-Editor drafts, generated-closer provenance, and the pending-row queue form one
-immutable reducer state in `features/outline/draft-state.ts`. A pending ID is
+Semantic edit buffers belong to graph-scoped content sessions. The outline's
+generated-closer provenance and pending-row queue remain surface state in
+`features/outline/draft-state.ts`. Its adapter coordinates both: a pending ID is
 adopted, its later queued anchors are remapped, and its raced input moves to the
 canonical block in one transition. The outliner reads the same latest snapshot
 from async callbacks and React rendering; it has no independent force-render path.
@@ -171,9 +185,9 @@ compact phrasing-only projection. See
 
 Builder-authored block query results reuse that text intent and the shared
 property/tag controls through a query-level edit coordinator. The coordinator
-hydrates only the active result's outline owner, owns one draft across Table/List view
-changes, and sends ordinary domain commands. A result that stops matching while
-active stays pinned until its editor closes; query rows themselves are never
+hydrates the active result's outline owner, binds its shared graph content session
+across Table/List view changes, and sends ordinary domain commands. A result that
+stops matching while active stays pinned until its editor closes; query rows themselves are never
 optimistically rewritten. Hand-written SPARQL, summaries, and derived relation
 columns remain read-only.
 
@@ -214,8 +228,10 @@ whether a property is hidden, read-only, or editable; semantic ordering keeps
 query sort independent of localized display labels. Sparse renderer maps add
 specialized controls without becoming a schema authority:
 
-- `builtin.query` provides the query builder, a SPARQL escape hatch, and
-  schema-owned saved result views. One surface serves both grounds it appears on:
+- `builtin.query` provides the query builder, read-only source inspection, and
+  schema-owned saved result views. Unsupported plans retain their payload and any
+  source without automatic migration or raw execution fallback. One surface serves
+  both grounds it appears on:
   embedded in the outline its views stay in a menu, and on a routed tag page —
   where the query _is_ the body — they become a permanent tab strip the reader
   names, drags into order, and deletes. Result columns are dragged into order the
@@ -323,8 +339,9 @@ transport UUID. A server epoch replacement is handled inside the Worker: it vali
 the replacement checkpoint, rebases durable unacknowledged intent, atomically
 swaps IndexedDB Base+Tail, and only then publishes the new canonical core.
 Cursor and selection presence uses expiring protocol messages and is never
-written to Loro or IndexedDB. Remote text refresh transforms the local selection
-before the authoritative value replaces the editor draft.
+written to Loro or IndexedDB. Core publications carry actual sequential text
+changes in canonical atom coordinates. Active content sessions use those changes
+to rebase local edits and selection; a title change only reprojects a reference.
 
 ## Frontend Boundaries
 

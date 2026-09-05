@@ -40,6 +40,7 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import type { GraphSession } from "../../core-port/session";
+import { CorePortFailure } from "../../core-worker";
 import type { Command, SplitPlacement } from "../../core-port/commands";
 import {
   DropdownMenu,
@@ -55,11 +56,15 @@ import { Shortcut } from "../commands/Shortcut";
 import { useShortcutBindings, bindingMatches } from "../commands/shortcuts";
 import { useNotify, type Notifier } from "../notify/context";
 import { failureReason } from "../notify/errors";
-import type { BlockSnapshot, OutlineOwner, PageReferenceSpan } from "../../core-port/snapshot";
+import type {
+  BlockSnapshot,
+  OutlineOwner,
+  PageDirectoryEntry,
+  PageReferenceSpan,
+} from "../../core-port/snapshot";
 import {
   findBlock,
   findOutline,
-  materializePageReferences,
   queryDocument,
   sameOutlineOwner,
   stringValue,
@@ -76,7 +81,6 @@ import { TaskPriorityControl } from "../tasks/PriorityControl";
 import { TaskStatusControl } from "../tasks/StatusControl";
 import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
 import { transformAutoClosers, type AutoCloserMarker } from "../blocks/editor/auto-pair";
-import { transformSelection } from "./selection-transform";
 import type { PeerPresence } from "../sync/SyncAgent";
 import {
   coveredIds,
@@ -93,7 +97,7 @@ import {
   type TagRequest,
 } from "./interaction-state";
 import {
-  initialOutlineDraftState,
+  useOutlineDraftState,
   outlineDraftReducer,
   type OutlineDraftAction,
   type PendingOutlineOperation,
@@ -168,6 +172,15 @@ import {
   splitInlineContentProjection,
   type InlineContentProjection,
 } from "../blocks/editor/inline-content";
+import {
+  bufferCommand,
+  bufferIsClean,
+  bufferSplices,
+  contentFromProjection,
+  inlineContent,
+  projectBuffer,
+} from "../blocks/editor/content-buffer";
+import { contentSessionsFor } from "../blocks/editor/content-session";
 import { buildSlashItems, filterSlashItems, type SlashItem } from "../blocks/editor/slash-commands";
 import { createQueryCommand } from "../query/commands";
 import { randomUUID } from "@/lib/crypto";
@@ -492,10 +505,23 @@ export function Outliner({
   const dragging = pointerGesture.kind === "dragging";
   const marqueeing = pointerGesture.kind === "selecting";
   const drop = pointerGesture.kind === "dragging" ? pointerGesture.drop : null;
-  const [draftState, setDraftState, draftStateRef] = useImmediateState(initialOutlineDraftState);
+  const {
+    state: draftState,
+    update: setDraftState,
+    read: readDraftState,
+  } = useOutlineDraftState(session, owner);
+  const editorDirectory = useRef<readonly PageDirectoryEntry[]>([]);
   const dispatchDraft = useCallback(
     (action: OutlineDraftAction) => {
-      setDraftState((current) => outlineDraftReducer(current, action));
+      setDraftState((current) =>
+        outlineDraftReducer(
+          current,
+          action.type === "edit"
+            ? { ...action, contentIfAbsent: findBlock(outlineRef.current, action.id)?.content }
+            : action,
+          editorDirectory.current,
+        ),
+      );
     },
     [setDraftState],
   );
@@ -519,6 +545,7 @@ export function Outliner({
   const pendingSeq = useRef(0);
   const draftInputRevision = useRef(0);
   const pendingDispatching = useRef(false);
+  const preparingMerge = useRef(false);
   const pendingProperty = useRef<{
     blockId: string;
     selection?: { start: number; end: number };
@@ -556,6 +583,32 @@ export function Outliner({
       })),
     [state.snapshot.page_directory, state.snapshot.pages],
   );
+  // Native composition and completion consume the projection that received
+  // their input. Releasing either boundary picks up the latest page directory.
+  if (!composing.current && !slashRequest && !hashRequest && !pageRequest) {
+    editorDirectory.current = pageDirectory;
+  }
+  const readDraft = useCallback((id: string) => {
+    const buffer = readDraftState().buffers.get(id);
+    return buffer ? projectBuffer(buffer, editorDirectory.current) : undefined;
+  }, []);
+  const draftProjections = useMemo(
+    () =>
+      new Map(
+        [...draftState.buffers].map(([id, buffer]) => [
+          id,
+          projectBuffer(buffer, editorDirectory.current),
+        ]),
+      ),
+    [
+      draftState.buffers,
+      pageDirectory,
+      compositionRevision,
+      slashRequest,
+      hashRequest,
+      pageRequest,
+    ],
+  );
   const ownerRef = useLatest(owner);
   const outlineRef = useLatest(outline);
 
@@ -573,14 +626,8 @@ export function Outliner({
     [outline, projectedCollapsed],
   );
   const pendingProjection = useMemo(
-    () =>
-      projectPendingOperations(
-        structuralRows,
-        draftState.pendingOperations,
-        draftState.drafts,
-        draftState.pageReferences,
-      ),
-    [draftState.drafts, draftState.pageReferences, draftState.pendingOperations, structuralRows],
+    () => projectPendingOperations(structuralRows, draftState.pendingOperations, draftProjections),
+    [draftProjections, draftState.pendingOperations, structuralRows],
   );
   const rows = pendingProjection.rows;
   const menuRow = menuFor === null ? null : (rows.find((row) => row.block.id === menuFor) ?? null);
@@ -606,67 +653,18 @@ export function Outliner({
     vim.reset();
   }, [clearVisualLineState, vim.reset]);
 
-  // A page rename changes only the directory and the disposable projection.
-  // Reproject local baselines and drafts as well, including a focused dirty
-  // editor, so its next splice never turns an untouched reference into stale
-  // literal source. References already edited through stay ordinary Markdown.
-  useEffect(() => {
-    if (composing.current) return;
-    const completionBlockId = slashRequest?.blockId ?? hashRequest?.blockId ?? pageRequest?.blockId;
-    const entries: Array<{
-      id: string;
-      baseline: string;
-      draft: string;
-      pageReferences: readonly PageReferenceSpan[];
-    }> = [];
-    for (const [id, baseline] of draftStateRef.current.baselines) {
-      if (id === completionBlockId) continue;
-      const references = draftStateRef.current.pageReferences.get(id);
-      const draft = draftStateRef.current.drafts.get(id);
-      if (!references || draft === undefined || references.length === 0) continue;
-      const pending = planInlineEdit(id, baseline, references, draft);
-      const baselineProjection = materializePageReferences(baseline, references, pageDirectory);
-      const draftProjection = materializePageReferences(
-        draft,
-        pending?.references ?? references,
-        pageDirectory,
-      );
-      if (
-        baselineProjection.markdown === baseline &&
-        draftProjection.markdown === draft &&
-        samePageReferences(baselineProjection.pageReferences, references)
-      )
-        continue;
-      entries.push({
-        id,
-        baseline: baselineProjection.markdown,
-        draft: draftProjection.markdown,
-        pageReferences: baselineProjection.pageReferences,
-      });
-    }
-    if (entries.length > 0) dispatchDraft({ type: "reproject", entries });
-  }, [
-    compositionRevision,
-    dispatchDraft,
-    hashRequest?.blockId,
-    pageDirectory,
-    pageRequest?.blockId,
-    slashRequest?.blockId,
-    state.revision,
-  ]);
-
   // Drop a block's draft only once the authoritative snapshot matches it;
   // the focused draft and queued pending rows survive so IME composition
   // and in-flight typing are never clobbered.
   useEffect(() => {
     const draftIds: string[] = [];
     const autoCloserIds: string[] = [];
-    for (const id of draftStateRef.current.drafts.keys()) {
+    for (const id of readDraftState().buffers.keys()) {
       if (id === focusedId || isPendingId(id)) continue;
       const block = findBlock(outlineRef.current, id);
-      if (!block || block.markdown === draftStateRef.current.drafts.get(id)) draftIds.push(id);
+      if (!block || block.markdown === readDraft(id)?.markdown) draftIds.push(id);
     }
-    for (const id of draftStateRef.current.autoClosers.keys()) {
+    for (const id of readDraftState().autoClosers.keys()) {
       if (!isPendingId(id) && !findBlock(outlineRef.current, id)) {
         autoCloserIds.push(id);
       }
@@ -719,42 +717,24 @@ export function Outliner({
     (id: string) => {
       if (isPendingId(id)) return; // transferred when the real id arrives
       if (
-        draftStateRef.current.pendingOperations.some(
+        readDraftState().pendingOperations.some(
           (operation) => operation.kind === "merge" && operation.targetId === id,
         )
       )
         return; // flushed after the canonical merge establishes this baseline
-      const draft = draftStateRef.current.drafts.get(id);
-      const baseline = draftStateRef.current.baselines.get(id);
-      if (draft === undefined || baseline === undefined) return;
-      const references =
-        draftStateRef.current.pageReferences.get(id) ??
-        findBlock(outlineRef.current, id)?.page_references ??
-        [];
-      const plan = planInlineEdit(id, baseline, references, draft);
-      if (!plan) return;
-      if (mounted.current) {
-        dispatchDraft({
-          type: "set-baseline",
-          id,
-          value: draft,
-          pageReferences: plan.references,
-        });
-      }
-      void session
-        .execute({
-          type: "splice_block_content",
-          owner: ownerRef.current,
-          ...plan.splice,
-        })
-        .catch((error: unknown) => {
-          if (!mounted.current) return;
-          // The core rejected the edit; fall back to authoritative text. The
-          // row silently changing back under the caret is exactly the kind of
-          // failure that has no home on screen, so it is reported.
-          dispatchDraft({ type: "clear", ids: [id] });
-          notify.failure(message("failure.lastEdit"), error);
-        });
+      const buffer = readDraftState().buffers.get(id);
+      const command = buffer && bufferCommand(buffer, ownerRef.current, id);
+      if (!command) return;
+      const target = contentSessionsFor(session).open(
+        ownerRef.current,
+        id,
+        inlineContent(buffer.source),
+      );
+      void target.submit().catch((error: unknown) => {
+        if (!mounted.current) return;
+        // The shared target retains rejected edits and subsequent input.
+        notify.failure(message("failure.lastEdit"), error);
+      });
     },
     [dispatchDraft, message, notify, session],
   );
@@ -798,43 +778,31 @@ export function Outliner({
         clearTimeout(timer);
         flushTimers.current.delete(id);
       }
-      const baseline = draftStateRef.current.baselines.get(id);
-      const references =
-        draftStateRef.current.pageReferences.get(id) ??
-        findBlock(outlineRef.current, id)?.page_references ??
-        [];
-      const plan = baseline === undefined ? null : planInlineEdit(id, baseline, references, next);
-      if (!plan) return null;
-      dispatchDraft({
-        type: "set-baseline",
-        id,
-        value: next,
-        pageReferences: plan.references,
-      });
-      return {
-        type: "splice_block_content",
-        owner: ownerRef.current,
-        ...plan.splice,
-      };
+      if (readDraft(id)?.markdown !== next) dispatchDraft({ type: "edit", id, value: next });
+      const buffer = readDraftState().buffers.get(id);
+      const command = buffer && bufferCommand(buffer, ownerRef.current, id);
+      if (!command) return null;
+      dispatchDraft({ type: "settle", id });
+      return command;
     },
     [dispatchDraft],
   );
 
   const commitDraftWith = useCallback(
     async (id: string, next: string, action: Command | null, failure: string) => {
-      const commands: Command[] = [];
-      const splice = stageDraftSplice(id, next);
-      if (splice) commands.push(splice);
-      if (action) commands.push(action);
-      if (commands.length === 0) return;
+      const timer = flushTimers.current.get(id);
+      if (timer) clearTimeout(timer);
+      flushTimers.current.delete(id);
+      if (readDraft(id)?.markdown !== next) dispatchDraft({ type: "edit", id, value: next });
       try {
-        await session.execute(commands.length === 1 ? commands[0] : { type: "batch", commands });
+        await contentSessionsFor(session)
+          .target(ownerRef.current, id)
+          .submit(action ? [action] : []);
       } catch (error) {
-        if (mounted.current) dispatchDraft({ type: "clear", ids: [id] });
         notify.failure(failure, error);
       }
     },
-    [dispatchDraft, notify, session, stageDraftSplice],
+    [dispatchDraft, notify, session],
   );
 
   const flushRef = useLatest(flush);
@@ -1009,13 +977,12 @@ export function Outliner({
    */
   const abandonPending = useCallback(
     (reason: string) => {
-      const pendingOperations = draftStateRef.current.pendingOperations;
+      const pendingOperations = readDraftState().pendingOperations;
       const creations = pendingOperations.filter((entry) => entry.kind !== "merge");
       const lost = creations.length;
       const typed = creations.some(
         (entry) =>
-          (draftStateRef.current.drafts.get(entry.tempId) ?? entry.created.markdown) !==
-          entry.created.markdown,
+          (readDraft(entry.tempId)?.markdown ?? entry.created.markdown) !== entry.created.markdown,
       );
       let fallback: string | null = null;
       for (const entry of creations) {
@@ -1036,23 +1003,73 @@ export function Outliner({
     [activateBlock, dispatchDraft, message, notify],
   );
 
+  const retainAppliedResult = useCallback(
+    async (error: unknown) => {
+      if (!(error instanceof CorePortFailure && error.applied)) throw error;
+      // A failed read cannot revoke the structural result or its created identity.
+      // The next prepared write refreshes the snapshot before lowering new input.
+      notify.failure(message("failure.lastEdit"), error);
+      // Keep the pending projection until dependent placements can read its
+      // canonical identity. A repeated read failure waits for a later successful
+      // publication; it must never fall into structural rejection handling.
+      await new Promise<void>((resolve) => {
+        let revision = session.getState().canonicalRevision;
+        let checking = false;
+        let finished = false;
+        let unsubscribe = () => {};
+        const refresh = async () => {
+          if (checking || finished) return;
+          checking = true;
+          try {
+            await session.executePrepared(() => null);
+            if (finished) return;
+            finished = true;
+            unsubscribe();
+            resolve();
+          } catch (readError: unknown) {
+            if (!finished) notify.failure(message("failure.lastEdit"), readError);
+          } finally {
+            checking = false;
+          }
+        };
+        const observe = () => {
+          const current = session.getState();
+          if (current.status === "closed") {
+            finished = true;
+            unsubscribe();
+          } else if (current.canonicalRevision !== revision) {
+            revision = current.canonicalRevision;
+            void refresh();
+          }
+        };
+        unsubscribe = session.subscribe(observe);
+        observe();
+        void refresh();
+      });
+      return error.applied;
+    },
+    [message, notify, session],
+  );
+
   /** Dispatches the oldest pending outline operation whose dependencies are real. */
   const dispatchPending = useCallback(() => {
     if (pendingDispatching.current) return;
-    const head = draftStateRef.current.pendingOperations[0];
+    const head = readDraftState().pendingOperations[0];
     if (!head || head.dispatched) return;
     if (head.kind === "merge") {
       if (isPendingId(head.sourceId) || isPendingId(head.targetId)) return;
       dispatchDraft({ type: "mark-dispatched", id: head.id });
       pendingDispatching.current = true;
-      void session
-        .execute({
+      void contentSessionsFor(session)
+        .target(ownerRef.current, head.targetId)
+        .applyProjected({
           type: "merge_block_backward",
           owner: ownerRef.current,
           block_id: head.sourceId,
         })
+        .catch(retainAppliedResult)
         .then(() => {
-          const typed = draftStateRef.current.drafts.get(head.targetId) ?? head.merged.markdown;
+          const typed = readDraft(head.targetId)?.markdown ?? head.merged.markdown;
           const active = document.activeElement;
           const caret =
             active instanceof HTMLTextAreaElement ? active.selectionStart : head.joinCaret;
@@ -1119,16 +1136,17 @@ export function Outliner({
           };
     session
       .execute(command)
+      .catch(retainAppliedResult)
       .then(async (result) => {
         const realId = result.created_block;
-        const pendingCreation = draftStateRef.current.pendingOperations.find(
+        const pendingCreation = readDraftState().pendingOperations.find(
           (operation) => operation.kind !== "merge" && operation.tempId === head.tempId,
         );
         const structural =
           pendingCreation && pendingCreation.kind !== "merge"
             ? pendingCreation.structural
             : head.structural;
-        const typed = draftStateRef.current.drafts.get(head.tempId) ?? head.created.markdown;
+        const typed = readDraft(head.tempId)?.markdown ?? head.created.markdown;
         const wasFocused = focusedRef.current === head.tempId;
         const active = document.activeElement;
         const caret = active instanceof HTMLTextAreaElement ? active.selectionStart : typed.length;
@@ -1261,6 +1279,7 @@ export function Outliner({
     flushNow,
     message,
     notify,
+    retainAppliedResult,
     scheduleFlush,
     session,
     stageDraftSplice,
@@ -1281,7 +1300,7 @@ export function Outliner({
     const head = rowIndexOf(allRows, range.headId);
     const row = allRows[head];
     if (!row) return 0;
-    const value = draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown;
+    const value = readDraft(row.block.id)?.markdown ?? row.block.markdown;
     if (head === anchor) return Math.min(range.returnCaret, value.length);
     return caretForVerticalEntry(value, head < anchor ? -1 : 1, range.returnColumn);
   }, []);
@@ -1433,7 +1452,7 @@ export function Outliner({
       const current = units.findIndex((entry) => entry.block.id === row.block.id);
       if (current < 0) return;
       const values = units.map(
-        (entry) => draftStateRef.current.drafts.get(entry.block.id) ?? entry.block.markdown,
+        (entry) => readDraft(entry.block.id)?.markdown ?? entry.block.markdown,
       );
 
       if (command.operator === null) {
@@ -1517,19 +1536,11 @@ export function Outliner({
 
       const ids = updates.map((update) => update.row.block.id);
       const contentPlans = updates.flatMap((update) => {
-        const references =
-          draftStateRef.current.pageReferences.get(update.row.block.id) ??
-          update.row.block.page_references ??
-          [];
-        const plan = planInlineEdit(update.row.block.id, update.value, references, update.next);
-        if (!plan) return [];
-        dispatchDraft({
-          type: "set-baseline",
-          id: update.row.block.id,
-          value: update.next,
-          pageReferences: plan.references,
-        });
-        return [plan.splice];
+        const buffer = readDraftState().buffers.get(update.row.block.id);
+        if (!buffer) return [];
+        const splices = bufferSplices(buffer, update.row.block.id);
+        dispatchDraft({ type: "settle", id: update.row.block.id });
+        return splices;
       });
       if (contentPlans.length === 0) return;
       void session
@@ -1928,7 +1939,7 @@ export function Outliner({
       flushNow(row.block.id);
       const replace = isPlainEmptyBlock(
         row.block,
-        draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown,
+        readDraft(row.block.id)?.markdown ?? row.block.markdown,
       )
         ? row.block.id
         : null;
@@ -1961,7 +1972,7 @@ export function Outliner({
       flushNow(row.block.id);
       const replace = isPlainEmptyBlock(
         row.block,
-        draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown,
+        readDraft(row.block.id)?.markdown ?? row.block.markdown,
       )
         ? row.block.id
         : null;
@@ -2021,7 +2032,16 @@ export function Outliner({
         type: "set-completion",
         overlay:
           results.length > 0
-            ? { kind: "page", request: { blockId, ...page, anchor: textarea }, active: 0 }
+            ? {
+                kind: "page",
+                request: {
+                  blockId,
+                  ...page,
+                  anchor: textarea,
+                  scope: viewportRef.current ?? undefined,
+                },
+                active: 0,
+              }
             : null,
       });
       return results.length > 0;
@@ -2032,7 +2052,16 @@ export function Outliner({
         type: "set-completion",
         overlay:
           filterSlashItems(slashItems, slash.query).length > 0
-            ? { kind: "slash", request: { blockId, ...slash, anchor: textarea }, active: 0 }
+            ? {
+                kind: "slash",
+                request: {
+                  blockId,
+                  ...slash,
+                  anchor: textarea,
+                  scope: viewportRef.current ?? undefined,
+                },
+                active: 0,
+              }
             : null,
       });
       return filterSlashItems(slashItems, slash.query).length > 0;
@@ -2046,7 +2075,16 @@ export function Outliner({
       type: "set-completion",
       overlay:
         hash && hasHashResults
-          ? { kind: "hash", request: { blockId, ...hash, anchor: textarea }, active: 0 }
+          ? {
+              kind: "hash",
+              request: {
+                blockId,
+                ...hash,
+                anchor: textarea,
+                scope: viewportRef.current ?? undefined,
+              },
+              active: 0,
+            }
           : null,
     });
     return hasHashResults;
@@ -2136,7 +2174,7 @@ export function Outliner({
       // the gesture's anchor still exists instead of handing Radix a detached
       // element whose bounding box is the origin.
       const pickerAnchor = snapshotAnchor(completionAnchor(request));
-      const value = draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown;
+      const value = readDraft(row.block.id)?.markdown ?? row.block.markdown;
       const { value: next, caret } = removeCompletionToken(value, request);
       dispatchDraft({
         type: "edit",
@@ -2199,7 +2237,7 @@ export function Outliner({
       if (!request || request.blockId !== row.block.id || readonly || !chosen) return;
       // The token leaves the Markdown exactly as a slash token does: the tag
       // becomes structural membership, never text.
-      const value = draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown;
+      const value = readDraft(row.block.id)?.markdown ?? row.block.markdown;
       const { value: next, caret } = removeCompletionToken(value, request);
       dispatchDraft({
         type: "edit",
@@ -2237,12 +2275,8 @@ export function Outliner({
       const chosen = option ?? pageResults[pageIndex];
       if (!request || request.blockId !== row.block.id || readonly || !chosen) return;
       const id = row.block.id;
-      const draft = draftStateRef.current.drafts.get(id) ?? row.block.markdown;
-      const baseline = draftStateRef.current.baselines.get(id) ?? row.block.markdown;
-      const baselineReferences =
-        draftStateRef.current.pageReferences.get(id) ?? row.block.page_references ?? [];
-      const pendingText = planInlineEdit(id, baseline, baselineReferences, draft);
-      const currentReferences = pendingText?.references ?? baselineReferences;
+      const draft = readDraft(id)?.markdown ?? row.block.markdown;
+      const currentReferences = readDraft(id)?.pageReferences ?? row.block.page_references ?? [];
       const pageId = chosen.create ? `p-${randomUUID()}` : chosen.id;
       const replacement = planPageReference(
         id,
@@ -2254,18 +2288,12 @@ export function Outliner({
         chosen.title,
       );
       dispatchDraft({
-        type: "edit",
+        type: "splice",
         id,
-        value: replacement.value,
-        baselineIfAbsent: row.block.markdown,
-        autoClosers: [],
+        source: row.block.content,
+        ...replacement.plan.splice,
       });
-      dispatchDraft({
-        type: "set-baseline",
-        id,
-        value: replacement.value,
-        pageReferences: replacement.plan.references,
-      });
+      dispatchDraft({ type: "clear-auto-closers", ids: [id] });
       pendingCaret.current = replacement.caret;
       setPageRequest(null);
 
@@ -2273,22 +2301,10 @@ export function Outliner({
       if (chosen.create) {
         commands.push({ type: "ensure_page", page_id: pageId, title: chosen.title });
       }
-      if (pendingText) {
-        commands.push({
-          type: "splice_block_content",
-          owner,
-          ...pendingText.splice,
-        });
-      }
-      commands.push({
-        type: "splice_block_content",
-        owner,
-        ...replacement.plan.splice,
-      });
-      void session
-        .execute(commands.length === 1 ? commands[0] : { type: "batch", commands })
+      void contentSessionsFor(session)
+        .target(owner, id)
+        .submit(commands)
         .catch((error: unknown) => {
-          if (mounted.current) dispatchDraft({ type: "clear", ids: [id] });
           notify.failure(message("failure.lastEdit"), error);
         });
     },
@@ -2333,20 +2349,20 @@ export function Outliner({
     },
     draftOf: (row) =>
       pendingProjection.content.get(row.block.id)?.markdown ??
-      draftState.drafts.get(row.block.id) ??
+      draftProjections.get(row.block.id)?.markdown ??
       row.block.markdown,
     autoClosersOf: (blockId) => draftState.autoClosers.get(blockId) ?? NO_AUTO_CLOSERS,
     pageReferencesOf: (block) =>
       pendingProjection.content.get(block.id)?.pageReferences ??
-      draftState.pageReferences.get(block.id) ??
+      draftProjections.get(block.id)?.pageReferences ??
       block.page_references ??
       NO_PAGE_REFERENCES,
     onInput: (row, value, textarea, edit) => {
-      const previous = draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown;
+      const previous = readDraft(row.block.id)?.markdown ?? row.block.markdown;
       let nextClosers = transformAutoClosers(
         previous,
         value,
-        draftStateRef.current.autoClosers.get(row.block.id) ?? [],
+        readDraftState().autoClosers.get(row.block.id) ?? [],
         edit?.preferredStart,
         edit?.preferredEnd,
       );
@@ -2393,7 +2409,7 @@ export function Outliner({
     onCompositionEnd: (row, textarea) => {
       composing.current = false;
       finishComposition();
-      const value = draftStateRef.current.drafts.get(row.block.id) ?? row.block.markdown;
+      const value = readDraft(row.block.id)?.markdown ?? row.block.markdown;
       if (!updateCompletions(row.block.id, value, textarea)) scheduleFlush(row.block.id);
     },
     onKeyDown: (row, event) => onKeyDown(editor, row, rowsRef.current, event, bindings),
@@ -2464,11 +2480,41 @@ export function Outliner({
       dispatchPending();
     },
     mergeBackward: (row, allRows, textarea, inputMethod) => {
-      if (draftStateRef.current.pendingOperations.length > 0 && !isPendingId(row.block.id)) return;
+      if (preparingMerge.current) return;
+      if (readDraftState().pendingOperations.length > 0 && !isPendingId(row.block.id)) return;
       const target = allRows.find(
         (candidate) => candidate.parentId === row.parentId && candidate.index === row.index - 1,
       );
       if (!target || (!isPendingId(row.block.id) && isPendingId(target.block.id))) return;
+      const dirty = [target.block.id, row.block.id].filter((id) => {
+        const buffer = readDraftState().buffers.get(id);
+        return !isPendingId(id) && buffer && !bufferIsClean(buffer);
+      });
+      if (dirty.length) {
+        // Establish both authored sources before installing the merged source.
+        // Queue-time lowering must still see each endpoint's original pieces.
+        preparingMerge.current = true;
+        void Promise.all(
+          dirty.map((id) => {
+            const timer = flushTimers.current.get(id);
+            if (timer) clearTimeout(timer);
+            flushTimers.current.delete(id);
+            return contentSessionsFor(session).target(ownerRef.current, id).submit();
+          }),
+        )
+          .then(() => {
+            preparingMerge.current = false;
+            if (!mounted.current) return;
+            const current = rowsRef.current.find((entry) => entry.block.id === row.block.id);
+            if (current)
+              editorRef.current.mergeBackward(current, rowsRef.current, textarea, inputMethod);
+          })
+          .catch((error: unknown) => {
+            preparingMerge.current = false;
+            notify.failure(message("failure.mergeBlock"), error);
+          });
+        return;
+      }
       const targetContent = {
         markdown: editor.draftOf(target),
         pageReferences: editor.pageReferencesOf(target.block),
@@ -3203,25 +3249,6 @@ export function Outliner({
 /** No block resolved yet — the open/closed decision doesn't depend on presence. */
 const NO_TAGS: ReadonlySet<string> = new Set();
 
-function samePageReferences(
-  left: readonly PageReferenceSpan[],
-  right: readonly PageReferenceSpan[],
-): boolean {
-  return (
-    left.length === right.length &&
-    left.every((reference, index) => {
-      const other = right[index];
-      return (
-        other !== undefined &&
-        reference.start === other.start &&
-        reference.end === other.end &&
-        reference.index === other.index &&
-        reference.page_id === other.page_id
-      );
-    })
-  );
-}
-
 /** The collapsed set as it will be after toggling `id`. */
 function nextCollapsed(current: ReadonlySet<string>, id: string): Set<string> {
   const next = new Set(current);
@@ -3862,8 +3889,7 @@ interface PendingOutlineProjection {
 function projectPendingOperations(
   rows: OutlineRow[],
   pending: readonly PendingOutlineOperation[],
-  drafts: ReadonlyMap<string, string>,
-  pageReferences: ReadonlyMap<string, readonly PageReferenceSpan[]>,
+  drafts: ReadonlyMap<string, InlineContentProjection>,
 ): PendingOutlineProjection {
   if (pending.length === 0) return { rows, content: EMPTY_PENDING_CONTENT };
   let result = rows;
@@ -3879,8 +3905,8 @@ function projectPendingOperations(
       const sourceChildCount = result.filter((row) => row.parentId === entry.sourceId).length;
       const mergedChildCount = targetChildCount + sourceChildCount;
       content.set(entry.targetId, {
-        markdown: drafts.get(entry.targetId) ?? entry.merged.markdown,
-        pageReferences: pageReferences.get(entry.targetId) ?? entry.merged.pageReferences,
+        markdown: drafts.get(entry.targetId)?.markdown ?? entry.merged.markdown,
+        pageReferences: drafts.get(entry.targetId)?.pageReferences ?? entry.merged.pageReferences,
       });
       let sourceSubtreeEnd = sourceIndex + 1;
       while (sourceSubtreeEnd < result.length && result[sourceSubtreeEnd].depth > source.depth)
@@ -3921,6 +3947,7 @@ function projectPendingOperations(
       block: {
         id: entry.tempId,
         markdown: entry.created.markdown,
+        content: contentFromProjection(entry.created.markdown, entry.created.pageReferences),
         page_references: [...entry.created.pageReferences],
         properties: [],
         tags: [],
@@ -3934,8 +3961,8 @@ function projectPendingOperations(
       collapsed: false,
     };
     content.set(entry.tempId, {
-      markdown: drafts.get(entry.tempId) ?? entry.created.markdown,
-      pageReferences: pageReferences.get(entry.tempId) ?? entry.created.pageReferences,
+      markdown: drafts.get(entry.tempId)?.markdown ?? entry.created.markdown,
+      pageReferences: drafts.get(entry.tempId)?.pageReferences ?? entry.created.pageReferences,
     });
     result = [...result.slice(0, insertAt), pendingRow, ...result.slice(insertAt)];
   }
@@ -4052,8 +4079,6 @@ function BlockRow({ row, editor, view, lit, ancestor }: BlockRowProps) {
   const taskPriority = stringValue(row.block.properties, TASK_PRIORITY_KEY);
   const tags = row.block.tags;
   const selected = view.selected;
-  const projected = useRef(value);
-  const revision = useRef(view.revision);
   const previewMarkdown =
     !isFocused && !pending && hasMarkdownSyntax(value, pageReferences.length > 0);
   // A pending row has no id a property command can name yet, so it carries no
@@ -4085,30 +4110,6 @@ function BlockRow({ row, editor, view, lit, ancestor }: BlockRowProps) {
       textarea.setSelectionRange(textarea.value.length, textarea.value.length);
     }
   }, [isFocused, editor.pendingCaret]);
-
-  useLayoutEffect(() => {
-    const textarea = textareaRef.current;
-    const previous = projected.current;
-    projected.current = value;
-    if (!textarea || !isFocused || revision.current === view.revision) return;
-    revision.current = view.revision;
-    const transformed = transformSelection(previous, value, {
-      anchor: textarea.selectionStart,
-      head: textarea.selectionEnd,
-    });
-    if (
-      transformed.anchor === textarea.selectionStart &&
-      transformed.head === textarea.selectionEnd
-    ) {
-      // Nothing moved. Returning here is not just an optimisation: the call
-      // below has a side effect, and making it unconditionally meant every
-      // authoritative refresh of an untouched selection paid for it.
-      return;
-    }
-    keepingPageStill(textarea, () => {
-      textarea.setSelectionRange(transformed.anchor, transformed.head);
-    });
-  }, [isFocused, value, view.revision]);
 
   return (
     <BlockRowFrame
@@ -4194,6 +4195,7 @@ function BlockRow({ row, editor, view, lit, ancestor }: BlockRowProps) {
           rows={1}
           value={value}
           autoClosers={view.autoClosers}
+          contentSession={contentSessionsFor(editor.session).target(view.owner, row.block.id)}
           data-block-editor
           hidden={previewMarkdown}
           // The browser's spell checker has no idea what a graph is. It underlines

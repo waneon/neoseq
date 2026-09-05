@@ -83,24 +83,31 @@ async function oneRow(harness: Harness): Promise<void> {
 async function tableRow(harness: Harness): Promise<void> {
   const blockId = await installResultBlock(harness);
   harness.port.queryResult = {
-    kind: "select",
-    variables: ["q_subject", "text", "page"],
+    kind: "built",
+    grain: "entity",
+    subject: "block",
+    columns: [
+      { id: "text", source: { kind: "content" } },
+      { id: "page", source: { kind: "page" } },
+    ],
     rows: [
       {
-        q_subject: {
-          kind: "iri",
-          value: `urn:neoseq:entity:${GRAPH_ID}:block:${blockId}`,
-          entity: { kind: "block", owner: { kind: "page", id: "home" }, id: blockId },
-        },
-        text: {
-          kind: "literal",
-          value: "Ship the builder",
-          datatype: "http://www.w3.org/2001/XMLSchema#string",
-        },
-        page: {
-          kind: "iri",
-          value: `urn:neoseq:entity:${GRAPH_ID}:page:home`,
-          entity: { kind: "page", id: "home" },
+        subject: { kind: "block", owner: { kind: "page", id: "home" }, id: blockId },
+        values: {
+          text: [
+            {
+              kind: "literal",
+              value: "Ship the builder",
+              datatype: "http://www.w3.org/2001/XMLSchema#string",
+            },
+          ],
+          page: [
+            {
+              kind: "iri",
+              value: `urn:neoseq:entity:${GRAPH_ID}:page:home`,
+              entity: { kind: "page", id: "home" },
+            },
+          ],
         },
       },
     ],

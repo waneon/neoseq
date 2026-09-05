@@ -478,6 +478,8 @@ pub struct HistoryEffect {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockSnapshot {
     pub id: BlockId,
+    /// Semantic content; display titles and spans are derived projections.
+    pub content: Vec<InlineContent>,
     /// Current editor/read projection. Page-reference atoms are materialized as
     /// `[[current title]]`; canonical storage never duplicates that title.
     pub markdown: String,
@@ -486,6 +488,42 @@ pub struct BlockSnapshot {
     pub properties: PropertyBag,
     pub tags: Vec<TagId>,
     pub children: Vec<BlockSnapshot>,
+}
+
+/// A complete authoritative content value and the ordered changes that produced
+/// it. Positions count Unicode scalars and page-reference atoms, never titles.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BlockContentUpdate {
+    pub owner: OutlineOwner,
+    pub block_id: BlockId,
+    pub content: Vec<InlineContent>,
+    pub markdown: String,
+    pub page_references: Vec<PageReferenceSpan>,
+    pub properties: PropertyBag,
+    pub mapping: Vec<ContentRangeChange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContentRangeChange {
+    pub index: usize,
+    pub delete: usize,
+    pub insert: usize,
+}
+
+/// The read-model consequence of an applied transaction. The core determines
+/// this from the prepared transition and observed document changes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum GraphChanges {
+    Content {
+        blocks: Vec<BlockContentUpdate>,
+    },
+    /// `None` invalidates every hydrated outline; an empty list affects only
+    /// the summary. Unhydrated outlines remain demand reads.
+    Refresh {
+        outlines: Option<Vec<OutlineOwner>>,
+        blocks: Vec<BlockContentUpdate>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -304,7 +304,7 @@ function GenericResultRow({
       <BlockBody className="query-list-text" taskStatus={literalValue(statusValue)}>
         {status && (
           <EditableStatusValue
-            term={statusValue}
+            terms={statusValue}
             column={status}
             context={context}
             row={row}
@@ -313,7 +313,7 @@ function GenericResultRow({
         )}
         {lead && entity ? (
           <EditableCellValue
-            term={row.values[lead.variable]}
+            terms={row.values[lead.variable]}
             column={lead}
             context={context}
             row={row}
@@ -355,7 +355,7 @@ function ResultFacts({
           <span className="query-fact-key">{column.label}</span>
           {row.subject ? (
             <EditableCellValue
-              term={row.values[column.variable]}
+              terms={row.values[column.variable]}
               column={column}
               context={context}
               row={row}
@@ -363,7 +363,7 @@ function ResultFacts({
             />
           ) : (
             <CellValue
-              term={row.values[column.variable]}
+              terms={row.values[column.variable]}
               column={column}
               context={context}
               row={row.values}
@@ -375,7 +375,8 @@ function ResultFacts({
   );
 }
 
-function literalValue(term: ResultViewRow["values"][string] | undefined): string | undefined {
+function literalValue(terms: ResultViewRow["values"][string] | undefined): string | undefined {
+  const term = terms?.[0];
   return term?.kind === "literal" ? term.value : undefined;
 }
 

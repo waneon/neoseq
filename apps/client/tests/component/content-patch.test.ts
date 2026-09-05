@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { applyAcknowledgedContentSplices } from "../../src/core-port/content-patch";
-import type { GraphSnapshot } from "../../src/core-port/snapshot";
+import { applyContentUpdates } from "../../src/core-port/content-patch";
+import {
+  EMPTY_SNAPSHOT,
+  type BlockContentUpdate,
+  type GraphSnapshot,
+} from "../../src/core-port/snapshot";
 
 const snapshot: GraphSnapshot = {
-  schema_version: 7,
+  ...EMPTY_SNAPSHOT,
   graph_id: "graph",
   pages: [
     {
@@ -14,8 +18,20 @@ const snapshot: GraphSnapshot = {
       blocks: [
         {
           id: "block",
-          markdown: "See [[Old]] now",
+          content: [
+            { type: "markdown", value: "See " },
+            { type: "page_reference", page_id: "target" },
+          ],
+          markdown: "See [[Old]]",
           page_references: [{ start: 4, end: 11, index: 4, page_id: "target" }],
+          properties: [],
+          tags: ["topic"],
+          children: [],
+        },
+        {
+          id: "sibling",
+          content: [{ type: "markdown", value: "Sibling" }],
+          markdown: "Sibling",
           properties: [],
           tags: [],
           children: [],
@@ -24,7 +40,7 @@ const snapshot: GraphSnapshot = {
     },
     {
       id: "target",
-      title: "New title",
+      title: "Directory title",
       properties: [],
       tags: [],
       blocks: [],
@@ -32,37 +48,51 @@ const snapshot: GraphSnapshot = {
   ],
   page_directory: [
     { id: "home", title: "Home", journal_date: null, deleted: false },
-    { id: "target", title: "New title", journal_date: null, deleted: false },
+    { id: "target", title: "Directory title", journal_date: null, deleted: false },
   ],
-  tags: [],
-  settings: { default_queries: [] },
-  conflicts: [],
-  quarantined: [],
 };
 
-describe("acknowledged content patches", () => {
-  it("updates one canonical atom sequence without replacing its siblings", () => {
-    const result = applyAcknowledgedContentSplices(snapshot, { kind: "page", id: "home" }, [
-      { block_id: "block", index: 0, delete: 3, insert: [{ type: "markdown", value: "Read" }] },
-    ]);
+const update: BlockContentUpdate = {
+  owner: { kind: "page", id: "home" },
+  block_id: "block",
+  content: [
+    { type: "markdown", value: "Read " },
+    { type: "page_reference", page_id: "target" },
+  ],
+  markdown: "Read [[Core title]]",
+  page_references: [{ start: 5, end: 19, index: 5, page_id: "target" }],
+  properties: [
+    {
+      key: "builtin.updated-at",
+      value_type: "string",
+      cardinality: "single",
+      values: [{ type: "string", value: "core timestamp" }],
+    },
+  ],
+  mapping: [{ index: 0, delete: 3, insert: 4 }],
+};
 
-    expect(result?.pages[0].blocks[0].markdown).toBe("Read [[New title]] now");
-    expect(result?.pages[0].blocks[0].page_references).toEqual([
-      {
-        start: 5,
-        end: 18,
-        index: 5,
-        page_id: "target",
-      },
-    ]);
-    expect(result?.pages[1]).toBe(snapshot.pages[1]);
+describe("authoritative content publications", () => {
+  it("installs the core's content, display and properties without interpreting its command", () => {
+    const result = applyContentUpdates(snapshot, [update]);
+    const block = result.pages[0].blocks[0];
+    expect(block.content).toBe(update.content);
+    expect(block.markdown).toBe("Read [[Core title]]");
+    expect(block.page_references).toBe(update.page_references);
+    expect(block.properties).toBe(update.properties);
+    expect(block.tags).toBe(snapshot.pages[0].blocks[0].tags);
+    expect(result.pages[0].blocks[1]).toBe(snapshot.pages[0].blocks[1]);
+    expect(result.pages[1]).toBe(snapshot.pages[1]);
+    expect(result.page_directory).toBe(snapshot.page_directory);
+    expect(result.tags).toBe(snapshot.tags);
+    expect(snapshot.pages[0].blocks[0].markdown).toBe("See [[Old]]");
   });
 
-  it("falls back when the hydrated block cannot accept the command", () => {
+  it("does not manufacture rows for an unhydrated owner or a missing block", () => {
     expect(
-      applyAcknowledgedContentSplices(snapshot, { kind: "page", id: "home" }, [
-        { block_id: "missing", index: 0, delete: 0, insert: [] },
-      ]),
-    ).toBeNull();
+      applyContentUpdates(snapshot, [{ ...update, owner: { kind: "page", id: "target" } }]),
+    ).toBe(snapshot);
+    expect(applyContentUpdates(snapshot, [{ ...update, block_id: "missing" }])).toBe(snapshot);
+    expect(applyContentUpdates(snapshot, [])).toBe(snapshot);
   });
 });

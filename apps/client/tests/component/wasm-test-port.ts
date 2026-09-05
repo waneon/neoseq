@@ -193,7 +193,11 @@ export class WasmTestPort implements SessionPort {
     }
     await this.beforeExecute?.(request.command.command);
 
-    let execution: { result: CommandResult; semantic: SemanticEvent };
+    let execution: {
+      result: CommandResult;
+      semantic: SemanticEvent;
+      changes: ExecuteResponse["changes"];
+    };
     try {
       execution = JSON.parse(
         state.core.executeJson(JSON.stringify(request.command), this.now()),
@@ -203,7 +207,11 @@ export class WasmTestPort implements SessionPort {
     }
     const payload = ownedBytes(state.core.takeUpdate());
     if (payload.byteLength === 0) {
-      return { result: execution.result, save_status: { status: "unchanged" } };
+      return {
+        result: execution.result,
+        changes: execution.changes,
+        save_status: { status: "unchanged" },
+      };
     }
     state.pending = {
       payload,
@@ -213,11 +221,16 @@ export class WasmTestPort implements SessionPort {
     if (this.failNextSave) {
       const failure = this.failNextSave;
       this.failNextSave = null;
-      throw new CorePortFailure(failure);
+      return {
+        result: execution.result,
+        changes: execution.changes,
+        save_status: { status: "unsaved", error: failure },
+      };
     }
     const receipt = await this.persistPending(state);
     return {
       result: execution.result,
+      changes: execution.changes,
       save_status: { status: "saved_locally", ...receipt },
     };
   }

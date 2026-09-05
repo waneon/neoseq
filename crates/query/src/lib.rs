@@ -5,9 +5,10 @@ pub mod plan;
 
 pub use logical::{LogicalQuery, LogicalSelect};
 pub use plan::{
-    AuthoredQueryRequest, BuiltQueryPlan, BuiltQueryProjection, DERIVED_SOURCE_PROVENANCE,
+    AuthoredQueryRequest, BuiltQueryPlan, BuiltResultColumn, DERIVED_SOURCE_PROVENANCE,
     PlanAggregate, PlanColumn, PlanColumnSource, PlanField, PlanLimit, PlanMatch, PlanNode,
-    PlanOperator, PlanRelativeDate, PlanSubject, PlanValue, RelativeDateUnit, derive_plan_source,
+    PlanOperator, PlanRelativeDate, PlanSubject, PlanValue, QueryGrain, RelativeDateUnit,
+    derive_plan_source,
 };
 
 use domain::{
@@ -82,6 +83,8 @@ pub struct QueryBudget {
     pub max_algebra_operators: usize,
     pub max_bindings: usize,
     pub max_rows: usize,
+    pub max_values: usize,
+    pub max_result_bytes: usize,
 }
 
 impl Default for QueryBudget {
@@ -91,6 +94,8 @@ impl Default for QueryBudget {
             max_algebra_operators: 512,
             max_bindings: 64,
             max_rows: 1_000,
+            max_values: 100_000,
+            max_result_bytes: 8 * 1024 * 1024,
         }
     }
 }
@@ -105,6 +110,8 @@ impl QueryBudget {
                 .min(ceiling.max_algebra_operators),
             max_bindings: self.max_bindings.min(ceiling.max_bindings),
             max_rows: self.max_rows.min(ceiling.max_rows),
+            max_values: self.max_values.min(ceiling.max_values),
+            max_result_bytes: self.max_result_bytes.min(ceiling.max_result_bytes),
         }
     }
 }
@@ -143,6 +150,14 @@ impl LogicalQueryRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum QueryResult {
+    Built {
+        grain: QueryGrain,
+        subject: PlanSubject,
+        columns: Vec<BuiltResultColumn>,
+        rows: Vec<BuiltResultRow>,
+        revision: u64,
+        frontier: String,
+    },
     Select {
         variables: Vec<String>,
         rows: Vec<BTreeMap<String, RdfTerm>>,
@@ -154,6 +169,40 @@ pub enum QueryResult {
         revision: u64,
         frontier: String,
     },
+}
+
+/// An entity row owns its identity independently of the projected fields. A
+/// summary row has no canonical write target. Empty fields remain empty vectors.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BuiltResultRow {
+    pub subject: Option<QueryEntityRef>,
+    pub values: BTreeMap<String, Vec<RdfTerm>>,
+}
+
+struct ResultBudget {
+    values: usize,
+    bytes: usize,
+}
+
+impl ResultBudget {
+    fn new(budget: &QueryBudget) -> Self {
+        Self {
+            values: budget.max_values,
+            bytes: budget.max_result_bytes,
+        }
+    }
+
+    fn record(&mut self, term: &RdfTerm) -> Result<(), QueryError> {
+        self.values = self.values.checked_sub(1).ok_or(QueryError::ResultBudget)?;
+        let bytes = serde_json::to_vec(term)
+            .map_err(|error| QueryError::Evaluation(error.to_string()))?
+            .len();
+        self.bytes = self
+            .bytes
+            .checked_sub(bytes)
+            .ok_or(QueryError::ResultBudget)?;
+        Ok(())
+    }
 }
 
 /// One independently projected unit consumed by the cold index builder.
@@ -251,6 +300,8 @@ pub enum QueryError {
     AlgebraBudget,
     #[error("query output exceeds the configured row budget")]
     RowBudget,
+    #[error("query result value or byte budget exceeded")]
+    ResultBudget,
     #[error("SPARQL syntax error: {0}")]
     Syntax(String),
     #[error("invalid built query plan: {0}")]
@@ -934,7 +985,6 @@ impl GraphIndex {
             AuthoredQueryRequest::Built {
                 plan,
                 today,
-                projection,
                 budget,
             } => {
                 let budget = budget.bounded();
@@ -943,12 +993,13 @@ impl GraphIndex {
                 if authored_bytes.len() > budget.max_source_bytes.min(domain::QUERY_PLAN_LIMIT) {
                     return Err(QueryError::SourceBudget);
                 }
-                let query = plan.compile(&self.graph_id, &today, projection)?;
-                self.execute_logical(LogicalQueryRequest {
+                let query = plan.compile(&self.graph_id, &today)?;
+                let result = self.execute_logical(LogicalQueryRequest {
                     query,
                     bindings: BTreeMap::new(),
-                    budget,
-                })
+                    budget: budget.clone(),
+                })?;
+                self.project_built(&plan, result, &budget)
             }
             AuthoredQueryRequest::RawSparql {
                 language,
@@ -962,6 +1013,160 @@ impl GraphIndex {
                 budget,
             }),
         }
+    }
+
+    fn project_built(
+        &self,
+        plan: &BuiltQueryPlan,
+        result: QueryResult,
+        budget: &QueryBudget,
+    ) -> Result<QueryResult, QueryError> {
+        let QueryResult::Select {
+            rows,
+            revision,
+            frontier,
+            ..
+        } = result
+        else {
+            unreachable!("built plans compile to SELECT")
+        };
+        let mut ids = plan
+            .columns
+            .iter()
+            .map(|column| column.id.clone())
+            .collect::<HashSet<_>>();
+        let columns = plan
+            .columns
+            .iter()
+            .map(|column| {
+                let time_column = plan::moment_time_key(column).map(|_| {
+                    let mut id = format!("{}:time", column.id);
+                    while !ids.insert(id.clone()) {
+                        id.push(':');
+                    }
+                    id
+                });
+                BuiltResultColumn {
+                    id: column.id.clone(),
+                    source: column.source.clone(),
+                    label: column.label.clone(),
+                    aggregate: column.aggregate,
+                    time_column,
+                }
+            })
+            .collect::<Vec<_>>();
+        let mut output = Vec::with_capacity(rows.len());
+        let mut remaining = ResultBudget::new(budget);
+        for row in rows {
+            let mut values = BTreeMap::new();
+            let subject = if plan.grain == QueryGrain::Entity {
+                let Some(
+                    term @ RdfTerm::Iri {
+                        value,
+                        entity: Some(entity),
+                    },
+                ) = row.get(plan::SUBJECT_VARIABLE)
+                else {
+                    return Err(QueryError::InvalidTerm(
+                        "entity selection lost its subject".into(),
+                    ));
+                };
+                remaining.record(term)?;
+                let subject = NamedNode::new(value).map_err(term_error)?;
+                for (column, descriptor) in plan.columns.iter().zip(&columns) {
+                    let field = if matches!(column.source, PlanColumnSource::Subject) {
+                        remaining.record(term)?;
+                        vec![term.clone()]
+                    } else {
+                        self.project_field(&subject, &column.source, plan.subject, &mut remaining)?
+                    };
+                    values.insert(column.id.clone(), field);
+                    if let (Some(key), Some(id)) =
+                        (plan::moment_time_key(column), &descriptor.time_column)
+                    {
+                        values.insert(
+                            id.clone(),
+                            self.project_field(
+                                &subject,
+                                &PlanColumnSource::Property { key: key.into() },
+                                plan.subject,
+                                &mut remaining,
+                            )?,
+                        );
+                    }
+                }
+                Some(entity.clone())
+            } else {
+                for (index, (column, descriptor)) in plan.columns.iter().zip(&columns).enumerate() {
+                    let variable = plan::column_variable(index);
+                    let field = row
+                        .get(&variable)
+                        .map(|term| -> Result<_, QueryError> {
+                            remaining.record(term)?;
+                            Ok(vec![term.clone()])
+                        })
+                        .transpose()?
+                        .unwrap_or_default();
+                    values.insert(column.id.clone(), field);
+                    if let Some(id) = &descriptor.time_column {
+                        let field = row
+                            .get(&format!("q_time_{variable}"))
+                            .map(|term| -> Result<_, QueryError> {
+                                remaining.record(term)?;
+                                Ok(vec![term.clone()])
+                            })
+                            .transpose()?
+                            .unwrap_or_default();
+                        values.insert(id.clone(), field);
+                    }
+                }
+                None
+            };
+            output.push(BuiltResultRow { subject, values });
+        }
+        let result = QueryResult::Built {
+            grain: plan.grain,
+            subject: plan.subject,
+            columns,
+            rows: output,
+            revision,
+            frontier,
+        };
+        if serde_json::to_vec(&result)
+            .map_err(|error| QueryError::Evaluation(error.to_string()))?
+            .len()
+            > budget.max_result_bytes
+        {
+            return Err(QueryError::ResultBudget);
+        }
+        Ok(result)
+    }
+
+    fn project_field(
+        &self,
+        subject: &NamedNode,
+        source: &PlanColumnSource,
+        kind: PlanSubject,
+        remaining: &mut ResultBudget,
+    ) -> Result<Vec<RdfTerm>, QueryError> {
+        let predicate =
+            plan::column_predicate(source, kind)?.expect("subject is carried by the selected row");
+        let mut values = Vec::new();
+        for quad in self.store.quads_for_pattern(
+            Some(subject.as_ref().into()),
+            Some(predicate.as_ref()),
+            None,
+            Some(GraphNameRef::DefaultGraph),
+        ) {
+            let value = self.map_ox_term(&quad.map_err(index_error)?.object)?;
+            remaining.record(&value)?;
+            values.push(value);
+        }
+        // RDF sets have no presentation order. A deterministic term order makes
+        // one answer stable without depending on store iteration internals.
+        values
+            .sort_by_cached_key(|value| serde_json::to_string(value).expect("RDF terms serialize"));
+        Ok(values)
     }
 
     /// Executes typed logical algebra without serializing or parsing SPARQL.
@@ -1032,7 +1237,7 @@ impl GraphIndex {
         }
         .map_err(|error| QueryError::Evaluation(error.to_string()))?;
 
-        match evaluated {
+        let result = match evaluated {
             QueryResults::Boolean(value) => Ok(QueryResult::Ask {
                 value,
                 revision: self.revision,
@@ -1045,6 +1250,7 @@ impl GraphIndex {
                     .map(|variable| variable.as_str().to_owned())
                     .collect::<Vec<_>>();
                 let mut rows = Vec::new();
+                let mut remaining = ResultBudget::new(&budget);
                 for solution in &mut solutions {
                     if rows.len() >= budget.max_rows {
                         return Err(QueryError::RowBudget);
@@ -1054,7 +1260,9 @@ impl GraphIndex {
                     let mut row = BTreeMap::new();
                     for variable in &variables {
                         if let Some(term) = solution.get(variable.as_str()) {
-                            row.insert(variable.clone(), self.map_ox_term(term)?);
+                            let value = self.map_ox_term(term)?;
+                            remaining.record(&value)?;
+                            row.insert(variable.clone(), value);
                         }
                     }
                     rows.push(row);
@@ -1069,7 +1277,15 @@ impl GraphIndex {
             QueryResults::Graph(_) => Err(QueryError::Disallowed(
                 "CONSTRUCT and DESCRIBE are not supported".into(),
             )),
+        }?;
+        if serde_json::to_vec(&result)
+            .map_err(|error| QueryError::Evaluation(error.to_string()))?
+            .len()
+            > budget.max_result_bytes
+        {
+            return Err(QueryError::ResultBudget);
         }
+        Ok(result)
     }
 
     pub fn frontier(&self) -> &str {
@@ -2936,6 +3152,9 @@ mod tests {
                 blocks: vec![BlockSnapshot {
                     id: BlockId::new("todo-1").unwrap(),
                     markdown: "Ship the Query Engine".into(),
+                    content: vec![domain::InlineContent::Markdown {
+                        value: "Ship the Query Engine".into(),
+                    }],
                     page_references: vec![],
                     properties: bag([
                         single("builtin.task-status", PropertyValue::String("todo".into())),
@@ -2978,6 +3197,9 @@ mod tests {
                     .map(|index| BlockSnapshot {
                         id: BlockId::new(format!("block-{index:05}")).unwrap(),
                         markdown: format!("Block {index}"),
+                        content: vec![domain::InlineContent::Markdown {
+                            value: format!("Block {index}"),
+                        }],
                         page_references: vec![],
                         properties: bag([
                             single("builtin.task-status", PropertyValue::String("todo".into())),
@@ -3276,6 +3498,9 @@ mod tests {
         source.tags[0].blocks.push(BlockSnapshot {
             id: BlockId::new("tag-note").unwrap(),
             markdown: "Notes about this tag".into(),
+            content: vec![domain::InlineContent::Markdown {
+                value: "Notes about this tag".into(),
+            }],
             page_references: vec![],
             properties: PropertyBag::new(),
             tags: vec![],
@@ -3430,152 +3655,312 @@ mod tests {
         assert_eq!(logical_result, index.execute(raw).unwrap());
     }
 
-    #[test]
-    fn built_plan_matches_its_legacy_sparql_artifact() {
-        let index = GraphIndex::new(&snapshot()).unwrap();
-        let plan: BuiltQueryPlan = serde_json::from_value(serde_json::json!({
-            "version": 1,
+    fn built_plan(grain: &str, columns: serde_json::Value) -> BuiltQueryPlan {
+        serde_json::from_value(serde_json::json!({
+            "version": domain::QUERY_PLAN_VERSION,
+            "grain": grain,
             "subject": "block",
-            "where": {
-                "id": "root",
-                "kind": "group",
-                "match": "all",
-                "children": [
-                    {
-                        "id": "status",
-                        "kind": "condition",
-                        "field": { "kind": "property", "key": "builtin.task-status" },
-                        "op": "equals",
-                        "value": { "type": "text", "value": "todo" }
-                    },
-                    {
-                        "id": "either",
-                        "kind": "group",
-                        "match": "any",
-                        "children": [
-                            {
-                                "id": "tag",
-                                "kind": "condition",
-                                "field": { "kind": "tag" },
-                                "op": "equals",
-                                "value": { "type": "tag", "value": "project" }
-                            },
-                            {
-                                "id": "deadline",
-                                "kind": "condition",
-                                "field": {
-                                    "kind": "property",
-                                    "key": "builtin.task-deadline"
-                                },
-                                "op": "lte",
-                                "value": {
-                                    "type": "relative",
-                                    "value": { "unit": "month", "offset": 4 }
-                                }
-                            }
-                        ]
-                    },
-                    {
-                        "id": "not-done",
-                        "kind": "group",
-                        "match": "none",
-                        "children": [{
-                            "id": "done",
-                            "kind": "condition",
-                            "field": { "kind": "property", "key": "user.done" },
-                            "op": "is_set"
-                        }]
-                    }
-                ]
-            },
-            "columns": [
-                { "id": "text", "source": { "kind": "content" } },
-                { "id": "tags", "source": { "kind": "tags" }, "aggregate": "list" },
-                { "id": "total", "source": { "kind": "subject" }, "aggregate": "count" }
-            ],
-            "limit": 50,
-            "distinct": false
+            "where": { "id": "root", "kind": "group", "match": "all", "children": [] },
+            "columns": columns,
+            "limit": 100
         }))
-        .unwrap();
+        .unwrap()
+    }
 
-        let built = index
-            .execute_authored(AuthoredQueryRequest::Built {
-                plan: plan.clone(),
-                today: LocalDate::new("2026-08-18").unwrap(),
-                projection: BuiltQueryProjection::View,
-                budget: QueryBudget::default(),
-            })
-            .unwrap();
-        let tag = entity_iri(&GraphId::new("query graph").unwrap(), "tag", "project")
+    fn built_request(plan: BuiltQueryPlan) -> AuthoredQueryRequest {
+        AuthoredQueryRequest::Built {
+            plan,
+            today: LocalDate::new("2026-08-18").unwrap(),
+            budget: QueryBudget::default(),
+        }
+    }
+
+    #[test]
+    fn built_predicates_keep_the_raw_query_semantics_across_result_grains() {
+        let index = GraphIndex::new(&snapshot()).unwrap();
+        let mut plan = built_plan(
+            "summary",
+            serde_json::json!([
+                {"id": "text", "source": {"kind": "content"}},
+                {"id": "total", "source": {"kind": "subject"}, "aggregate": "count"}
+            ]),
+        );
+        plan.where_clause = serde_json::from_value(serde_json::json!({
+            "id": "root", "kind": "group", "match": "all", "children": [
+                {"id": "status", "kind": "condition", "field": {"kind": "property", "key": "builtin.task-status"}, "op": "equals", "value": {"type": "text", "value": "todo"}},
+                {"id": "either", "kind": "group", "match": "any", "children": [
+                    {"id": "tag", "kind": "condition", "field": {"kind": "tag"}, "op": "equals", "value": {"type": "tag", "value": "missing"}},
+                    {"id": "date", "kind": "condition", "field": {"kind": "property", "key": "builtin.task-deadline"}, "op": "lte", "value": {"type": "relative", "value": {"unit": "day", "offset": 0}}}
+                ]},
+                {"id": "exclude", "kind": "group", "match": "none", "children": [
+                    {"id": "done", "kind": "condition", "field": {"kind": "property", "key": "user.done"}, "op": "is_set"}
+                ]}
+            ]
+        })).unwrap();
+        let QueryResult::Built { rows: summary, .. } =
+            index.execute_authored(built_request(plan.clone())).unwrap()
+        else {
+            panic!("expected built result")
+        };
+        let missing = entity_iri(&index.graph_id, "tag", "missing")
             .unwrap()
             .as_str()
             .to_owned();
-        let legacy_bindings = BTreeMap::from([
-            (
-                "q_p0".into(),
-                RdfTerm::Literal {
-                    value: "todo".into(),
-                    datatype: xsd::STRING.as_str().into(),
-                    language: None,
-                },
-            ),
-            (
-                "q_p1".into(),
-                RdfTerm::Iri {
-                    value: tag,
-                    entity: None,
-                },
-            ),
-            (
-                "q_p2".into(),
-                RdfTerm::Literal {
-                    value: "2026-12-01".into(),
-                    datatype: xsd::DATE.as_str().into(),
-                    language: None,
-                },
-            ),
-        ]);
-        let legacy = index
-            .execute_authored(AuthoredQueryRequest::RawSparql {
-                language: QUERY_LANGUAGE.into(),
-                source: format!(
-                    "# neoseq:query-plan-compiler=1\n\
-                     PREFIX neo: <{NEO_NS}>\n\
-                     PREFIX prop: <{PROPERTY_NS}>\n\
-                     SELECT ?text\n\
-                       (GROUP_CONCAT(DISTINCT ?q_a3; SEPARATOR=\"\\u001F\") AS ?tags)\n\
-                       (COUNT(DISTINCT ?q_subject) AS ?total) WHERE {{\n\
-                       ?q_subject a neo:Block .\n\
-                       ?q_subject prop:builtin.task-status ?q_p0 .\n\
-                       FILTER(EXISTS {{ ?q_subject neo:tag ?q_p1 }} ||\n\
-                              EXISTS {{ ?q_subject prop:builtin.task-deadline ?q_v1 .\n\
-                                        FILTER(?q_v1 <= ?q_p2) }})\n\
-                       FILTER NOT EXISTS {{ ?q_subject prop:user.done ?q_v2 }}\n\
-                       OPTIONAL {{ ?q_subject neo:content ?text }}\n\
-                       OPTIONAL {{ ?q_subject neo:tag ?q_t4 . ?q_t4 neo:name ?q_a3 }}\n\
-                     }} GROUP BY ?text LIMIT 50",
-                ),
-                bindings: legacy_bindings,
-                budget: QueryBudget::default(),
-            })
-            .unwrap();
-        assert_eq!(built, legacy);
+        let QueryResult::Select { rows: raw, .. } = index.execute(request(&format!(
+            "PREFIX neo: <{NEO_NS}> PREFIX prop: <{PROPERTY_NS}> PREFIX xsd: <http://www.w3.org/2001/XMLSchema#> \
+             SELECT ?text (COUNT(DISTINCT ?block) AS ?total) WHERE {{ \
+             ?block a neo:Block; prop:builtin.task-status \"todo\". \
+             FILTER(EXISTS {{?block neo:tag <{missing}>}} || EXISTS {{?block prop:builtin.task-deadline ?date. FILTER(?date <= \"2026-08-18\"^^xsd:date)}}) \
+             FILTER NOT EXISTS {{?block prop:user.done ?done}} \
+             OPTIONAL {{?block neo:content ?text}} }} GROUP BY ?text"
+        ))).unwrap() else { panic!("expected SELECT") };
+        assert_eq!(summary.len(), 1);
+        assert_eq!(summary[0].values["text"], vec![raw[0]["text"].clone()]);
+        assert_eq!(summary[0].values["total"], vec![raw[0]["total"].clone()]);
+        plan.grain = QueryGrain::Entity;
+        plan.columns.retain(|column| column.aggregate.is_none());
+        let QueryResult::Built { rows: entities, .. } =
+            index.execute_authored(built_request(plan)).unwrap()
+        else {
+            panic!("expected built result")
+        };
+        assert_eq!(entities.len(), 1);
+        assert_eq!(entities[0].values["text"], summary[0].values["text"]);
+        assert!(entities[0].subject.is_some());
+    }
 
-        let QueryResult::Select {
-            variables, rows, ..
-        } = index
-            .execute_authored(AuthoredQueryRequest::Built {
-                plan,
-                today: LocalDate::new("2026-08-18").unwrap(),
-                projection: BuiltQueryProjection::Entities,
-                budget: QueryBudget::default(),
-            })
+    #[test]
+    fn entity_membership_is_independent_of_fields_and_repeated_values() {
+        let mut snapshot = snapshot();
+        let mut second = snapshot.pages[0].blocks[0].clone();
+        second.id = BlockId::new("todo-2").unwrap();
+        second.tags.clear();
+        snapshot.pages[0].blocks.push(second);
+        let index = GraphIndex::new(&snapshot).unwrap();
+        let text = serde_json::json!({"id": "text", "source": {"kind": "content"}});
+        let QueryResult::Built { rows: plain, .. } = index
+            .execute_authored(built_request(built_plan(
+                "entity",
+                serde_json::json!([text]),
+            )))
             .unwrap()
         else {
-            panic!("expected SELECT")
+            panic!("expected built result")
         };
-        assert_eq!(variables, ["q_subject"]);
+        let QueryResult::Built { rows, columns, .. } = index
+            .execute_authored(built_request(built_plan(
+                "entity",
+                serde_json::json!([
+                    text,
+                    {"id": "tags", "source": {"kind": "tags"}},
+                    {"id": "missing", "source": {"kind": "property", "key": "user.missing"}}
+                ]),
+            )))
+            .unwrap()
+        else {
+            panic!("expected built result")
+        };
+        assert_eq!(rows.len(), 2);
+        assert_eq!(
+            plain.iter().map(|row| &row.subject).collect::<Vec<_>>(),
+            rows.iter().map(|row| &row.subject).collect::<Vec<_>>()
+        );
+        assert_eq!(rows[0].values["text"], rows[1].values["text"]);
+        assert!(
+            matches!(&rows[0].values["tags"][0], RdfTerm::Iri { entity: Some(QueryEntityRef::Tag { id }), .. } if id == "project")
+        );
+        assert!(rows[1].values["tags"].is_empty());
+        assert!(rows.iter().all(|row| row.values["missing"].is_empty()));
+        assert_eq!(columns[1].id, "tags");
+        assert_eq!(columns[1].source, PlanColumnSource::Tags);
+    }
+
+    #[test]
+    fn entity_limit_selects_subjects_before_projecting_repeated_fields() {
+        let mut snapshot = snapshot();
+        let mut second = snapshot.pages[0].blocks[0].clone();
+        second.id = BlockId::new("todo-2").unwrap();
+        snapshot.pages[0].blocks.push(second);
+        snapshot.pages[0].blocks[0]
+            .tags
+            .push(TagId::new("later").unwrap());
+        let mut tag = snapshot.tags[0].clone();
+        tag.id = TagId::new("later").unwrap();
+        tag.name = "Later".into();
+        snapshot.tags.push(tag);
+        let index = GraphIndex::new(&snapshot).unwrap();
+        let mut plan = built_plan(
+            "entity",
+            serde_json::json!([{ "id": "tags", "source": {"kind": "tags"} }]),
+        );
+        plan.limit = PlanLimit::new(1).unwrap();
+        let QueryResult::Built { rows, .. } = index.execute_authored(built_request(plan)).unwrap()
+        else {
+            panic!("expected built result")
+        };
         assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].values["tags"].len(), 2);
+    }
+
+    #[test]
+    fn typed_vectors_preserve_empty_strings_separators_and_reference_identity() {
+        let mut snapshot = snapshot();
+        snapshot.pages[0].blocks[0].properties = bag([
+            PropertyField {
+                key: PropertyKey::new("user.alias").unwrap(),
+                value_type: PropertyType::String,
+                cardinality: Cardinality::Set,
+                values: vec![
+                    PropertyValue::String("".into()),
+                    PropertyValue::String("one\u{1f}two".into()),
+                ],
+            },
+            single("user.number", PropertyValue::Number(3.5)),
+            single(
+                "user.reference",
+                PropertyValue::Page(PageId::new("today").unwrap()),
+            ),
+        ]);
+        let index = GraphIndex::new(&snapshot).unwrap();
+        let QueryResult::Built { rows, .. } = index
+            .execute_authored(built_request(built_plan(
+                "entity",
+                serde_json::json!([
+                    {"id": "aliases", "source": {"kind": "property", "key": "user.alias"}},
+                    {"id": "number", "source": {"kind": "property", "key": "user.number"}},
+                    {"id": "reference", "source": {"kind": "property", "key": "user.reference"}}
+                ]),
+            )))
+            .unwrap()
+        else {
+            panic!("expected built result")
+        };
+        assert_eq!(rows[0].values["aliases"].len(), 2);
+        assert!(
+            rows[0].values["aliases"]
+                .iter()
+                .any(|term| matches!(term, RdfTerm::Literal {value, ..} if value.is_empty()))
+        );
+        assert!(
+            rows[0].values["aliases"].iter().any(
+                |term| matches!(term, RdfTerm::Literal {value, ..} if value == "one\u{1f}two")
+            )
+        );
+        assert!(
+            matches!(&rows[0].values["number"][0], RdfTerm::Literal {datatype, ..} if datatype == xsd::DOUBLE.as_str())
+        );
+        assert!(
+            matches!(&rows[0].values["reference"][0], RdfTerm::Iri {entity: Some(QueryEntityRef::Page {id}), ..} if id == "today")
+        );
+    }
+
+    #[test]
+    fn summary_grouping_is_explicit_and_has_no_editable_entity_identity() {
+        let mut snapshot = snapshot();
+        let mut second = snapshot.pages[0].blocks[0].clone();
+        second.id = BlockId::new("todo-2").unwrap();
+        snapshot.pages[0].blocks.push(second);
+        let index = GraphIndex::new(&snapshot).unwrap();
+        let QueryResult::Built { grain, rows, columns, .. } = index.execute_authored(built_request(built_plan("summary", serde_json::json!([
+            {"id": "text", "source": {"kind": "content"}},
+            {"id": "total", "source": {"kind": "subject"}, "aggregate": "count", "label": "My total"}
+        ])))).unwrap() else { panic!("expected built result") };
+        assert_eq!(grain, QueryGrain::Summary);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].subject, None);
+        assert!(
+            matches!(&rows[0].values["total"][0], RdfTerm::Literal {value, ..} if value == "2")
+        );
+        assert_eq!(columns[1].aggregate, Some(PlanAggregate::Count));
+        assert_eq!(columns[1].label.as_deref(), Some("My total"));
+    }
+
+    #[test]
+    fn result_descriptor_carries_column_identity_and_moment_companion() {
+        let mut snapshot = snapshot();
+        let block = &mut snapshot.pages[0].blocks[0];
+        block.properties = bag([
+            single(
+                "builtin.task-deadline",
+                PropertyValue::Date(LocalDate::new("2026-08-05").unwrap()),
+            ),
+            single(
+                "builtin.task-deadline-time",
+                PropertyValue::String("09:30".into()),
+            ),
+        ]);
+        let index = GraphIndex::new(&snapshot).unwrap();
+        let QueryResult::Built { rows, columns, .. } = index.execute_authored(built_request(built_plan("entity", serde_json::json!([
+            {"id": "마감 🗓", "source": {"kind": "property", "key": "builtin.task-deadline"}},
+            {"id": "마감 🗓:time", "source": {"kind": "content"}}
+        ])))).unwrap() else { panic!("expected built result") };
+        assert_eq!(columns[0].id, "마감 🗓");
+        let time_column = columns[0].time_column.as_ref().unwrap();
+        assert_ne!(time_column, &columns[1].id);
+        assert!(
+            matches!(&rows[0].values[time_column][0], RdfTerm::Literal {value, ..} if value == "09:30")
+        );
+    }
+
+    #[test]
+    fn repeated_entity_fields_do_not_multiply_the_row_or_value_budget() {
+        let mut snapshot = snapshot();
+        snapshot.pages[0].blocks[0].properties =
+            bag(["user.left", "user.right"].map(|key| PropertyField {
+                key: PropertyKey::new(key).unwrap(),
+                value_type: PropertyType::String,
+                cardinality: Cardinality::Set,
+                values: (0..100)
+                    .map(|index| PropertyValue::String(index.to_string()))
+                    .collect(),
+            }));
+        let index = GraphIndex::new(&snapshot).unwrap();
+        let mut request = built_request(built_plan(
+            "entity",
+            serde_json::json!([
+                {"id": "left", "source": {"kind": "property", "key": "user.left"}},
+                {"id": "right", "source": {"kind": "property", "key": "user.right"}}
+            ]),
+        ));
+        let AuthoredQueryRequest::Built { budget, .. } = &mut request else {
+            unreachable!()
+        };
+        budget.max_rows = 1;
+        budget.max_values = 201; // One subject and 100 independently projected values per field.
+        let QueryResult::Built { rows, .. } = index.execute_authored(request).unwrap() else {
+            panic!("expected built result")
+        };
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].values["left"].len(), 100);
+        assert_eq!(rows[0].values["right"].len(), 100);
+    }
+
+    #[test]
+    fn built_result_projection_is_bounded_by_values_and_bytes() {
+        let index = GraphIndex::new(&snapshot()).unwrap();
+        for budget in [
+            QueryBudget {
+                max_values: 1,
+                ..QueryBudget::default()
+            },
+            QueryBudget {
+                max_result_bytes: 64,
+                ..QueryBudget::default()
+            },
+        ] {
+            let mut request = built_request(built_plan(
+                "entity",
+                serde_json::json!([{ "id": "text", "source": {"kind": "content"} }]),
+            ));
+            let AuthoredQueryRequest::Built { budget: target, .. } = &mut request else {
+                unreachable!()
+            };
+            *target = budget;
+            assert!(matches!(
+                index.execute_authored(request),
+                Err(QueryError::ResultBudget)
+            ));
+        }
     }
 
     /// Legacy generated SPARQL remains part of this profile's compatibility

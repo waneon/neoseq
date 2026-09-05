@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { projectBuffer, projectContent } from "../../src/features/blocks/editor/content-buffer";
 import {
   initialOutlineDraftState,
   outlineDraftReducer,
@@ -44,9 +45,9 @@ describe("outline draft state", () => {
     });
 
     expect(state.pendingOperations).toEqual([{ ...second, anchorId: "block-2" }]);
-    expect(state.drafts.get("block-2")).toBe("tail typed");
-    expect(state.baselines.get("block-2")).toBe("tail");
-    expect(state.drafts.has("pending-1")).toBe(false);
+    expect(projectBuffer(state.buffers.get("block-2")!, []).markdown).toBe("tail typed");
+    expect(projectContent(state.buffers.get("block-2")!.source, []).markdown).toBe("tail");
+    expect(state.buffers.has("pending-1")).toBe(false);
   });
 
   it("keeps baseline creation and generated closer provenance in one edit", () => {
@@ -59,8 +60,8 @@ describe("outline draft state", () => {
       autoClosers: [marker],
     });
 
-    expect(state.drafts.get("block-1")).toBe("[text]");
-    expect(state.baselines.get("block-1")).toBe("text");
+    expect(projectBuffer(state.buffers.get("block-1")!, []).markdown).toBe("[text]");
+    expect(projectContent(state.buffers.get("block-1")!.source, []).markdown).toBe("text");
     expect(state.autoClosers.get("block-1")).toEqual([marker]);
   });
 
@@ -87,8 +88,8 @@ describe("outline draft state", () => {
     state = outlineDraftReducer(state, { type: "abandon-pending" });
 
     expect(state.pendingOperations).toEqual([]);
-    expect(state.drafts.get("block-1")).toBe("kept");
-    expect(state.drafts.has("pending-1")).toBe(false);
+    expect(projectBuffer(state.buffers.get("block-1")!, []).markdown).toBe("kept");
+    expect(state.buffers.has("pending-1")).toBe(false);
   });
 
   it("does not let an out-of-order acknowledgement consume the queue head", () => {
@@ -130,8 +131,8 @@ describe("outline draft state", () => {
       type: "enqueue",
       operation,
     });
-    expect(pending.drafts.get("block-1")).toBe("headtail");
-    expect(pending.baselines.get("block-1")).toBe("headtail");
+    expect(projectBuffer(pending.buffers.get("block-1")!, []).markdown).toBe("headtail");
+    expect(projectContent(pending.buffers.get("block-1")!.source, []).markdown).toBe("headtail");
 
     const typed = outlineDraftReducer(pending, {
       type: "edit",
@@ -140,13 +141,13 @@ describe("outline draft state", () => {
     });
     const completed = outlineDraftReducer(typed, { type: "complete-merge", id: "merge-1" });
     expect(completed.pendingOperations).toEqual([]);
-    expect(completed.drafts.get("block-1")).toBe("headtail!");
-    expect(completed.baselines.get("block-1")).toBe("headtail");
+    expect(projectBuffer(completed.buffers.get("block-1")!, []).markdown).toBe("headtail!");
+    expect(projectContent(completed.buffers.get("block-1")!.source, []).markdown).toBe("headtail");
 
     const failed = outlineDraftReducer(pending, { type: "fail-merge", id: "merge-1" });
     expect(failed.pendingOperations).toEqual([]);
-    expect(failed.drafts.has("block-1")).toBe(false);
-    expect(failed.baselines.has("block-1")).toBe(false);
+    expect(failed.buffers.has("block-1")).toBe(false);
+    expect(failed.buffers.has("block-1")).toBe(false);
   });
 
   it("remaps a merge queued behind a temporary source", () => {

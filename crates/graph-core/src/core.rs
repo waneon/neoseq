@@ -12,14 +12,15 @@ use crate::{
     },
 };
 use domain::{
-    BlockId, BlockSnapshot, Cardinality, Command, CommandEnvelope, CommandId, CommandResult,
-    DefaultQueryId, DefaultQuerySnapshot, EntityId, GraphConflict, GraphId, GraphSettings,
-    GraphSnapshot, GraphSummary, HistoryEffect, HistoryScope, MAX_QUERY_SOURCE_BYTES,
-    MAX_QUERY_VIEWS, OUTLINE_FRAGMENT_KIND, OUTLINE_FRAGMENT_VERSION, OutlineFragment,
-    OutlineFragmentItem, OutlineFragmentPage, OutlineItem, OutlineOwner, OutlineSnapshot,
-    PageDirectoryEntry, PageId, PageReferenceSpan, PageSnapshot, PageSummary, PropertyBag,
-    PropertyCopyPolicy, PropertyDocument, PropertyDocumentHeader, PropertyError, PropertyField,
-    PropertyKey, PropertyOwner, PropertyTarget, PropertyType, PropertyValue, QUERY_DOCUMENT_SCHEMA,
+    BlockContentUpdate, BlockId, BlockSnapshot, Cardinality, Command, CommandEnvelope, CommandId,
+    CommandResult, ContentRangeChange, DefaultQueryId, DefaultQuerySnapshot, EntityId,
+    GraphChanges, GraphConflict, GraphId, GraphSettings, GraphSnapshot, GraphSummary,
+    HistoryEffect, HistoryScope, InlineContent, MAX_QUERY_SOURCE_BYTES, MAX_QUERY_VIEWS,
+    OUTLINE_FRAGMENT_KIND, OUTLINE_FRAGMENT_VERSION, OutlineFragment, OutlineFragmentItem,
+    OutlineFragmentPage, OutlineItem, OutlineOwner, OutlineSnapshot, PageDirectoryEntry, PageId,
+    PageReferenceSpan, PageSnapshot, PageSummary, PropertyBag, PropertyCopyPolicy,
+    PropertyDocument, PropertyDocumentHeader, PropertyError, PropertyField, PropertyKey,
+    PropertyOwner, PropertyTarget, PropertyType, PropertyValue, QUERY_DOCUMENT_SCHEMA,
     QUERY_DOCUMENT_VERSION, QUERY_PROPERTY_KEY, QueryDefinition, QueryOwner, QueryPlan, QueryView,
     QueryViewColumn, QueryViewId, QueryViewKind, QueryViewOptions, TagId, TagSnapshot, TagSummary,
     TextTarget, property_copy_policy, validate_property, validate_property_field,
@@ -210,6 +211,8 @@ pub struct CoreExecution {
     pub update: Vec<u8>,
     pub semantic: SemanticEvent,
     pub changes: GraphChangeSet,
+    content_only: bool,
+    content_mappings: ContentMappings,
 }
 
 /// Mutation-local bookkeeping used while applying a prepared command.
@@ -304,11 +307,14 @@ impl GraphChangeSet {
     }
 }
 
+type ContentMappings = BTreeMap<(OutlineOwner, BlockId), Vec<ContentRangeChange>>;
+
 #[derive(Debug, Clone)]
 struct CapturedChange {
     target: ContainerID,
     path: Vec<(ContainerID, Index)>,
     map_keys: Vec<String>,
+    text: Option<Vec<TextDelta>>,
     unknown: bool,
 }
 
@@ -380,7 +386,7 @@ impl ProjectionChangeTracker {
                 .lock()
                 .expect("projection change tracker mutex poisoned");
             for change in event.events {
-                let map_keys = match change.diff {
+                let map_keys = match &change.diff {
                     Diff::Map(delta) => delta.updated.keys().map(|key| key.to_string()).collect(),
                     _ => Vec::new(),
                 };
@@ -388,6 +394,10 @@ impl ProjectionChangeTracker {
                     target: change.target.clone(),
                     path: change.path.to_vec(),
                     map_keys,
+                    text: match change.diff {
+                        Diff::Text(delta) => Some(delta.clone()),
+                        _ => None,
+                    },
                     unknown: change.is_unknown,
                 });
             }
@@ -396,6 +406,77 @@ impl ProjectionChangeTracker {
             captured,
             subscription,
         }
+    }
+
+    fn content_mappings(&self, doc: &LoroDoc) -> ContentMappings {
+        let captured = self
+            .captured
+            .lock()
+            .expect("projection change tracker mutex poisoned");
+        let pages = doc.get_map("pages");
+        let tags = doc.get_map("tags");
+        let mut mappings = ContentMappings::new();
+        for change in captured.iter() {
+            let Some(delta) = &change.text else { continue };
+            if change.unknown
+                || !matches!(change.path.last(), Some((_, Index::Key(key))) if key.as_ref() == "content")
+            {
+                continue;
+            }
+            let Some(block_id) = change.path.iter().find_map(|(_, index)| match index {
+                Index::Node(id) => BlockId::new(id.to_string()).ok(),
+                _ => None,
+            }) else {
+                continue;
+            };
+            let owner = change.path.iter().find_map(|(container, index)| {
+                let Index::Key(key) = index else { return None };
+                if pages
+                    .get(key)
+                    .and_then(value_into_map)
+                    .is_some_and(|page| page.id() == *container)
+                {
+                    PageId::new(key.as_ref())
+                        .ok()
+                        .map(|id| OutlineOwner::Page { id })
+                } else if tags
+                    .get(key)
+                    .and_then(value_into_map)
+                    .is_some_and(|tag| tag.id() == *container)
+                {
+                    TagId::new(key.as_ref())
+                        .ok()
+                        .map(|id| OutlineOwner::Tag { id })
+                } else {
+                    None
+                }
+            });
+            let Some(owner) = owner else { continue };
+            let mapping = mappings.entry((owner, block_id)).or_default();
+            // The Rust `loro` dependency does not enable loro-internal's `wasm`
+            // feature: event positions are Unicode scalars on both platforms.
+            let mut index = 0;
+            for part in delta {
+                match part {
+                    TextDelta::Retain { retain, .. } => index += retain,
+                    TextDelta::Insert { insert, .. } => {
+                        let length = insert.chars().count();
+                        mapping.push(ContentRangeChange {
+                            index,
+                            delete: 0,
+                            insert: length,
+                        });
+                        index += length;
+                    }
+                    TextDelta::Delete { delete } => mapping.push(ContentRangeChange {
+                        index,
+                        delete: *delete,
+                        insert: 0,
+                    }),
+                }
+            }
+        }
+        mappings
     }
 
     fn finish(self, doc: &LoroDoc) -> GraphChangeSet {
@@ -705,6 +786,8 @@ impl GraphCore {
                 update: Vec::new(),
                 semantic: SemanticEvent::CommandDeduplicated,
                 changes: GraphChangeSet::default(),
+                content_only: false,
+                content_mappings: ContentMappings::new(),
             });
         }
 
@@ -713,6 +796,7 @@ impl GraphCore {
         let mut history_plan = None;
         let mut outcome = MutationOutcome::default();
         let mut history_effect = None;
+        let mut content_only = false;
         let change_tracker = ProjectionChangeTracker::new(&self.doc);
 
         match &envelope.command {
@@ -732,6 +816,8 @@ impl GraphCore {
                         update: Vec::new(),
                         semantic,
                         changes,
+                        content_only: false,
+                        content_mappings: ContentMappings::new(),
                     });
                 }
                 if !self.undo.can_undo() {
@@ -778,6 +864,8 @@ impl GraphCore {
                         update: Vec::new(),
                         semantic,
                         changes,
+                        content_only: false,
+                        content_mappings: ContentMappings::new(),
                     });
                 }
                 if !self.undo.can_redo() {
@@ -810,6 +898,9 @@ impl GraphCore {
             }
             command => {
                 let prepared = self.prepare(command)?;
+                if let PreparedCommandKind::Transition(transition) = &prepared.kind {
+                    content_only = transition.is_content_only();
+                }
                 semantic = prepared.semantic();
                 history_plan = Some(prepared.history.clone());
                 self.undo.group_start()?;
@@ -825,6 +916,7 @@ impl GraphCore {
             }
         }
 
+        let content_mappings = change_tracker.content_mappings(&self.doc);
         let changes = change_tracker.finish(&self.doc);
         let update = if self.doc.oplog_vv() == before {
             Vec::new()
@@ -845,7 +937,77 @@ impl GraphCore {
             update,
             semantic,
             changes,
+            content_only,
+            content_mappings,
         })
+    }
+
+    pub fn publication(&self, execution: &CoreExecution) -> GraphChanges {
+        let blocks = self.content_publication(&execution.content_mappings);
+        if execution.content_only && !blocks.is_empty() {
+            return GraphChanges::Content { blocks };
+        }
+        self.refresh_publication(&execution.changes, blocks)
+    }
+
+    fn refresh_publication(
+        &self,
+        changes: &GraphChangeSet,
+        blocks: Vec<BlockContentUpdate>,
+    ) -> GraphChanges {
+        let outlines = match changes {
+            GraphChangeSet::Rebuild => None,
+            GraphChangeSet::Incremental { pages, tags } => Some(
+                pages
+                    .iter()
+                    .cloned()
+                    .map(|id| OutlineOwner::Page { id })
+                    .chain(tags.iter().cloned().map(|id| OutlineOwner::Tag { id }))
+                    .collect(),
+            ),
+        };
+        GraphChanges::Refresh { outlines, blocks }
+    }
+
+    fn content_publication(&self, mappings: &ContentMappings) -> Vec<BlockContentUpdate> {
+        let mut diagnostics = ProjectionDiagnostics::default();
+        let directory = page_directory(&self.doc, &mut diagnostics.quarantined)
+            .into_iter()
+            .map(|entry| (entry.id.clone(), entry))
+            .collect();
+        mappings
+            .iter()
+            .filter_map(|((owner, block_id), mapping)| {
+                // A structural transaction may remove a text target after editing it.
+                let text = self.block_text(owner, block_id).ok()?;
+                let (markdown, page_references, content) = materialize_block_content(
+                    &text,
+                    &directory,
+                    block_id.as_str(),
+                    &mut diagnostics.quarantined,
+                );
+                let meta = self
+                    .outline(owner)
+                    .ok()?
+                    .get_meta(tree_id(block_id).ok()?)
+                    .ok()?;
+                let property_owner = PropertyOwner::Block {
+                    owner: owner.clone(),
+                    id: block_id.clone(),
+                };
+                let (properties, _) =
+                    project_bag_child(&meta, "properties", Some(&property_owner), &mut diagnostics);
+                Some(BlockContentUpdate {
+                    owner: owner.clone(),
+                    block_id: block_id.clone(),
+                    content,
+                    markdown,
+                    page_references,
+                    properties,
+                    mapping: mapping.clone(),
+                })
+            })
+            .collect()
     }
 
     pub fn import_remote(&mut self, update: &[u8]) -> Result<(), CoreError> {
@@ -856,6 +1018,14 @@ impl GraphCore {
         &mut self,
         update: &[u8],
     ) -> Result<GraphChangeSet, CoreError> {
+        self.import_remote_with_publication(update)
+            .map(|(changes, _)| changes)
+    }
+
+    pub fn import_remote_with_publication(
+        &mut self,
+        update: &[u8],
+    ) -> Result<(GraphChangeSet, GraphChanges), CoreError> {
         self.validate_remote(update)?;
 
         let change_tracker = ProjectionChangeTracker::new(&self.doc);
@@ -864,7 +1034,10 @@ impl GraphCore {
         if status.pending.is_some() {
             return Err(CoreError::MissingDependencies);
         }
-        Ok(change_tracker.finish(&self.doc))
+        let mappings = change_tracker.content_mappings(&self.doc);
+        let changes = change_tracker.finish(&self.doc);
+        let publication = self.refresh_publication(&changes, self.content_publication(&mappings));
+        Ok((changes, publication))
     }
 
     /// Validates a remote update without mutating canonical state.
@@ -3875,9 +4048,11 @@ fn materialize_block_content(
     directory: &BTreeMap<PageId, PageDirectoryEntry>,
     owner: &str,
     quarantined: &mut Vec<String>,
-) -> (String, Vec<PageReferenceSpan>) {
+) -> (String, Vec<PageReferenceSpan>, Vec<InlineContent>) {
     let mut markdown = String::new();
     let mut references = Vec::new();
+    let mut content = Vec::new();
+    let mut plain = String::new();
     let mut display_index = 0;
     let mut logical_index = 0;
 
@@ -3900,6 +4075,14 @@ fn materialize_block_content(
         for character in insert.chars() {
             if character == PAGE_REFERENCE_CHAR {
                 if let Some(page_id) = &marked_page {
+                    if !plain.is_empty() {
+                        content.push(InlineContent::Markdown {
+                            value: std::mem::take(&mut plain),
+                        });
+                    }
+                    content.push(InlineContent::PageReference {
+                        page_id: page_id.clone(),
+                    });
                     let title = directory
                         .get(page_id)
                         .map(|entry| entry.title.as_str())
@@ -3916,18 +4099,23 @@ fn materialize_block_content(
                     display_index += length;
                 } else {
                     markdown.push('\u{fffd}');
+                    plain.push('\u{fffd}');
                     display_index += 1;
                     quarantined.push(format!("{owner}:page-reference:invalid-atom"));
                 }
             } else {
                 markdown.push(character);
+                plain.push(character);
                 display_index += 1;
             }
             logical_index += 1;
         }
     }
 
-    (markdown, references)
+    if !plain.is_empty() {
+        content.push(InlineContent::Markdown { value: plain });
+    }
+    (markdown, references, content)
 }
 
 fn tag_summaries(doc: &LoroDoc, quarantined: &mut Vec<String>) -> Vec<TagSummary> {
@@ -4132,7 +4320,7 @@ fn project_block_snapshot(
 ) -> Result<BlockSnapshot, CoreError> {
     let meta = outline.get_meta(node)?;
     let id = block_id(node);
-    let (markdown, page_references) = match meta.get("content") {
+    let (markdown, page_references, content) = match meta.get("content") {
         Some(ValueOrContainer::Container(Container::Text(text))) => {
             let actual_bytes = text.to_string().len();
             if actual_bytes > MAX_BLOCK_TEXT_BYTES {
@@ -4158,7 +4346,7 @@ fn project_block_snapshot(
             diagnostics
                 .quarantined
                 .push(format!("block:{node}:missing-content"));
-            (String::new(), Vec::new())
+            (String::new(), Vec::new(), Vec::new())
         }
     };
     let property_owner = PropertyOwner::Block {
@@ -4197,6 +4385,7 @@ fn project_block_snapshot(
     }
     Ok(BlockSnapshot {
         id,
+        content,
         markdown,
         page_references,
         properties,
@@ -4322,6 +4511,7 @@ mod tests {
             version: domain::QUERY_PLAN_VERSION,
             payload: serde_json::json!({
                 "version": domain::QUERY_PLAN_VERSION,
+                "grain": "entity",
                 "subject": subject,
                 "where": {
                     "kind": "group",
@@ -4334,7 +4524,6 @@ mod tests {
                     "source": { "kind": "subject" },
                 }],
                 "limit": 100,
-                "distinct": false,
             })
             .to_string(),
         }
@@ -5197,7 +5386,7 @@ mod tests {
                 .plan
                 .as_ref()
                 .map(|plan| plan.version),
-            Some(1)
+            Some(domain::QUERY_PLAN_VERSION)
         );
 
         let stored_document = core.require_query_document_for_owner(&owner).unwrap();
@@ -5298,7 +5487,7 @@ mod tests {
                         owner,
                         view_id: QueryViewId::new("all").unwrap(),
                         plan: QueryPlan {
-                            version: 1,
+                            version: domain::QUERY_PLAN_VERSION,
                             payload: "not json".into(),
                         },
                     },
@@ -5409,9 +5598,15 @@ mod tests {
             require_query_definition(&document, &QueryViewId::new("all").unwrap()).unwrap();
         // Remove the canonical register to exercise the v2 two-key read adapter.
         definition.delete(QUERY_PLAN_STATE_KEY).unwrap();
-        definition.insert("plan_version", 2_i64).unwrap();
         definition
-            .insert("plan", r#"{"version":2,"future":true}"#)
+            .insert("plan_version", i64::from(domain::QUERY_PLAN_VERSION + 1))
+            .unwrap();
+        definition
+            .insert(
+                "plan",
+                serde_json::json!({"version": domain::QUERY_PLAN_VERSION + 1, "future": true})
+                    .to_string(),
+            )
             .unwrap();
 
         let snapshot = core.page_snapshot(&page()).unwrap();
@@ -5429,7 +5624,7 @@ mod tests {
                 .plan
                 .as_ref()
                 .map(|plan| plan.version),
-            Some(2)
+            Some(domain::QUERY_PLAN_VERSION + 1)
         );
         assert_eq!(projected.views[0].definition.source, "SELECT * WHERE {}");
 
@@ -5444,7 +5639,49 @@ mod tests {
     }
 
     #[test]
-    fn generated_query_source_must_fit_before_a_plan_mutates_the_graph() {
+    fn unsupported_query_plans_recover_without_reinterpreting_their_source() {
+        for version in [1, domain::QUERY_PLAN_VERSION + 1] {
+            let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+            ensure_regular_page(&mut core, "page", &page());
+            let block = insert_root(&mut core, "block", &page(), 0, "query");
+            let owner = QueryOwner::Block {
+                owner: OutlineOwner::Page { id: page() },
+                id: block,
+            };
+            let source = "# explanation retained verbatim\nSELECT ?old WHERE {}";
+            core.execute(
+                envelope(
+                    "source",
+                    Command::SetQuerySource {
+                        owner: owner.clone(),
+                        view_id: QueryViewId::new("all").unwrap(),
+                        source: source.into(),
+                    },
+                ),
+                "t3",
+            )
+            .unwrap();
+            let document = core.require_query_document_for_owner(&owner).unwrap();
+            let definition =
+                require_query_definition(&document, &QueryViewId::new("all").unwrap()).unwrap();
+            let plan = QueryPlan {
+                version,
+                payload: serde_json::json!({"version": version, "opaque": true}).to_string(),
+            };
+            write_query_plan_state(&definition, Some(&plan)).unwrap();
+            core.doc.commit();
+            let recovered =
+                GraphCore::from_snapshot(graph(), 2, &core.export_snapshot().unwrap()).unwrap();
+            let document = recovered.query_document(&owner).unwrap();
+            assert_eq!(document.views[0].definition.plan.as_ref(), Some(&plan));
+            assert_eq!(document.views[0].definition.source, source);
+            assert!(query::derive_plan_source(&plan).is_err());
+            assert!(recovered.snapshot().unwrap().quarantined.is_empty());
+        }
+    }
+
+    #[test]
+    fn authored_column_identity_does_not_expand_the_compiler_source() {
         let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
         ensure_regular_page(&mut core, "page", &page());
         let block = insert_root(&mut core, "block", &page(), 0, "query");
@@ -5455,36 +5692,28 @@ mod tests {
         let mut payload: serde_json::Value =
             serde_json::from_str(&query_plan("block").payload).unwrap();
         payload["columns"][0]["id"] = serde_json::Value::String("x".repeat(20_000));
-        payload["columns"][0]["source"] = serde_json::json!({
-            "kind": "property",
-            "key": "builtin.task-scheduled",
-        });
+        payload["columns"][0]["source"] =
+            serde_json::json!({"kind": "property", "key": "builtin.task-scheduled"});
         let plan = QueryPlan {
             version: domain::QUERY_PLAN_VERSION,
             payload: payload.to_string(),
         };
         assert!(plan.payload.len() <= domain::QUERY_PLAN_LIMIT);
-
-        let error = core
-            .execute(
-                envelope(
-                    "oversized-derived-source",
-                    Command::SetQueryPlan {
-                        owner,
-                        view_id: QueryViewId::new("all").unwrap(),
-                        plan,
-                    },
-                ),
-                "t3",
-            )
-            .unwrap_err();
-        assert!(matches!(error, CoreError::TextTooLong));
-        assert!(
-            core.page_snapshot(&page()).unwrap().blocks[0]
-                .properties
-                .iter()
-                .all(|field| field.key.as_str() != QUERY_PROPERTY_KEY)
-        );
+        core.execute(
+            envelope(
+                "opaque-column-id",
+                Command::SetQueryPlan {
+                    owner: owner.clone(),
+                    view_id: QueryViewId::new("all").unwrap(),
+                    plan: plan.clone(),
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+        let document = core.query_document(&owner).unwrap();
+        assert_eq!(document.views[0].definition.plan.as_ref(), Some(&plan));
+        assert!(document.views[0].definition.source.len() < 1_000);
     }
 
     #[test]
@@ -6614,6 +6843,148 @@ mod tests {
         let pasted = core.page_snapshot(&page()).unwrap();
         assert_eq!(pasted.blocks[0].markdown, "See [[target]]");
         assert_eq!(pasted.blocks[0].page_references[0].page_id, target);
+    }
+
+    #[test]
+    fn same_block_splices_preserve_disjoint_scalar_mappings_locally_remotely_and_on_undo() {
+        fn map_position(mut position: usize, changes: &[ContentRangeChange]) -> usize {
+            for change in changes {
+                if position > change.index + change.delete {
+                    position = position + change.insert - change.delete;
+                } else if position >= change.index {
+                    position = change.index + change.insert;
+                }
+            }
+            position
+        }
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let block = insert_root(&mut core, "block", &page(), 0, "🙂ab--CD");
+        let baseline = core.page_snapshot(&page()).unwrap();
+        let mut remote =
+            GraphCore::from_snapshot(graph(), 2, &core.export_snapshot().unwrap()).unwrap();
+        let execution = core
+            .execute(
+                envelope(
+                    "two-splices",
+                    Command::SpliceBlockContents {
+                        owner: OutlineOwner::Page { id: page() },
+                        splices: vec![
+                            BlockContentSplice {
+                                block_id: block.clone(),
+                                index: 1,
+                                delete: 2,
+                                insert: vec![InlineContent::Markdown { value: "X".into() }],
+                            },
+                            BlockContentSplice {
+                                block_id: block.clone(),
+                                index: 4,
+                                delete: 2,
+                                insert: vec![InlineContent::Markdown {
+                                    value: "YZ🙂".into(),
+                                }],
+                            },
+                        ],
+                    },
+                ),
+                "t3",
+            )
+            .unwrap();
+        let GraphChanges::Content { blocks } = core.publication(&execution) else {
+            panic!("content publication expected")
+        };
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].block_id, block);
+        assert_eq!(blocks[0].markdown, "🙂X--YZ🙂");
+        assert_eq!(
+            blocks[0].content,
+            vec![InlineContent::Markdown {
+                value: "🙂X--YZ🙂".into()
+            }]
+        );
+        // The caret between the unchanged dashes must survive. A flattened
+        // replacement of the surrounding text would instead move it to the end.
+        assert_eq!(map_position(4, &blocks[0].mapping), 3);
+        assert_eq!(map_position(7, &blocks[0].mapping), 7);
+        let (_, remote_publication) = remote
+            .import_remote_with_publication(&execution.update)
+            .unwrap();
+        let GraphChanges::Refresh {
+            blocks: remote_blocks,
+            ..
+        } = remote_publication
+        else {
+            panic!("remote publication expected")
+        };
+        assert_eq!(remote_blocks.len(), 1);
+        assert_eq!(remote_blocks[0].content, blocks[0].content);
+        assert_eq!(map_position(4, &remote_blocks[0].mapping), 3);
+        assert_eq!(
+            remote.page_snapshot(&page()).unwrap(),
+            core.page_snapshot(&page()).unwrap()
+        );
+
+        let undo = core
+            .execute(envelope("undo-two-splices", Command::Undo), "t4")
+            .unwrap();
+        let GraphChanges::Refresh {
+            blocks: undo_blocks,
+            ..
+        } = core.publication(&undo)
+        else {
+            panic!("undo publication expected")
+        };
+        assert_eq!(undo_blocks.len(), 1);
+        assert_eq!(map_position(3, &undo_blocks[0].mapping), 4);
+        assert_eq!(undo_blocks[0].markdown, "🙂ab--CD");
+        assert_eq!(core.page_snapshot(&page()).unwrap(), baseline);
+        let (_, remote_undo) = remote.import_remote_with_publication(&undo.update).unwrap();
+        let GraphChanges::Refresh {
+            blocks: undo_blocks,
+            ..
+        } = remote_undo
+        else {
+            panic!("remote undo publication expected")
+        };
+        assert_eq!(map_position(3, &undo_blocks[0].mapping), 4);
+        assert_eq!(remote.page_snapshot(&page()).unwrap(), baseline);
+    }
+
+    #[test]
+    fn invalid_later_same_block_splice_rejects_the_complete_transition() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let block = insert_root(&mut core, "block", &page(), 0, "abcdef");
+        let baseline = core.page_snapshot(&page()).unwrap();
+        let frontier = core.frontier();
+        let rejected = core.execute(
+            envelope(
+                "invalid-later-splice",
+                Command::SpliceBlockContents {
+                    owner: OutlineOwner::Page { id: page() },
+                    splices: vec![
+                        BlockContentSplice {
+                            block_id: block.clone(),
+                            index: 0,
+                            delete: 4,
+                            insert: vec![InlineContent::Markdown { value: "X".into() }],
+                        },
+                        // This was a valid range in the original string, but not in
+                        // the three-scalar content produced by the first splice.
+                        BlockContentSplice {
+                            block_id: block,
+                            index: 4,
+                            delete: 1,
+                            insert: vec![InlineContent::Markdown { value: "!".into() }],
+                        },
+                    ],
+                },
+            ),
+            "t3",
+        );
+        assert!(rejected.is_err());
+        assert_eq!(core.frontier(), frontier);
+        assert_eq!(core.page_snapshot(&page()).unwrap(), baseline);
     }
 
     #[test]

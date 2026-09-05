@@ -8,6 +8,35 @@ import {
 } from "../../src/features/blocks/editor/BlockCompletions";
 
 describe("completion anchors", () => {
+  it("resolves replacement inside its surface before focus moves and never follows another surface", () => {
+    const scope = document.createElement("div");
+    const row = document.createElement("div");
+    row.dataset.blockId = "canonical";
+    const canonical = document.createElement("textarea");
+    canonical.setAttribute("data-block-editor", "true");
+    row.append(canonical);
+    scope.append(row);
+    const unrelated = document.createElement("textarea");
+    unrelated.setAttribute("data-block-editor", "true");
+    document.body.append(scope, unrelated);
+    unrelated.focus();
+    const pending = document.createElement("textarea");
+    const request: BlockCompletionRequest = {
+      blockId: "canonical",
+      start: 0,
+      end: 1,
+      query: "",
+      anchorOffset: 0,
+      anchor: pending,
+      scope,
+    };
+    expect(liveCompletionAnchor(request)).toBe(canonical);
+    row.remove();
+    expect(liveCompletionAnchor(request)).toBe(pending);
+    scope.remove();
+    unrelated.remove();
+  });
+
   it("follows a pending editor to the focused canonical textarea", () => {
     const pending = document.createElement("textarea");
     const canonical = document.createElement("textarea");

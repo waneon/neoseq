@@ -22,7 +22,7 @@ use domain::{
     TagId, validate_property, validate_property_shape, validate_property_write,
 };
 use loro::{Container, LoroText, TextDelta, ValueOrContainer, cursor::PosType};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// The first normalized command representation in the core.
 ///
@@ -45,6 +45,15 @@ pub(super) enum CreationSlot {
 }
 
 impl NormalizedTransition {
+    pub(super) fn is_content_only(&self) -> bool {
+        self.operations.iter().all(|operation| {
+            matches!(
+                operation,
+                PrimitiveOp::SpliceText { .. } | PrimitiveOp::SpliceInline { .. }
+            )
+        })
+    }
+
     fn new(semantic: SemanticEvent, operations: Vec<PrimitiveOp>, history: HistoryShape) -> Self {
         let footprint = TransitionFootprint::from_operations(&operations);
         let history = history.materialize(&footprint);
@@ -1203,20 +1212,55 @@ impl GraphCore {
             ]),
             Command::SpliceBlockContents { owner, splices } => {
                 validate_content_batch(splices.len(), "block content splice")?;
-                let mut seen = BTreeSet::new();
+                let mut staged = BTreeMap::new();
                 let mut operations = Vec::with_capacity(splices.len());
                 for splice in splices {
-                    ensure_distinct_block(&mut seen, &splice.block_id, "block content splice")?;
-                    operations.push(self.lower_inline_splice(
-                        owner,
-                        &splice.block_id,
-                        splice.index,
-                        splice.delete,
-                        &splice.insert,
-                    )?);
+                    self.require_block(owner, &splice.block_id)?;
+                    if !staged.contains_key(&splice.block_id) {
+                        staged.insert(
+                            splice.block_id.clone(),
+                            self.block_text(owner, &splice.block_id)?.to_string(),
+                        );
+                    }
+                    let current = staged
+                        .get_mut(&splice.block_id)
+                        .expect("staged block exists");
+                    let (atoms, bytes) = self.normalize_inline_insert(&splice.insert)?;
+                    checked_text_range(
+                        current,
+                        Some((splice.index, splice.delete)),
+                        bytes,
+                        "block content splice",
+                    )?;
+                    let start = current
+                        .char_indices()
+                        .nth(splice.index)
+                        .map_or(current.len(), |(at, _)| at);
+                    let end = current
+                        .char_indices()
+                        .nth(splice.index + splice.delete)
+                        .map_or(current.len(), |(at, _)| at);
+                    let inserted: String = atoms
+                        .iter()
+                        .map(|atom| match atom {
+                            InlineAtom::Text(value) => value.clone(),
+                            InlineAtom::PageReference(_) => PAGE_REFERENCE_CHAR.to_string(),
+                        })
+                        .collect();
+                    current.replace_range(start..end, &inserted);
+                    operations.push(inline_operation(
+                        TextTarget {
+                            owner: owner.clone(),
+                            block_id: splice.block_id.clone(),
+                            index: splice.index,
+                            delete: splice.delete,
+                        },
+                        atoms,
+                    ));
                 }
                 NormalizedTransition::content(operations)
             }
+
             Command::AddTag { entity, tag_id } => {
                 self.validate_entity(entity)?;
                 self.require_live_tag(tag_id)?;
@@ -1960,23 +2004,7 @@ impl GraphCore {
             inserted_bytes,
             "block content splice",
         )?;
-        if atoms.iter().all(|atom| matches!(atom, InlineAtom::Text(_))) {
-            let insert = atoms
-                .into_iter()
-                .map(|atom| match atom {
-                    InlineAtom::Text(value) => value,
-                    InlineAtom::PageReference(_) => {
-                        unreachable!("plain inline content has no reference atoms")
-                    }
-                })
-                .collect();
-            Ok(PrimitiveOp::SpliceText { target, insert })
-        } else {
-            Ok(PrimitiveOp::SpliceInline {
-                target,
-                insert: atoms,
-            })
-        }
+        Ok(inline_operation(target, atoms))
     }
 
     fn normalize_inline_insert(
@@ -2025,26 +2053,7 @@ impl GraphCore {
         operation: &str,
     ) -> Result<TextTarget, CoreError> {
         let current = self.block_text(owner, block_id)?.to_string();
-        let unicode_len = current.chars().count();
-        let (index, delete) = range.unwrap_or((0, unicode_len));
-        if index.saturating_add(delete) > unicode_len {
-            return Err(CoreError::InvalidHierarchy(format!(
-                "{operation} is out of bounds"
-            )));
-        }
-        let deleted_bytes = current
-            .chars()
-            .skip(index)
-            .take(delete)
-            .map(char::len_utf8)
-            .sum::<usize>();
-        let final_bytes = current
-            .len()
-            .saturating_sub(deleted_bytes)
-            .saturating_add(inserted_bytes);
-        if final_bytes > MAX_BLOCK_TEXT_BYTES {
-            return Err(CoreError::TextTooLong);
-        }
+        let (index, delete) = checked_text_range(&current, range, inserted_bytes, operation)?;
         Ok(TextTarget {
             owner: owner.clone(),
             block_id: block_id.clone(),
@@ -2703,6 +2712,53 @@ fn reject_document_property(key: &PropertyKey, value_type: PropertyType) -> Resu
         return Err(PropertyError::DocumentCommandRequired(key.to_string()).into());
     }
     Ok(())
+}
+
+fn inline_operation(target: TextTarget, atoms: Vec<InlineAtom>) -> PrimitiveOp {
+    if atoms.iter().all(|atom| matches!(atom, InlineAtom::Text(_))) {
+        let insert = atoms
+            .into_iter()
+            .map(|atom| match atom {
+                InlineAtom::Text(value) => value,
+                InlineAtom::PageReference(_) => unreachable!("plain content has no reference"),
+            })
+            .collect();
+        PrimitiveOp::SpliceText { target, insert }
+    } else {
+        PrimitiveOp::SpliceInline {
+            target,
+            insert: atoms,
+        }
+    }
+}
+
+fn checked_text_range(
+    current: &str,
+    range: Option<(usize, usize)>,
+    inserted_bytes: usize,
+    operation: &str,
+) -> Result<(usize, usize), CoreError> {
+    let unicode_len = current.chars().count();
+    let (index, delete) = range.unwrap_or((0, unicode_len));
+    if index.saturating_add(delete) > unicode_len {
+        return Err(CoreError::InvalidHierarchy(format!(
+            "{operation} is out of bounds"
+        )));
+    }
+    let deleted_bytes = current
+        .chars()
+        .skip(index)
+        .take(delete)
+        .map(char::len_utf8)
+        .sum::<usize>();
+    let final_bytes = current
+        .len()
+        .saturating_sub(deleted_bytes)
+        .saturating_add(inserted_bytes);
+    if final_bytes > MAX_BLOCK_TEXT_BYTES {
+        return Err(CoreError::TextTooLong);
+    }
+    Ok((index, delete))
 }
 
 fn validate_content_batch(count: usize, operation: &str) -> Result<(), CoreError> {
@@ -3594,6 +3650,7 @@ mod tests {
             version: domain::QUERY_PLAN_VERSION,
             payload: serde_json::json!({
                 "version": domain::QUERY_PLAN_VERSION,
+                "grain": "entity",
                 "subject": "block",
                 "where": {
                     "kind": "group",
@@ -3606,7 +3663,6 @@ mod tests {
                     "source": { "kind": "subject" },
                 }],
                 "limit": 100,
-                "distinct": false,
             })
             .to_string(),
         };
