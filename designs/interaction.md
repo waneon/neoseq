@@ -12,10 +12,10 @@ actions behave equivalently across surfaces.
 Every control defines rest, hover, focus, pressed, disabled, and—where
 applicable—open or selected state. Those states use the shared foundation roles:
 
-- hover changes the surface or raises an already raised control;
+- hover changes the surface without replacing the focused edge;
 - focus strengthens the resting edge without changing geometry; an outset halo
   is allowed only where no clipping or scrolling ancestor can crop it;
-- press deepens an inset control or removes a raised control's cast;
+- press changes the surface while retaining keyboard focus;
 - disabled controls remain visible, semantic, and accompanied by a reason when
   shown in the command layer; and
 - borderless typing surfaces use the caret as their focus appearance.
@@ -81,6 +81,9 @@ Dialogs, menus, popovers, palettes, and toasts share one layer order. An overlay
 is portaled into the modal context that summoned it, or into the application
 layer when no modal is active. Outside press, selection, and Escape dismiss the
 appropriate layer; Escape always belongs to the topmost open surface.
+The command palette participates in that modal lifecycle, including handoff from
+a closing menu. Its result list retains active descendants while native Tab
+cycles through the search field and close action.
 
 Anchored surfaces prefer the available vertical side and constrain themselves to
 the room there. Point-like anchors open toward the viewport center; field-like
@@ -99,14 +102,22 @@ paint with negative margins or create a second scrollport around the same flow.
 An anchor separates geometry from ownership. Geometry is a measurable live
 element or text caret, a viewport point, or a captured box; its owner is the
 control or editor that receives restored focus. Zero-area geometry is absence,
-not the viewport origin. If a live anchor disappears, the overlay keeps its last
-valid position; callers that know their element will be replaced provide a
-captured box while retaining the gesture's owner.
+not the viewport origin. A live anchor retains its last valid position through
+transient measurement gaps, but removing its element dismisses the overlay.
+Callers that need to outlive a replaced element provide a captured box while
+retaining the gesture's owner.
 
 Opening and closing restore focus to the invoking control or caret unless the
 chosen action explicitly transfers focus elsewhere.
-When dismissal is deferred to let a pointer cross a focus boundary, renewed
-focus cancels that dismissal. The latest focus owner is authoritative.
+An action invoked from a menu returns to its persistent trigger after the menu
+item disappears. Nested surfaces close one layer at a time and return through
+their owners. A focused field with an uncommitted draft may reserve Escape to
+cancel that draft before a later Escape dismisses its dialog; composition does
+not dismiss an editing dialog. The command palette retains its explicit Escape
+cancellation during composition. Focus ownership, rather than a blur delay, determines
+whether a pointer has left an autocomplete interaction.
+Before a palette command opens another surface, the released modal restores its
+persistent invoker and caret so the successor can retain that return route.
 
 A destructive confirmation is an alert dialog. It names the irreversible
 effect, places initial focus on the safe action, and stays open while completion

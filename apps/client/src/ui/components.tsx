@@ -11,6 +11,7 @@ import {
 } from "@/ui/shadcn/alert-dialog";
 import { Button } from "@/ui/shadcn/button";
 import { OverlayRoot } from "@/ui/overlay-root";
+import { currentFocusOwner, restoreOverlayFocus } from "@/ui/overlay-focus";
 import { cn } from "@/lib/utils";
 import { useI18n } from "../i18n";
 
@@ -19,6 +20,7 @@ export function Dialog({
   onClose,
   size = "default",
   dismissible = true,
+  returnFocus,
   children,
 }: {
   title: string;
@@ -26,9 +28,12 @@ export function Dialog({
   /** `settings` is the two-pane dialog: wider, and it owns its own scrolling. */
   size?: "default" | "wide" | "settings";
   dismissible?: boolean;
+  /** Resolves a persistent owner when the invoking control is replaced or removed. */
+  returnFocus?: () => HTMLElement | null;
   children: ReactNode;
 }) {
   const { message } = useI18n();
+  const [focusOwner] = useState(currentFocusOwner);
   // The panel itself, once it exists. Everything a dialog summons — a menu, an
   // anchored panel, an autocomplete — is portaled into it rather than onto the
   // body, because the scroll lock, the pointer-events lock and the focus trap a
@@ -36,20 +41,28 @@ export function Dialog({
   const [surface, setSurface] = useState<HTMLElement | null>(null);
   // Rendered only while open (parents mount it conditionally), so the Radix
   // root is always open; closing via Escape, the backdrop, or the X reports
-  // back through onOpenChange. Radix owns focus trapping and restoration.
+  // back through onOpenChange. There is no Radix Trigger in this composition,
+  // so retain the invoker ourselves while Radix owns the focus lifecycle.
   return (
     <DialogRoot open onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent
         ref={setSurface}
         closeLabel={message("common.close")}
         showCloseButton={dismissible}
+        aria-describedby={undefined}
         className={cn(
           size !== "settings" && "max-h-[calc(100dvh-2rem)] overflow-y-auto",
           size === "wide" && "max-w-[720px]",
           size === "settings" && "max-w-[820px]",
         )}
         onEscapeKeyDown={(event) => {
-          if (!dismissible) event.preventDefault();
+          // Radix arbitrates layers during document capture, before a field's
+          // keydown can discard its draft. A dirty field explicitly retains
+          // this Escape; the next one can dismiss the surrounding dialog.
+          const target = event.target;
+          const cancelsDraft =
+            target instanceof Element && target.closest('[data-escape-cancel="true"]');
+          if (!dismissible || event.isComposing || cancelsDraft) event.preventDefault();
         }}
         onPointerDownOutside={(event) => {
           if (!dismissible) event.preventDefault();
@@ -57,6 +70,7 @@ export function Dialog({
         onKeyDown={(event) => {
           if (event.key === "Escape") event.stopPropagation();
         }}
+        onCloseAutoFocus={(event) => restoreOverlayFocus(event, returnFocus?.() ?? focusOwner)}
       >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
@@ -114,11 +128,9 @@ export function ConfirmDialog({
   children: ReactNode;
 }) {
   const [pending, setPending] = useState(false);
+  const [focusOwner] = useState(currentFocusOwner);
   const working = busy || pending;
-  const close = () => {
-    onClose();
-    queueMicrotask(() => returnFocus?.()?.focus({ preventScroll: true }));
-  };
+  const close = onClose;
 
   const confirm = async () => {
     if (working) return;
@@ -135,6 +147,16 @@ export function ConfirmDialog({
   return (
     <AlertDialog open>
       <AlertDialogContent
+        aria-busy={working || undefined}
+        onCloseAutoFocus={(event) => {
+          if (returnFocus) {
+            event.preventDefault();
+            const owner = returnFocus();
+            if (owner?.isConnected) owner.focus({ preventScroll: true });
+          } else {
+            restoreOverlayFocus(event, focusOwner);
+          }
+        }}
         onEscapeKeyDown={(event) => {
           event.preventDefault();
           if (!working) close();

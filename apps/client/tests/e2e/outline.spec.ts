@@ -397,6 +397,61 @@ test("pastes Markdown list items as one outline history step", async ({ page }) 
   await expect.poll(() => blockTexts(page)).toEqual([""]);
 });
 
+test("reveals the complete caret line after a long paste into a virtualized outline", async ({
+  page,
+}) => {
+  await createGraph(page, "Long clipboard outline");
+  await startOutline(page);
+  await mutateAndAwaitSaved(page, () =>
+    page.getByLabel("Block text").evaluate((target) => {
+      const clipboard = new DataTransfer();
+      clipboard.setData(
+        "text/plain",
+        Array.from(
+          { length: 500 },
+          (_, index) => `- ${index + 1}번째 생각 — Writing row ${index + 1}`,
+        ).join("\n"),
+      );
+      target.dispatchEvent(
+        new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: clipboard }),
+      );
+    }),
+  );
+  const focused = page.locator('[data-testid="outline-row"] textarea:focus');
+  await expect(focused).toHaveValue("500번째 생각 — Writing row 500");
+  await expect
+    .poll(() =>
+      focused.evaluate((textarea) => {
+        const row = textarea.getBoundingClientRect();
+        const viewport = document.querySelector(".page-scroll")!.getBoundingClientRect();
+        return row.top >= viewport.top && row.bottom <= viewport.bottom;
+      }),
+    )
+    .toBe(true);
+  expect(await page.getByTestId("outline-row").count()).toBeLessThan(100);
+
+  await page.locator(".page-scroll").evaluate((element) => element.scrollTo({ top: 0 }));
+  const rows = page.getByTestId("outline-row");
+  await expect(rows.first().locator("textarea")).toHaveValue("1번째 생각 — Writing row 1");
+  const second = (await rows.nth(1).getByTestId("row-grip").boundingBox())!;
+  const third = (await rows.nth(2).getByTestId("row-grip").boundingBox())!;
+  await page.mouse.move(second.x + second.width / 2, second.y + second.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(third.x + third.width / 2, third.y + third.height / 2, { steps: 5 });
+  await page.mouse.up();
+  await expect(rows.nth(1)).toHaveAttribute("data-selected", "true");
+  await expect(rows.nth(2)).toHaveAttribute("data-selected", "true");
+  await mutateAndAwaitSaved(page, () => page.keyboard.press("Tab"));
+  await expect(rows.nth(1)).toHaveAttribute("aria-level", "2");
+  await expect(rows.nth(2)).toHaveAttribute("aria-level", "2");
+  await mutateAndAwaitSaved(page, () => page.keyboard.press("ControlOrMeta+z"));
+  await expect(rows.nth(1)).toHaveAttribute("aria-level", "1");
+  await expect(rows.nth(2)).toHaveAttribute("aria-level", "1");
+  await mutateAndAwaitSaved(page, () => page.keyboard.press("ControlOrMeta+Shift+z"));
+  await expect(rows.nth(1)).toHaveAttribute("aria-level", "2");
+  await expect(rows.nth(2)).toHaveAttribute("aria-level", "2");
+});
+
 test("pastes mixed semantic HTML flow ahead of lossy plain text", async ({ page }) => {
   await createGraph(page, "HTML Clipboard Graph");
   await startOutline(page);

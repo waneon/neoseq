@@ -32,7 +32,8 @@ column. The list is absent when empty. Favourite membership and order belong to
 the graph, and reordering has equivalent drag and keyboard routes.
 
 Page and tag directories remain distinct below favourites because they describe
-the graph's structure rather than a personal shortcut set.
+the graph's structure rather than a personal shortcut set. Their creation
+actions remain visible before hover.
 
 ## Top Bar
 
@@ -54,8 +55,10 @@ rest only when it is:
 - pinned or otherwise reachable on touch; and
 - available through the command or context layer.
 
-The primary verb of a surface is never hover-gated. A hover-only route cannot be
-the sole discovery path for any capability.
+The primary verb of a surface is never hover-gated. Page actions have a persistent
+trigger beside the title; context click opens that same anchored menu. The trigger
+is also the focus owner when a journal has no editable title. Query configuration
+remains visible so a new answer can be shaped without discovering a hidden toolbar.
 
 One command registry owns labels, availability, bindings, scopes, disabled
 reasons, execution, and a required pointer route. One arbitration order handles
@@ -65,18 +68,27 @@ Global shortcuts do not steal unmodified typing keys from text fields.
 The command palette is the global navigation and action entrance. It remains a
 stable size while results change, ranks navigation first, explains unavailable
 commands, always offers a next action, and restores the prior caret on close.
-Bindings, help, and visible key badges read from the same resolved shortcut
-table.
+An explicit close control remains available when the palette fills a touch
+screen. Tab cycles between the search field and that close control; options
+retain combobox navigation. Bindings, help, and visible key badges read from
+the same resolved shortcut table.
 
 ## Settings
 
 Settings is a dialog with explicit browser-wide and graph-specific scopes. A
 URL-addressable open state allows browser Back to close it without turning it
 into a separate application route.
+Opening, switching, or closing settings preserves the invoking navigation drawer
+and returns focus to its control. Following a rail link closes the drawer,
+including a link to the current page; keyboard invocation preserves the editor's
+caret instead.
 
 The dialog keeps one frame size across sections so navigation does not move under
 the pointer. The section list remains stable while the active pane scrolls or
-stacks responsively. Appearance choices preview their actual product role, and
+stacks responsively. On compact screens the navigation takes its natural height
+and the active pane receives the remaining frame; short windows can scroll both
+regions independently without moving the dialog outside the viewport.
+Appearance choices preview their actual product role, and
 bounded color choices are selected from visible swatches rather than a free-form
 picker.
 
@@ -86,10 +98,9 @@ how a reader shapes a saved view.
 
 ## First Light
 
-The graph-opening screen is the one product surface optimized for first
-impression rather than sustained work. It uses a narrow, centered composition,
-bounded graph cards, and a restrained accent atmosphere. Once a graph is open,
-decoration yields to structure and authored content.
+Graph opening uses a narrow, centered catalog on the same neutral canvas as the
+writing surface. Identity, repository scope, and graph cards carry the hierarchy;
+the page remains fixed while the selected catalog loads.
 
 Repositories form one horizontal index above the graph list. Local is the
 stable first tab; each remote tab represents exactly one server account, an

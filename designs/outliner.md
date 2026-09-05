@@ -16,7 +16,8 @@ as context for the tree rather than unmarked outline rows.
 
 The content measure is wider than a prose column because each nested level spends
 part of it on indentation. Page names wrap and remain fully readable; they are
-not constrained to a single-line field.
+not constrained to a single-line field. On compact journals the date owns the
+full measure and navigation sits beneath it, avoiding fragments beside controls.
 
 ## Blocks and Editing
 
@@ -29,7 +30,8 @@ does not receive a decorative fill; the caret and branch already identify the
 active writing position. Empty lines remain visible through a quiet bullet.
 
 The region below the last block is an active append surface. No form or status
-chrome may occupy it. A second content body may follow only after the append
+chrome may occupy it. Before the first block, a localized writing action is
+visible on the same text axis as the block it creates. A second content body may follow only after the append
 surface has retained enough reach to invite continued writing.
 
 ## Structural Thread
@@ -76,8 +78,14 @@ Virtualization is an implementation detail that must not change the perceived
 tree. Focus, selection, branch continuity, and contextual targets are keyed by
 stable block identity. Authoritative refreshes preserve the caret and scroll a
 focused row only when it is no longer visible.
+An ordinary writing row is fully revealed; a block taller than the viewport
+retains its visible reading position. Navigation to an unmounted row uses the
+outline's position, because the page may contain an append area or other material
+after the tree.
 
-Dynamic Markdown and property content may change row height. Measurement may
+Dynamic Markdown, property content, and available editor width may change row
+height. Native inputs remeasure wrapping on width changes without replacing the
+input node or its selection. Measurement may
 update after render, but it must not align an already visible caret to a new
 viewport position merely because its row grew. A visibility scroll belongs to
 the focus arrival that requested it and cannot reassert itself after focus

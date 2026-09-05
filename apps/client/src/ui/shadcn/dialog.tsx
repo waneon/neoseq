@@ -4,6 +4,7 @@ import { XIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { buttonClass } from "@/ui/shadcn/button";
+import { useOverlayRoot } from "@/ui/overlay-root";
 
 function Dialog(props: React.ComponentProps<typeof DialogPrimitive.Root>) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />;
@@ -48,8 +49,9 @@ function DialogContent({
   showCloseButton?: boolean;
   closeLabel?: string;
 }) {
+  const container = useOverlayRoot();
   return (
-    <DialogPortal>
+    <DialogPortal container={container}>
       <DialogOverlay />
       <div className="pointer-events-none fixed inset-0 z-[var(--z-dialog)] flex items-center justify-center p-4">
         <DialogPrimitive.Content

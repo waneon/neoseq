@@ -1,0 +1,581 @@
+/* ───────────────────────── 3. primitives ───────────────────────── */
+
+/* Controls use a bounded surface; only floating layers cast a shadow. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-1);
+  height: var(--control-h);
+  padding: 0 var(--sp-3);
+  border: none;
+  border-radius: var(--r-2);
+  background: var(--raised);
+  box-shadow: var(--e1-raised);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  letter-spacing: var(--track-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color var(--dur-press) var(--ease-out),
+    box-shadow var(--dur-press) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--raised-hover);
+}
+
+/* Press changes the ground while focus retains ownership of the button edge. */
+.btn:active:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-inset), var(--e1-raised);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn-primary {
+  background: var(--accent);
+  box-shadow: none;
+  color: var(--on-accent);
+  font-weight: var(--weight-medium);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn-primary:active:not(:disabled) {
+  background: var(--accent-hover);
+  box-shadow: var(--lit-edge);
+}
+
+.btn-primary:focus-visible {
+  box-shadow: var(--lit-edge), var(--focus-inset-on-accent);
+}
+
+/* A quiet button: no raise, because it is a verb offered beside a primary one
+   rather than the answer to the panel it is in. */
+.btn-ghost {
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-2);
+  font-weight: var(--weight-normal);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.btn-ghost:active:not(:disabled) {
+  background: var(--surface-3);
+}
+
+.btn-danger {
+  background: transparent;
+  box-shadow: none;
+  color: var(--danger);
+}
+
+.btn-danger:hover:not(:disabled),
+.btn-danger:active:not(:disabled) {
+  background: var(--danger-soft);
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--target);
+  height: var(--target);
+  padding: 0;
+  border: none;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-press) var(--ease-out),
+    color var(--dur-press) var(--ease-out);
+}
+
+.icon-btn:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.icon-btn:active:not(:disabled) {
+  background: var(--surface-3);
+}
+
+.icon-btn[data-state="open"] {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+/* The icon button had no focus state at all, which is most of the chrome in the
+   product invisible to a keyboard. The ring is inset because these sit inside
+   clipping parents — the date stepper's seamed group, a query header — where an
+   outset halo would lose an edge. */
+.icon-btn:focus-visible {
+  outline: none;
+  background: var(--surface-2);
+  color: var(--ink);
+  box-shadow: var(--focus-inset);
+}
+
+.icon-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.icon-btn svg {
+  width: var(--icon);
+  height: var(--icon);
+}
+
+/* A keyboard hint, laid out one part per key.
+
+   Two things were wrong with setting `⌘P` as a single run of mono text. The
+   modifier glyphs and the letter come from different parts of a font — in a mono
+   face ⌘ and ⇧ are drawn at a different cap height and weight than a capital P,
+   so the badge read as three mismatched pieces sharing no baseline. And with no
+   separator the modifier and its key collided: `⌘K` looked like one four-stroke
+   character. The parts now sit in a flex row with a real gap, each at least one
+   character wide so a glyph and a letter occupy the same column, and the family
+   is the UI face, where SF Pro and Segoe UI draw the modifier glyphs at exactly
+   the optical size of the letter beside them. */
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 20px;
+  height: 19px;
+  padding: 0 5px;
+  border: none;
+  border-radius: var(--r-1);
+  /* A key is a shape, not a filled swatch: the hairline is what reads as the
+     edge of a physical key, and it survives being placed on the row highlight —
+     a `--surface-2` fill disappeared the moment the row it sat on took the
+     `--surface-2` wash. */
+  background: transparent;
+  box-shadow: var(--e1);
+  color: var(--ink-3);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  line-height: var(--lh-xs);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.kbd-part {
+  display: inline-block;
+  min-width: 1ch;
+  text-align: center;
+}
+
+/* The `+` a non-Apple platform joins its modifiers with is punctuation between
+   the keys, not one of them, so it neither claims a column nor takes the gap. */
+.kbd-part[data-separator] {
+  min-width: 0;
+  margin: 0 -2px;
+}
+
+/* Inside a menu row or beside a verb in the sheet, the badge is the only thing on
+   the line that is not language — it needs to read as a key, not to be drawn as a
+   button. A filled `--surface-2` chip also vanishes the moment the row it sits on
+   takes the `--surface-2` highlight. */
+.kbd-plain {
+  min-width: 0;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+
+/* A tag chip is bare text — no fill, no drawn box, no reserved remove slot.
+   The whole chip is one button whose only verb is removal, and it announces
+   that in place: hover or focus swaps the `#` for an `×` inside the same
+   glyph column, so nothing shifts and no space waits empty.
+
+   It reads at `sm`, not at the `xs` the other chips use, because a tag is not
+   metadata *about* the block — it is a name the reader wrote and navigates by,
+   and at 12px beside 16px body text it read as a footnote to its own line. */
+/* Every chip in the product is `--target` tall, not 22px. A chip is a control,
+   the contract's floor for a control is 24px, and at 22 the whole family sat two
+   pixels under its own rule — a row of them 4px apart cannot claim WCAG's
+   spacing exception either. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  height: var(--target);
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-1);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  letter-spacing: var(--track-sm);
+  font-weight: var(--weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button.chip {
+  cursor: pointer;
+}
+
+/* A reference chip is a link now that a tag has somewhere to lead, so the anchor
+   gives up the browser's own underline and takes the product's on hover. */
+a.chip {
+  cursor: pointer;
+  text-decoration: none;
+}
+
+button.chip:hover,
+button.chip:focus-visible {
+  color: var(--ink);
+}
+
+/* Both glyphs share one grid cell: the swap is a state change, not a layout
+   change. Hover-revealed chrome is instant (designs/foundations.md § Motion). */
+.chip-glyph {
+  display: inline-grid;
+  /* Right-hugging, so `#` sits against the name exactly as typed (#design);
+     the wider × swaps in over the same right edge. */
+  place-items: center end;
+}
+
+.chip-glyph > * {
+  grid-area: 1 / 1;
+}
+
+.chip-glyph .hash,
+.chip[data-variant="reference"] .hash {
+  opacity: 0.55;
+}
+
+/* ── A tag is the accent, spoken quietly ──
+   Every other name in a block is the reader's own text and takes ink. A tag is
+   not text: it is a reference the reader can follow, and the product has exactly
+   one colour for "this leads somewhere" (designs/foundations.md § Semantic Color). At
+   `--ink-2` a tag was a slightly quieter word at the end of a line — the one
+   piece of structure in the writing that looked like an afterthought about it.
+
+   At the accent's own strength it was the opposite problem. The accent is tuned
+   for a *mark* — a caret, a filled button, a 2px branch — and on a run of words
+   inside a sentence it shouted: the tag became the loudest thing on a line whose
+   subject is the writing. `--accent-quiet` is the same hue at the reader's own
+   choice with the chroma pulled down and the lightness stepped one the other way,
+   so the tag reads as ink that happens to be a reference. It is the more legible
+   of the two, not the less (designs/foundations.md § Semantic Color).
+
+   The chip stays bare: a run of text in a line of writing. A box around it would
+   be the extra silhouette excluded by designs/foundations.md § Geometry, Depth,
+   and Shape. Hover adds the product's link underline and steps up to the accent
+   proper, which is the one moment the tag is the thing being acted on. */
+.chip[data-variant="reference"] {
+  color: var(--tag-quiet);
+}
+
+/* An emoji mark keeps its own colours; the hue would only fight it. */
+.chip-icon {
+  margin-inline-end: 2px;
+  font-size: var(--text-xs);
+}
+
+a.chip[data-variant="reference"]:hover,
+a.chip[data-variant="reference"]:focus-visible,
+button.chip[data-variant="reference"]:hover,
+button.chip[data-variant="reference"]:focus-visible {
+  color: var(--tag);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+a.chip[data-variant="reference"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+/* A tag whose page is gone cannot lead anywhere, so it stops claiming it can and
+   keeps only the strike that says why. */
+.chip[data-variant="reference"][data-tombstone="true"] {
+  color: var(--ink-3);
+}
+
+.chip-glyph .chip-x {
+  width: 13px;
+  height: 13px;
+  opacity: 0;
+  color: var(--danger);
+}
+
+button.chip:hover .chip-glyph .hash,
+button.chip:focus-visible .chip-glyph .hash {
+  opacity: 0;
+}
+
+button.chip:hover .chip-glyph .chip-x,
+button.chip:focus-visible .chip-glyph .chip-x {
+  opacity: 1;
+}
+
+.chip[data-tombstone="true"] {
+  text-decoration: line-through;
+}
+
+.panel {
+  border-radius: var(--r-3);
+  background: var(--surface-1);
+  padding: var(--sp-4);
+}
+
+.field-label {
+  display: block;
+  margin-bottom: var(--sp-1);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-weight: var(--weight-medium);
+}
+
+/* Group labels describe scope without competing with navigation labels. */
+.group-label,
+.rail-group h2,
+.settings-group h3,
+.cmdk-group-title,
+.shortcuts section h3 {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  letter-spacing: 0.025em;
+  font-weight: var(--weight-medium);
+}
+
+.field-error {
+  margin: var(--sp-1) 0 0;
+  color: var(--danger);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+/* The dialog grid already spaces its children (`gap-4`); the action row needs
+   only a hair more separation, not a second full blank band. */
+.dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  margin-top: var(--sp-1);
+}
+
+/* ── The one dropdown ──
+   Every list of choices in the product opens the same surface: the menu that a
+   right-click on a bullet opens. There used to be three, side by side on one
+   screen — a native `<select>`, whose popup the operating system draws in its own
+   palette, metrics and corner radius; a `<datalist>`, whose popup the *browser*
+   draws in a third style that no CSS in this file can reach; and the Radix menu.
+   Nothing about the property add row is more confusing than two adjacent controls
+   that look identical at rest and then open two completely different objects.
+
+   The cost is real and is worth naming: a native `<select>` brings the platform's
+   own picker, the mobile wheel, and type-ahead for free. The menu gets type-ahead
+   and roving focus back from Radix; the wheel it does not. Consistency across
+   every choice in the product was judged worth one platform affordance on one form
+   factor. The trigger deliberately keeps the shape of a field — it is standing in
+   for one — so only the popup changed. */
+.menu-select {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  min-width: 0;
+  height: var(--control-h);
+  padding: 0 var(--sp-2) 0 10px;
+  border: none;
+  border-radius: var(--r-2);
+  background: var(--canvas);
+  box-shadow: var(--e1-raised);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  letter-spacing: var(--track-sm);
+  text-align: start;
+  cursor: pointer;
+  transition:
+    box-shadow var(--dur-press) var(--ease-out),
+    background-color var(--dur-press) var(--ease-out);
+}
+
+.menu-select:hover:not(:disabled) {
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+/* Open is the accent's one appearance on a resting control: while a popup is up,
+   the trigger says which of the several controls on this line the popup belongs
+   to, and a luminance change alone could not — every other control on the line
+   is a luminance change away too. */
+.menu-select[data-state="open"] {
+  outline: none;
+  background: var(--surface-1);
+  box-shadow: var(--focus-inset);
+}
+
+.menu-select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-inset);
+}
+
+.menu-select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.menu-select [data-slot="select-value"] {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-select[data-placeholder="true"] [data-slot="select-value"] {
+  color: var(--ink-3);
+}
+
+/* Focused and open sit on --surface-2, where --ink-3 fails AA — the placeholder
+   steps up one ink level while the field is lit (the contract's one hard rule). */
+.menu-select:focus-visible[data-placeholder="true"] [data-slot="select-value"],
+.menu-select[data-state="open"][data-placeholder="true"] [data-slot="select-value"] {
+  color: var(--ink-2);
+}
+
+.menu-select svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--ink-3);
+}
+
+/* ── A menu is never taller than the room it has ──
+   Radix measures the room left on the side it opened to and publishes it as
+   `--radix-dropdown-menu-content-available-height`. A menu that ignores it runs
+   off the bottom of the window with its last rows out of reach of every pointer,
+   so every menu caps itself there and scrolls inside itself.
+
+   The box is declared here rather than as a Tailwind utility on the component,
+   and that is the whole point of this rule: `overflow-hidden` *was* a utility on
+   `dropdown-menu-content`, utilities outrank `neoseq`, and so the `overflow-y:
+   auto` a bespoke class below asked for never once applied — a four-hundred-row
+   timezone list was clipped at 320px with no scrollbar and nothing but the
+   keyboard able to reach the rest of it. A shadcn primitive's box belongs to the
+   layer that owns every other box in the product. */
+[data-slot="dropdown-menu-content"],
+[data-slot="select-content"] {
+  max-height: var(
+    --radix-dropdown-menu-content-available-height,
+    var(--radix-select-content-available-height)
+  );
+  /* Vertical only: the horizontal clip is what keeps a row's wash inside the
+     menu's rounded corners. */
+  overflow: hidden auto;
+  overscroll-behavior: contain;
+}
+
+/* A menu of choices scrolls only when the list is long enough to need it — the
+   timezone list is four hundred rows and is the reason this cap exists. It
+   still cannot outgrow the room the menu has, which is what the fallback keeps
+   true when there is no popper to ask. */
+.menu-select-menu {
+  max-height: min(
+    320px,
+    60vh,
+    var(
+      --radix-dropdown-menu-content-available-height,
+      var(--radix-select-content-available-height, 100vh)
+    )
+  );
+}
+
+/* ── The roving highlight ──
+   One appearance for "where the next key will land", in every menu, option list,
+   listbox and the palette: a rounded `--surface-2` wash the width of the row,
+   with the row's glyph rising to full ink. It is a *fill*, and only a fill —
+   DESIGN.md § Interaction Architecture — because the thing it marks is transient. The
+   persistent kind of indicator, which says which pane is showing rather than
+   where the keys are, is the settings rail's accent rule, and it is deliberately
+   a different shape (designs/interaction.md § Control States).
+
+   The wash used to be joined by a 2px accent rule pinned to the row's left edge.
+   On a 7px-radius row that rule crossed both rounded corners and read as a
+   rendering artefact rather than as an indicator, and it put the accent — the
+   product's one action colour — on every row a pointer merely passed over. */
+[data-slot="dropdown-menu-item"],
+[data-slot="dropdown-menu-radio-item"],
+[data-slot="dropdown-menu-checkbox-item"],
+[data-slot="select-item"] {
+  position: relative;
+}
+
+[data-slot="dropdown-menu-item"][data-highlighted],
+[data-slot="dropdown-menu-radio-item"][data-highlighted],
+[data-slot="dropdown-menu-checkbox-item"][data-highlighted],
+[data-slot="select-item"][data-highlighted] {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+[data-slot="dropdown-menu-item"][data-highlighted] svg,
+[data-slot="dropdown-menu-radio-item"][data-highlighted] svg,
+[data-slot="dropdown-menu-checkbox-item"][data-highlighted] svg,
+[data-slot="select-item"][data-highlighted] svg {
+  color: var(--ink-2);
+}
+
+/* A destructive verb keeps its own ink under the highlight, so the wash never
+   promises the neutral outcome while the row promises deletion. */
+[data-slot="dropdown-menu-item"][data-variant="destructive"][data-highlighted] {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+[data-slot="dropdown-menu-item"][data-variant="destructive"][data-highlighted] svg {
+  color: var(--danger);
+}
+
+/* A real control that must stay focusable and value-synced without stating its
+   value on screen: the journal's native date input. Not display:none — that
+   would remove it from the tab order and make showPicker() illegal. */
+.clipped-control {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}

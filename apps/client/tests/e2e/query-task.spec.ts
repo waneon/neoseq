@@ -114,7 +114,9 @@ test("query-task projections share ordinary properties and the SPARQL index", as
   // The compiled source is available, and it is what ran.
   await query.getByTestId("query-actions-trigger").click();
   await page.getByRole("menuitem", { name: "Show SPARQL" }).click();
-  await expect(query.getByTestId("query-compiled")).toContainText("prop:builtin.task-status");
+  await expect(query.getByTestId("query-compiled")).toContainText(
+    "<urn:neoseq:property:builtin.task-status>",
+  );
 
   // Hiding a column is saved view data, so it survives a reload. The view control
   // is icon-only now — the answer below it already says whether it is a table —

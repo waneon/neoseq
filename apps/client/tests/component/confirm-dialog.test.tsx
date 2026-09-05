@@ -67,6 +67,10 @@ describe("a destructive confirmation", () => {
     expect(onConfirm).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "Delete page" })).toBeDisabled();
     expect(screen.getByRole("alertdialog", { name: "Delete page?" })).toBeInTheDocument();
+    expect(screen.getByRole("alertdialog", { name: "Delete page?" })).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
     await user.keyboard("{Escape}");
     expect(onClose).not.toHaveBeenCalled();
 
@@ -89,5 +93,10 @@ describe("a destructive confirmation", () => {
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Delete page" })).toBeEnabled();
     expect(screen.getByRole("alertdialog", { name: "Delete page?" })).toBeInTheDocument();
+
+    onConfirm.mockResolvedValueOnce(undefined);
+    await user.click(screen.getByRole("button", { name: "Delete page" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Delete page…" })).toHaveFocus());
   });
 });

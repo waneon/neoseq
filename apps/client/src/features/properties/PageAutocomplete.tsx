@@ -5,15 +5,7 @@
 // The option list renders in a portal so it escapes the outline's scroll
 // container and virtualized stacking context (which otherwise clipped it).
 
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent,
-} from "react";
+import { useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { Command } from "../../core-port/commands";
 import { isDeleted, pageKind, pageTitle } from "../../core-port/snapshot";
 import { canonicalEntityName } from "../../entities/names";
@@ -59,20 +51,13 @@ export function PageAutocomplete({
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
-  const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [pending, setPending] = useState(false);
+  const submitting = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const listId = useId();
   const notify = useNotify();
   const { message, compare } = useI18n();
-
-  const cancelBlur = useCallback(() => {
-    if (blurTimer.current === null) return;
-    clearTimeout(blurTimer.current);
-    blurTimer.current = null;
-  }, []);
-
-  useEffect(() => () => cancelBlur(), [cancelBlur]);
 
   const options = useMemo<Option[]>(() => {
     const canonical = canonicalEntityName(query);
@@ -97,6 +82,9 @@ export function PageAutocomplete({
   }, [state.snapshot, query, allowCreate, kind, compare]);
 
   const pick = async (option: Option) => {
+    if (submitting.current) return;
+    submitting.current = true;
+    setPending(true);
     try {
       if (option.create) {
         const id = `${kind === "tag" ? "t" : "p"}-${randomUUID()}`;
@@ -128,19 +116,23 @@ export function PageAutocomplete({
           : message("failure.selectEntity", { name: option.label }),
         cause,
       );
+    } finally {
+      submitting.current = false;
+      setPending(false);
     }
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.nativeEvent.isComposing) return;
+    if (event.nativeEvent.isComposing || submitting.current) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setOpen(true);
-      setActive((index) => Math.min(index + 1, options.length - 1));
+      setActive((index) => (open ? Math.min(index + 1, Math.max(0, options.length - 1)) : 0));
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      setActive((index) => Math.max(index - 1, 0));
-    } else if (event.key === "Enter") {
+      setOpen(true);
+      setActive((index) => (open ? Math.max(index - 1, 0) : Math.max(0, options.length - 1)));
+    } else if (event.key === "Enter" && open) {
       event.preventDefault();
       const option = options[active];
       if (option) void pick(option);
@@ -160,10 +152,12 @@ export function PageAutocomplete({
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
         aria-autocomplete="list"
+        aria-busy={pending}
         aria-label={placeholder}
         aria-activedescendant={open && options[active] ? optionId(active) : undefined}
         placeholder={placeholder}
         value={query}
+        readOnly={pending}
         autoFocus={autoFocus}
         data-testid={`${kind}-autocomplete`}
         onChange={(event) => {
@@ -172,20 +166,14 @@ export function PageAutocomplete({
           setActive(0);
         }}
         onFocus={() => {
-          // An overlay launcher can restore focus after this field has already
-          // claimed it. The last focus event is authoritative: an older blur
-          // must not close the list underneath an in-progress interaction.
-          cancelBlur();
           // An empty, untyped list offers no action. Keeping it closed also
           // leaves Escape for the picker that owns this field.
           setOpen(options.length > 0);
         }}
-        onBlur={() => {
-          cancelBlur();
-          blurTimer.current = setTimeout(() => {
-            blurTimer.current = null;
-            setOpen(false);
-          }, 150);
+        onBlur={(event) => {
+          // Options keep the caret in this field on pointerdown. Only a real
+          // focus transfer out of the field and its list ends the interaction.
+          if (!listRef.current?.contains(event.relatedTarget)) setOpen(false);
         }}
         onKeyDown={onKeyDown}
       />
@@ -218,6 +206,7 @@ export function PageAutocomplete({
                     data-active={index === active}
                     className="property-picker-option"
                     tabIndex={-1}
+                    disabled={pending}
                     onPointerMove={() => setActive(index)}
                     onPointerDown={(event) => {
                       // Keep the field focused until the complete pointer
@@ -226,7 +215,6 @@ export function PageAutocomplete({
                       // leaving the browser to finish a gesture on a node
                       // that no longer exists.
                       event.preventDefault();
-                      cancelBlur();
                     }}
                     onClick={() => void pick(option)}
                   >

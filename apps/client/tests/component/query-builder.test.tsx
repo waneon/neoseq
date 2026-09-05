@@ -541,6 +541,51 @@ describe("query result views", () => {
     return page ? findBlock(page, harness.resultBlockId) : undefined;
   }
 
+  async function addSecondResult(harness: ResultHarness) {
+    const inserted = await harness.session.execute({
+      type: "insert_block",
+      owner: { kind: "page", id: "home" },
+      parent: null,
+      index: 2,
+      markdown: "Preparing second result",
+    });
+    const id = createdBlock(inserted);
+    const result = harness.port.queryResult;
+    if (result?.kind !== "select") throw new Error("expected select fixture");
+    harness.port.queryResult = {
+      ...result,
+      rows: [
+        ...result.rows,
+        {
+          ...result.rows[0],
+          q_subject: {
+            kind: "iri",
+            value: `urn:neoseq:entity:${GRAPH_ID}:block:${id}`,
+            entity: { kind: "block", owner: { kind: "page", id: "home" }, id },
+          },
+          text: {
+            kind: "literal",
+            value: "Second result",
+            datatype: "http://www.w3.org/2001/XMLSchema#string",
+          },
+        },
+      ],
+      revision: result.revision + 1,
+      frontier: "fixture-second-result",
+    };
+    await harness.session.execute({
+      type: "edit_markdown",
+      owner: { kind: "page", id: "home" },
+      block_id: id,
+      markdown: "Second result",
+    });
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("query-table")).getAllByTestId("query-edit-text"),
+      ).toHaveLength(2),
+    );
+  }
+
   function dragColumn(handle: HTMLElement, from: number, to: number): void {
     fireEvent.pointerDown(handle, { clientX: from });
     fireEvent.pointerMove(window, { clientX: to });
@@ -1268,6 +1313,446 @@ describe("query result views", () => {
     await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("Keep this before folding"));
     expect(screen.getByTestId("query-output")).toHaveAttribute("hidden");
     expect(screen.queryByTestId("query-markdown-editor")).not.toBeInTheDocument();
+  });
+
+  it("saves the final result draft when navigation unmounts its query", async () => {
+    const harness = await withResult("Ship it");
+    const user = userEvent.setup();
+    const table = await screen.findByTestId("query-table");
+    await user.click(within(table).getByTestId("query-edit-text"));
+    const editor = await screen.findByTestId("query-markdown-editor");
+
+    // Router-driven navigation does not deliver a native blur to a removed
+    // textarea. The coordinator owns this final write before its debounce runs.
+    await act(async () => {
+      fireEvent.change(editor, { target: { value: "Ship it before leaving" } });
+      await harness.router.navigate(`/g/${GRAPH_ID}/custom`);
+    });
+
+    await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("Ship it before leaving"));
+  });
+
+  it("drains newer result input after a pending save when navigation removes the editor", async () => {
+    const harness = await withResult("Ship it");
+    const user = userEvent.setup();
+    const table = await screen.findByTestId("query-table");
+    await user.click(within(table).getByTestId("query-edit-text"));
+    const editor = await screen.findByTestId("query-markdown-editor");
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let saving = false;
+    harness.port.beforeExecute = async (command) => {
+      if (command.type !== "splice_block_content" || saving) return;
+      saving = true;
+      await pending;
+    };
+
+    fireEvent.change(editor, { target: { value: "First save" } });
+    await waitFor(() => expect(saving).toBe(true));
+    await act(async () => {
+      fireEvent.change(editor, { target: { value: "First save plus final input" } });
+      await harness.router.navigate(`/g/${GRAPH_ID}/custom`);
+      release();
+    });
+
+    await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("First save plus final input"));
+  });
+
+  it("drains newer input before switching results during a pending save", async () => {
+    const harness = await withResult("First result");
+    await addSecondResult(harness);
+    const user = userEvent.setup();
+    const fields = within(screen.getByTestId("query-table")).getAllByTestId("query-edit-text");
+    await user.click(fields[0]);
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let saving = false;
+    harness.port.beforeExecute = async (command) => {
+      if (command.type !== "splice_block_content" || saving) return;
+      saving = true;
+      await pending;
+    };
+    fireEvent.change(fields[0], { target: { value: "First save" } });
+    await waitFor(() => expect(saving).toBe(true));
+    fireEvent.change(fields[0], { target: { value: "First save plus newer input" } });
+    await user.click(fields[1]);
+    await harness.settle(async () => {
+      const finalWrite = new Promise<void>((resolve) => {
+        const unsubscribe = harness.session.subscribe(() => {
+          if (resultBlock(harness)?.markdown !== "First save plus newer input") return;
+          unsubscribe();
+          resolve();
+        });
+      });
+      release();
+      await finalWrite;
+    });
+    await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("First save plus newer input"));
+    await waitFor(() => expect(screen.getByTestId("query-markdown-editor")).toBe(fields[1]));
+  });
+
+  it("keeps a rejected pending draft and retry visible when another result is requested", async () => {
+    const harness = await withResult("First result");
+    await addSecondResult(harness);
+    const user = userEvent.setup();
+    const fields = within(screen.getByTestId("query-table")).getAllByTestId("query-edit-text");
+    await user.click(fields[0]);
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let saving = false;
+    harness.port.beforeExecute = async (command) => {
+      if (command.type !== "splice_block_content") return;
+      saving = true;
+      await pending;
+      harness.port.beforeExecute = null;
+      throw new CorePortFailure({
+        code: "invalid_request",
+        message: "rejected edit",
+        retryable: false,
+      });
+    };
+    fireEvent.change(fields[0], { target: { value: "Keep my pending correction" } });
+    await waitFor(() => expect(saving).toBe(true));
+    await user.click(fields[1]);
+    await harness.settle(() => release());
+    const error = await screen.findByRole("alert");
+    expect(fields[0]).toHaveValue("Keep my pending correction");
+    expect(resultBlock(harness)?.markdown).toBe("First result");
+    await user.click(within(error).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("Keep my pending correction"));
+  });
+
+  it("keeps picker completion and its draft while a prior save is pending or rejected", async () => {
+    const harness = await withResult("First result");
+    const user = userEvent.setup();
+    await user.click(
+      within(await screen.findByTestId("query-table")).getByTestId("query-edit-text"),
+    );
+    const editor = await screen.findByTestId("query-markdown-editor");
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let saving = false;
+    harness.port.beforeExecute = async (command) => {
+      if (command.type !== "splice_block_content") return;
+      saving = true;
+      await pending;
+      harness.port.beforeExecute = null;
+      throw new CorePortFailure({
+        code: "invalid_request",
+        message: "rejected edit",
+        retryable: false,
+      });
+    };
+    try {
+      fireEvent.change(editor, { target: { value: "First save" } });
+      await waitFor(() => expect(saving).toBe(true));
+      await user.type(editor, " plus /properties");
+      const menu = await screen.findByTestId("slash-menu");
+      await user.keyboard("{Enter}");
+      expect(screen.queryByTestId("property-picker")).not.toBeInTheDocument();
+      expect(editor).toHaveValue("First save plus /properties");
+      expect(menu).toBeInTheDocument();
+      const option = within(menu).getByRole("option", { name: /Add property/ });
+      expect(option).toHaveAttribute("aria-disabled", "true");
+      expect(option).toHaveTextContent("Saving");
+      await user.click(option);
+      expect(screen.queryByTestId("property-picker")).not.toBeInTheDocument();
+      expect(editor).toHaveValue("First save plus /properties");
+      await harness.settle(() => release());
+      const error = await screen.findByRole("alert");
+      expect(editor).toHaveValue("First save plus /properties");
+      expect(resultBlock(harness)?.markdown).toBe("First result");
+      expect(option).toHaveAttribute("aria-disabled", "true");
+      await user.keyboard("{Enter}");
+      expect(screen.queryByTestId("property-picker")).not.toBeInTheDocument();
+      await user.keyboard("{Escape}");
+      await user.click(within(error).getByRole("button", { name: "Retry" }));
+      await waitFor(() =>
+        expect(resultBlock(harness)?.markdown).toBe("First save plus /properties"),
+      );
+    } finally {
+      await harness.settle(() => release());
+    }
+  });
+
+  it.each([
+    { token: "/done", menu: "slash-menu", option: /^Done/ },
+    { token: "#pro", menu: "tag-menu", option: /^Project/ },
+  ])(
+    "preserves $token until a rejected earlier save has been retried",
+    async ({ token, menu, option }) => {
+      const harness = await withResult("First result");
+      await harness.session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
+      const user = userEvent.setup();
+      await user.click(
+        within(await screen.findByTestId("query-table")).getByTestId("query-edit-text"),
+      );
+      const editor = await screen.findByTestId("query-markdown-editor");
+      let release!: () => void;
+      const pending = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let saving = false;
+      harness.port.beforeExecute = async (command) => {
+        if (command.type !== "splice_block_content") return;
+        saving = true;
+        await pending;
+        harness.port.beforeExecute = null;
+        throw new CorePortFailure({
+          code: "invalid_request",
+          message: "rejected edit",
+          retryable: false,
+        });
+      };
+      try {
+        fireEvent.change(editor, { target: { value: "First save" } });
+        await waitFor(() => expect(saving).toBe(true));
+        await user.type(editor, ` more ${token}`);
+        const completion = await screen.findByTestId(menu);
+        await user.keyboard("{Enter}");
+        expect(editor).toHaveValue(`First save more ${token}`);
+        expect(completion).toBeInTheDocument();
+        const choice = within(completion).getByRole("option", { name: option });
+        expect(choice).toHaveAttribute("aria-disabled", "true");
+        await user.click(choice);
+        expect(editor).toHaveValue(`First save more ${token}`);
+        await harness.settle(() => release());
+        const error = await screen.findByRole("alert");
+        await user.keyboard("{Enter}");
+        expect(editor).toHaveValue(`First save more ${token}`);
+        expect(choice).toHaveAttribute("aria-disabled", "true");
+        expect(resultBlock(harness)?.markdown).toBe("First result");
+        expect(resultBlock(harness)?.tags).not.toContain("project");
+        expect(
+          stringValue(resultBlock(harness)?.properties ?? [], "builtin.task-status"),
+        ).toBeUndefined();
+        await user.keyboard("{Escape}");
+        await user.click(within(error).getByRole("button", { name: "Retry" }));
+        await waitFor(() =>
+          expect(resultBlock(harness)?.markdown).toBe(`First save more ${token}`),
+        );
+        // Retry saves text. Only an explicit, now-available choice applies the
+        // semantic action; a rejected predecessor must not silently enqueue it.
+        await user.click(editor);
+        await user.keyboard("{End}{Backspace}");
+        await user.keyboard(token.at(-1)!);
+        const available = within(await screen.findByTestId(menu)).getByRole("option", {
+          name: option,
+        });
+        expect(available).not.toHaveAttribute("aria-disabled", "true");
+        await user.click(available);
+        await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("First save more"));
+        if (token === "/done") {
+          expect(stringValue(resultBlock(harness)?.properties ?? [], "builtin.task-status")).toBe(
+            "done",
+          );
+        } else {
+          expect(resultBlock(harness)?.tags).toContain("project");
+        }
+      } finally {
+        await harness.settle(() => release());
+      }
+    },
+  );
+
+  it("keeps an open completion out of an earlier save's automatic drain", async () => {
+    const harness = await withResult("First result");
+    const user = userEvent.setup();
+    await user.click(
+      within(await screen.findByTestId("query-table")).getByTestId("query-edit-text"),
+    );
+    const editor = await screen.findByTestId("query-markdown-editor");
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let saving = false;
+    harness.port.beforeExecute = async (command) => {
+      if (command.type !== "splice_block_content" || saving) return;
+      saving = true;
+      await pending;
+    };
+    try {
+      fireEvent.change(editor, { target: { value: "First save" } });
+      await waitFor(() => expect(saving).toBe(true));
+      await user.type(editor, " /done");
+      const menu = await screen.findByTestId("slash-menu");
+      await harness.settle(async () => {
+        const firstWrite = new Promise<void>((resolve) => {
+          const unsubscribe = harness.session.subscribe(() => {
+            if (resultBlock(harness)?.markdown !== "First save") return;
+            unsubscribe();
+            resolve();
+          });
+        });
+        release();
+        await firstWrite;
+      });
+      await waitFor(() =>
+        expect(editor.closest(".query-result-editor")).not.toHaveAttribute("data-saving", "true"),
+      );
+      expect(resultBlock(harness)?.markdown).toBe("First save");
+      expect(editor).toHaveValue("First save /done");
+      expect(menu).toBeInTheDocument();
+      await user.keyboard("{Enter}");
+      await waitFor(() =>
+        expect(stringValue(resultBlock(harness)?.properties ?? [], "builtin.task-status")).toBe(
+          "done",
+        ),
+      );
+      await user.keyboard("{Meta>}z{/Meta}");
+      await waitFor(() =>
+        expect(
+          stringValue(resultBlock(harness)?.properties ?? [], "builtin.task-status"),
+        ).toBeUndefined(),
+      );
+      expect(resultBlock(harness)?.markdown).toBe("First save");
+    } finally {
+      await harness.settle(() => release());
+    }
+  });
+
+  it("drains text typed after page completion when navigation removes the result", async () => {
+    const harness = await withResult("See ");
+    await harness.session.execute({ type: "ensure_page", page_id: "roadmap", title: "Roadmap" });
+    const user = userEvent.setup();
+    await user.click(
+      within(await screen.findByTestId("query-table")).getByTestId("query-edit-text"),
+    );
+    const editor = await screen.findByTestId("query-markdown-editor");
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let saving = false;
+    harness.port.beforeExecute = async (command) => {
+      if (command.type !== "batch" || saving) return;
+      saving = true;
+      await pending;
+    };
+    await user.keyboard("[[[[Road");
+    await screen.findByTestId("page-reference-menu");
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(saving).toBe(true));
+    expect(editor).toHaveValue("See [[Roadmap]]");
+    await user.type(editor, " soon");
+    await act(async () => {
+      await harness.router.navigate(`/g/${GRAPH_ID}/custom`);
+      release();
+    });
+    await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("See [[Roadmap]] soon"));
+    expect(resultBlock(harness)?.page_references).toEqual([
+      expect.objectContaining({ page_id: "roadmap" }),
+    ]);
+  });
+
+  it("retries a rejected page completion without losing its semantic target or newer text", async () => {
+    const harness = await withResult("See ");
+    await harness.session.execute({ type: "ensure_page", page_id: "roadmap", title: "Roadmap" });
+    const user = userEvent.setup();
+    await user.click(
+      within(await screen.findByTestId("query-table")).getByTestId("query-edit-text"),
+    );
+    const editor = await screen.findByTestId("query-markdown-editor");
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let saving = false;
+    harness.port.beforeExecute = async (command) => {
+      if (command.type !== "batch") return;
+      saving = true;
+      await pending;
+      harness.port.beforeExecute = null;
+      throw new CorePortFailure({
+        code: "invalid_request",
+        message: "rejected completion",
+        retryable: false,
+      });
+    };
+    await user.keyboard("[[[[Road");
+    await screen.findByTestId("page-reference-menu");
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(saving).toBe(true));
+    await user.type(editor, " soon");
+    await harness.settle(() => release());
+    const error = await screen.findByRole("alert");
+    expect(editor).toHaveValue("See [[Roadmap]] soon");
+    expect(resultBlock(harness)?.markdown).toBe("See ");
+    await user.click(within(error).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("See [[Roadmap]] soon"));
+    expect(resultBlock(harness)?.page_references).toEqual([
+      expect.objectContaining({ page_id: "roadmap" }),
+    ]);
+  });
+
+  it("waits for a pending result save before document undo", async () => {
+    const harness = await withResult("Ship it");
+    const user = userEvent.setup();
+    const table = await screen.findByTestId("query-table");
+    await user.click(within(table).getByTestId("query-edit-text"));
+    const editor = await screen.findByTestId("query-markdown-editor");
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let startedUndo!: () => void;
+    const undoStarted = new Promise<void>((resolve) => {
+      startedUndo = resolve;
+    });
+    let saving = false;
+    harness.port.beforeExecute = async (command) => {
+      if (command.type === "undo") startedUndo();
+      if (command.type !== "splice_block_content" || saving) return;
+      saving = true;
+      await pending;
+    };
+
+    fireEvent.change(editor, { target: { value: "Ship it now" } });
+    await waitFor(() => expect(saving).toBe(true));
+    await user.keyboard("{Meta>}z{/Meta}");
+    await harness.settle(async () => {
+      release();
+      await undoStarted;
+    });
+
+    await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("Ship it"));
+    await waitFor(() => expect(editor).toHaveValue("Ship it"));
+  });
+
+  it("keeps a rejected result draft available for an explicit retry", async () => {
+    const harness = await withResult("Ship it");
+    const user = userEvent.setup();
+    const table = await screen.findByTestId("query-table");
+    await user.click(within(table).getByTestId("query-edit-text"));
+    const editor = await screen.findByTestId("query-markdown-editor");
+    harness.port.beforeExecute = async (command) => {
+      if (command.type !== "splice_block_content") return;
+      harness.port.beforeExecute = null;
+      throw new CorePortFailure({
+        code: "invalid_request",
+        message: "rejected edit",
+        retryable: false,
+      });
+    };
+
+    fireEvent.change(editor, { target: { value: "Keep my correction" } });
+    await user.keyboard("{Enter}");
+    const error = await screen.findByRole("alert");
+    expect(editor).toHaveValue("Keep my correction");
+    expect(resultBlock(harness)?.markdown).toBe("Ship it");
+    await user.click(within(error).getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("Keep my correction"));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("uses the canonical block input pipeline inside query results", async () => {

@@ -27,7 +27,7 @@ import {
 } from "../../core-port/snapshot";
 import { canUserWrite, valueTypeOf } from "../../entities/properties";
 import { useI18n, type MessageFunction } from "../../i18n";
-import { useImmediateState } from "../../lib/react";
+import { useImmediateState, useLatest } from "../../lib/react";
 import { cn } from "../../lib/utils";
 import { caretAnchor, elementAnchor, snapshotAnchor, type Anchor } from "@/ui/anchored";
 import { DropdownMenu, DropdownMenuTrigger } from "@/ui/shadcn/dropdown-menu";
@@ -41,9 +41,11 @@ import { PriorityGlyph, TaskStatusGlyph } from "../tasks/glyphs";
 import { TaskStatusMenu } from "../tasks/StatusControl";
 import { TaskPriorityMenu } from "../tasks/PriorityControl";
 import { failureReason } from "../notify/errors";
+import { useNotify } from "../notify/context";
 import { createQueryCommand } from "./commands";
 import { transformAutoClosers, type AutoCloserMarker } from "../blocks/editor/auto-pair";
 import { BlockTextArea, type BlockTextEdit } from "../blocks/editor/BlockTextArea";
+import { useTextAreaSize } from "@/ui/textarea-size";
 import type { EditorKeymap } from "../../entities/settings";
 import { useEditorKeymap } from "../settings/preferences";
 import { applyVimTextEffect, vimKeyFromEvent } from "../blocks/editor/vim/dom";
@@ -98,6 +100,12 @@ interface EditOrigin {
   row: ResultViewRow;
 }
 
+interface PreparedSave {
+  expected: string;
+  references: PageReferenceSpan[];
+  commands: Command[];
+}
+
 type ActiveEdit =
   | {
       phase: "loading";
@@ -126,6 +134,7 @@ type ActiveEdit =
       saving: boolean;
       closeAfterSave: boolean;
       error: string | null;
+      retrySave?: PrepareSave;
     }
   | {
       phase: "picker";
@@ -136,6 +145,8 @@ type ActiveEdit =
       taskMenu: boolean;
       commandPrefix?: Command;
     };
+
+type PrepareSave = (current: Extract<ActiveEdit, { phase: "markdown" }>) => PreparedSave;
 
 export interface QueryResultEditor {
   active: ActiveEdit | null;
@@ -156,8 +167,8 @@ export interface QueryResultEditor {
   preserveDraftForPresentationChange(): void;
   consumePresentationChangeIntent(): boolean;
   commit(close: boolean): Promise<boolean>;
-  acceptSlash(request: BlockCompletionRequest, item: SlashItem): void;
-  acceptTag(request: BlockCompletionRequest, option: BlockTagOption): void;
+  acceptSlash(request: BlockCompletionRequest, item: SlashItem): boolean;
+  acceptTag(request: BlockCompletionRequest, option: BlockTagOption): boolean;
   acceptPage(request: BlockCompletionRequest, option: BlockPageOption): number | null;
   runHistory(redo: boolean): void;
   retry(): void;
@@ -169,6 +180,12 @@ function bindingKey(binding: QueryEditBinding): string {
   return binding.kind === "property"
     ? `${owner}:property:${binding.key}`
     : `${owner}:${binding.kind}`;
+}
+
+function canAcceptCompletion(
+  current: ActiveEdit | null,
+): current is Extract<ActiveEdit, { phase: "markdown" }> {
+  return current?.phase === "markdown" && !current.saving && !current.error;
 }
 
 function blockFrom(state: SessionState, block: BlockRef): BlockSnapshot | undefined {
@@ -198,11 +215,14 @@ export function useQueryResultEditor({
 }): QueryResultEditor {
   const commands = useCommands();
   const history = useHistoryActions();
+  const notify = useNotify();
   const keymap = useEditorKeymap();
   const vim = useVimSession(keymap === "vim");
   const [active, setActive, activeRef] = useImmediateState<ActiveEdit | null>(null);
   const request = useRef(0);
   const preserveOnNextBlur = useRef(false);
+  const mounted = useRef(true);
+  const pendingCommit = useRef<Promise<boolean> | null>(null);
   const pageDirectory = useMemo(
     () =>
       state.snapshot.page_directory ??
@@ -259,8 +279,171 @@ export function useQueryResultEditor({
     [bindingForDirect],
   );
 
+  // Every write, including semantic completion, has one settlement path. Its
+  // prepared commands are retained on rejection so Retry preserves the action
+  // as well as the visible text.
+  const save = useCallback(
+    async (prepare: PrepareSave, close: boolean): Promise<boolean> => {
+      const current = activeRef.current;
+      if (current?.phase !== "markdown" || current.saving) return false;
+      const prepared = prepare(current);
+      const { expected, references, commands } = prepared;
+      if (commands.length === 0) {
+        setActive({ ...current, error: null, retrySave: undefined });
+        return true;
+      }
+      const targetKey = bindingKey(current.binding);
+      let finishCommit!: (saved: boolean) => void;
+      const pending = new Promise<boolean>((resolve) => {
+        finishCommit = resolve;
+      });
+      pendingCommit.current = pending;
+      let saved = false;
+      setActive({
+        ...current,
+        baseline: expected,
+        references,
+        saving: true,
+        closeAfterSave: close || current.closeAfterSave,
+        error: null,
+        retrySave: undefined,
+      });
+      try {
+        await session.execute(commands.length === 1 ? commands[0] : { type: "batch", commands });
+        const canonicalBlock = blockFrom(session.getState(), current.binding.block);
+        const canonical = canonicalBlock?.markdown ?? expected;
+        setActive((latest) => {
+          if (
+            latest?.phase !== "markdown" ||
+            latest.origin !== current.origin ||
+            bindingKey(latest.binding) !== targetKey
+          )
+            return latest;
+          if (latest.draft === expected) {
+            if (latest.closeAfterSave) return null;
+            return {
+              ...latest,
+              baseline: canonical,
+              draft: canonical,
+              references: canonicalBlock?.page_references ?? references,
+              saving: false,
+            };
+          }
+          return { ...latest, saving: false };
+        });
+        saved = true;
+        return true;
+      } catch (cause) {
+        const canonical = blockFrom(session.getState(), current.binding.block);
+        setActive((latest) => {
+          if (
+            latest?.phase !== "markdown" ||
+            latest.origin !== current.origin ||
+            bindingKey(latest.binding) !== targetKey
+          )
+            return latest;
+          return {
+            ...latest,
+            baseline: canonical?.markdown ?? current.baseline,
+            references: canonical?.page_references ?? current.references,
+            saving: false,
+            closeAfterSave: false,
+            error: failureReason(cause, message),
+            retrySave: prepare,
+          };
+        });
+        if (!mounted.current) notify.failure(message("failure.lastEdit"), cause);
+        return false;
+      } finally {
+        if (pendingCommit.current === pending) pendingCommit.current = null;
+        finishCommit(saved);
+      }
+    },
+    [message, notify, session, setActive],
+  );
+
+  const commit = useCallback(
+    async (
+      close: boolean,
+      draftOverride?: string,
+      action?: Command,
+      source: "explicit" | "debounce" = "explicit",
+    ): Promise<boolean> => {
+      const current = activeRef.current;
+      if (!current || current.phase !== "markdown" || current.composing) return false;
+      // Background writes leave incomplete tokens to their completion. Explicit
+      // blur, navigation and history requests still drain the complete draft.
+      if (source === "debounce" && current.completing) return true;
+      if (current.saving) {
+        // Blur, history, navigation and result switching all drain newer input
+        // after the current write establishes its canonical baseline.
+        const pending = pendingCommit.current;
+        if (!pending || !(await pending)) return false;
+        const latest = activeRef.current;
+        if (!latest) return true;
+        if (
+          latest.phase !== "markdown" ||
+          latest.origin !== current.origin ||
+          bindingKey(latest.binding) !== bindingKey(current.binding)
+        )
+          return false;
+        return commit(close, draftOverride, action, source);
+      }
+      if (current.retrySave) {
+        if (!(await save(current.retrySave, false))) return false;
+        return commit(close, draftOverride, action, source);
+      }
+      const expected = draftOverride ?? current.draft;
+      const plan = planInlineEdit(
+        current.binding.block.id,
+        current.baseline,
+        current.references,
+        expected,
+      );
+      if (!plan && !action) {
+        if (close) setActive(null);
+        return true;
+      }
+      if (
+        !(await save((latest) => {
+          const value = draftOverride ?? latest.draft;
+          const nextPlan = planInlineEdit(
+            latest.binding.block.id,
+            latest.baseline,
+            latest.references,
+            value,
+          );
+          const commands: Command[] = [];
+          if (nextPlan)
+            commands.push({
+              type: "splice_block_content",
+              owner: latest.binding.block.owner,
+              ...nextPlan.splice,
+            });
+          if (action) commands.push(action);
+          return {
+            expected: value,
+            references: nextPlan?.references ?? latest.references,
+            commands,
+          };
+        }, close))
+      )
+        return false;
+      const latest = activeRef.current;
+      if (
+        latest?.phase === "markdown" &&
+        latest.origin === current.origin &&
+        latest.draft !== latest.baseline
+      ) {
+        return commit(close, undefined, undefined, source);
+      }
+      return true;
+    },
+    [save, setActive],
+  );
+
   const begin = useCallback(
-    (binding: QueryEditBinding, row: ResultViewRow, anchor: Anchor) => {
+    (binding: QueryEditBinding, row: ResultViewRow, anchor: Anchor, taskMenu = true) => {
       if (!enabled) return;
       const sequence = ++request.current;
       const origin = { row };
@@ -287,137 +470,81 @@ export function useQueryResultEditor({
             binding,
             origin,
             anchor,
-            taskMenu: binding.kind === "property" && isTaskChoiceKey(binding.key),
+            taskMenu: taskMenu && binding.kind === "property" && isTaskChoiceKey(binding.key),
           });
         }
       };
 
-      // A resident result is already canonical. Open it in the focus event so
-      // the textarea that received the press stays the editor and keeps the
-      // browser's native caret. Only cross-page results pay the async hydrate
-      // transition.
-      const resident = blockFrom(session.getState(), binding.block);
-      if (resident) {
-        open(resident);
+      const activate = () => {
+        // A resident result is already canonical. Open it in the focus event so
+        // the textarea that received the press stays the editor and keeps the
+        // browser's native caret. Only cross-page results pay the async hydrate
+        // transition.
+        const resident = blockFrom(session.getState(), binding.block);
+        if (resident) {
+          open(resident);
+          return;
+        }
+
+        setActive({ phase: "loading", binding, origin, anchor });
+        void (async () => {
+          try {
+            if (!session.getState().hydratedOutlines.has(outlineOwnerKey(binding.block.owner))) {
+              await session.hydrateOutline(binding.block.owner);
+            }
+            if (sequence !== request.current) return;
+            const block = blockFrom(session.getState(), binding.block);
+            if (!block) throw new Error("query result block no longer exists");
+            open(block);
+          } catch (cause) {
+            if (sequence !== request.current) return;
+            setActive({
+              phase: "error",
+              binding,
+              origin,
+              anchor,
+              error: failureReason(cause, message),
+            });
+          }
+        })();
+      };
+      const previous = activeRef.current;
+      if (previous?.phase !== "markdown" && pendingCommit.current) {
+        // Cancel can remove an editor while its already-submitted command is
+        // finishing. A new editor must hydrate from the settled baseline.
+        void pendingCommit.current.then(() => {
+          if (mounted.current && sequence === request.current) activate();
+        });
         return;
       }
-
-      setActive({ phase: "loading", binding, origin, anchor });
-      void (async () => {
-        try {
-          if (!session.getState().hydratedOutlines.has(outlineOwnerKey(binding.block.owner))) {
-            await session.hydrateOutline(binding.block.owner);
-          }
-          if (sequence !== request.current) return;
-          const block = blockFrom(session.getState(), binding.block);
-          if (!block) throw new Error("query result block no longer exists");
-          open(block);
-        } catch (cause) {
-          if (sequence !== request.current) return;
-          setActive({
-            phase: "error",
-            binding,
-            origin,
-            anchor,
-            error: failureReason(cause, message),
+      if (previous?.phase === "markdown") {
+        // A rejected write must remain available for explicit Retry or Cancel.
+        // Opening a different cell must never erase its only copy of the draft.
+        if (previous.error || previous.composing) return;
+        if (previous.saving || previous.draft !== previous.baseline) {
+          void commit(false).then((saved) => {
+            if (saved && mounted.current && sequence === request.current) activate();
           });
+          return;
         }
-      })();
+      }
+      activate();
     },
-    [enabled, message, session, setActive],
+    [commit, enabled, message, session, setActive],
   );
 
-  const commit = useCallback(
-    async (close: boolean, draftOverride?: string, action?: Command): Promise<boolean> => {
+  const commitRef = useLatest(commit);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      request.current += 1;
       const current = activeRef.current;
-      if (!current || current.phase !== "markdown") return false;
-      if (current.composing) return false;
-      if (current.saving) {
-        if (close) {
-          setActive((latest) =>
-            latest?.phase === "markdown" ? { ...latest, closeAfterSave: true } : latest,
-          );
-        }
-        return false;
-      }
-      const expected = draftOverride ?? current.draft;
-      const plan = planInlineEdit(
-        current.binding.block.id,
-        current.baseline,
-        current.references,
-        expected,
-      );
-      if (!plan && !action) {
-        if (close) cancel();
-        return true;
-      }
-
-      const previousBaseline = current.baseline;
-      const targetKey = bindingKey(current.binding);
-      setActive((latest) => {
-        if (!latest || latest.phase !== "markdown" || bindingKey(latest.binding) !== targetKey) {
-          return latest;
-        }
-        return {
-          ...latest,
-          baseline: expected,
-          references: plan?.references ?? latest.references,
-          saving: true,
-          closeAfterSave: close || latest.closeAfterSave,
-          error: null,
-        };
-      });
-
-      try {
-        const commands: Command[] = [];
-        if (plan) {
-          commands.push({
-            type: "splice_block_content",
-            owner: current.binding.block.owner,
-            ...plan.splice,
-          });
-        }
-        if (action) commands.push(action);
-        await session.execute(commands.length === 1 ? commands[0] : { type: "batch", commands });
-        const canonicalBlock = blockFrom(session.getState(), current.binding.block);
-        const canonical = canonicalBlock?.markdown ?? expected;
-        setActive((latest) => {
-          if (!latest || latest.phase !== "markdown" || bindingKey(latest.binding) !== targetKey) {
-            return latest;
-          }
-          if (latest.draft === expected) {
-            if (latest.closeAfterSave) return null;
-            return {
-              ...latest,
-              baseline: canonical,
-              draft: canonical,
-              references: canonicalBlock?.page_references ?? plan?.references ?? latest.references,
-              saving: false,
-            };
-          }
-          return { ...latest, saving: false };
-        });
-        return true;
-      } catch (cause) {
-        const canonical =
-          blockFrom(session.getState(), current.binding.block)?.markdown ?? previousBaseline;
-        setActive((latest) => {
-          if (!latest || latest.phase !== "markdown" || bindingKey(latest.binding) !== targetKey) {
-            return latest;
-          }
-          return {
-            ...latest,
-            baseline: canonical,
-            saving: false,
-            closeAfterSave: false,
-            error: failureReason(cause, message),
-          };
-        });
-        return false;
-      }
-    },
-    [cancel, message, session, setActive],
-  );
+      // Removing a focused DOM node does not emit blur. The query coordinator
+      // therefore owns the final debounce flush just as the outline does.
+      if (current?.phase === "markdown" && !current.error) void commitRef.current(false);
+    };
+  }, [commitRef]);
 
   useEffect(() => {
     if (
@@ -430,7 +557,10 @@ export function useQueryResultEditor({
       active.draft === active.baseline
     )
       return;
-    const timer = window.setTimeout(() => void commit(false), EDIT_DEBOUNCE_MS);
+    const timer = window.setTimeout(
+      () => void commit(false, undefined, undefined, "debounce"),
+      EDIT_DEBOUNCE_MS,
+    );
     return () => window.clearTimeout(timer);
   }, [active, commit]);
 
@@ -540,7 +670,9 @@ export function useQueryResultEditor({
   const acceptSlash = useCallback(
     (completion: BlockCompletionRequest, item: SlashItem) => {
       const current = activeRef.current;
-      if (!current || current.phase !== "markdown") return;
+      // Choosing a completion consumes its token. An earlier rejected write
+      // must not discard that intent before this action can own its own save.
+      if (!canAcceptCompletion(current)) return false;
       const next = removeCompletionToken(current.draft, completion).value;
       setActive({ ...current, draft: next, autoClosers: [], completing: false, error: null });
 
@@ -588,6 +720,7 @@ export function useQueryResultEditor({
             : undefined,
         });
       })();
+      return true;
     },
     [commit, setActive],
   );
@@ -595,7 +728,7 @@ export function useQueryResultEditor({
   const acceptTag = useCallback(
     (completion: BlockCompletionRequest, option: BlockTagOption) => {
       const current = activeRef.current;
-      if (!current || current.phase !== "markdown") return;
+      if (!canAcceptCompletion(current)) return false;
       const next = removeCompletionToken(current.draft, completion).value;
       setActive({ ...current, draft: next, autoClosers: [], completing: false, error: null });
       void (async () => {
@@ -615,6 +748,7 @@ export function useQueryResultEditor({
               },
         );
       })();
+      return true;
     },
     [commit, setActive],
   );
@@ -622,96 +756,55 @@ export function useQueryResultEditor({
   const acceptPage = useCallback(
     (completion: BlockCompletionRequest, option: BlockPageOption): number | null => {
       const current = activeRef.current;
-      if (!current || current.phase !== "markdown" || current.saving) return null;
+      if (!canAcceptCompletion(current)) return null;
       const blockId = current.binding.block.id;
-      const pendingText = planInlineEdit(
-        blockId,
-        current.baseline,
-        current.references,
-        current.draft,
-      );
       const pageId = option.create ? `p-${randomUUID()}` : option.id;
-      const replacement = planPageReference(
-        blockId,
-        current.draft,
-        pendingText?.references ?? current.references,
-        completion.start,
-        completion.end,
-        pageId,
-        option.title,
-      );
-      const targetKey = bindingKey(current.binding);
-      setActive({
-        ...current,
-        baseline: replacement.value,
-        draft: replacement.value,
-        references: replacement.plan.references,
-        autoClosers: [],
-        completing: false,
-        saving: true,
-        error: null,
-      });
-
-      const commands: Command[] = [];
-      if (option.create) {
-        commands.push({ type: "ensure_page", page_id: pageId, title: option.title });
-      }
-      if (pendingText) {
+      const prepare = (base: Extract<ActiveEdit, { phase: "markdown" }>) => {
+        // Rebuild a rejected completion from the latest canonical baseline.
+        // Replaying the old absolute splice after a remote edit would be unsafe.
+        const pendingText = planInlineEdit(blockId, base.baseline, base.references, current.draft);
+        const replacement = planPageReference(
+          blockId,
+          current.draft,
+          pendingText?.references ?? base.references,
+          completion.start,
+          completion.end,
+          pageId,
+          option.title,
+        );
+        const commands: Command[] = [];
+        if (option.create)
+          commands.push({ type: "ensure_page", page_id: pageId, title: option.title });
+        if (pendingText)
+          commands.push({
+            type: "splice_block_content",
+            owner: current.binding.block.owner,
+            ...pendingText.splice,
+          });
         commands.push({
           type: "splice_block_content",
           owner: current.binding.block.owner,
-          ...pendingText.splice,
+          ...replacement.plan.splice,
         });
-      }
-      commands.push({
-        type: "splice_block_content",
-        owner: current.binding.block.owner,
-        ...replacement.plan.splice,
+        return {
+          expected: replacement.value,
+          references: replacement.plan.references,
+          commands,
+          caret: replacement.caret,
+        };
+      };
+      const replacement = prepare(current);
+      setActive({
+        ...current,
+        draft: replacement.expected,
+        autoClosers: [],
+        completing: false,
+        error: null,
       });
-      void session.execute(commands.length === 1 ? commands[0] : { type: "batch", commands }).then(
-        () => {
-          const canonical = blockFrom(session.getState(), current.binding.block);
-          setActive((latest) => {
-            if (
-              !latest ||
-              latest.phase !== "markdown" ||
-              bindingKey(latest.binding) !== targetKey
-            ) {
-              return latest;
-            }
-            return {
-              ...latest,
-              baseline: canonical?.markdown ?? replacement.value,
-              draft: canonical?.markdown ?? replacement.value,
-              references: canonical?.page_references ?? replacement.plan.references,
-              saving: false,
-            };
-          });
-        },
-        (cause: unknown) => {
-          const canonical = blockFrom(session.getState(), current.binding.block);
-          setActive((latest) => {
-            if (
-              !latest ||
-              latest.phase !== "markdown" ||
-              bindingKey(latest.binding) !== targetKey
-            ) {
-              return latest;
-            }
-            return {
-              ...latest,
-              baseline: canonical?.markdown ?? current.baseline,
-              draft: canonical?.markdown ?? current.baseline,
-              references: canonical?.page_references ?? current.references,
-              saving: false,
-              error: failureReason(cause, message),
-            };
-          });
-        },
-      );
+      void save(prepare, false);
       return replacement.caret;
     },
-    [message, session, setActive],
+    [save, setActive],
   );
 
   const runHistory = useCallback(
@@ -772,7 +865,6 @@ export function useQueryResultEditor({
     return commands.registerBlockProperties((key?: string) => {
       const current = activeRef.current;
       if (!current) return;
-      if (current.phase === "markdown") void commit(false);
       const focused = document.activeElement;
       const focusedAnchor =
         focused instanceof HTMLTextAreaElement
@@ -780,15 +872,14 @@ export function useQueryResultEditor({
           : focused instanceof HTMLElement
             ? elementAnchor(focused)
             : current.anchor;
-      setActive({
-        phase: "picker",
-        binding: { kind: "property", block: current.binding.block, key: key ?? "" },
-        origin: current.origin,
-        anchor: snapshotAnchor(focusedAnchor) ?? current.anchor,
-        taskMenu: false,
-      });
+      begin(
+        { kind: "property", block: current.binding.block, key: key ?? "" },
+        current.origin.row,
+        snapshotAnchor(focusedAnchor) ?? current.anchor,
+        false,
+      );
     });
-  }, [activeBlockKey, commands, commit, setActive]);
+  }, [activeBlockKey, begin, commands]);
 
   return {
     active,
@@ -889,6 +980,11 @@ function QueryMarkdownField({
     !current && hasMarkdownSyntax(projected, pageReferences.length > 0),
   );
   const error = markdown?.error ?? (current?.phase === "error" ? current.error : null);
+  const completionUnavailable = markdown?.saving
+    ? editor.message("save.saving")
+    : markdown?.error
+      ? editor.message("save.notSaved")
+      : undefined;
   const slashItems = useMemo(() => buildSlashItems(editor.message), [editor.message]);
   const [completion, dispatchCompletion] = useReducer(blockCompletionReducer, NO_BLOCK_COMPLETION);
   const closeCompletion = useCallback(() => {
@@ -993,62 +1089,28 @@ function QueryMarkdownField({
     [block?.tags, blockId, compare, editor, pageDirectory, slashItems, state.snapshot.tags],
   );
 
-  useEffect(() => {
-    if (completion.kind === "none") return;
-    const closeOnOutsidePress = (event: PointerEvent) => {
-      const node = event.target;
-      if (node instanceof Element && node.closest(".slash-menu")) return;
-      closeCompletion();
-    };
-    window.addEventListener("pointerdown", closeOnOutsidePress, true);
-    return () => window.removeEventListener("pointerdown", closeOnOutsidePress, true);
-  }, [closeCompletion, completion.kind]);
+  useTextAreaSize(textarea, projected, previewMarkdown, (element) => {
+    const style = getComputedStyle(element);
+    setClipped(
+      (style.overflowX === "hidden" && element.scrollWidth > element.clientWidth) ||
+        (style.overflowY === "hidden" && element.scrollHeight > element.clientHeight),
+    );
+  });
 
+  const editing = Boolean(markdown);
   useLayoutEffect(() => {
     const element = textarea.current;
-    if (!element || previewMarkdown) {
-      setClipped(false);
-      return;
-    }
-    const measure = () => {
-      element.style.height = "0";
-      const minimum = surface === "queryTable" ? 20 : 24;
-      element.style.height = `${Math.max(element.scrollHeight, minimum)}px`;
-      // Whether a value that outgrew its box is scrolled or cut is the
-      // stylesheet's decision, so this reads it back rather than making it a
-      // second time. Where the box was told to hide the remainder, the mark that
-      // says so is this component's to draw: `text-overflow` is the ellipsis
-      // everything else in the product ends with, and it is the one property
-      // that never reaches the text inside a textarea.
-      const style = getComputedStyle(element);
-      setClipped(
-        (style.overflowX === "hidden" && element.scrollWidth > element.clientWidth) ||
-          (style.overflowY === "hidden" && element.scrollHeight > element.clientHeight),
-      );
-    };
-    measure();
-    // A column the reader drags narrower cuts a value that fitted a moment ago,
-    // and no render of this cell says so. jsdom has neither layout nor a
-    // `ResizeObserver`; there the measurement above stands on its own.
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [previewMarkdown, projected]);
-
-  useLayoutEffect(() => {
-    const element = textarea.current;
-    if (!element || !markdown || document.activeElement === element) return;
+    if (!element || !editing || document.activeElement === element) return;
     element.focus({ preventScroll: true });
     const caret = Math.min(pendingCaret.current ?? element.value.length, element.value.length);
     element.setSelectionRange(caret, caret);
     pendingCaret.current = null;
-  }, [markdown]);
+  }, [editing]);
 
   const Root = policy.markdown === "block" ? "div" : "span";
   // An open cell scrolls again: a caret that has travelled past the edge has to
   // be followed, and the mark would be standing where the writing is.
-  const cut = clipped && !current;
+  const cut = clipped && !current && !previewMarkdown;
   return (
     <Root
       className={cn("query-result-editor", className)}
@@ -1073,7 +1135,7 @@ function QueryMarkdownField({
         hidden={previewMarkdown}
         tabIndex={previewMarkdown ? -1 : undefined}
         aria-label={label}
-        aria-busy={current?.phase === "loading" || undefined}
+        aria-busy={current?.phase === "loading" || markdown?.saving || undefined}
         aria-invalid={Boolean(error) || undefined}
         aria-controls={
           slashRequest
@@ -1151,7 +1213,7 @@ function QueryMarkdownField({
               const chosen = slashResults[slashIndex];
               if (chosen) {
                 const caret = removeCompletionToken(markdown.draft, slashRequest).caret;
-                editor.acceptSlash(slashRequest, chosen);
+                if (!editor.acceptSlash(slashRequest, chosen)) return;
                 queueMicrotask(() => textarea.current?.setSelectionRange(caret, caret));
               }
               closeCompletion();
@@ -1181,7 +1243,7 @@ function QueryMarkdownField({
               const chosen = hashResults[hashIndex];
               if (chosen) {
                 const caret = removeCompletionToken(markdown.draft, hashRequest).caret;
-                editor.acceptTag(hashRequest, chosen);
+                if (!editor.acceptTag(hashRequest, chosen)) return;
                 queueMicrotask(() => textarea.current?.setSelectionRange(caret, caret));
               }
               closeCompletion();
@@ -1211,9 +1273,8 @@ function QueryMarkdownField({
               const chosen = pageResults[pageIndex];
               if (chosen) {
                 const caret = editor.acceptPage(pageRequest, chosen);
-                if (caret !== null) {
-                  queueMicrotask(() => textarea.current?.setSelectionRange(caret, caret));
-                }
+                if (caret === null) return;
+                queueMicrotask(() => textarea.current?.setSelectionRange(caret, caret));
               }
               closeCompletion();
               return;
@@ -1323,12 +1384,13 @@ function QueryMarkdownField({
           request={slashRequest}
           results={slashResults}
           active={slashIndex}
+          disabledReason={completionUnavailable}
           onHover={(index) => dispatchCompletion({ type: "activate", kind: "slash", index })}
           onClose={closeCompletion}
           onChoose={(item) => {
             if (!markdown) return;
             const caret = removeCompletionToken(markdown.draft, slashRequest).caret;
-            editor.acceptSlash(slashRequest, item);
+            if (!editor.acceptSlash(slashRequest, item)) return;
             closeCompletion();
             queueMicrotask(() => textarea.current?.setSelectionRange(caret, caret));
           }}
@@ -1339,12 +1401,13 @@ function QueryMarkdownField({
           request={hashRequest}
           results={hashResults}
           active={hashIndex}
+          disabledReason={completionUnavailable}
           onHover={(index) => dispatchCompletion({ type: "activate", kind: "hash", index })}
           onClose={closeCompletion}
           onChoose={(option) => {
             if (!markdown) return;
             const caret = removeCompletionToken(markdown.draft, hashRequest).caret;
-            editor.acceptTag(hashRequest, option);
+            if (!editor.acceptTag(hashRequest, option)) return;
             closeCompletion();
             queueMicrotask(() => textarea.current?.setSelectionRange(caret, caret));
           }}
@@ -1355,14 +1418,14 @@ function QueryMarkdownField({
           request={pageRequest}
           results={pageResults}
           active={pageIndex}
+          disabledReason={completionUnavailable}
           onHover={(index) => dispatchCompletion({ type: "activate", kind: "page", index })}
           onClose={closeCompletion}
           onChoose={(option) => {
             const caret = editor.acceptPage(pageRequest, option);
+            if (caret === null) return;
             closeCompletion();
-            if (caret !== null) {
-              queueMicrotask(() => textarea.current?.setSelectionRange(caret, caret));
-            }
+            queueMicrotask(() => textarea.current?.setSelectionRange(caret, caret));
           }}
         />
       )}

@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { cn } from "../lib/utils";
+import { useTextAreaSize } from "./textarea-size";
 
 export function EditableTitle({
   value,
@@ -21,6 +22,8 @@ export function EditableTitle({
   onError: (error: unknown) => void;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
+  const textarea = useRef<HTMLTextAreaElement>(null);
+  useTextAreaSize(textarea, draft ?? value, false);
   // Enter commits and then blurs. Clearing this before the request makes that
   // second event a no-op while the visible draft remains until the canonical
   // value has caught up.
@@ -54,16 +57,10 @@ export function EditableTitle({
     });
   };
 
-  const resize = (element: HTMLTextAreaElement | null) => {
-    if (!element) return;
-    element.style.height = "0";
-    element.style.height = `${element.scrollHeight}px`;
-  };
-
   return (
     <div className={cn("page-title-field", className)}>
       <textarea
-        ref={resize}
+        ref={textarea}
         rows={1}
         className="page-title"
         value={draft ?? value}
@@ -75,7 +72,6 @@ export function EditableTitle({
           const next = event.target.value.replace(/[\r\n]+/g, " ");
           pending.current = next;
           setDraft(next);
-          resize(event.currentTarget);
         }}
         onBlur={commit}
         onKeyDown={(event) => {

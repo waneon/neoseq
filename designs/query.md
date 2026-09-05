@@ -29,8 +29,8 @@ question.
 The same query document appears with different disclosure density according to
 its role:
 
-- In an outline it behaves like a paragraph that answers itself. Controls are
-  contextual and saved views remain in a menu.
+- In an outline it behaves like a paragraph that answers itself. Configuration controls stay
+  visible and saved views remain in a menu.
 - On a tag page it is the body of the page. Saved views become a permanent
   surface instrument.
 - Under a journal it is a standing answer authored in graph settings. The

@@ -265,11 +265,20 @@ arbitration, command palette, shortcut sheet, and overflow menu. All routes to a
 command share its localized label, binding, icon, and disabled reason. IME and
 already-handled events win before global shortcuts; global shortcuts stand down
 while a modal is open.
+The palette uses the same modal focus stack as dialogs and menus. Cancellation
+restores its invoker and caret; a selected command runs after that modal releases
+focus, so the command can claim its destination.
 
 `ui/anchored-panel` owns contextual overlay placement, collision handling,
 portaling, dismissal, and focus restoration. Property, tag, completion, and
 combobox surfaces provide only content and whether focus stays in the anchor or
 is trapped in the panel; they do not calculate viewport coordinates themselves.
+Live anchors dismiss with their element; explicitly captured anchors outlive
+reconciliation. Shared overlay primitives own dismissal and focus lifecycle,
+including return to a persistent menu trigger or an explicitly resolved owner.
+Feature hosts do not install competing global completion-dismissal listeners.
+Nested surfaces remain in their modal owner, and local draft cancellation may
+reserve Escape before the surrounding dialog handles it.
 
 Routes use stable page and tag IDs; a tag is a route (`t/:tagId`) rather than a
 card in a grid, so everything the graph names has one address. Settings is a

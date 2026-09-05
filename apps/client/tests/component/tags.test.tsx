@@ -39,6 +39,28 @@ async function mountTagged() {
 }
 
 describe("first-class tags and tag defaults", () => {
+  it("keeps a rejected tag choice in the field so it can be retried", async () => {
+    const { port } = await mountTagged();
+    const user = userEvent.setup();
+    await openBlockMenu();
+    await user.click(await screen.findByTestId("menu-tags"));
+    const picker = await screen.findByTestId("tag-picker");
+    const input = within(picker).getByTestId("tag-autocomplete");
+    port.beforeExecute = async (command) => {
+      if (command.type === "add_tag") throw new Error("Rejected tag choice");
+    };
+    await user.type(input, "Proj");
+    await user.click(await screen.findByRole("option", { name: "Project" }));
+    await waitFor(() => expect(input).toHaveValue("Project"));
+    expect(within(picker).queryByTestId("tag-chip")).not.toBeInTheDocument();
+
+    port.beforeExecute = null;
+    await user.keyboard("{ArrowDown}{Enter}");
+    await waitFor(() =>
+      expect(within(picker).getByTestId("tag-chip")).toHaveTextContent("#Project"),
+    );
+  });
+
   it("copies defaults on tag but never overwrites existing block values", async () => {
     const { session, blockId } = await mountTagged();
     const user = userEvent.setup();
@@ -141,7 +163,7 @@ describe("first-class tags and tag defaults", () => {
     );
   });
 
-  it("cancels a stale blur dismissal when the autocomplete regains focus", async () => {
+  it("reopens usable choices when the autocomplete regains focus", async () => {
     await mountTagged();
     const user = userEvent.setup();
     await openBlockMenu();
@@ -149,16 +171,17 @@ describe("first-class tags and tag defaults", () => {
     const picker = await screen.findByTestId("tag-picker");
     const autocomplete = within(picker).getByTestId("tag-autocomplete");
     await user.type(autocomplete, "Project");
-    const option = await screen.findByRole("option", { name: "Project" });
+    expect(await screen.findByRole("option", { name: "Project" })).toBeVisible();
 
     // An overlay launcher may restore focus while the newly opened field is
     // already taking it. Once the field wins, an earlier blur must no longer
     // be allowed to dismiss the choices underneath the reader's pointer.
     fireEvent.blur(autocomplete);
     fireEvent.focus(autocomplete);
-    await new Promise((resolve) => setTimeout(resolve, 200));
-
-    expect(option).toBeInTheDocument();
+    await user.click(await screen.findByRole("option", { name: "Project" }));
+    await waitFor(() =>
+      expect(within(picker).getByTestId("tag-chip")).toHaveTextContent("#Project"),
+    );
   });
 });
 

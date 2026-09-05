@@ -50,13 +50,16 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-async function expectCode(action: Promise<unknown>, code: string): Promise<void> {
+async function expectCode(
+  action: Promise<unknown>,
+  code: string,
+): Promise<CorePortFailure["detail"]> {
   try {
     await action;
   } catch (error) {
     assert(error instanceof CorePortFailure, `expected CorePortFailure for ${code}`);
     assert(error.detail.code === code, `expected ${code}, received ${error.detail.code}`);
-    return;
+    return error.detail;
   }
   throw new Error(`expected ${code} failure`);
 }
@@ -473,7 +476,7 @@ export async function runIndexedDbFaultCorpus() {
   const transactionWorker = new TestCoreWorker();
   const transactionOpen = await transactionWorker.openGraph(openRequest(transactionGraph, 245));
   await transactionWorker.injectFault(transactionOpen.graph_handle, "abort");
-  await expectCode(
+  const aborted = await expectCode(
     transactionWorker.execute({
       graph_handle: transactionOpen.graph_handle,
       command: ensurePage(transactionGraph, "abort", "abort"),
@@ -481,6 +484,7 @@ export async function runIndexedDbFaultCorpus() {
     }),
     "dirty_unsaved",
   );
+  assert(aborted.retryable, "an aborted transaction must retain its explicit retry route");
   await transactionWorker.retryPending(transactionOpen.graph_handle);
   await transactionWorker.closeGraph({ graph_handle: transactionOpen.graph_handle });
   await transactionWorker.deleteGraph(transactionGraph);

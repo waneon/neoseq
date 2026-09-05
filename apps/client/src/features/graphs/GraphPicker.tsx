@@ -601,6 +601,7 @@ function RepositoryDialog({
 
   const connect = async (event: FormEvent) => {
     event.preventDefault();
+    if (busy || !username.trim() || !password) return;
     setRequest({ status: "busy" });
     const repositoryId = repository?.id ?? createRepositoryId();
     try {
@@ -649,10 +650,11 @@ function RepositoryDialog({
     <Dialog
       title={message(repository ? "repository.reconnectTitle" : "repository.addTitle")}
       onClose={onClose}
+      dismissible={!busy}
     >
       <p className="dialog-lede">{message("repository.addDetail")}</p>
       {request.status === "failed" && <Callout tone="danger">{request.message}</Callout>}
-      <form onSubmit={(event) => void connect(event)}>
+      <form aria-busy={busy} onSubmit={(event) => void connect(event)}>
         <FieldGroup>
           <Field>
             <FieldLabel htmlFor="repository-server-url">{message("graph.serverUrl")}</FieldLabel>
@@ -660,7 +662,7 @@ function RepositoryDialog({
               id="repository-server-url"
               type="url"
               value={serverUrl}
-              disabled={Boolean(repository)}
+              disabled={busy || Boolean(repository)}
               onChange={(event) => setServerUrl(event.target.value)}
             />
             <FieldDescription>{message("repository.urlDetail")}</FieldDescription>
@@ -671,7 +673,7 @@ function RepositoryDialog({
               id="repository-username"
               autoComplete="username"
               value={username}
-              disabled={Boolean(repository)}
+              disabled={busy || Boolean(repository)}
               onChange={(event) => setUsername(event.target.value)}
             />
           </Field>
@@ -681,6 +683,7 @@ function RepositoryDialog({
               id="repository-password"
               type="password"
               autoComplete="current-password"
+              disabled={busy}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
             />
@@ -691,6 +694,7 @@ function RepositoryDialog({
               <input
                 id="repository-persistent-session"
                 type="checkbox"
+                disabled={busy}
                 checked={persistent}
                 onChange={(event) => setPersistent(event.target.checked)}
               />

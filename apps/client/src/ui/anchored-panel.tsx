@@ -9,6 +9,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -20,6 +21,7 @@ import {
 } from "react";
 import { anchorElement, measureAnchor, type Anchor, type AnchoredOptions } from "./anchored";
 import { OverlayRoot, useOverlayRoot } from "./overlay-root";
+import { restoreOverlayFocus } from "./overlay-focus";
 import { Popover, PopoverAnchor, PopoverContent, PopoverPortal } from "./shadcn/popover";
 
 const VIEWPORT_INSET = 12;
@@ -87,13 +89,14 @@ export function AnchoredPanel({
   trapFocus = false,
   preserveAnchorFocus = false,
   initialFocus,
+  returnFocus,
   onEscapeKeyDown,
   onFocusOutside,
   onKeyDown,
   onClose,
   children,
 }: {
-  /** The control the panel hangs off; Escape gives it focus back. */
+  /** The control the panel hangs off and returns focus to after an inside action. */
   anchor: Anchor;
   label: string;
   id?: string;
@@ -112,6 +115,8 @@ export function AnchoredPanel({
   /** Combobox lists leave the caret in their anchor while options are active descendants. */
   preserveAnchorFocus?: boolean;
   initialFocus?: () => HTMLElement | null;
+  /** Resolves a persistent owner when a command removes the invoking control. */
+  returnFocus?: () => HTMLElement | null;
   /** Prevent the event to keep the panel open, as a staged editor does on its way back. */
   onEscapeKeyDown?: ComponentProps<typeof PopoverContent>["onEscapeKeyDown"];
   onFocusOutside?: ComponentProps<typeof PopoverContent>["onFocusOutside"];
@@ -121,7 +126,6 @@ export function AnchoredPanel({
 }) {
   const root = useOverlayRoot();
   const [surface, setSurface] = useState<HTMLDivElement | null>(null);
-  const escaped = useRef(false);
   const lastValid = useRef<DOMRectReadOnly | null>(null);
   const liveElement = anchorElement(anchor);
   const owner = anchor?.owner ?? null;
@@ -137,6 +141,17 @@ export function AnchoredPanel({
   const extent = options.width ?? options.maxWidth ?? window.innerWidth - VIEWPORT_INSET * 2;
   const pointLike = !options.matchAnchorWidth && rect.width < extent;
   const align = pointLike && (rect.left + rect.right) / 2 > window.innerWidth / 2 ? "end" : "start";
+
+  useLayoutEffect(() => {
+    if (!liveElement) return;
+    const closeIfDetached = () => {
+      if (!liveElement.isConnected) onClose();
+    };
+    closeIfDetached();
+    const observer = new MutationObserver(closeIfDetached);
+    observer.observe(liveElement.ownerDocument, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [liveElement, onClose]);
 
   useEffect(() => {
     if (!dismissOnExternalScroll) return;
@@ -167,10 +182,7 @@ export function AnchoredPanel({
           sticky="always"
           style={panelStyle(options)}
           data-testid={testId}
-          onEscapeKeyDown={(event) => {
-            onEscapeKeyDown?.(event);
-            if (!event.defaultPrevented) escaped.current = true;
-          }}
+          onEscapeKeyDown={onEscapeKeyDown}
           onOpenAutoFocus={(event) => {
             if (preserveAnchorFocus) {
               event.preventDefault();
@@ -178,13 +190,13 @@ export function AnchoredPanel({
             }
             if (!initialFocus) return;
             event.preventDefault();
-            queueMicrotask(() => initialFocus()?.focus({ preventScroll: true }));
+            initialFocus()?.focus({ preventScroll: true });
           }}
           onFocusOutside={(event) => {
             onFocusOutside?.(event);
             // A combobox expresses focus through aria-activedescendant: DOM
-            // focus intentionally stays in the anchor, and its small blur
-            // grace period owns pointer handoff and stale-focus cancellation.
+            // focus intentionally stays in the anchor. Pointer and focus
+            // ownership determine handoff without a delayed blur dismissal.
             if (preserveAnchorFocus) event.preventDefault();
           }}
           onPointerDownOutside={(event) => {
@@ -196,12 +208,7 @@ export function AnchoredPanel({
             if (target instanceof Node && liveElement?.contains(target)) event.preventDefault();
           }}
           onKeyDown={onKeyDown}
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            if (escaped.current && owner?.isConnected) {
-              owner.focus({ preventScroll: true });
-            }
-          }}
+          onCloseAutoFocus={(event) => restoreOverlayFocus(event, returnFocus?.() ?? owner)}
         >
           <OverlayRoot node={surface}>{children}</OverlayRoot>
         </PopoverContent>

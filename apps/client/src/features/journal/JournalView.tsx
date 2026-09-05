@@ -101,7 +101,7 @@ export function JournalView() {
   // a third time in the platform's own locale format. Right-clicking the row
   // reaches the page's own verbs, exactly as it does on a regular page.
   const header = (menu: ReactNode, onContextMenu: (event: React.MouseEvent) => void) => (
-    <div className="title-row" onContextMenu={onContextMenu}>
+    <div className="title-row journal-header" onContextMenu={onContextMenu}>
       <h1 data-testid="journal-title">{formatJournalDate(date)}</h1>
       <div className="title-actions">
         {date !== today && (

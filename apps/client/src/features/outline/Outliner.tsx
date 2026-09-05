@@ -122,6 +122,8 @@ import { BlockMarkdown } from "../markdown/BlockMarkdown";
 import { hasMarkdownSyntax } from "../markdown/profile";
 import { BlockBody, BlockRowFrame } from "../blocks/BlockPresentation";
 import { BlockTextArea } from "../blocks/editor/BlockTextArea";
+import { useTextAreaSize } from "@/ui/textarea-size";
+import { restoreOverlayFocus } from "@/ui/overlay-focus";
 import {
   caretForVerticalEntry,
   normalCaretAfterEdit,
@@ -712,70 +714,6 @@ export function Outliner({
     window.addEventListener("pointerdown", sample, true);
     return () => window.removeEventListener("pointerdown", sample, true);
   }, []);
-
-  // The slash menu floats over the outline but never takes focus, so it needs
-  // its own way out: a press anywhere past it, or Escape from wherever the
-  // keyboard happens to be, closes it and only it.
-  useEffect(() => {
-    if (!slashRequest) return;
-    const closeOnOutsidePress = (event: PointerEvent) => {
-      const node = event.target;
-      if (node instanceof Element && node.closest(".slash-menu")) return;
-      setSlashRequest(null);
-    };
-    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
-      event.preventDefault();
-      setSlashRequest(null);
-    };
-    window.addEventListener("pointerdown", closeOnOutsidePress, true);
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      window.removeEventListener("pointerdown", closeOnOutsidePress, true);
-      window.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [slashRequest]);
-
-  // The tag menu floats the same way and leaves the same way.
-  useEffect(() => {
-    if (!hashRequest) return;
-    const closeOnOutsidePress = (event: PointerEvent) => {
-      const node = event.target;
-      if (node instanceof Element && node.closest(".tag-menu")) return;
-      setHashRequest(null);
-    };
-    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
-      event.preventDefault();
-      setHashRequest(null);
-    };
-    window.addEventListener("pointerdown", closeOnOutsidePress, true);
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      window.removeEventListener("pointerdown", closeOnOutsidePress, true);
-      window.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [hashRequest]);
-
-  useEffect(() => {
-    if (!pageRequest) return;
-    const closeOnOutsidePress = (event: PointerEvent) => {
-      const node = event.target;
-      if (node instanceof Element && node.closest(".page-reference-menu")) return;
-      setPageRequest(null);
-    };
-    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
-      event.preventDefault();
-      setPageRequest(null);
-    };
-    window.addEventListener("pointerdown", closeOnOutsidePress, true);
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      window.removeEventListener("pointerdown", closeOnOutsidePress, true);
-      window.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [pageRequest, setPageRequest]);
 
   const flush = useCallback(
     (id: string) => {
@@ -2864,7 +2802,7 @@ export function Outliner({
     if (!request) return;
     const index = rowIndexOf(rows, request.blockId);
     if (index < 0) return;
-    virtualizer.scrollToIndex(index);
+    virtualizer.scrollToIndex(index, { align: "start" });
     if (request.focus && focusedRef.current !== request.blockId) {
       activateBlock(request.blockId, undefined, "programmatic");
     }
@@ -2879,9 +2817,9 @@ export function Outliner({
   // "Bring the focused row into view" is the right behaviour for a row that
   // arrived from the keyboard and the wrong one for a row the pointer just
   // pressed: a block carrying a long query result is taller than the viewport,
-  // so aligning it moves the page out from under the caret the user placed. A
-  // row already on screen is by definition in view, whichever way focus reached
-  // it, so intersection is the whole test.
+  // so aligning it moves the page out from under the caret the user placed.
+  // A tall row only needs to intersect the viewport; a normal writing line must
+  // fit completely so a keyboard arrival cannot leave its caret under the edge.
   useEffect(() => {
     if (!navigationReveal) return;
     const consume = () =>
@@ -2896,7 +2834,11 @@ export function Outliner({
     if (element && scrollElement) {
       const row = element.getBoundingClientRect();
       const view = scrollElement.getBoundingClientRect();
-      if (row.bottom > view.top && row.top < view.bottom) {
+      const visible =
+        row.height > view.height
+          ? row.bottom > view.top && row.top < view.bottom
+          : row.top >= view.top && row.bottom <= view.bottom;
+      if (visible) {
         consume();
         return;
       }
@@ -2913,7 +2855,10 @@ export function Outliner({
     }
     // Keep the request until the virtual row mounts; the next pass consumes it
     // after exact geometry has either confirmed or completed the reveal.
-    virtualizer.scrollToIndex(index);
+    // The page owns material below the outline (including its append target).
+    // An end alignment to the virtualizer's last item uses the entire page's
+    // maximum scroll offset and can push that item's caret above the viewport.
+    virtualizer.scrollToIndex(index, { align: "start" });
   }, [navigationReveal, rows, scrollElement, virtualizer]);
 
   // Mod+P means "properties of what is in front of me". While a block is focused
@@ -3100,6 +3045,8 @@ export function Outliner({
           data-testid="outline-start"
         >
           <span className="dot" aria-hidden />
+          {/* An empty outline names its writing entry point before a caret exists. */}
+          <span className="outline-placeholder-label">{message("outline.addFirstBlock")}</span>
         </button>
       ) : (
         <div
@@ -4113,16 +4060,7 @@ function BlockRow({ row, editor, view, lit, ancestor }: BlockRowProps) {
   // task marks either.
   const marks = pending ? 0 : Number(taskStatus !== undefined) + Number(taskPriority !== undefined);
 
-  useLayoutEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    textarea.style.height = "0";
-    textarea.style.height = `${Math.max(textarea.scrollHeight, 28)}px`;
-    // `tags.length` matters because the tag cluster shares the line: chips
-    // arriving or leaving change the textarea's width, and width changes what
-    // wraps. `previewMarkdown` matters because a hidden textarea measures zero:
-    // without it the editor would open clipped to one line.
-  }, [value, tags.length, previewMarkdown]);
+  useTextAreaSize(textareaRef, value, previewMarkdown);
 
   useLayoutEffect(() => {
     if (!isFocused) return;
@@ -4402,7 +4340,7 @@ function BlockMenu({
               : document.querySelector<HTMLTextAreaElement>(
                   `#row-${CSS.escape(row.block.id)} textarea`,
                 );
-          textarea?.focus({ preventScroll: true });
+          restoreOverlayFocus(event, textarea);
         }}
       >
         {selected && selectionCount > 1 ? (
@@ -4456,10 +4394,7 @@ function BlockMenu({
           <>
             <DropdownMenuItem
               data-testid="menu-properties"
-              onSelect={() => {
-                const anchor = editor.menuAnchor;
-                requestAnimationFrame(() => editor.openProperties(row.block.id, undefined, anchor));
-              }}
+              onSelect={() => editor.openProperties(row.block.id, undefined, editor.menuAnchor)}
             >
               <Settings2Icon aria-hidden />
               {message("properties.addOrChange")}
@@ -4469,10 +4404,7 @@ function BlockMenu({
             </DropdownMenuItem>
             <DropdownMenuItem
               data-testid="menu-tags"
-              onSelect={() => {
-                const anchor = editor.menuAnchor;
-                requestAnimationFrame(() => editor.openTags(row.block.id, anchor));
-              }}
+              onSelect={() => editor.openTags(row.block.id, editor.menuAnchor)}
             >
               <HashIcon aria-hidden />
               {message("outline.tags")}

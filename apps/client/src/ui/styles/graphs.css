@@ -1,0 +1,467 @@
+/* ─────────────────────── 9. graph picker ─────────────────────── */
+
+/* Graph selection is a stable, centered catalog; only its list grows. */
+.picker {
+  min-height: 100%;
+  display: flex;
+  justify-content: center;
+  padding: var(--sp-8) var(--gutter);
+  background: var(--canvas);
+}
+
+/* A catalog changes height as repositories change and remote results arrive.
+   Its header stays on one physical line; only the list grows toward the page
+   foot. Centring this column made every catalog response move the whole screen. */
+.picker-inner {
+  width: min(620px, 100%);
+  margin-block: 0;
+  padding-bottom: var(--sp-8);
+}
+
+.picker-wordmark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 var(--sp-5);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  letter-spacing: var(--track-sm);
+  font-weight: var(--weight-medium);
+}
+
+/* The mark gets a tile of its own here, and nowhere else. In the rail it is a
+   13px glyph beside a graph name; on the launch screen it is the product. */
+.picker-wordmark svg {
+  flex: none;
+  box-sizing: content-box;
+  width: 18px;
+  height: 18px;
+  padding: 6px;
+  border-radius: var(--r-2);
+  background: var(--accent);
+  box-shadow: var(--lit-edge);
+  color: var(--on-accent);
+}
+
+.picker h1 {
+  margin-bottom: var(--sp-2);
+}
+
+.picker-lede {
+  max-width: 42ch;
+  margin: 0 0 var(--sp-6);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 21px;
+}
+
+/* Repository tabs read like index cards: a quiet rule carries the whole row,
+   while the active account gets the single accent stroke. This keeps a growing
+   list of servers legible without turning the picker into a toolbar. */
+.repository-tabs-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-5);
+  border-bottom: 1px solid var(--thread);
+}
+
+.repository-tabs-row .tabs-list {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.repository-tabs-row .tabs-list::-webkit-scrollbar {
+  display: none;
+}
+
+.repository-tabs-row .tabs-trigger {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 var(--sp-3);
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.repository-tabs-row .tabs-trigger::after {
+  content: "";
+  position: absolute;
+  inset: auto var(--sp-2) -1px;
+  height: 2px;
+  background: transparent;
+}
+
+.repository-tabs-row .tabs-trigger[data-state="active"] {
+  color: var(--ink);
+  font-weight: var(--weight-medium);
+}
+
+.repository-tabs-row .tabs-trigger[data-state="active"]::after {
+  background: var(--accent);
+}
+
+.repository-tabs-row .tabs-trigger:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-inset);
+}
+
+.repository-tabs-row .tabs-trigger svg,
+.repository-tabs-row > .btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.repository-tabs-row > .btn {
+  flex: none;
+  margin-bottom: 2px;
+}
+
+.tabs-content:focus-visible {
+  outline: none;
+}
+
+/* The common four-row catalog and its first-load skeleton occupy the same
+   footprint. Smaller catalogs retain a quiet trailing field, so changing tabs
+   never collapses the picker around its controls. Longer lists grow downward. */
+.repository-panel {
+  min-height: min(355px, 45vh);
+}
+
+.repository-auth-required {
+  display: grid;
+  justify-items: start;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+
+.picker-empty {
+  margin: 0 0 var(--sp-4);
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+.graph-list {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 var(--sp-5);
+  padding: 0;
+  list-style: none;
+}
+
+.graph-list-loading {
+  pointer-events: none;
+}
+
+.graph-card-placeholder {
+  height: 52px;
+  border-radius: var(--r-3);
+  background: var(--surface-1);
+  box-shadow: var(--e1);
+}
+
+/* A graph is a thing you open, so it is a bounded object that lifts under the
+   pointer — not a patch of grey that gets slightly greyer. */
+.graph-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  border-radius: var(--r-3);
+  background: var(--canvas);
+  box-shadow: var(--e1);
+  transition:
+    background-color var(--dur-press) var(--ease-out),
+    box-shadow var(--dur-press) var(--ease-out);
+}
+
+.graph-card:hover {
+  background: var(--surface-1);
+  box-shadow: var(--e1-raised);
+}
+
+.graph-card-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px var(--sp-3);
+  border: none;
+  border-radius: var(--r-3);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.graph-card-open:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-inset);
+}
+
+/* The same initial tile the rail carries, so a graph looks like itself before
+   and after it is opened. */
+.graph-card-avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-2);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--text-sm);
+  line-height: 1;
+  font-weight: var(--weight-strong);
+  text-transform: uppercase;
+}
+
+.graph-card-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.graph-card-open .name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  letter-spacing: var(--track-sm);
+  font-weight: var(--weight-medium);
+}
+
+/* Hovering a card raises it to --surface-1, where --ink-3 is still legal — but
+   --ink-2 is what a line of metadata under a name wants anyway. */
+.graph-card-open .meta {
+  display: block;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+/* The read-only label's own idiom: a 12px glyph beside 12px metadata text. */
+.graph-remote-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  vertical-align: bottom;
+}
+
+.graph-remote-label svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+
+.graph-actions {
+  flex: none;
+  padding-inline-end: var(--sp-2);
+  opacity: 0;
+  transition: opacity 0ms;
+}
+
+.graph-card:hover .graph-actions,
+.graph-card:focus-within .graph-actions,
+.graph-actions:has([data-state="open"]) {
+  opacity: 1;
+}
+
+/* Nothing is hover-gated on touch: at this width the row menu is permanent. */
+@media (max-width: 600px), (hover: none) {
+  .graph-actions {
+    opacity: 1;
+  }
+}
+
+.picker-new {
+  display: grid;
+  gap: var(--sp-3);
+}
+
+.picker-new-row {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.picker-new-row > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.picker-new-row .btn {
+  flex: none;
+}
+
+.picker-new-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--thread);
+}
+
+.picker-new-actions .btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.field-group {
+  display: grid;
+  gap: var(--sp-4);
+}
+
+.field-group > .field {
+  display: grid;
+  gap: var(--sp-1);
+}
+
+.field-group .field-label {
+  margin-bottom: 0;
+}
+
+.repository-session-field .field-label {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--ink-1);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+.repository-session-field input[type="checkbox"] {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.field-description {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+/* A label must sit closer to its own field than to the field above it, or every
+   pair reads as belonging to the wrong label. The grid gap is the within-pair
+   4px; the between-pair distance comes from the label's own top margin. */
+.remote-form,
+.remote-account-form {
+  display: grid;
+  gap: var(--sp-1);
+}
+
+.remote-form .field-label,
+.remote-account-form .field-label {
+  margin-top: var(--sp-2);
+  margin-bottom: 0;
+}
+
+.remote-form .field-label:first-child,
+.remote-account-form .field-label:first-child {
+  margin-top: 0;
+}
+
+.remote-form .dialog-actions {
+  margin-top: var(--sp-3);
+}
+
+.remote-account-form {
+  margin-bottom: var(--sp-4);
+}
+
+.member-invite {
+  display: grid;
+  gap: var(--sp-1);
+}
+
+.remote-account-row,
+.member-invite-row {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.remote-account-row > :first-child,
+.member-invite-row > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.member-list {
+  display: grid;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-3);
+  padding: 0;
+  list-style: none;
+}
+
+.member-list li {
+  min-height: var(--sp-6);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+/* The id in the identifier voice, the role one ink step under it. */
+.member-id {
+  display: grid;
+  min-width: 0;
+}
+
+.member-id .mono {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-weight: var(--weight-medium);
+}
+
+.member-id small {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+/* The role trigger shrinks to its value; the account field takes the rest. */
+.member-invite-row .menu-select {
+  flex: none;
+  width: auto;
+}
+
+@media (max-width: 600px) {
+  .remote-form .dialog-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .member-invite-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .member-invite-row > :first-child {
+    grid-column: 1 / -1;
+  }
+}

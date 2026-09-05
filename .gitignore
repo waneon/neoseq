@@ -21,7 +21,7 @@
 /examples/backups/
 /examples/data/
 /examples/.env
-/.DS_Store
+**/.DS_Store
 *.db
 *.db-shm
 *.db-wal

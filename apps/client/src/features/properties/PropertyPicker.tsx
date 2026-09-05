@@ -90,6 +90,7 @@ export function PropertyPicker({
   anchor,
   initialKey,
   commandPrefix,
+  returnFocus,
   onClose,
 }: {
   target: PropertyTarget;
@@ -97,6 +98,7 @@ export function PropertyPicker({
   initialKey?: string;
   /** A completion-token edit that must commit with the chosen property. */
   commandPrefix?: Command;
+  returnFocus?: () => HTMLElement | null;
   onClose: () => void;
 }) {
   const session = useSession();
@@ -113,6 +115,7 @@ export function PropertyPicker({
   const [active, setActive] = useState(0);
   const [request, setRequest] = useState<AsyncRequestState>({ status: "idle" });
   const committing = request.status === "busy";
+  const submitting = useRef(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const prefixPending = useRef(commandPrefix);
@@ -145,6 +148,7 @@ export function PropertyPicker({
     const invokingElement = anchor?.geometry.kind === "element" ? anchor.geometry.element : null;
     if (!invokingElement) return;
     const reopenAtAnchor = () => {
+      if (submitting.current) return;
       setStage(initialStage(initial, target.bag));
       setQuery("");
       setActive(0);
@@ -155,24 +159,18 @@ export function PropertyPicker({
   }, [anchor, initial, target.bag]);
 
   useEffect(() => {
-    const frame = requestAnimationFrame(() => {
-      if (stage.kind === "property") {
-        // Context-menu primitives restore focus after their item has mounted
-        // this portal. Reassert the dialog's initial focus afterward.
-        searchRef.current?.focus({ preventScroll: true });
-        return;
-      }
-      if (panelRef.current?.contains(document.activeElement)) return;
-      // Choice-only value editors (checkboxes and enums) have no autofocus
-      // input. Keep keyboard focus inside the dialog so Escape and Tab remain
-      // available after moving between stages.
-      panelRef.current
-        ?.querySelector<HTMLElement>(
-          '.property-picker-list [role="option"]:not([disabled]), .property-picker-value input:not([disabled]), .property-picker-value button:not([disabled])',
-        )
-        ?.focus({ preventScroll: true });
-    });
-    return () => cancelAnimationFrame(frame);
+    if (stage.kind === "property") {
+      searchRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    if (panelRef.current?.contains(document.activeElement)) return;
+    // Choice-only value editors have no autofocus input. The new stage owns
+    // focus immediately; closing menus preserve that explicit transfer.
+    panelRef.current
+      ?.querySelector<HTMLElement>(
+        '.property-picker-list [role="option"]:not([disabled]), .property-picker-value input:not([disabled]), .property-picker-value button:not([disabled])',
+      )
+      ?.focus({ preventScroll: true });
   }, [stage.kind]);
 
   const visibleEntries = useMemo(
@@ -222,6 +220,8 @@ export function PropertyPicker({
   useEffect(() => setActive(0), [query, stage.kind]);
 
   const run = async (command: Command): Promise<boolean> => {
+    if (submitting.current) return false;
+    submitting.current = true;
     setRequest({ status: "busy" });
     try {
       const prefix = prefixPending.current;
@@ -233,10 +233,15 @@ export function PropertyPicker({
       notify.failure(message("failure.setProperty"), cause);
       setRequest({ status: "failed", message: message("failure.setProperty") });
       return false;
+    } finally {
+      submitting.current = false;
     }
   };
 
   const close = () => {
+    // The prefix already belongs to the pending batch. Dismissal cannot submit
+    // it again or discard this editor's error/retry surface before it resolves.
+    if (submitting.current) return;
     const prefix = prefixPending.current;
     prefixPending.current = undefined;
     if (prefix) {
@@ -457,7 +462,12 @@ export function PropertyPicker({
       surfaceRef={panelRef}
       dismissOnExternalScroll
       onClose={close}
+      returnFocus={returnFocus}
       onEscapeKeyDown={(event) => {
+        if (submitting.current) {
+          event.preventDefault();
+          return;
+        }
         if (stage.kind === "property") return;
         event.preventDefault();
         resetStage();
@@ -489,6 +499,7 @@ export function PropertyPicker({
             variant="ghost"
             size="icon"
             aria-label={message("properties.back")}
+            disabled={committing}
             onClick={() => {
               resetStage();
             }}

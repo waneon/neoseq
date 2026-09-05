@@ -1,0 +1,247 @@
+/* ──────────────────────── 11. autocomplete ──────────────────────── */
+
+.autocomplete {
+  position: relative;
+}
+
+.ac-hint {
+  padding: var(--sp-1) var(--sp-2);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+/* Portaled by the shared anchored-panel primitive so it escapes clipping while
+   preserving the combobox caret as the list's active-descendant owner. */
+.ac-popover {
+  z-index: var(--z-popover);
+  margin: 0;
+  padding: var(--sp-1);
+  border-radius: var(--r-3);
+  background: var(--overlay);
+  box-shadow: var(--e2);
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* ─────────────────────────── 12. states ─────────────────────────── */
+
+.shell-loading {
+  flex: 1;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  color: var(--ink-3);
+  background: var(--canvas);
+}
+
+/* Past the flash threshold the loader arrives rather than appears: this is already
+   a surface the user has been waiting on for 220ms, so one more fade is the
+   difference between "still working" and a spinner snapping into an empty window.
+   Nothing reads it — a `status` region with no contrast question. */
+.shell-loading .spinner {
+  width: 20px;
+  height: 20px;
+  animation:
+    ns-fade-in var(--dur-overlay) var(--ease-out) both,
+    ns-spin 800ms linear infinite;
+}
+
+.shell-loading p {
+  margin: 0;
+  font-size: var(--text-sm);
+  animation: ns-fade-in var(--dur-overlay) var(--ease-out) both;
+}
+
+/* A failure keeps the shell: it renders inside the page body, not instead of
+   the application. */
+.tombstone {
+  max-width: 52ch;
+  margin: var(--sp-7) 0;
+}
+
+.tombstone h1 {
+  margin-bottom: var(--sp-2);
+}
+
+.tombstone p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+.tombstone .actions {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  margin-top: var(--sp-5);
+}
+
+.callout {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  margin: var(--sp-3) 0 0;
+  padding: var(--sp-3) var(--sp-4);
+  border: none;
+  border-radius: var(--r-3);
+  background: var(--surface-1);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+.callout-danger {
+  background: var(--danger-soft);
+  color: var(--ink);
+}
+
+/* ─────────────────────────── 13. toasts ─────────────────────────── */
+
+/* Top-right, below the top bar rather than over it: the bar's own controls stay
+   clickable while a toast is up, and reports read as belonging to the content
+   region they describe. Above every overlay, because a failure raised while a
+   dialog is open still has to be seen. The region is `pointer-events: none` so
+   that while it is empty — which is almost always — it cannot swallow a click
+   aimed at whatever sits beneath it. */
+.toast-viewport {
+  position: fixed;
+  top: calc(var(--topbar-h) + var(--sp-2));
+  inset-inline-end: var(--sp-3);
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  width: min(360px, calc(100vw - var(--sp-6)));
+  pointer-events: none;
+}
+
+.toast {
+  --toast-duration: 6000ms;
+  position: relative;
+  pointer-events: auto;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--sp-1) var(--sp-2);
+  padding: var(--sp-2) var(--sp-2) calc(var(--sp-2) + 2px) var(--sp-3);
+  border-radius: var(--r-3);
+  background: var(--overlay);
+  box-shadow: var(--e2);
+  /* so the countdown's ends follow the corner radius */
+  overflow: hidden;
+}
+
+/* How long is left. It animates a width rather than a transform because it is
+   not an entrance — it is a reading of elapsed time, and the one thing it must
+   never do is finish early or lie about where it is. It pauses whenever the
+   timer does. */
+.toast-timer {
+  position: absolute;
+  inset-inline-start: 0;
+  bottom: 0;
+  width: 100%;
+  height: 2px;
+  background: var(--ink-3);
+  animation: ns-toast-timer var(--toast-duration) linear both;
+}
+
+.toast[data-tone="success"] .toast-timer {
+  background: var(--ok);
+}
+
+.toast[data-tone="danger"] .toast-timer {
+  background: var(--danger);
+}
+
+.toast[data-paused="true"] .toast-timer {
+  animation-play-state: paused;
+}
+
+/* Tone, as a glyph rather than as a dot.
+   The 5px dot was the save slot's language borrowed wholesale, and it worked there
+   because durability has exactly two states the user already knows. A report can
+   be a failure, a plain notice or a confirmation, and a 5px disc says only "this
+   one is a different colour from the last one" — a distinction that has to be
+   *remembered*, and that colour-blind users do not get at all. A ⚠ / ⓘ / ✓ is
+   legible before the sentence beside it is read, which for the one surface the
+   user did not ask for is the entire point. The title still says what happened;
+   tone is still never the only signal. */
+.toast-icon {
+  grid-column: 1;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  /* optical centre on the title's first line */
+  margin-top: calc((var(--lh-sm) - 16px) / 2);
+  color: var(--ink-2);
+}
+
+.toast[data-tone="success"] .toast-icon {
+  color: var(--ok);
+}
+
+.toast[data-tone="danger"] .toast-icon {
+  color: var(--danger);
+}
+
+.toast-title {
+  grid-column: 2;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-1);
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  letter-spacing: var(--track-sm);
+  font-weight: var(--weight-medium);
+}
+
+.toast-count {
+  flex: none;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.toast-detail {
+  grid-column: 2;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  overflow-wrap: anywhere;
+}
+
+.toast-actions {
+  grid-column: 2 / 4;
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--sp-1);
+}
+
+/* The one control on a surface the user did not ask for, so it is not summoned:
+   dismissing a report has to be possible without first working out that hovering
+   reveals a button. */
+.toast-close {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+@media (max-width: 600px) {
+  .toast-viewport {
+    inset-inline: var(--sp-2);
+    width: auto;
+  }
+
+  .toast-close {
+    width: var(--sp-6);
+    height: var(--sp-6);
+  }
+}

@@ -55,11 +55,17 @@ export function ShortcutEditor() {
 
   const capture = useCallback(
     (id: ShortcutId, event: React.KeyboardEvent<HTMLButtonElement>) => {
+      if (event.nativeEvent.isComposing) return;
+      if (event.key === "Tab") {
+        setRecording(null);
+        setNote(null);
+        return;
+      }
       // Nothing typed here may reach the global layer: the point of the keypress
       // is to *name* a shortcut, not to run one.
       event.preventDefault();
       event.stopPropagation();
-      if (event.key === "Escape" || event.key === "Tab") {
+      if (event.key === "Escape") {
         setRecording(null);
         setNote(null);
         return;
@@ -148,6 +154,7 @@ export function ShortcutEditor() {
                   }}
                   className="shortcut-key"
                   data-recording={recording === id || undefined}
+                  data-escape-cancel={recording === id ? "true" : undefined}
                   data-testid={`shortcut-${id}`}
                   aria-label={message("settings.shortcutChange", { action })}
                   aria-keyshortcuts={formatBinding(binding)}

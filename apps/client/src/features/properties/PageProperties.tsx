@@ -8,7 +8,8 @@ import { useCommands } from "../commands/context";
 import { useSessionSelector } from "../shell/session-context";
 import { propertyDisplayName, propertyGlyph } from "./property-display";
 import { PropertyPicker } from "./PropertyPicker";
-import { elementAnchor, snapshotAnchor, type Anchor } from "@/ui/anchored";
+import { elementAnchor, type Anchor } from "@/ui/anchored";
+import { currentFocusOwner } from "@/ui/overlay-focus";
 
 const STRIP_LIMIT = 4;
 
@@ -29,59 +30,62 @@ export function PageProperties({
   );
   const { message } = useI18n();
   const anchorRef = useRef<HTMLDivElement>(null);
-  const restoreFocus = useRef<HTMLElement | null>(null);
   const pickerAnchor = useRef<Anchor>(null);
-  const openedFromHere = useRef(false);
   const [initialKey, setInitialKey] = useState<string | undefined>();
+
+  const pageControl = useCallback(() => {
+    const pageBody = anchorRef.current?.closest(".page-body");
+    return (
+      pageBody?.querySelector<HTMLElement>('[data-testid="page-title"]') ??
+      pageBody?.querySelector<HTMLElement>('[data-testid="page-actions-trigger"]') ??
+      null
+    );
+  }, []);
+
+  const pageAnchor = useCallback((): Anchor => {
+    const owner = pageControl();
+    // An empty strip has no useful target. The persistent title/action control
+    // supplies both geometry and a keyboard return route, including journals.
+    const geometry = elementAnchor(
+      anchorRef.current?.firstElementChild ? anchorRef.current : owner,
+    );
+    return geometry ? { ...geometry, owner } : null;
+  }, [pageControl]);
 
   const show = useCallback(
     (key?: string, anchor?: HTMLElement) => {
-      openedFromHere.current = true;
       setInitialKey(key);
-      const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      const active = currentFocusOwner();
       const invokedFromPalette = Boolean(active?.closest('[data-testid="command-palette"]'));
-      restoreFocus.current =
-        anchor ??
-        (!invokedFromPalette ? active : null) ??
-        document.querySelector<HTMLElement>('[data-testid="page-title"]');
+      const owner = anchor ?? (!invokedFromPalette ? active : null) ?? pageControl();
       // The command palette disappears before this picker measures. The page strip
       // is the durable owner of this surface; a palette input is only the route that
       // summoned it, never a geometry source that may survive the transition.
-      pickerAnchor.current = anchor
-        ? elementAnchor(anchor)
-        : snapshotAnchor(elementAnchor(anchorRef.current));
+      const source = anchor ? elementAnchor(anchor) : pageAnchor();
+      pickerAnchor.current = source ? { ...source, owner } : null;
       onOpenChange(true);
     },
-    [onOpenChange],
+    [onOpenChange, pageAnchor, pageControl],
   );
 
   useEffect(() => {
-    if (!open) return;
-    if (openedFromHere.current) {
-      openedFromHere.current = false;
-      return;
-    }
+    if (open) return;
     // PageView's title menu owns only the boolean disclosure state. Treat that
     // route as a fresh add/change request, never as a replay of the last row.
     setInitialKey(undefined);
-    pickerAnchor.current = snapshotAnchor(elementAnchor(anchorRef.current));
-    restoreFocus.current = document.querySelector<HTMLElement>('[data-testid="page-title"]');
+    pickerAnchor.current = null;
   }, [open]);
 
   const close = () => {
     onOpenChange(false);
-    queueMicrotask(() => {
-      const target = restoreFocus.current?.isConnected
-        ? restoreFocus.current
-        : document.querySelector<HTMLElement>('[data-testid="page-title"]');
-      target?.focus({ preventScroll: true });
-    });
   };
 
   useEffect(() => {
     commands.setPageProperties((key?: string) => show(key));
     return () => commands.setPageProperties(null);
   }, [commands, show]);
+
+  const activeAnchor = pickerAnchor.current ?? pageAnchor();
 
   return (
     <div className="page-inline-properties" ref={anchorRef}>
@@ -121,8 +125,12 @@ export function PageProperties({
         <PropertyPicker
           key={`${page.id}:${initialKey ?? "new"}`}
           target={{ kind: "page", id: page.id, bag: page.properties }}
-          anchor={pickerAnchor.current ?? elementAnchor(anchorRef.current)}
+          anchor={activeAnchor}
           initialKey={initialKey}
+          returnFocus={() => {
+            const owner = activeAnchor?.owner;
+            return owner?.isConnected ? owner : pageControl();
+          }}
           onClose={close}
         />
       )}

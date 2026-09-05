@@ -1,0 +1,360 @@
+/* ── The task lens ──
+   Property-driven projections stay inside the block's text column: lenses over
+   the graph, not detached cards or a second document surface. Status sits at
+   the head of the line as a shape, tinted by the state palette below; the
+   remaining task facts are quiet chips underneath, each a pointer route into
+   the property picker on its own key. */
+
+/* ── The state palette on a glyph ──
+   Status and priority are closed sets, so each step may name a tone: an empty
+   ring in the glyph ink for `todo`, amber for the one being worked, green for
+   `done`, the danger tone for `cancelled` — and the same three steps for
+   priority. The shape still carries the state on its own, and so does the label
+   beside it and the strike through a settled line, so nothing here is
+   colour-only (designs/foundations.md § Semantic Color).
+
+   The tone travels as a custom property rather than as `color` directly, so a
+   surface that has its own opinion about glyph ink — the picker's metadata
+   marks — can honour it with one `var()` fallback instead of a specificity
+   fight. */
+[data-status-glyph="todo"] {
+  --glyph-tone: var(--status-todo);
+}
+
+[data-status-glyph="doing"] {
+  --glyph-tone: var(--status-doing);
+}
+
+[data-status-glyph="done"] {
+  --glyph-tone: var(--status-done);
+}
+
+[data-status-glyph="cancelled"] {
+  --glyph-tone: var(--status-cancelled);
+}
+
+[data-priority-glyph="low"] {
+  --glyph-tone: var(--priority-low);
+}
+
+[data-priority-glyph="medium"] {
+  --glyph-tone: var(--priority-medium);
+}
+
+[data-priority-glyph="high"] {
+  --glyph-tone: var(--priority-high);
+}
+
+/* A key's own mark is not one of its values — it names the property — so it
+   declines the tone and takes the ink around it. */
+[data-status-glyph][data-plain],
+[data-priority-glyph][data-plain] {
+  --glyph-tone: initial;
+}
+
+[data-status-glyph],
+[data-priority-glyph] {
+  color: var(--glyph-tone, currentColor);
+}
+
+/* The mark cut out of a settled task's filled disc. It cannot be `currentColor`,
+   because `currentColor` is the fill it is drawn on — this is the one place in
+   the product where a glyph carries two colours. designs/foundations.md §
+   Semantic Color explains why the settled steps earn it. */
+[data-status-glyph] .glyph-mark {
+  stroke: var(--on-tone);
+}
+
+/* ── The marks before the writing ──
+   Status and priority answer the same question, before the words: they are one
+   cluster in the hanging indent, in reading order (state, then how much it
+   matters). Absolutely positioned so the text keeps a single left edge on every
+   line it wraps to, and so a row acquiring a priority never reflows its
+   sentence — the column is reserved by the text's own padding instead. */
+.task-marks {
+  position: absolute;
+  inset-inline-start: 0;
+  top: 1px;
+  display: flex;
+  align-items: center;
+}
+
+.task-status-toggle,
+.task-priority-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.task-status-toggle:hover,
+.task-priority-toggle:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.task-status-toggle:disabled,
+.task-priority-toggle:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Priority used to carry its own tone as a *wash* behind the bars, on the
+   argument that three 3px bars lost against a filled status disc. It did — but
+   the answer was a 24px tinted tile at the head of the line, and a tile is not a
+   mark. Beside a bare glyph it read as the one thing on the row with a box around
+   it, which at the head of a line of writing is exactly where a box is loudest;
+   at rest the whole row looked like it had a button stuck to it.
+
+   So the mark competes on shape, where it should have all along: the bars are
+   wider and reach as far across their box as the status ring reaches across its
+   own. Status and priority are same-sized, shape-first glyphs; see
+   designs/metadata.md § Tasks. The tone still fills the bars, the count of filled ones is still
+   the first reading, and the label is still in the accessible name — the only
+   thing that went is the rectangle, including the tinted version of it that
+   hover used to raise: the two marks now answer the pointer the same way, with
+   the one hover colour. */
+
+/* The hanging indent the mark cluster stands in. One rule per count, because
+   there are exactly two counts a block can have. */
+.block-body[data-marks="1"] > .block-line {
+  padding-inline-start: 28px;
+}
+
+.block-body[data-marks="2"] > .block-line {
+  padding-inline-start: 52px;
+}
+
+/* A settled task reads as settled: the strike is the signal, the ink only
+   steps back one level so the text stays comfortably legible. */
+/* One wrapping strip for every fact under the line — task chips and user
+   properties speak the same language, so metadata never has two dialects.
+   Inside the block's flex row it always claims its own full-width line. The
+   line box already leaves breathing room below its glyphs, so another top gap
+   made the chips look detached; two pixels after the strip is enough to keep
+   the next block distinct without turning one property into a paragraph break. */
+.block-chips {
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: 0 var(--sp-1) var(--sp-0);
+}
+
+.outline-text > .query-block {
+  flex: 1 1 100%;
+}
+
+/* A chip is a control (it opens the picker on its key), so it takes the control
+   treatment: the `--e1` resting ring on a quiet ground, filling with the hover
+   wash when the pointer arrives. See designs/foundations.md § Geometry, Depth,
+   and Shape. */
+.task-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  height: var(--target);
+  max-width: 100%;
+  padding: 0 var(--sp-2);
+  border: 0;
+  border-radius: var(--r-full);
+  background: transparent;
+  box-shadow: var(--e1-chip);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  letter-spacing: var(--track-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-press) var(--ease-out),
+    color var(--dur-press) var(--ease-out);
+}
+
+.task-chip:hover {
+  background: var(--surface-2);
+  box-shadow: var(--e1-chip);
+  color: var(--ink);
+}
+
+.task-chip svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+.task-chip-name {
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
+.task-chip-value {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  overflow: hidden;
+  font-weight: var(--weight-normal);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Day and time are one written value on every surface. The host chooses its
+   scale and line height; the value keeps its tracking and digit shape so moving
+   it into a table does not make it look as though another font took over. */
+.task-moment-value {
+  letter-spacing: var(--track-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The clock beside the day. Tabular figures because a column of moments that
+   jumps a pixel per digit reads as unaligned rather than as a list. */
+.task-chip-time {
+  font-variant-numeric: tabular-nums;
+}
+
+/* "…and again after this one." The interval itself has its own chip; inside a
+   moment this is a marker, so it takes the glyph size down and steps back. */
+.task-chip .task-chip-repeat {
+  width: 12px;
+  height: 12px;
+  opacity: 0.7;
+}
+
+.task-chip .flag {
+  color: var(--ink-2);
+  font-weight: var(--weight-normal);
+}
+
+/* ── A moment, tinted by how far off it is ──
+   The tone comes from `--tone`, which the chip receives as the *name* of a step
+   the reader chose. See designs/foundations.md § Semantic Color and
+   designs/metadata.md § Moments. Everything the chip states is still written:
+   the day and optional time. The tint is the second reading — what makes a page
+   of dates scannable without reading any of them — and never the only one.
+
+   The label mixes 30% ink into the tone rather than taking it neat. At 12px, the
+   lighter tones sit under 4.5:1 on the canvas on their own; pulling each one
+   toward the ink keeps its hue, its recognisability, and the contrast contract
+   in designs/foundations.md § Modes and Contrast at the same time. */
+.task-chip[data-due],
+.query-due[data-due] {
+  background: color-mix(in oklab, var(--tone) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--tone) 44%, transparent);
+  color: color-mix(in oklab, var(--tone) 70%, var(--ink));
+}
+
+.task-chip[data-due]:hover {
+  background: color-mix(in oklab, var(--tone) 20%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--tone) 60%, transparent);
+  color: color-mix(in oklab, var(--tone) 70%, var(--ink));
+}
+
+/* The date is the fact; inside a tint it carries the same weight on every
+   surface, so the urgency reads as being about the value rather than about its
+   host control. */
+.task-chip[data-due] .task-moment-value,
+.query-due[data-due] {
+  font-weight: var(--weight-strong);
+}
+
+/* ── The same moment, in a cell ──
+   A query column of `Scheduled` or `Deadline` draws the object the strip under a
+   block draws: the day in full, in a pill the tone of how far off it is. Before
+   this it was the one place in the product where a moment was plain text, so the
+   same task read as urgent in the outline and as data in a table.
+
+   It is a *value*, not a control — the cell around it is what the reader presses
+   to edit — so it takes the tint and the ring and none of the chip's hover
+   behaviour. No glyph either: in a column the heading already says which moment
+   this is, and a calendar icon repeated down forty rows is wallpaper.
+
+   Untinted it is text. A settled row has no urgency left to report (designs/metadata.md § Tasks), and
+   a pill with no tone would be an empty ring round a date for no reason. */
+.query-due {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  max-width: 100%;
+}
+
+.query-due[data-due] {
+  height: var(--target);
+  padding: 0 var(--sp-2);
+  border-radius: var(--r-full);
+}
+
+/* The table aligns written values, not the padding of the objects around them.
+   Its tone is therefore a paint layer extending into the cell gutter: the date
+   keeps the same x-axis as plain text while the moment remains a scannable pill. */
+.query-table .query-due {
+  height: 20px;
+  padding: 0;
+}
+
+.query-table .query-due[data-due] {
+  position: relative;
+  isolation: isolate;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.query-table .query-due[data-due]::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0 -6px;
+  border-radius: var(--r-full);
+  background: color-mix(in oklab, var(--tone) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--tone) 44%, transparent);
+  pointer-events: none;
+}
+
+.query-due-date {
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The clock beside the day, and the last thing in the pill to give way: a moment
+   with a time is *at* that time, and a column narrow enough to cut the weekday
+   off the date has not yet earned the right to cut the hour off the moment.
+   Tabular figures, because a column of times that jumps a pixel per digit reads
+   as unaligned rather than as a list. */
+.query-due-time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The same chip standing in a settings row as its own preview: it shows what the
+   choice looks like, so it must not also offer the chip's verb.
+
+   It also has to be able to give. Four columns of one scale — name, preview,
+   reach, colour — do not all fit a 596px pane once the date is written out in a
+   locale that spells the weekday, and the preview is the one of the four that can
+   lose a few characters without losing its job: what it is showing is the tone,
+   the shape and the ring, at the size they render. So it shrinks and ellipsises
+   rather than spilling its own words out past its rounded edge, which is what it
+   did — and it carries the whole date in a `title`, because an ellipsis with no
+   way to read the rest is designs/accessibility.md § Perception. */
+.task-chip[data-preview] {
+  /* Shrink-wrapped, not stretched. A grid item fills its track by default, so the
+     three shorter dates in the scale grew a ringed box with thirty pixels of
+     nothing inside it — a chip is an object the size of what it says, and a chip
+     the width of its column is a bar. `max-width` still caps it at the track, so
+     the longest of the four keeps ellipsising rather than overflowing. */
+  justify-self: start;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  cursor: default;
+}

@@ -25,6 +25,13 @@ control do not. Dates accept language-oriented input while retaining the
 platform picker as a precision route. System-owned keys appear as information,
 not editable generic fields.
 
+Reference pickers keep keyboard focus in the search field and select only from
+an open list. A pending choice runs once; rejection preserves its label for
+retry. A property editor keeps ownership of a submitted change until it settles,
+including any text edit bundled with it, so dismissal cannot repeat part of an
+intent. The shared overlay restores focus to the invoking control or the page's
+persistent title/action control.
+
 ## Tag References and Identity
 
 A tag beneath a block is a reference. It uses the quiet accent and link behavior,

@@ -28,6 +28,39 @@ import {
 } from "./helpers";
 import type { Page } from "@playwright/test";
 
+test("outline text reflows fully when the viewport changes without another edit", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await createGraph(page, "Responsive writing");
+  await startOutline(page);
+  const text =
+    "긴 생각도 자연스럽게 이어져야 한다. 한국어와 English가 섞인 문장에서도 읽는 리듬과 들여쓰기의 관계가 분명하게 보이는지 살펴본다.";
+  await typeInFocusedBlock(page, text);
+  const textarea = page.getByLabel("Block text");
+  const wideHeight = (await textarea.boundingBox())!.height;
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect
+    .poll(() => textarea.evaluate((element) => element.clientHeight >= element.scrollHeight))
+    .toBe(true);
+  expect((await textarea.boundingBox())!.height).toBeGreaterThan(wideHeight);
+  await expect(textarea).toHaveValue(text);
+
+  // Editing and widening keep the native input and caret rather than replacing
+  // the row to force a new measurement.
+  await textarea.focus();
+  await textarea.evaluate((element) => {
+    (element as HTMLTextAreaElement).setSelectionRange(12, 12);
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await expect.poll(async () => (await textarea.boundingBox())!.height).toBe(wideHeight);
+  await expect(textarea).toBeFocused();
+  expect(
+    await textarea.evaluate((element) => (element as HTMLTextAreaElement).selectionStart),
+  ).toBe(12);
+});
+
 const AUDIT = /* language=JavaScript */ `
 (() => {
   const findings = [];
@@ -801,18 +834,26 @@ test("every surface is measured and square", async ({ page }) => {
 test("the bullet and every segment of its thread share one axis", async ({ page }) => {
   await createGraph(page, "Thread Axis Graph");
   await startOutline(page);
-  await page.keyboard.type("parent");
-  await page.keyboard.press("Enter");
-  await page.keyboard.press("Tab");
-  await page.keyboard.type("child");
+  await typeInFocusedBlock(page, "parent");
+  const parentInput = page.getByLabel("Block text").first();
+  await parentInput.click();
+  await parentInput.press("End");
+  await mutateAndAwaitSaved(page, () => parentInput.press("Enter"));
+  const childRow = page.getByTestId("outline-row").last();
+  const childInput = page.getByLabel("Block text").last();
+  await expect(page.getByTestId("outline-row")).toHaveCount(2);
+  // This measures settled geometry, after the optimistic insertion has adopted
+  // its canonical row and handed it focus. A detached temporary row has no CSS.
+  await expect(childRow).not.toHaveAttribute("data-block-id", /^pending-/);
+  await expect(childInput).toBeFocused();
+  await mutateAndAwaitSaved(page, () => childInput.press("Tab"));
+  await expect(childRow).toHaveAttribute("aria-level", "2");
+  await expect(childInput).toBeFocused();
+  await typeInFocusedBlock(page, "child");
 
   // Measure the quiet 1px thread, not the 2px path shown while the child owns
   // the caret. This is where a guide that starts *on* the axis instead of
   // straddling it moves half a CSS pixel to the right.
-  await page
-    .getByLabel("Block text")
-    .last()
-    .evaluate((line) => line.blur());
   const axes = await page.getByTestId("outline-row").evaluateAll((rows) => {
     const [parent, child] = rows;
     if (!(parent instanceof HTMLElement) || !(child instanceof HTMLElement)) {
@@ -860,6 +901,11 @@ test("every surface is measured and square on a phone", async ({ page }) => {
   await page.getByTestId("settings-tab-keyboard").click();
   await audit(page, "390px settings / keyboard");
   await page.keyboard.press("Escape");
+  // Settings returns to its visible drawer opener. Dismiss that navigation
+  // surface before measuring a pointer interaction in the document beneath it.
+  await expect(page.getByTestId("open-settings")).toBeFocused();
+  await page.getByTestId("sidebar").getByRole("link", { name: "Journal", exact: true }).click();
+  await expect(page.getByTestId("sidebar")).toHaveAttribute("data-open", "false");
   await page.getByTestId("outline-row").first().hover();
   await audit(page, "390px outline (pointer)");
 });
@@ -1019,6 +1065,11 @@ test("the scheduled editor flips above before it has to shrink", async ({ page }
   await createGraph(page, "Scheduled Placement Graph");
   await startOutline(page);
   for (let index = 0; index < 32; index += 1) await page.keyboard.press("Enter");
+  // Position the canonical final editor, after insertion has adopted every row.
+  // Measuring an optimistic row lets reconciliation move the requested anchor.
+  await expect(page.locator('[data-block-id^="pending-"]')).toHaveCount(0);
+  await expect(page.getByTestId("save-status")).toHaveAttribute("data-save", "saved");
+  await expect(page.locator("textarea:focus")).toBeFocused();
 
   const scroller = page.locator(".page-scroll");
   await scroller.evaluate((node) => {

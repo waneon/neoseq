@@ -190,6 +190,7 @@ export function BlockPageMenu({
   request,
   results,
   active,
+  disabledReason,
   onHover,
   onChoose,
   onClose,
@@ -197,6 +198,7 @@ export function BlockPageMenu({
   request: BlockCompletionRequest;
   results: BlockPageOption[];
   active: number;
+  disabledReason?: string;
   onHover: (index: number) => void;
   onChoose: (option: BlockPageOption) => void;
   onClose: () => void;
@@ -230,17 +232,24 @@ export function BlockPageMenu({
           key={option.create ? `create:${option.title}` : option.id}
           role="option"
           aria-selected={index === active}
+          aria-disabled={disabledReason ? true : undefined}
           data-active={index === active}
           data-completion-index={index}
           tabIndex={-1}
           onPointerMove={() => onHover(index)}
           onPointerDown={(event) => event.preventDefault()}
-          onClick={() => onChoose(option)}
+          onClick={() => {
+            if (!disabledReason) onChoose(option);
+          }}
         >
           {option.create ? <PlusIcon aria-hidden /> : <FileTextIcon aria-hidden />}
           <span className="slash-item-text">
             <strong>{option.title}</strong>
-            {option.create && <small>{message("pageReferences.create")}</small>}
+            {disabledReason ? (
+              <small>{disabledReason}</small>
+            ) : (
+              option.create && <small>{message("pageReferences.create")}</small>
+            )}
           </span>
         </button>
       ))}
@@ -267,6 +276,7 @@ export function BlockTagMenu({
   request,
   results,
   active,
+  disabledReason,
   onHover,
   onChoose,
   onClose,
@@ -274,6 +284,7 @@ export function BlockTagMenu({
   request: BlockCompletionRequest;
   results: BlockTagOption[];
   active: number;
+  disabledReason?: string;
   onHover: (index: number) => void;
   onChoose: (option: BlockTagOption) => void;
   onClose: () => void;
@@ -307,16 +318,20 @@ export function BlockTagMenu({
           key={option.id}
           role="option"
           aria-selected={index === active}
+          aria-disabled={disabledReason ? true : undefined}
           data-active={index === active}
           data-completion-index={index}
           tabIndex={-1}
           onPointerMove={() => onHover(index)}
           onPointerDown={(event) => event.preventDefault()}
-          onClick={() => onChoose(option)}
+          onClick={() => {
+            if (!disabledReason) onChoose(option);
+          }}
         >
           <HashIcon aria-hidden />
           <span className="slash-item-text">
             <strong>{option.name}</strong>
+            {disabledReason && <small>{disabledReason}</small>}
           </span>
           {option.present && <CheckIcon className="tag-opt-check" aria-hidden />}
         </button>
@@ -329,6 +344,7 @@ export function BlockSlashMenu({
   request,
   results,
   active,
+  disabledReason,
   onHover,
   onChoose,
   onClose,
@@ -336,6 +352,7 @@ export function BlockSlashMenu({
   request: BlockCompletionRequest;
   results: SlashItem[];
   active: number;
+  disabledReason?: string;
   onHover: (index: number) => void;
   onChoose: (item: SlashItem) => void;
   onClose: () => void;
@@ -359,23 +376,27 @@ export function BlockSlashMenu({
 
   const renderItem = (item: SlashItem) => {
     const index = results.indexOf(item);
+    const unavailable = disabledReason;
     return (
       <button
         id={`slash-opt-${item.id}`}
         key={item.id}
         role="option"
         aria-selected={index === active}
+        aria-disabled={unavailable ? true : undefined}
         data-active={index === active}
         data-completion-index={index}
         tabIndex={-1}
         onPointerMove={() => onHover(index)}
         onPointerDown={(event) => event.preventDefault()}
-        onClick={() => onChoose(item)}
+        onClick={() => {
+          if (!unavailable) onChoose(item);
+        }}
       >
         {item.glyph}
         <span className="slash-item-text">
           <strong>{item.label}</strong>
-          {item.hint && <small>{item.hint}</small>}
+          {(unavailable || item.hint) && <small>{unavailable ?? item.hint}</small>}
         </span>
       </button>
     );

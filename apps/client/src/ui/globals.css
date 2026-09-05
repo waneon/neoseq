@@ -1,17 +1,6 @@
-/* Tailwind v4 + shadcn entry.
-   `app.css` owns every design token and every bespoke layout class; this file
-   only maps those tokens onto shadcn's semantic variable names so Radix
-   primitives inherit the Neoseq look. It declares no values of its own — v1
-   declared --radius-*, --font-sans and --color-primary in BOTH files with
-   conflicting values, so the same token name meant two different things
-   depending on which file you read.
-
-   The layer order is explicit and app.css is imported INTO a layer, so a
-   Tailwind utility can override a bespoke class. Importing it unlayered (as v1
-   did) made it outrank every utility unconditionally — which is why the global
-   focus-visible radius squared off every rounded control the moment it was
-   focused, and why components had to fight their own classes with inline
-   styles. */
+/* Tailwind/shadcn mapping. app.css composes product styles in the neoseq layer;
+   utilities can adapt a component without competing with unlayered rules.
+   Semantic values are owned only by styles/foundations.css. */
 
 @layer theme, base, neoseq, components, utilities;
 

@@ -3,6 +3,7 @@ import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { CheckIcon } from "lucide-react";
 
 import { useOverlayRoot } from "@/ui/overlay-root";
+import { menuFocusOwner, restoreOverlayFocus } from "@/ui/overlay-focus";
 import { cn } from "@/lib/utils";
 
 function DropdownMenu(props: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
@@ -20,6 +21,7 @@ function DropdownMenuGroup(props: React.ComponentProps<typeof DropdownMenuPrimit
 function DropdownMenuContent({
   className,
   sideOffset = 6,
+  onCloseAutoFocus,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
   // A menu opened from inside a modal belongs inside it, not on the body behind
@@ -31,6 +33,12 @@ function DropdownMenuContent({
       <DropdownMenuPrimitive.Content
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
+        onCloseAutoFocus={(event) => {
+          onCloseAutoFocus?.(event);
+          if (event.defaultPrevented) return;
+          const menu = event.currentTarget instanceof Element ? event.currentTarget : null;
+          restoreOverlayFocus(event, menuFocusOwner(menu));
+        }}
         className={cn(
           // No `overflow-hidden` here: a menu's box — its cap and its scrolling —
           // is declared in `app.css`, because a utility would outrank it and did.

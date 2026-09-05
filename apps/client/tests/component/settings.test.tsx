@@ -3,7 +3,7 @@
 
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   configuredTimezone,
   journalDateFormat,
@@ -17,10 +17,13 @@ import { SettingsDialog } from "../../src/features/settings/SettingsDialog";
 import { DEFAULT_ACCENT_HUE, storedAccentHue } from "../../src/ui/theme";
 import { chooseFromMenu, GRAPH_ID, mountAt } from "./harness";
 
-function mountSettings(section: "journal" | "keyboard" | "appearance" | "tasks" | "graph") {
+function mountSettings(
+  section: "journal" | "keyboard" | "appearance" | "tasks" | "graph",
+  onClose = () => {},
+) {
   return mountAt(
     `/g/${GRAPH_ID}/custom`,
-    <SettingsDialog graphId={GRAPH_ID} section={section} onSection={() => {}} onClose={() => {}} />,
+    <SettingsDialog graphId={GRAPH_ID} section={section} onSection={() => {}} onClose={onClose} />,
   );
 }
 
@@ -71,6 +74,24 @@ describe("journal date format", () => {
 });
 
 describe("editable shortcuts", () => {
+  it("cancels recording with Escape before closing settings and lets Tab leave the badge", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    await mountSettings("keyboard", onClose);
+    const badge = screen.getByTestId("shortcut-palette");
+
+    await user.click(badge);
+    await user.keyboard("{Escape}");
+    expect(badge).toHaveTextContent("Ctrl+K");
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.click(badge);
+    await user.tab();
+    expect(badge).not.toHaveFocus();
+    expect(badge).toHaveTextContent("Ctrl+K");
+    expect(resolveBindings().palette).toEqual(DEFAULT_BINDINGS.palette);
+  });
+
   it("chooses a browser-local editor keymap independently of global shortcuts", async () => {
     const user = userEvent.setup();
     await mountSettings("keyboard");
@@ -247,9 +268,47 @@ describe("presentation preferences", () => {
     await waitFor(() => expect(storedAccentHue()).toBe(DEFAULT_ACCENT_HUE));
     expect(document.documentElement.style.getPropertyValue("--accent-h")).toBe("");
   });
+
+  it("lets a threshold be cleared while typing without persisting zero", async () => {
+    const user = userEvent.setup();
+    await mountSettings("tasks");
+    const days = screen.getByTestId("due-days-soon");
+
+    await user.clear(days);
+    expect(days).toHaveValue(null);
+    expect(dueTiers().soonDays).toBe(3);
+    await user.type(days, "12");
+    await user.tab();
+    expect(days).toHaveValue(12);
+    expect(dueTiers().soonDays).toBe(12);
+
+    await user.clear(days);
+    await user.tab();
+    expect(days).toHaveValue(12);
+    expect(dueTiers().soonDays).toBe(12);
+  });
 });
 
 describe("graph directory settings", () => {
+  it("commits a graph name with Enter and cancels its draft with Escape", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    await mountSettings("graph", onClose);
+    const input = screen.getByTestId("settings-graph-name");
+
+    await user.clear(input);
+    await user.type(input, "Research{Enter}");
+    expect(graphName(GRAPH_ID)).toBe("Research");
+
+    await user.clear(input);
+    await user.type(input, "Discard this{Escape}");
+    expect(input).toHaveValue("Research");
+    expect(onClose).not.toHaveBeenCalled();
+    await user.tab();
+    expect(graphName(GRAPH_ID)).toBe("Research");
+    expect(screen.getByTestId("settings-dialog")).toBeInTheDocument();
+  });
+
   it("shows directory changes while clean and preserves an active name draft", async () => {
     await mountSettings("graph");
     const input = screen.getByTestId("settings-graph-name");

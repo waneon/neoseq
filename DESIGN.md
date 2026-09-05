@@ -10,8 +10,9 @@ answers without becoming a second application.
 This document is the repository-wide source of truth for design architecture.
 It defines the durable experience model, the boundaries between design systems,
 and the rules that resolve conflicts between them. Focused design architecture
-lives under [`designs/`](designs/). Exact token values and component styling are
-implementation records in [`apps/client/src/ui/app.css`](apps/client/src/ui/app.css),
+lives under [`designs/`](designs/). Exact tokens and component styling live in
+[`apps/client/src/ui/styles/`](apps/client/src/ui/styles/), composed by
+[`app.css`](apps/client/src/ui/app.css),
 not a second design specification.
 
 The current boundary is the browser client across light and dark modes, desktop
@@ -78,8 +79,8 @@ contrast, keyboard reachability, focus clarity, or localized readability.
 - **The writing is the typographic top.** Product chrome is smaller and quieter
   than authored content. Weight and color are reserved for hierarchy and state.
 - **Depth is compositional.** Luminance establishes ground, a hairline closes a
-  bounded object, and shadow expresses distance. A control is raised or inset;
-  the hover surface is not a resting control style.
+  bounded object, and shadow expresses distance. Resting controls use a
+  bounded surface; shadow is reserved for floating layers.
 - **Both modes are one system.** Tokens are semantic and complete in light and
   dark modes. User-selectable color is limited to choices whose contrast can be
   guaranteed.

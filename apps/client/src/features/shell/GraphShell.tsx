@@ -183,8 +183,10 @@ export function GraphShell() {
   }, [graphId, navigate, repositoryId]);
 
   useEffect(() => {
+    // Settings changes the query string while the reader stays in this place.
+    // Keep its invoking drawer/control available until actual page navigation.
     setSidebarOpen(false);
-  }, [location]);
+  }, [location.pathname]);
 
   const session =
     createdSession?.graphId === graphId && createdSession.repositoryId === repositoryId
@@ -201,6 +203,7 @@ export function GraphShell() {
           graphId={graphId}
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((open) => !open)}
+          onCloseSidebar={() => setSidebarOpen(false)}
           onExit={() => navigate("/")}
         />
       </HistoryProvider>
@@ -214,6 +217,7 @@ function ShellBody({
   graphId,
   sidebarOpen,
   onToggleSidebar,
+  onCloseSidebar,
   onExit,
 }: {
   session: GraphSession;
@@ -221,6 +225,7 @@ function ShellBody({
   graphId: string;
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
+  onCloseSidebar: () => void;
   onExit: () => void;
 }) {
   const state = useSessionSelector(
@@ -689,6 +694,22 @@ SELECT ?entity ?content WHERE {
           data-open={sidebarOpen}
           aria-label={message("shell.graphNavigation")}
           data-testid="sidebar"
+          onClick={(event) => {
+            if (
+              event.button !== 0 ||
+              event.metaKey ||
+              event.ctrlKey ||
+              event.altKey ||
+              event.shiftKey
+            )
+              return;
+            const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
+            if (!(link instanceof HTMLAnchorElement) || !event.currentTarget.contains(link)) return;
+            if (link.target && link.target !== "_self") return;
+            // Activating a rail link is navigation even when it names the
+            // current route. Settings/search buttons retain their invoker.
+            onCloseSidebar();
+          }}
         >
           {/* The mark and the graph read as one head: the product's name small
               and quiet above, the graph — the thing a reader actually switches —

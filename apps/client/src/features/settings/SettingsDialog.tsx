@@ -378,23 +378,13 @@ function TasksSection() {
                       rather than shadcn's `Input`, which *is* the inset field
                       this one is deliberately not (app.css § A number that reads
                       as a word). */}
-                  <input
-                    className="due-tier-input"
-                    type="number"
-                    min={0}
-                    max={MAX_DUE_DAYS}
-                    inputMode="numeric"
-                    aria-label={message("settings.dueWithinDays", {
+                  <DueDaysInput
+                    label={message("settings.dueWithinDays", {
                       tier: message(DUE_TIER_MESSAGE[tier]),
                     })}
-                    data-testid={`due-days-${tier}`}
-                    value={String(tiers[daysField])}
-                    onChange={(event) => {
-                      const days = Number(event.target.value);
-                      if (Number.isInteger(days) && days >= 0 && days <= MAX_DUE_DAYS) {
-                        updateDueTiers({ [daysField]: days });
-                      }
-                    }}
+                    testId={`due-days-${tier}`}
+                    value={tiers[daysField]}
+                    onChange={(days) => updateDueTiers({ [daysField]: days })}
                   />
                   {message("settings.dueWithinTrail")}
                 </label>
@@ -425,6 +415,48 @@ function TasksSection() {
         {message("settings.restoreDefaults")}
       </Button>
     </section>
+  );
+}
+
+/** Keep incomplete typing local while valid thresholds continue to preview live. */
+function DueDaysInput({
+  value,
+  onChange,
+  label,
+  testId,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  label: string;
+  testId: string;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <input
+      className="due-tier-input"
+      type="number"
+      min={0}
+      max={MAX_DUE_DAYS}
+      inputMode="numeric"
+      aria-label={label}
+      data-testid={testId}
+      value={draft ?? String(value)}
+      onChange={(event) => {
+        const next = event.target.value;
+        setDraft(next);
+        const days = Number(next);
+        if (next !== "" && Number.isInteger(days) && days >= 0 && days <= MAX_DUE_DAYS) {
+          onChange(days);
+        }
+      }}
+      onBlur={() => setDraft(null)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+          event.preventDefault();
+          event.currentTarget.blur();
+        }
+      }}
+    />
   );
 }
 
@@ -546,7 +578,19 @@ function GraphSection({ repositoryId, graphId }: { repositoryId: string; graphId
           value={draftName ?? authoritativeName}
           disabled={repositoryId !== "local"}
           data-testid="settings-graph-name"
+          data-escape-cancel={draftName !== null ? "true" : undefined}
           onChange={(event) => setDraftName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return;
+            if (event.key === "Enter") {
+              event.preventDefault();
+              event.currentTarget.blur();
+            } else if (event.key === "Escape" && draftName !== null) {
+              event.preventDefault();
+              event.stopPropagation();
+              setDraftName(null);
+            }
+          }}
           onBlur={() => {
             const next = draftName?.trim();
             if (next) renameGraph(repositoryId, graphId, next);

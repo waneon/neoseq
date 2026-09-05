@@ -2,19 +2,19 @@
 // the interface is (designs/shell-and-navigation.md § Disclosure and Commands), so it is navigation-first,
 // never blank, and always offers a way forward.
 //
-// Hand-rolled rather than pulled from a package: it needs direct control of
-// aria-activedescendant, of caret restoration on close, and of the two motion
-// constraints this codebase enforces (one arrival that finishes opaque early,
-// and immediate unmount with no exit).
+// The result list owns active descendants; the shared modal primitive owns
+// focus, dismissal, and its place above any menu that invoked it.
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { SearchIcon } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { SearchIcon, XIcon } from "lucide-react";
+import { Button } from "../../ui/shadcn/button";
 import { GROUP_ORDER, matchCommand, type Command, type CommandGroup } from "./registry";
 import { Kbd } from "../../ui/kbd";
 import { useNotify } from "../notify/context";
 import { useI18n, type MessageKey } from "../../i18n";
-import { useLatest } from "../../lib/react";
+import { currentFocusOwner, restoreOverlayFocus } from "../../ui/overlay-focus";
+import { OverlayRoot, useOverlayRoot } from "../../ui/overlay-root";
 
 const GROUP_MESSAGE = {
   Search: "commands.group.search",
@@ -53,29 +53,24 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
   const [query, setQuery] = useState("");
   const [searchRows, setSearchRows] = useState<Command[]>([]);
   const [active, setActive] = useState(0);
+  const container = useOverlayRoot();
+  const [surface, setSurface] = useState<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const selectedCommand = useRef<Command | null>(null);
   // Where focus and the caret were when the palette opened, so closing without
   // navigating puts the user back exactly where they were mid-word.
-  const restore = useRef<{
-    element: HTMLElement | null;
-    start: number | null;
-    end: number | null;
-  }>({ element: null, start: null, end: null });
-
-  useLayoutEffect(() => {
-    const element = document.activeElement;
+  const [restore] = useState(() => {
+    const element = currentFocusOwner();
     if (element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement) {
-      restore.current = {
+      return {
         element,
         start: element.selectionStart,
         end: element.selectionEnd,
       };
-    } else if (element instanceof HTMLElement) {
-      restore.current = { element, start: null, end: null };
     }
-    inputRef.current?.focus();
-  }, []);
+    return { element, start: null, end: null };
+  });
 
   useEffect(() => {
     let current = true;
@@ -104,35 +99,6 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
       window.clearTimeout(timer);
     };
   }, [message, notify, query, search]);
-
-  const close = (restoreFocus: boolean) => {
-    const saved = restore.current;
-    onClose();
-    if (!restoreFocus || !saved.element?.isConnected) return;
-    saved.element.focus();
-    if (
-      saved.start !== null &&
-      (saved.element instanceof HTMLTextAreaElement || saved.element instanceof HTMLInputElement)
-    ) {
-      saved.element.setSelectionRange(saved.start, saved.end ?? saved.start);
-    }
-  };
-  const closeRef = useLatest(close);
-
-  // A backstop for the one case the panel's own handler cannot see. The panel
-  // holds a single focusable element, so a `⇥` off the input parks focus outside
-  // it — and from there the keydown never reaches the panel and `⎋` would do
-  // nothing at all, which for a modal surface means it is stuck. The panel's own
-  // handler stops propagation, so this never fires twice for one press.
-  useEffect(() => {
-    const onWindowKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      event.preventDefault();
-      closeRef.current(true);
-    };
-    window.addEventListener("keydown", onWindowKeyDown);
-    return () => window.removeEventListener("keydown", onWindowKeyDown);
-  }, []);
 
   const groups = useMemo(() => {
     const trimmed = query.trim();
@@ -201,37 +167,17 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
 
   const runRow = (row: Row | undefined) => {
     if (!row || row.command.disabledReason) return;
+    // Run after this modal releases focus, so navigation and newly opened
+    // dialogs can claim their destination without the palette trapping it.
+    selectedCommand.current = row.command;
     onClose();
-    void row.command.run();
   };
 
   const onKeyDown = (event: React.KeyboardEvent) => {
-    // Escape is decided BEFORE the IME guard, and it is the one key that is.
-    //
-    // The guard exists because a composition owns the keyboard outright, and for
-    // every other key that is right. But `Escape` is not a character — it is the
-    // way out of the surface — and while an IME is composing, the browser reports
-    // `isComposing: true` on that keydown too. So a user typing 검색 into the
-    // palette and then pressing Escape got nothing at all: the guard returned
-    // first, the key never reached the close path, and the only exit left was the
-    // pointer. The composition is abandoned along with the panel, which is what
-    // dismissing a surface has always meant.
-    if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      close(true);
-      return;
-    }
+    // Radix handles Escape for the top modal, including cancellation during
+    // composition, and cycles native Tab between the input and close action.
     if (event.nativeEvent.isComposing) return;
-    // The palette is `aria-modal`, and a modal that hands focus to the rail
-    // behind it on ⇥ is not one. It holds exactly one focusable element, so
-    // trapping is simply refusing the key: focus has nowhere else to go inside,
-    // and outside is where it must not land.
-    if (event.key === "Tab") {
-      event.preventDefault();
-      inputRef.current?.focus();
-      return;
-    }
+    if (event.target !== inputRef.current) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setActive((index) => Math.min(index + 1, Math.max(flat.length - 1, 0)));
@@ -256,120 +202,150 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
   // The backdrop is a SIBLING of the panel, not its parent: opacity on an ancestor
   // fades its children too, which would leave the palette's text compositing at
   // partial alpha the instant it is read. The scrim fades; the panel does not.
-  return createPortal(
-    <>
-      <div className="cmdk-backdrop" aria-hidden />
-      <div
-        className="cmdk-scrim"
-        data-testid="command-palette"
-        onMouseDown={(event) => {
-          if (event.target === event.currentTarget) close(true);
-        }}
-      >
-        <div
-          className="cmdk enter-rise"
-          role="dialog"
-          aria-modal="true"
-          aria-label={message("commands.palette")}
-          onKeyDown={onKeyDown}
-        >
-          <div className="cmdk-input-row">
-            <SearchIcon aria-hidden />
-            <input
-              ref={inputRef}
-              className="cmdk-input"
-              type="text"
-              role="combobox"
-              aria-expanded={flat.length > 0}
-              aria-controls="cmdk-results"
-              aria-activedescendant={activeId}
-              aria-autocomplete="list"
-              aria-label={message("commands.searchLabel")}
-              placeholder={message("commands.searchPlaceholder")}
-              data-testid="command-input"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </div>
-          <ul
-            ref={listRef}
-            id="cmdk-results"
-            className="cmdk-results"
-            role="listbox"
-            aria-label={message("commands.results")}
+  return (
+    <DialogPrimitive.Root open onOpenChange={(open) => !open && onClose()}>
+      <DialogPrimitive.Portal container={container}>
+        <DialogPrimitive.Overlay className="cmdk-backdrop" aria-hidden />
+        <div className="cmdk-scrim" data-testid="command-palette">
+          <DialogPrimitive.Content
+            ref={setSurface}
+            className="cmdk enter-rise"
+            aria-modal="true"
+            aria-describedby={undefined}
+            onKeyDown={onKeyDown}
+            onOpenAutoFocus={(event) => {
+              event.preventDefault();
+              inputRef.current?.focus({ preventScroll: true });
+            }}
+            onCloseAutoFocus={(event) => {
+              const command = selectedCommand.current;
+              selectedCommand.current = null;
+              // A successor dialog must capture the persistent invoker, not
+              // the body left behind by this portal. Restore first, then let
+              // the command claim its own destination after the trap is gone.
+              restoreOverlayFocus(event, restore.element);
+              if (
+                document.activeElement === restore.element &&
+                restore.start !== null &&
+                (restore.element instanceof HTMLTextAreaElement ||
+                  restore.element instanceof HTMLInputElement)
+              ) {
+                restore.element.setSelectionRange(restore.start, restore.end ?? restore.start);
+              }
+              if (command) void command.run();
+            }}
           >
-            {flat.length === 0 && (
-              <li className="cmdk-empty" role="status">
-                {message("commands.searchResultsEmpty", { query: query.trim() })}
-              </li>
-            )}
-            {groups.map(({ group, rows }, groupIndex) => (
-              <li key={`${group}-${groupIndex}`} role="presentation">
-                <div className="cmdk-group-title" role="presentation">
-                  {message(GROUP_MESSAGE[group])}
-                </div>
-                <ul
-                  role="group"
-                  aria-label={message(GROUP_MESSAGE[group])}
-                  className="m-0 list-none p-0"
-                >
-                  {rows.map(({ command }) => {
-                    index += 1;
-                    const position = index;
-                    return (
-                      <li key={command.id} role="presentation">
-                        <div
-                          id={`cmdk-opt-${command.id}`}
-                          role="option"
-                          aria-selected={position === active}
-                          aria-disabled={command.disabledReason ? true : undefined}
-                          className="cmdk-row"
-                          data-active={position === active}
-                          data-disabled={command.disabledReason ? true : undefined}
-                          data-testid={`cmd-${command.id}`}
-                          onMouseMove={() => setActive(position)}
-                          onMouseDown={(event) => {
-                            event.preventDefault();
-                            runRow({ command, score: 0 });
-                          }}
-                        >
-                          {command.icon}
-                          <span className="label">{command.label}</span>
-                          <span className="hint">
-                            {command.disabledReason ?? command.hint ?? ""}
-                          </span>
-                          {command.binding && <Kbd parts={command.binding} />}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </li>
-            ))}
-          </ul>
-          {/* The keys the palette answers to, stated where the palette is. It is
+            <OverlayRoot node={surface}>
+              <DialogPrimitive.Title className="sr-only">
+                {message("commands.palette")}
+              </DialogPrimitive.Title>
+              <div className="cmdk-input-row">
+                <SearchIcon aria-hidden />
+                <input
+                  ref={inputRef}
+                  className="cmdk-input"
+                  type="text"
+                  role="combobox"
+                  aria-expanded={flat.length > 0}
+                  aria-controls="cmdk-results"
+                  aria-activedescendant={activeId}
+                  aria-autocomplete="list"
+                  aria-label={message("commands.searchLabel")}
+                  placeholder={message("commands.searchPlaceholder")}
+                  data-testid="command-input"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+                <DialogPrimitive.Close asChild>
+                  <Button
+                    size="icon"
+                    aria-label={message("common.close")}
+                    data-testid="command-close"
+                  >
+                    <XIcon aria-hidden />
+                  </Button>
+                </DialogPrimitive.Close>
+              </div>
+              <ul
+                ref={listRef}
+                id="cmdk-results"
+                className="cmdk-results"
+                role="listbox"
+                aria-label={message("commands.results")}
+              >
+                {flat.length === 0 && (
+                  <li className="cmdk-empty" role="status">
+                    {message("commands.searchResultsEmpty", { query: query.trim() })}
+                  </li>
+                )}
+                {groups.map(({ group, rows }, groupIndex) => (
+                  <li key={`${group}-${groupIndex}`} role="presentation">
+                    <div className="cmdk-group-title" role="presentation">
+                      {message(GROUP_MESSAGE[group])}
+                    </div>
+                    <ul
+                      role="group"
+                      aria-label={message(GROUP_MESSAGE[group])}
+                      className="m-0 list-none p-0"
+                    >
+                      {rows.map(({ command }) => {
+                        index += 1;
+                        const position = index;
+                        return (
+                          <li key={command.id} role="presentation">
+                            <div
+                              id={`cmdk-opt-${command.id}`}
+                              role="option"
+                              aria-selected={position === active}
+                              aria-disabled={command.disabledReason ? true : undefined}
+                              className="cmdk-row"
+                              data-active={position === active}
+                              data-disabled={command.disabledReason ? true : undefined}
+                              data-testid={`cmd-${command.id}`}
+                              onMouseMove={() => setActive(position)}
+                              onMouseDown={(event) => {
+                                event.preventDefault();
+                                runRow({ command, score: 0 });
+                              }}
+                            >
+                              {command.icon}
+                              <span className="label">{command.label}</span>
+                              <span className="hint">
+                                {command.disabledReason ?? command.hint ?? ""}
+                              </span>
+                              {command.binding && <Kbd parts={command.binding} />}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+              {/* The keys the palette answers to, stated where the palette is. It is
             the one overlay a reader is expected to drive entirely from the
             keyboard, and three eleven-pixel pairs at the foot of it is what
             every application this one competes with uses to teach that — and
             what closes the panel visually, so the last row no longer runs off a
             rounded edge into nothing. */}
-          <div className="cmdk-footer" aria-hidden>
-            <span className="cmdk-hint">
-              <Kbd parts={["↑", "↓"]} />
-              {message("commands.hintKeysNavigate")}
-            </span>
-            <span className="cmdk-hint">
-              <Kbd parts={["⏎"]} />
-              {message("commands.hintKeysSelect")}
-            </span>
-            <span className="cmdk-hint">
-              <Kbd parts={["esc"]} />
-              {message("commands.hintKeysClose")}
-            </span>
-          </div>
+              <div className="cmdk-footer" aria-hidden>
+                <span className="cmdk-hint">
+                  <Kbd parts={["↑", "↓"]} />
+                  {message("commands.hintKeysNavigate")}
+                </span>
+                <span className="cmdk-hint">
+                  <Kbd parts={["⏎"]} />
+                  {message("commands.hintKeysSelect")}
+                </span>
+                <span className="cmdk-hint">
+                  <Kbd parts={["esc"]} />
+                  {message("commands.hintKeysClose")}
+                </span>
+              </div>
+            </OverlayRoot>
+          </DialogPrimitive.Content>
         </div>
-      </div>
-    </>,
-    document.body,
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   );
 }

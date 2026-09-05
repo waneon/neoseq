@@ -913,7 +913,8 @@ function complete(transaction: IDBTransaction): Promise<void> {
       reject(
         mapDomError(transaction.error ?? new DOMException("transaction aborted", "AbortError")),
       );
-    transaction.onerror = () => reject(mapDomError(transaction.error));
+    // Request errors bubble before the transaction's final abort cause exists.
+    // Only terminal events decide whether these bytes became durable.
   });
 }
 

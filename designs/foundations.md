@@ -5,7 +5,7 @@
 The visual foundation gives every product surface one semantic language for
 color, typography, spacing, depth, shape, iconography, and motion. It defines
 roles and invariants rather than component recipes. Exact values live in
-[`../apps/client/src/ui/app.css`](../apps/client/src/ui/app.css).
+[`ui/styles/foundations.css`](../apps/client/src/ui/styles/foundations.css).
 
 Feature components consume foundation roles. They may compose those roles, but
 they do not introduce private color systems, type scales, elevation languages,
@@ -86,16 +86,18 @@ Depth combines:
 2. a hairline that closes a bounded or interactive object; and
 3. a cast that communicates distance from the page.
 
-Fields and field substitutes are inset. Buttons, cards, chips, and selected keys
-are raised. Menus and dialogs add increasing distance. A hover fill alone never
-defines a resting control, and adjacent regions are not separated by a line
-without a ground change.
+Fields and buttons have a bounded surface. A selected key separates from its
+track through ground and edge. Cast shadows belong to floating menus and dialogs,
+where distance explains an actual layer. Text links and compact metadata need no
+resting box.
 
 Focus geometry is a typed foundation role: its reach and its color are distinct
 tokens. Fields and controls inside scrollports draw focus inside their own edge;
 feature layout never reserves or recovers space with focus-specific margins.
 
-Whole-pixel geometry protects icon and rule clarity. Icon boxes use compatible
+Controls share role-specific heights; page titles and block text retain distinct
+line metrics. Narrow journal navigation takes its own row, leaving the whole
+measure to the date. Whole-pixel geometry protects icon and rule clarity. Icon boxes use compatible
 dimensions, sibling rows that claim shared columns use shared tracks, and one
 global scrollbar language serves every scrolling surface.
 
@@ -116,9 +118,11 @@ they do not invent local easing or duration systems.
 
 ## Ownership and Verification
 
-`app.css` owns semantic tokens and global visual mechanisms. The shadcn mapping
-adapts those tokens to primitives, and feature styles compose them. Primitive
-defaults cannot introduce a second focus ring, shadow language, or palette.
+`app.css` composes an explicit cascade within the product layer.
+`styles/foundations.css` owns tokens and base rules, `controls.css` owns shared
+affordances, and surface sheets own their layouts. Responsive token values stay
+with foundations; bidirectional paint and reduced motion apply last. The shadcn
+mapping consumes these roles without introducing another focus or color system.
 
 Foundation changes are verified across both modes, the supported hue set,
 responsive layouts, and reduced motion. Contrast tests cover role pairs rather

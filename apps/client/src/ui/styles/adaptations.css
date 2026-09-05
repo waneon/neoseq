@@ -1,0 +1,153 @@
+/* Logical properties carry most bidirectional layout. These four painted or
+   transformed details have an intrinsically physical axis and therefore need
+   an explicit mirror. */
+html[dir="rtl"] .outline-row {
+  background-image:
+    linear-gradient(var(--thread-own, transparent), var(--thread-own, transparent)),
+    linear-gradient(var(--thread-lit), var(--thread-lit)),
+    repeating-linear-gradient(
+      to left,
+      var(--thread-line) 0 var(--guide-w),
+      transparent var(--guide-w) var(--indent)
+    );
+  background-position:
+    calc(100% - var(--thread-axis) - var(--depth) * var(--indent) + var(--own-w) / 2)
+      var(--thread-head),
+    calc(100% - var(--thread-axis) - (var(--lit) - 1) * var(--indent) + var(--branch-w) / 2) 0,
+    calc(100% - var(--thread-axis) + var(--guide-w) / 2) 0;
+}
+
+html[dir="rtl"] .qb-group:not([data-depth="0"]) > .qb-children {
+  box-shadow: inset -1px 0 0 var(--thread);
+}
+
+html[dir="rtl"] .query-resize {
+  background: linear-gradient(to left, transparent 8px, var(--thread) 8px 9px);
+}
+
+html[dir="rtl"] .query-resize:hover,
+html[dir="rtl"] .query-resize:focus-visible,
+html[dir="rtl"] .query-resize[data-resizing="true"] {
+  background: linear-gradient(to left, transparent 8px, var(--accent) 8px 9px);
+}
+
+@media (max-width: 840px) {
+  html[dir="rtl"] .shell-sidebar {
+    transform: translateX(105%);
+  }
+
+  html[dir="rtl"] .shell-sidebar[data-open="true"] {
+    transform: translateX(0);
+  }
+}
+
+/* ─────────────────────────── 14. motion ─────────────────────────── */
+
+@keyframes ns-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Transform only, no opacity at any point. This is the arrival for a surface
+   that is read the *instant* it appears — a toast, which the user did not ask
+   for, a live region announces immediately, and the contrast audit samples on
+   the frame it mounts. A fade there composites text against the page behind it,
+   which is a real contrast failure and not a theoretical one; a translate never
+   changes a single colour. */
+@keyframes ns-drop-in {
+  from {
+    transform: translateY(calc(var(--rise) * -1.5));
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes ns-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ns-toast-timer {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+
+/* A plain fade, for the surfaces whose whole job is to be behind something else:
+   a dialog's scrim, a tooltip. The panel that the scrim is behind takes
+   `.enter-rise` instead, and containers measured on mount carry no entrance
+   animation at all — nor do inline disclosures, which are read the instant they
+   open. */
+.enter-fade {
+  animation: ns-fade-in var(--dur-overlay) var(--ease-out) both;
+}
+
+/* Floating controls are stable on their first frame. Their anchor already
+   explains where they came from; moving the surface after it becomes clickable
+   makes its measured and perceived target disagree. */
+.enter-fade-fast,
+.enter-rise {
+  animation: none;
+}
+
+/* The opacity-free arrival — see `ns-drop-in`. */
+.enter-drop {
+  animation: ns-drop-in var(--dur-overlay) var(--ease-entrance) backwards;
+}
+
+/* Routed and settings content is readable on its first frame. Unlike a scrim,
+   the content itself must never pass through a low-contrast translucent state. */
+.enter-fade-view {
+  animation: none;
+}
+
+/* ── The size transition ──
+   A container that swaps between two content lengths should not jump or move a
+   control out from under the pointer. Animating the measured height lets the box
+   grow to meet the content while the content stays anchored within it.
+
+   `height` and not `max-height`, because it is measured, and not a transform,
+   because a transform would scale the text inside it. The wrapper clips only while
+   it is between two heights; anything taller than its box during those 220ms is
+   arriving, not hidden. */
+.auto-height {
+  transition: height var(--dur-size) var(--ease-size);
+}
+
+.auto-height[data-measured="true"] {
+  overflow: hidden;
+}
+
+/* `flow-root` so a child's own margin is measured *inside* the box rather than
+   collapsing out of it and then being clipped by the line above. */
+.auto-height-inner {
+  display: flow-root;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+
+  /* The one animation that survives, and it is named on purpose: the toast
+     countdown is not decoration, it is a reading of how much time is left.
+     Collapsing it to 1ms would empty the bar instantly while the toast stayed
+     up for six more seconds — a reduced-motion user would be shown a lie
+     rather than spared a movement. */
+  .toast-timer {
+    animation-duration: var(--toast-duration) !important;
+  }
+}

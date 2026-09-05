@@ -4,6 +4,9 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { MemoryRouter } from "react-router";
+import { useState, type ReactElement } from "react";
+import { PageView } from "../../src/features/page/PageView";
+import { Dialog } from "../../src/ui/components";
 import { findPage } from "../../src/core-port/snapshot";
 import { resetAppSettingsCache, setEditorKeymap } from "../../src/entities/settings";
 import { openWasmSession } from "./wasm-test-port";
@@ -14,8 +17,8 @@ import { NotifyProvider } from "../../src/features/notify/context";
 import { LocaleProvider } from "../../src/i18n";
 import { GRAPH_ID, mountAt, openBlockMenu, TestCommandProvider } from "./harness";
 
-async function mountOutline(markdowns: string[] = ["alpha"]) {
-  const harness = await mountAt(`/g/${GRAPH_ID}/p/home`);
+async function mountOutline(markdowns: string[] = ["alpha"], custom?: ReactElement) {
+  const harness = await mountAt(`/g/${GRAPH_ID}/p/home`, custom);
   const { session } = harness;
   await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
   for (const [index, markdown] of markdowns.entries()) {
@@ -53,6 +56,50 @@ function waitForPendingRowsToSettle(): Promise<void> {
 }
 
 describe("outliner keyboard commands", () => {
+  it("leaves completion open when Escape closes a dialog above the editor", async () => {
+    let openHelp!: () => void;
+    function PageWithHelp() {
+      const [open, setOpen] = useState(false);
+      openHelp = () => setOpen(true);
+      return (
+        <>
+          <PageView />
+          {open && (
+            <Dialog title="Editor help" onClose={() => setOpen(false)}>
+              <button type="button">Continue editing</button>
+            </Dialog>
+          )}
+        </>
+      );
+    }
+    const harness = await mountOutline([""], <PageWithHelp />);
+    const user = userEvent.setup();
+    const textarea = screen.getByLabelText("Block text");
+    await user.click(textarea);
+    await user.type(textarea, "/");
+    expect(await screen.findByTestId("slash-menu")).toBeInTheDocument();
+    await harness.settle(() => fireEvent.blur(textarea));
+    await waitFor(() =>
+      expect(findPage(harness.session.getState().snapshot, "home")?.blocks[0].markdown).toBe("/"),
+    );
+
+    // A global keyboard command may put a modal above a completion without
+    // the outside pointer gesture that would have dismissed the completion.
+    await harness.settle(openHelp);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Continue editing" })).toHaveFocus(),
+    );
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(textarea).toHaveFocus());
+    expect(screen.getByTestId("slash-menu")).toBeInTheDocument();
+    expect(textarea).toHaveValue("/");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByTestId("slash-menu")).not.toBeInTheDocument());
+    await settleFrame();
+  });
+
   it("enters Insert on the press, not on the click a paint later", async () => {
     setEditorKeymap("vim");
     try {

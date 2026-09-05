@@ -1,0 +1,258 @@
+/* ─────────────── 8. command palette + shortcut sheet ─────────────── */
+
+/* Backdrop and panel are siblings: opacity on an ancestor would fade the panel's
+   text along with the dim. The backdrop fades; the panel arrives at full opacity. */
+.cmdk-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-palette);
+  background: var(--scrim);
+  backdrop-filter: blur(var(--scrim-blur));
+  animation: ns-fade-in 100ms var(--ease-out) both;
+}
+
+/* Centred on the window, not hung from its top: the panel caps its own height at
+   `76vh`, so there is always room for the `--sp-4` gutter and centring can never
+   clip its head — the failure mode that makes a flex-centred overlay unsafe. The
+   query lands on the reader's eye line, which is where they are already looking
+   when they press the key. */
+.cmdk-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-palette);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: var(--sp-4);
+  pointer-events: none;
+}
+
+.cmdk {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  width: min(620px, 100%);
+  /* **One size, whatever is typed into it.** It was a `max-height`, so the panel
+     grew and shrank on every keystroke: the row a pointer was travelling toward
+     was somewhere else on arrival, and the foot that states the three keys the
+     panel answers to walked up and down the screen while the reader read it. The
+     list scrolls inside instead — the same call designs/shell-and-navigation.md
+     § Settings makes for its dialog, for the same reason. A fixed box's white
+     space is the price of a box that stays where it was put.
+
+     The pixel side wins at every ordinary window height, so the panel is exactly
+     520px tall and its bottom edge is a hairline rather than a half-pixel smear.
+     The `vh` term is the guard for a short window, where the panel is scrolling
+     anyway and a fractional height is the least of it. */
+  height: min(520px, 76vh);
+  border-radius: var(--r-4);
+  background: var(--overlay);
+  box-shadow: var(--e3);
+  overflow: hidden;
+}
+
+.cmdk-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  height: 50px;
+  /* `--sp-4` here equals the list's `--sp-1` plus a row's `--sp-3`. */
+  padding: 0 var(--sp-4);
+}
+
+.cmdk-input-row svg {
+  flex: none;
+  width: var(--icon-lg);
+  height: var(--icon-lg);
+  color: var(--ink-3);
+}
+
+.cmdk-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-md);
+  line-height: var(--lh-sm);
+}
+
+.cmdk-input:focus {
+  outline: none;
+}
+
+.cmdk-input::placeholder {
+  color: var(--ink-3);
+}
+
+.cmdk-results {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: var(--sp-1) var(--sp-1) var(--sp-2);
+  border-top: 1px solid var(--line);
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Aligned with the rows' own glyph column, so a group's name starts where the
+   icons under it start. */
+.cmdk-group-title {
+  padding: 10px var(--sp-3) var(--sp-1);
+}
+
+.cmdk-results > li:first-child > .cmdk-group-title {
+  padding-top: var(--sp-1);
+}
+
+/* `--sp-3` inside the list's own `--sp-1` of padding puts a row's glyph at 16px
+   from the panel's edge — exactly where the search field's glyph is, so the
+   query and every answer it produces start on one x. At `--sp-2` the results sat
+   four pixels left of the thing that produced them. */
+.cmdk-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  position: relative;
+  height: 38px;
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-2);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  letter-spacing: var(--track-sm);
+  cursor: pointer;
+}
+
+.cmdk-row svg {
+  flex: none;
+  width: var(--icon-lg);
+  height: var(--icon-lg);
+  color: var(--ink-3);
+}
+
+.cmdk-row[data-active="true"] {
+  background: var(--surface-2);
+}
+
+.cmdk-row[data-active="true"] svg {
+  color: var(--ink-2);
+}
+
+.cmdk-row[data-disabled="true"] {
+  color: var(--ink-3);
+  cursor: default;
+}
+
+.cmdk-row .label {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmdk-row .hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+}
+
+.cmdk-row[data-active="true"] .hint {
+  color: var(--ink-2);
+}
+
+.cmdk-empty {
+  padding: var(--sp-3) var(--sp-2);
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}
+
+/* ── The palette's foot ──
+   The keys it answers to, stated once, in the smallest voice the type scale has.
+   It also closes the panel: the result list used to run straight into the
+   overlay's rounded bottom edge, so the last row was always half a row — an
+   interface that looks clipped rather than scrollable. */
+.cmdk-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  flex: none;
+  height: 34px;
+  padding: 0 var(--sp-4);
+  border-top: 1px solid var(--line);
+  background: var(--surface-1);
+  color: var(--ink-3);
+  font-size: 11px;
+  line-height: var(--lh-xs);
+}
+
+.cmdk-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+@media (max-width: 600px) {
+  .cmdk-scrim {
+    padding: 0;
+  }
+
+  .cmdk {
+    width: 100%;
+    max-height: 100dvh;
+    height: 100dvh;
+    border-radius: 0;
+  }
+
+  /* No modifier keys to teach, and the panel is the whole screen. */
+  .cmdk-footer {
+    display: none;
+  }
+}
+
+.shortcuts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  max-height: 60vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.shortcuts section h3 {
+  margin-bottom: var(--sp-2);
+}
+
+.shortcuts dl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0 var(--sp-3);
+  margin: 0;
+}
+
+.shortcuts dt {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  color: var(--ink);
+  font-size: var(--text-sm);
+}
+
+.shortcuts dd {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-1);
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}

@@ -79,6 +79,7 @@ async function createRemote(page: Page, name: string, username: string, password
   await page.goto("/");
   await addRepository(page, username, password);
   await page.getByTestId("new-graph-name").fill(name);
+  await expect(page.getByTestId("new-graph-name")).toHaveValue(name);
   await page.getByTestId("create-graph").click();
   await expect(page.getByTestId("journal-title")).toBeVisible();
   await expect(page.getByTestId("live-status")).toHaveAttribute("data-live", "live", {
@@ -102,6 +103,13 @@ async function addRepository(page: Page, username: string, password: string) {
   await page.getByLabel("Username").fill(username);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  // Sign-in also loads the catalog and selects a new repository panel. The
+  // previous panel's input can still accept fill while the dialog is pending.
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(
+    page.getByRole("tab", { name: `${username}@${new URL(syncOrigin!).host}`, exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tabpanel")).toHaveAttribute("aria-busy", "false");
 }
 
 async function invite(page: Page, principal: string) {

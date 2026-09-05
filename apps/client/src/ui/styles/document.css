@@ -1,0 +1,303 @@
+/* ──────────────────── 5. page + journal ──────────────────── */
+
+.page-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* The gutter is reserved on both edges whether or not a scrollbar is drawn,
+     so the centred page cannot lurch sideways the moment the outline grows
+     past one viewport. */
+  scrollbar-gutter: stable both-edges;
+  /* ── And a floor below the last object ──
+     The scroller used to stop exactly where the page's content stopped. So
+     folding an answer near the bottom moved the ground: the document loses that
+     height, `scrollTop` is suddenly past the end, the browser clamps it, and
+     everything slides up by however much of the viewport was sitting below the
+     control that was just pressed — a whole window's worth of it when the reader
+     had scrolled that control's header to the top. They asked to see less, and
+     what they pressed walked down the screen.
+
+     The reserve is the scroller's rather than any one tail's, so it holds under
+     an outline's append zone, a journal's standing questions and a tag's writing
+     alike, and so nothing scoped to `.page-body` — the append reach, a drag over
+     the tag groups — inherits a region it would have to explain. It is not a
+     second append zone: that zone keeps the whole of its own reach, and this is
+     the space past the page, where a click makes nothing. What it buys besides a
+     ground that stays put is the ordinary thing a bottom gutter buys — the last
+     line can be read and written at a comfortable height rather than on the
+     bottom edge of the glass.
+
+     `min(50vh, 400px)`, so this and `--append-h` both cross from proportion to
+     figure at an 800px window. It does not promise the ground never moves — a
+     fold taller than the reserve still clamps — and its cost is stated plainly:
+     every page now scrolls a little past its end. */
+  padding-bottom: min(50vh, 400px);
+}
+
+.page-body {
+  width: 100%;
+  max-width: calc(var(--measure) + var(--gutter) * 2);
+  margin: 0 auto;
+  padding: var(--sp-5) var(--gutter) 0;
+}
+
+/* Page material takes the page edge; block text hangs inside its bullet gutter. */
+
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--title-row-h);
+  overflow-wrap: anywhere;
+}
+
+.title-row h1,
+.page-title-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.title-row h1,
+.page-title {
+  font-size: var(--text-xl);
+  line-height: var(--lh-xl);
+  letter-spacing: var(--track-xl);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* Editable titles preserve text geometry while exposing native selection. */
+.page-title {
+  display: block;
+  width: 100%;
+  margin: 0 calc(var(--sp-2) * -1);
+  padding: 0 var(--sp-2);
+  border: none;
+  border-radius: var(--r-2);
+  background: none;
+  font-family: inherit;
+  caret-color: var(--accent);
+  cursor: pointer;
+  resize: none;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  transition: background-color var(--dur-press) var(--ease-out);
+}
+
+/* Hover says the title can be clicked; focus removes that invitation because the
+   title is already being edited and the caret is the complete signal. */
+.page-title:hover:not(:read-only):not(:focus) {
+  background: var(--surface-2);
+}
+
+.page-title:focus {
+  outline: none;
+  background: none;
+  cursor: text;
+}
+
+.title-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: none;
+}
+
+/* A journal's title gets the full content measure on narrow screens. The
+   navigation group keeps its own row rather than squeezing a date mid-word. */
+@media (max-width: 600px) {
+  .journal-header {
+    flex-wrap: wrap;
+    gap: var(--sp-3);
+  }
+
+  .journal-header > h1 {
+    flex-basis: 100%;
+  }
+
+  .journal-header > .title-actions {
+    width: 100%;
+  }
+
+  .journal-header [data-testid="page-actions-trigger"] {
+    margin-inline-start: auto;
+  }
+}
+
+/* ── The date stepper ──
+   Three keys on one control, closed by a hairline, with the seams drawn between
+   them: the shape says "a group of related steps" before any glyph is read. It
+   is permanent, because stepping through days is the journal's own verb. */
+.date-stepper {
+  display: flex;
+  align-items: center;
+  flex: none;
+  height: var(--control-h);
+  border-radius: var(--r-2);
+  background: var(--raised);
+  box-shadow: var(--e1-raised);
+  overflow: hidden;
+}
+
+.date-stepper .icon-btn {
+  width: var(--control-h);
+  height: 100%;
+  border-radius: 0;
+  color: var(--ink-2);
+}
+
+.date-stepper .icon-btn + .icon-btn {
+  position: relative;
+}
+
+/* The seam is independent of the key's focus edge and does not consume width. */
+.date-stepper .icon-btn + .icon-btn::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 1px;
+  background: var(--thread);
+  pointer-events: none;
+}
+
+.date-stepper .icon-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.today-pill {
+  display: inline-flex;
+  align-items: center;
+  height: var(--control-compact-h);
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--r-2);
+  background: var(--accent-soft);
+  color: var(--on-tint);
+  --tone: var(--accent);
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: background-color var(--dur-press) var(--ease-out);
+}
+
+.today-pill:hover {
+  background: color-mix(in oklab, var(--accent) 20%, transparent);
+}
+
+/* Touch grows every target in the row to a comfortable size. */
+@media (max-width: 600px), (hover: none) {
+  .date-stepper {
+    height: var(--sp-6);
+  }
+
+  .date-stepper .icon-btn {
+    width: var(--sp-6);
+  }
+
+  .today-pill {
+    height: var(--sp-6);
+  }
+}
+
+/* The contract's floor is 32px at or below 600px, and the icon button is the one
+   control that sits at exactly the desktop floor of 24 — which on a phone is the
+   whole rail toggle, the new-page verb and every revealed action in a query
+   header. Widening the box rather than the glyph, so nothing about the icon
+   changes except how much of it is reachable. */
+@media (max-width: 600px), (hover: none) {
+  .icon-btn {
+    width: var(--sp-6);
+    height: var(--sp-6);
+  }
+}
+
+.page-note {
+  margin: var(--sp-5) 0 0;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+/* ── The day's standing questions ──
+   The answers a reader looks for every day, under the day they are looking at.
+   They sit *after* the append zone, which keeps its whole reach as the
+   add-a-block affordance: this is a second body under the writing, not chrome
+   parked at the end of it (designs/query.md § Standing Answers).
+
+   Nothing separates them from the writing but that reach, and nothing needs to:
+   each one is already a bounded object on the canvas with a hairline round it,
+   which is what a query surface *is*. A heading over them would name a thing the
+   captions already name, one at a time.
+
+   The bottom margin is the page's, because `.page-body` has none — the append
+   zone used to be the last thing on it.
+
+   **The run is spaced like sections, not like rows.** Each of these is a whole
+   standing question with a title and a body of answers, so the air between two
+   of them has to read as "a different question" rather than as "the next line".
+   At `--sp-4` two panels were closer together than a panel's own title is to its
+   first row, which is the one comparison a reader actually makes. */
+.journal-queries {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+  margin-bottom: var(--sp-7);
+}
+
+/* The append zone's whole reach is right when nothing follows it: it is the last
+   thing on the page, and 40vh of it is the offer to keep writing. With standing
+   questions underneath, that reach is also the gap between the day's last line
+   and its first answer — and at 40vh the two read as separate screens rather
+   than as one day, with a scroll between the writing and the answers the writing
+   is about. Under the day it keeps three fifths of it: enough that the writing
+   and its answers are two things, little enough that they are one page, and
+   still a target three rows tall to start a line in. Both the zone and the empty
+   page's placeholder take it from here, so nothing steps when the first block
+   lands. */
+.page-body:has(> .journal-queries) {
+  --append-h: min(12vh, 96px);
+}
+
+/* Each panel already carries the gap above; here the flex gap owns it, so the
+   run reads as evenly spaced objects rather than as one with a wider collar. */
+.journal-queries > .query-block {
+  margin: 0;
+}
+
+.page-info {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--sp-1) var(--sp-3);
+  width: 280px;
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+.page-info dt {
+  color: var(--ink-3);
+}
+
+.page-info dd {
+  margin: 0;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.page-info button {
+  border: none;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  text-align: start;
+}
+
+.page-info button:hover {
+  color: var(--ink);
+}

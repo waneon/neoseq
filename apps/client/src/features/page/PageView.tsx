@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
-import { InfoIcon, Settings2Icon, StarIcon, StarOffIcon, Trash2Icon } from "lucide-react";
+import {
+  InfoIcon,
+  MoreHorizontalIcon,
+  Settings2Icon,
+  StarIcon,
+  StarOffIcon,
+  Trash2Icon,
+} from "lucide-react";
 import type { PageSnapshot } from "../../core-port/snapshot";
 import {
   findPage,
@@ -35,12 +42,6 @@ import { useI18n } from "../../i18n";
 import { graphPath } from "../graphs/routing";
 import { LOCAL_REPOSITORY_ID } from "../repositories/directory";
 import { writeClipboardText } from "@/lib/clipboard";
-
-/** Where a context menu was summoned, in viewport coordinates. */
-interface MenuPoint {
-  x: number;
-  y: number;
-}
 
 export function PageView() {
   const { graphId = "", pageId = "" } = useParams();
@@ -142,19 +143,19 @@ export function PageBody({
 }) {
   const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null);
   const [propsOpen, setPropsOpen] = useState(false);
-  const [menuAt, setMenuAt] = useState<MenuPoint | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const openMenu = (event: React.MouseEvent) => {
     event.preventDefault();
-    setMenuAt({ x: event.clientX, y: event.clientY });
+    setMenuOpen(true);
   };
 
   const menu = (
     <PageMenu
       page={page}
-      at={menuAt}
-      onClose={() => setMenuAt(null)}
-      onOpenProperties={() => queueMicrotask(() => setPropsOpen(true))}
+      open={menuOpen}
+      onOpenChange={setMenuOpen}
+      onOpenProperties={() => setPropsOpen(true)}
     />
   );
 
@@ -169,8 +170,7 @@ export function PageBody({
         {header ? (
           header(menu, openMenu)
         ) : (
-          // The title row is the page's own handle: right-clicking it is where
-          // its verbs live now that the row carries no ⋯ button.
+          // The same page menu serves its visible trigger and title context click.
           <div className="title-row" onContextMenu={openMenu}>
             <PageTitle page={page} />
             {menu}
@@ -227,25 +227,16 @@ function PageTitle({ page }: { page: PageSnapshot }) {
   );
 }
 
-/**
- * The page's verbs. It has no button of its own: the pointer route is a
- * right-click on the title row, and the keyboard route is `Mod+P` for properties
- * plus the palette's own `Page info` and `Delete page…` rows, which reach these
- * same handlers through the command bridge.
- *
- * Radix needs something to position against, so the trigger is a zero-size
- * anchor placed at the pointer. It is `aria-hidden` and unfocusable: it is not a
- * control, it is a coordinate.
- */
+/** Page actions have one visible trigger, menu, and focus owner on every route. */
 function PageMenu({
   page,
-  at,
-  onClose,
+  open,
+  onOpenChange,
   onOpenProperties,
 }: {
   page: PageSnapshot;
-  at: MenuPoint | null;
-  onClose: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onOpenProperties: () => void;
 }) {
   const session = useSession();
@@ -271,33 +262,17 @@ function PageMenu({
 
   return (
     <>
-      <DropdownMenu
-        modal={false}
-        open={at !== null}
-        onOpenChange={(open) => (open ? undefined : onClose())}
-      >
+      <DropdownMenu modal={false} open={open} onOpenChange={onOpenChange}>
         <DropdownMenuTrigger asChild>
-          <span
-            className="menu-anchor"
-            // Radix points the menu's `aria-labelledby` at its trigger, and
-            // `aria-labelledby` wins over the menu's own `aria-label` — so the name
-            // has to live here, on the anchor, even though the anchor itself is
-            // hidden. A name is still read through a labelledby reference.
+          <Button
+            size="icon"
             aria-label={message("page.actions")}
-            aria-hidden
-            style={{ left: at?.x ?? 0, top: at?.y ?? 0 }}
-          />
+            data-testid="page-actions-trigger"
+          >
+            <MoreHorizontalIcon aria-hidden />
+          </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="start"
-          onCloseAutoFocus={(event) => {
-            // Focus must not land on the anchor — it is hidden from assistive
-            // technology and cannot be typed into — so it goes back to the title,
-            // which is the thing the menu was summoned from.
-            event.preventDefault();
-            document.querySelector<HTMLElement>('[data-testid="page-title"]')?.focus();
-          }}
-        >
+        <DropdownMenuContent align="end">
           <DropdownMenuItem data-testid="menu-page-properties" onSelect={onOpenProperties}>
             <Settings2Icon aria-hidden />
             {message("page.properties")}

@@ -11,6 +11,8 @@ navigation or structural ownership.
 
 - `BlockTextArea` owns native `beforeinput`, auto-pairing, generated-closer
   provenance, and IME-safe input repair;
+- native editor sizing observes both text and available width; CSS owns each
+  surface's line-height and height constraints;
 - `activation` turns an explicit pointer, keyboard, programmatic, or contextual
   entrance into modal intent before a host opens its draft;
 - `surface-policy` names the few deliberate behavioral differences between
@@ -28,12 +30,25 @@ Completion menus follow their focused editor through list, caret, and document
 scrolling. Reconciliation may replace the textarea, but the completion remains
 attached to the focused canonical editor until selection, outside press, or
 Escape closes it. Outline and query-result hosts share this interaction through
-the completion presentation.
+the completion presentation. The shared anchored panel alone owns outside press
+and overlay dismissal; host-level window listeners must not compete with it.
 
 An editor surface owns the draft session around that input. It reconciles a
 canonical `BlockSnapshot`, schedules or flushes writes, reports failure, and
 chooses the meaning of structural keys. All writes still use ordinary
 `GraphSession` commands; a query result never writes through the derived index.
+Both coordinators flush final debounced input when their route unmounts. Query
+commits wait for an in-flight write before draining newer input or running
+document history; a failed write ends that drain and remains an explicit failure.
+Result switching and contextual pickers wait for the current draft to settle.
+Semantic completion choices remain visibly unavailable while a prior write is
+pending or rejected; refusing them preserves the token and completion menu.
+Background drains pause at an open completion, while explicit blur, navigation,
+and history requests still flush the draft.
+Page completion uses the same save lifecycle as ordinary text; retries rebuild
+semantic commands from the canonical baseline and preserve newer local input.
+Only editor activation assigns focus, so save notifications cannot reclaim focus
+from a subsequently requested control.
 
 The outline keeps persistence drafts distinct from pending structural projections.
 In particular, splitting a dirty block retains the complete draft long enough to

@@ -2,17 +2,14 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-// A field is an inset thing, so it carries the resting ring and no cast — the
-// opposite of a button, which is raised. Focus is a luminance step plus the
-// accent halo the whole product uses to say "the keys land here"; the ring
-// itself stays the resting hairline, so the control never changes silhouette.
+// Fields share the control height and draw focus inside their scroll-safe edge.
 function Input({ className, type, ...props }: React.ComponentProps<"input">) {
   return (
     <input
       type={type}
       data-slot="input"
       className={cn(
-        "flex h-8 w-full min-w-0 rounded-[var(--r-2)] bg-background px-2.5 text-sm text-foreground shadow-[var(--e1)]",
+        "flex h-[var(--control-h)] w-full min-w-0 rounded-[var(--r-2)] bg-background px-2.5 text-sm text-foreground shadow-[var(--e1)]",
         "transition-shadow placeholder:text-[var(--ink-3)] caret-[var(--accent)]",
         "hover:shadow-[inset_0_0_0_1px_var(--line-strong)]",
         // The accent edge is inset: fields routinely live in scrollports, where

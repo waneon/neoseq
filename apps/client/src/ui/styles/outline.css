@@ -1,0 +1,1132 @@
+/* ────────────────────────── 6. outline ────────────────────────── */
+
+/* The writing starts a clear beat below the page's name rather than tucked under
+   it. 16px put the first bullet inside the title's own optical block, so the
+   title read as the outline's first row instead of as the page's name. */
+.outline-section {
+  position: relative;
+  margin-top: var(--sp-5);
+  /* ── One hue, two weights ──
+     The outline's structure used to be drawn in a tone the reader picked from a
+     list of five, and the live path in the accent — two unrelated colours doing
+     one job, and a preference whose only possible answer was "some grey". It is
+     one hue now, the reader's own accent, at two weights: a 1px guide at 22% for
+     the columns a row merely passes through, and a 2px opaque stroke for the
+     branch that actually reaches the caret. Structure and attention stop being
+     different colours and become the same colour turned up, which is what the
+     eye reads as "this one, of those".
+
+     The lit stroke is the accent itself and not a fraction of it, because at 2px
+     it has to cover the guide underneath rather than blend with it — two
+     translucent lines on one pixel is a third colour nobody chose. */
+  --thread-line: color-mix(in oklab, var(--accent) 22%, transparent);
+  --thread-lit: var(--accent);
+}
+
+/* Modal editing has to name the mode before the next bare key arrives. The mark
+   sits in the breathing room above the first block, so it changes no row's
+   measure and never competes with the text or its tags. */
+.vim-mode-indicator {
+  display: inline-flex;
+  align-items: center;
+  min-height: 16px;
+  padding: 0 var(--sp-1);
+  border-radius: var(--r-1);
+  background: var(--surface-2);
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 16px;
+  letter-spacing: 0.06em;
+  pointer-events: none;
+}
+
+.vim-mode-indicator[data-mode="insert"] {
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+/* The caret itself carries the modal distinction at the point of attention:
+   command modes sit on a character, while Insert stays between characters.
+
+   In a query cell it carries it alone. The outline's mark sits in the breathing
+   room above the first block, where it costs no row its measure; a cell has no
+   such room — the badge stood under the value, so opening one grew its row and
+   pushed the table under it, and it announced a mode beside a value the reader
+   had only meant to correct. A cell is one value with no structural unit to
+   open, which is most of what a mode would have been for. */
+:is(.outline-input, .query-result-input):is(
+  [data-vim-mode="normal"],
+  [data-vim-mode="operator-pending"]
+) {
+  caret-shape: block;
+}
+
+:is(.outline-input, .query-result-input)[data-vim-mode="insert"] {
+  caret-shape: bar;
+}
+
+.outline-section > .vim-mode-indicator {
+  position: absolute;
+  inset-inline-end: 0;
+  top: calc(var(--sp-5) * -1);
+}
+
+.outline-viewport {
+  position: relative;
+  width: 100%;
+}
+
+/* The tree takes focus so the bare keys a selection answers to have somewhere to
+   land, but it is a focus *container*, not a control — it is not a tab stop, and
+   what has focus is the selection, which says so with its own fill. A ring around
+   the entire outline would be exactly the drawn box this design does not allow.
+   Focus is never left here without a selection: clearing one returns the caret. */
+.outline-viewport:focus,
+.outline-viewport:focus-visible {
+  outline: none;
+}
+
+/* While a drag is in flight the whole outline stops offering a caret: the
+   pointer is carrying blocks, not looking for a place to type. */
+.outline-section[data-dragging="true"] .outline-row,
+.outline-section[data-dragging="true"] .outline-append {
+  cursor: grabbing;
+}
+
+.outline-section[data-selecting="true"] {
+  user-select: none;
+}
+
+/* ── The thread ──
+   Three stacked gradients and one pseudo-element.
+
+   The lowest gradient draws the *guides*: one 1px line per ancestor column, the
+   whole height of the row, and nothing about them says anything except "you are
+   inside this many things".
+
+   The middle one draws the live stroke where it merely *passes* this row, and it
+   is a single bar rather than a run of them. That distinction was the bug: the
+   live path is a polyline, so at any row it is not on, exactly one column of it
+   is still in flight — the column of the deepest ancestor above that row. Drawn
+   as "the first `--lit` columns" instead, every level the path had already turned
+   off was redrawn at full weight, so a sibling four levels deep grew three bold
+   stubs standing in the middle of nowhere.
+
+   The third is the bullet's own thread, and it is what makes this a tree rather
+   than a set of indents. It starts at the bottom of the bullet of a row that has
+   children and runs to the row's bottom edge — which is exactly the gap between
+   a parent's mark and where its first child's column begins. Without it the
+   vertical line under a bullet appeared out of nowhere one row later, and a
+   parent with a two-line body had a visible break in the middle of its own
+   subtree.
+
+   The thread is drawn in whichever tone the reader chose (designs/foundations.md § Semantic Color). */
+.block-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-0);
+}
+
+.outline-row {
+  --depth: 0;
+  --lit: 0;
+  /* The one x coordinate every mark in a thread is centred on. Keeping the
+     axis separate from each stroke's left edge prevents a 1px guide from
+     starting on the axis while the bullet and the other strokes straddle it. */
+  --thread-axis: calc(var(--gutter) + var(--slot) / 2);
+  /* Where a row's own thread begins: the bottom of the 6px bullet centred on the
+     26px text line, so the line leaves the mark rather than starting three
+     pixels under it. A tree is read as one continuous stroke from a parent to
+     each of its children (designs/outliner.md § Structural Thread), and a gap at the top of that stroke is
+     the one place the eye has to guess whether the two are connected. */
+  --thread-head: 17px;
+  /* How wide the live stroke is, and how far its corner turns. Both are the
+     branch's own metrics and nothing else uses them. */
+  --branch-w: 2px;
+  --branch-turn: 10px;
+  --guide-w: 1px;
+  /* The one column of the live stroke still in flight at this row — the deepest
+     ancestor above it — and the width of the bar that draws it: `min(--lit, 1)`
+     is 0 when no ancestor is on the path and 1 otherwise, which is how a
+     declarative layer says "draw this or don't". A row the path *arrives* at sets
+     the width to zero itself: there the branch owns the column (designs/outliner.md § Structural Thread).
+     `--own-w` is the row's own descending segment, which thickens on the path. */
+  --lit-w: calc(min(var(--lit), 1) * var(--branch-w));
+  --own-w: 1px;
+  position: relative;
+  /* The row reaches one gutter further left than the text column, so there is a
+     strip beside every bullet — a root's included — that belongs to the row but
+     not to its text. That strip is where a selection drag starts, and it is why
+     the thread's offset carries the same term. */
+  margin-inline-start: calc(var(--gutter) * -1);
+  /* 1px, not 2. A screen of one-line blocks is a list, and at 30px a row the
+     list read as loose — the gap between two siblings competed with the gap
+     between a block and its own metadata strip. 28px keeps the 26px line
+     comfortable and lets depth, not air, do the separating. */
+  padding-top: 1px;
+  padding-bottom: 1px;
+  padding-inline-start: calc(var(--gutter) + var(--depth) * var(--indent));
+  border-radius: 0;
+  cursor: text;
+  background-image:
+    linear-gradient(var(--thread-own, transparent), var(--thread-own, transparent)),
+    linear-gradient(var(--thread-lit), var(--thread-lit)),
+    repeating-linear-gradient(
+      to right,
+      var(--thread-line) 0 var(--guide-w),
+      transparent var(--guide-w) var(--indent)
+    );
+  /* Every layer is centred on the same column x: the 1px guides sit on it, and
+     the live bar and the row's own segment are pulled back half their width so
+     they grow around it rather than off it. */
+  background-position:
+    calc(var(--thread-axis) + var(--depth) * var(--indent) - var(--own-w) / 2) var(--thread-head),
+    calc(var(--thread-axis) + (var(--lit) - 1) * var(--indent) - var(--branch-w) / 2) 0,
+    calc(var(--thread-axis) - var(--guide-w) / 2) 0;
+  background-size:
+    var(--own-w) calc(100% - var(--thread-head)),
+    var(--lit-w) 100%,
+    calc(var(--depth) * var(--indent)) 100%;
+  background-repeat: no-repeat, no-repeat, no-repeat;
+}
+
+/* ── The branch ──
+   The one drawn thing in the writing, and it is drawn only where it says
+   something. Indentation already tells the reader that a row is inside another
+   one; what it cannot tell them is *which* of the lines to their left is the one
+   they came down. So the columns stay quiet 1px guides — a stack of indents, and
+   nothing more — and the path from the root to the caret is drawn as a single
+   continuous stroke: down each ancestor's column, a `--branch-turn` corner, and a
+   run that ends on the next bullet, level after level, until it lands on the row
+   the caret is in.
+
+   Elbows on *every* row was the first attempt and it was worse. Every bullet grew
+   a hook, four levels deep meant four hooks per row, and the device that was
+   supposed to answer "which line is mine" was drawn identically beside every line
+   on the screen. A tree connector is a "you are here" instrument; drawn
+   everywhere it is wallpaper.
+
+   One pseudo-element, no DOM — a virtualized list has none to spare — and no
+   overlap to reason about, because on a row the path arrives at, `--lit-cols`
+   holds the lit gradient one column back and the branch owns that column
+   outright. The stroke is opaque for the same reason: it has to cover the guide
+   it runs along instead of blending with it.
+
+   `aria-level` gates it rather than a `data-` attribute of its own: it is the
+   row's depth, the tree role requires it on every row, and a root has no parent
+   column to come down. */
+.outline-row:is([data-ancestor="true"], [data-focused="true"]):not([aria-level="1"])::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  inset-inline-start: calc(
+    var(--thread-axis) + (var(--depth) - 1) * var(--indent) - var(--branch-w) / 2
+  );
+  /* Ends on the dot: the bullet's centre is one indent along and its mark is 6px,
+     so 3px short of that centre is exactly its left edge. */
+  width: calc(var(--indent) - 3px + var(--branch-w) / 2);
+  height: calc(1px + var(--lh-md) / 2 + var(--branch-w) / 2);
+  border-inline-start: var(--branch-w) solid var(--thread-lit);
+  border-bottom: var(--branch-w) solid var(--thread-lit);
+  border-end-start-radius: var(--branch-turn);
+  pointer-events: none;
+}
+
+/* A row the path *arrives at* has nothing passing through it: the stroke comes
+   down its parent's column and turns in, so the branch is the whole of the live
+   stroke here and the gradient draws none of it. Every other row keeps its single
+   bar, which is what carries the stroke past the siblings between an ancestor and
+   the caret. */
+.outline-row[data-ancestor="true"],
+.outline-row[data-focused="true"] {
+  --lit-w: 0px;
+}
+
+/* The collapse chevron sits at `--indent / 2`, which is exactly where the branch's
+   horizontal run passes — so on the path it becomes a badge on the stroke rather
+   than a glyph floating near it, and it is shown without waiting for a hover: the
+   subtree the reader is inside is the one they are most likely to fold.
+
+   `--canvas` behind it is not the decorative tile excluded by
+   designs/metadata.md § Tag References and Identity — that was a grey square
+   drawn around an icon that was already legible. This is the ground, put back
+   where a 2px line would otherwise run through the middle of a glyph. */
+.outline-row[data-ancestor="true"] > .block-gutter > .outline-toggle,
+.outline-row[data-focused="true"] > .block-gutter > .outline-toggle {
+  opacity: 1;
+  border-radius: var(--r-full);
+  background: var(--canvas);
+  color: var(--thread-lit);
+}
+
+/* A row draws its own thread only while there is something under it to reach.
+   Collapsed is the one case that has children and must not: the halo on the
+   bullet is already saying they are there, and a line to nothing is a promise
+   the next row breaks. */
+.outline-row[data-has-children="true"]:not([data-collapsed="true"]) {
+  --thread-own: var(--thread-line);
+}
+
+/* On the path from the root to the caret, a parent's own segment lights and
+   thickens with the branch below it — otherwise the live stroke has a one-row gap
+   at every level it passes through.
+   The `:not()` is there for the specificity and not for the state: written as
+   `.outline-row[data-ancestor="true"]` this rule was one compound lighter than
+   the one above it and lost the cascade to it at every row that had children,
+   which is every row the path passes through. So the gap it exists to remove was
+   present the whole time — invisible while the thread was columns only, and the
+   first thing you see once a branch draws the turn beside it. An ancestor of the
+   caret cannot be collapsed, so the two selectors also mean the same thing; they
+   are now the same weight, and source order decides. */
+.outline-row[data-ancestor="true"]:not([data-collapsed="true"]) {
+  --thread-own: var(--thread-lit);
+  --own-w: var(--branch-w);
+}
+
+/* The one row fill in the product. A hover or focus wash was rejected because
+   the caret already says where you are; a *selection* has nothing else to say it,
+   and Delete or a drag needs to be unambiguous about what it will take. It is the
+   same wash the platform paints behind selected text, one level up. */
+.outline-row[data-selected="true"] {
+  background-color: var(--accent-soft);
+}
+
+/* Who else is on this line. Presence is metadata, not a control, so it takes
+   the tag cluster's position — gathered at the right edge of the block's own
+   line — in the metadata voice: bare 12px `--ink-3` text, no fill, no ring,
+   no hit box. 5px of vertical padding centres the 16px line inside the block's
+   26px one, and the 40% cap is the same trailing share the tags get. */
+.remote-presence {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40%;
+  margin-inline-start: auto;
+  padding: 5px var(--sp-1) 5px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-weight: var(--weight-medium);
+  pointer-events: none;
+}
+
+/* When tags follow, presence hands the auto margin over and the two read as
+   one right-aligned cluster. */
+.remote-presence + .outline-tags {
+  margin-inline-start: 0;
+}
+
+/* Everything left of the bullet, at every depth. No background of its own — the
+   thread shows straight through it — and no caret, because it is not text. */
+.outline-grip {
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0;
+  bottom: 0;
+  width: calc(var(--gutter) + var(--depth) * var(--indent));
+  cursor: default;
+  touch-action: pan-y;
+}
+
+.block-gutter {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--slot);
+  height: var(--lh-md);
+}
+
+/* The chevron sits in the middle of the indent column immediately left of the
+   bullet, which is the same grid the thread is drawn on: the parent's thread line
+   runs one whole `--indent` left of the bullet's centre, so the midpoint between
+   them is `--indent / 2`. At its old `-16px` the glyph landed 18px left of the
+   bullet — three quarters of an indent — which put it almost exactly on top of the
+   ancestor's thread line and left it aligned to nothing at all.
+   `z-index` because the bullet's 24px hit box reaches back over this square, and
+   between the two the chevron is the one the pointer came for. */
+.outline-toggle {
+  position: absolute;
+  inset-inline-start: calc(var(--slot) / 2 - var(--indent) / 2 - 8px);
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  /* No fill, in either state. A 16px grey square behind a 12px glyph is a button
+     drawn around an icon that was already legible, and it read as a smudge beside
+     the one mark on the row that is supposed to carry weight. The glyph rising to
+     full ink is the whole hover signal. */
+  background: none;
+  color: var(--ink-3);
+  cursor: pointer;
+  visibility: hidden;
+  opacity: 0;
+  transition:
+    opacity 0ms,
+    color var(--dur-press) var(--ease-out);
+}
+
+.outline-row[data-has-children="true"] > .block-gutter > .outline-toggle {
+  visibility: visible;
+}
+
+.outline-row:hover > .block-gutter > .outline-toggle,
+.outline-row:focus-within > .block-gutter > .outline-toggle,
+.outline-row[data-focused="true"] > .block-gutter > .outline-toggle {
+  opacity: 1;
+}
+
+.outline-toggle:hover {
+  color: var(--ink);
+}
+
+/* One glyph, rotated — not two glyphs swapped. This is the rotation exception
+   named in designs/foundations.md § Motion: the chevron *is* a direction, the
+   movement is the state change rather than an entrance, and it happens on a
+   16px square that no pointer is travelling toward while it turns. Swapping
+   `ChevronRight` for `ChevronDown` made the one control whose job is to say
+   "there is more underneath" the only thing on the page that changed with no
+   indication of which way it went. */
+.outline-toggle svg {
+  width: 12px;
+  height: 12px;
+  transition: transform var(--dur-disclose) var(--ease-out);
+}
+
+.outline-row[data-collapsed="true"] > .block-gutter > .outline-toggle svg {
+  transform: rotate(-90deg);
+}
+
+.outline-bullet {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* the hit box exceeds the mark without moving layout */
+  width: var(--target);
+  height: var(--target);
+  margin: -2px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-full);
+  background: none;
+  /* The bullet is the block's handle: click it to put the caret in the line,
+     drag it to move the subtree, right-click it for the block's own menu.
+     `grab` named the second of those three, and it was the wrong one to name:
+     an open hand promises that pressing will pick something up, so every user
+     who only wanted the caret was told they were about to move their block.
+     `pointer` names what a press actually does, and `grabbing` — set on the
+     whole section once a drag is genuinely in flight — names the other. */
+  cursor: pointer;
+  touch-action: none;
+}
+
+.outline-section[data-dragging="true"] .outline-bullet {
+  cursor: grabbing;
+}
+
+/* Pressing a bullet is the most-repeated gesture in the product, and a 5px dot
+   inside a 24px invisible hit box gave the finger no target to aim at. A 20px
+   disc — smaller than the hit box, larger than the mark — appears under the
+   pointer: the mark itself never changes size, so nothing moves, and what was
+   already reachable simply becomes visible. */
+.outline-bullet::before {
+  content: "";
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-full);
+  background: var(--surface-2);
+  opacity: 0;
+  transition: opacity var(--dur-press) var(--ease-out);
+}
+
+.outline-bullet:hover::before,
+.outline-bullet:focus-visible::before {
+  opacity: 1;
+}
+
+.outline-bullet:focus-visible::before {
+  background: var(--accent-soft);
+}
+
+.outline-bullet:focus-visible {
+  outline: none;
+}
+
+.outline-bullet::after {
+  position: relative;
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-full);
+  background: var(--ink-3);
+  box-shadow: none;
+  transition:
+    background-color var(--dur-press) var(--ease-out),
+    box-shadow var(--dur-disclose) var(--ease-out);
+}
+
+.outline-row:hover > .block-gutter > .outline-bullet::after {
+  background: var(--ink-2);
+}
+
+/* ── The path's own marks ──
+   The stroke lands on a bullet, so the bullets it lands on are part of it. Left
+   in `--ink-3` the branch arrived at a grey dot and stopped meaning anything at
+   its own destination; in the accent the whole chain — root, every level, the
+   caret's row — reads as one object.
+
+   These sit after the hover tone deliberately, and they have to: all three
+   selectors weigh the same, so being on the path wins only because it is claimed
+   last. Which is right — it is the stronger claim. */
+.outline-row[data-focused="true"] > .block-gutter > .outline-bullet::after,
+.outline-row[data-ancestor="true"] > .block-gutter > .outline-bullet::after {
+  background: var(--thread-lit);
+}
+
+/* The persistent collapsed signal: the halo. It is what still says "there is
+   something under here" once the pointer has left and the chevron has faded out,
+   and it grows and shrinks with the same 180ms the chevron turns in. */
+.outline-row[data-collapsed="true"] > .block-gutter > .outline-bullet::after {
+  box-shadow: 0 0 0 4px var(--collapsed-halo);
+}
+
+/* Expanding a row is the one structural change in the outline with no other
+   trace: rows the user has never seen simply exist on the next frame, in the
+   middle of a list, and the eye has nothing to follow. The rows the expand
+   revealed fade up over `--dur-disclose` while the chevron turns, so the two
+   halves of one gesture read as one thing.
+
+   Opacity only, and only for the rows one expand just uncovered — never for a row
+   the virtualizer happened to mount, which is why this is driven by an explicit
+   attribute the editor sets and clears rather than by an animation on mount. */
+.outline-row[data-revealed="true"] {
+  animation: ns-fade-in var(--dur-disclose) var(--ease-out) both;
+}
+
+/* An empty line states its emptiness with a fainter mark instead of a sentence
+   of instructions. The bullet is still there — it is the outliner's signature and
+   the row's handle — just quieter, and it comes back to full strength the moment
+   the row is hovered, focused, or has something in it. */
+.outline-row[data-empty="true"] > .block-gutter > .outline-bullet::after {
+  opacity: 0.4;
+}
+
+.outline-row[data-empty="true"]:hover > .block-gutter > .outline-bullet::after,
+.outline-row[data-empty="true"]:focus-within > .block-gutter > .outline-bullet::after,
+.outline-row[data-empty="true"][data-focused="true"] > .block-gutter > .outline-bullet::after,
+.outline-row[data-empty="true"][data-selected="true"] > .block-gutter > .outline-bullet::after {
+  opacity: 1;
+}
+
+/* Where a dragged selection would land: one accent rule at the depth the drop
+   would take, with a dot at its head so the level is legible at a glance. */
+.outline-drop {
+  --drop-depth: 0;
+  position: absolute;
+  inset-inline-start: calc(var(--drop-depth) * var(--indent));
+  inset-inline-end: 0;
+  height: 2px;
+  margin-top: -1px;
+  border-radius: var(--r-full);
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.outline-drop::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--r-full);
+  background: var(--accent);
+}
+
+/* The text column is a wrapping flex row so a block's tags can gather at the
+   right edge of its own line. Everything below the line (chips, query output)
+   claims the full width and wraps under. */
+.block-body {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  min-width: 0;
+  position: relative;
+  column-gap: var(--sp-2);
+}
+
+/* The line itself is shared by the outline editor and a canonical block shown
+   through a query. Surface controllers choose textarea, Markdown, or a button;
+   typography and wrapping remain one block grammar. */
+.block-line {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 60%;
+  min-height: var(--lh-md);
+  margin: 0;
+  padding: 0 var(--sp-1);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-md);
+  line-height: var(--lh-md);
+  overflow-wrap: break-word;
+}
+
+.outline-input {
+  display: block;
+  flex: 1 1 auto;
+  width: auto;
+  /* Tags may take at most the trailing 40% of the line; the writing keeps
+     the rest. When both cannot fit, the tag cluster wraps under the text. */
+  min-width: 60%;
+  margin: 0;
+  padding: 0 var(--sp-1);
+  border: none;
+  background: none;
+  resize: none;
+  overflow: hidden;
+  font: inherit;
+  font-size: var(--text-md);
+  line-height: var(--lh-md);
+  color: var(--ink);
+  caret-color: var(--accent);
+}
+
+.outline-input:focus {
+  outline: none;
+}
+
+.outline-input[hidden] {
+  display: none;
+}
+
+/* Markdown is a reading projection of the same source the textarea edits. It
+   occupies exactly the textarea's place in the flex row, so entering or leaving
+   source mode never moves tags, properties, or the outline's thread. */
+.outline-markdown {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 60%;
+  min-height: var(--lh-md);
+  padding: 0 var(--sp-1);
+  color: var(--ink);
+  font-size: var(--text-md);
+  line-height: var(--lh-md);
+  /* `break-word`, not `anywhere`: the textarea this stands in for only breaks a
+     word that cannot fit a line by itself, and the two must wrap alike. */
+  overflow-wrap: break-word;
+  cursor: text;
+}
+
+/* The projection is the row's tab stop while it stands in for the textarea, and
+   it hands focus straight over — so a ring here would only ever flash. */
+.outline-markdown:focus {
+  outline: none;
+}
+
+.block-body[data-task-status="done"] > .block-line,
+.block-body[data-task-status="cancelled"] > .block-line {
+  color: var(--ink-2);
+  text-decoration: line-through;
+}
+
+/* ── Markdown content ──
+   User-authored structure uses the product's existing voices: headings take the
+   real section scale, quoted depth borrows the indent thread, code is the one
+   inset writing surface, and a table borrows the query result's table language.
+   No library theme or new decorative palette is allowed into the outline. */
+
+/* Preflight and the UA both have opinions about margins here. They are cleared
+   at zero specificity, through :where(), so the rhythm rules underneath stay
+   plain class selectors and win by source order rather than by !important. */
+.block-markdown :where(p, ul, ol, li, dl, pre, blockquote, table, hr, h1, h2, h3, h4, h5, h6) {
+  margin: 0;
+}
+
+/* One rhythm rule instead of a list of adjacent pairs. Every pair a block can
+   produce is covered, so no combination lands with no space between it. */
+.block-markdown > * + * {
+  margin-top: var(--sp-2);
+}
+
+/* A heading opens a section, so it takes more room above it than a paragraph
+   does and less below it — except as the block's first line, where the row's
+   bullet already sets the top. */
+.block-markdown > * + .markdown-heading {
+  margin-top: var(--sp-4);
+}
+
+.block-markdown > .markdown-heading + * {
+  margin-top: var(--sp-1);
+}
+
+.block-markdown > :first-child {
+  margin-top: 0;
+}
+
+/* ── Six levels, four steps ──
+   The scale is anchored at both ends rather than chosen in the middle. Level one
+   sits just under the 30px page title, so an `#` heading is the largest thing in
+   the writing and still never ties with the name of the page it is written on;
+   level four is the body size exactly, so `####` is a bold line rather than a
+   size nobody asked for. Two and three are the interpolation between them
+   (designs/foundations.md § Typography), and five and six read as "a heading, quieter" —
+   the outline's own depth is where deeper hierarchy belongs.
+
+   Three steps was the previous answer and it was one short at the top: a `#`
+   heading came out at 19px, barely above the 16px paragraph beneath it, which
+   made a page of Markdown notes read as one undifferentiated weight. */
+.block-markdown .markdown-heading {
+  color: var(--ink-2);
+  font-size: var(--text-md);
+  line-height: var(--lh-md);
+  font-weight: var(--weight-strong);
+  letter-spacing: 0;
+}
+
+.block-markdown .markdown-heading[data-level="1"] {
+  color: var(--ink);
+  font-size: var(--head-1);
+  line-height: var(--head-1-lh);
+  letter-spacing: var(--track-xl);
+}
+
+.block-markdown .markdown-heading[data-level="2"] {
+  color: var(--ink);
+  font-size: var(--head-2);
+  line-height: var(--head-2-lh);
+  letter-spacing: var(--track-lg);
+}
+
+.block-markdown .markdown-heading[data-level="3"] {
+  color: var(--ink);
+  font-size: var(--head-3);
+  line-height: var(--head-3-lh);
+  letter-spacing: var(--track-lg);
+}
+
+.block-markdown .markdown-heading[data-level="4"] {
+  color: var(--ink);
+}
+
+/* The rule that used to sit under `#` and `##` is gone. In running prose it is a
+   section divider; in an *outline* it is a full-measure horizontal line drawn
+   underneath one bullet, several indents deep, cutting across the thread and the
+   rows on either side of it — a page divider in the middle of a list, promising a
+   break that the next row immediately contradicts. Size, weight and the space
+   above are what open a section here; the outline's own depth does the rest. */
+.block-markdown > .markdown-heading[data-level="1"],
+.block-markdown > .markdown-heading[data-level="2"] {
+  padding-bottom: 0;
+}
+
+.block-markdown strong {
+  font-weight: var(--weight-strong);
+}
+
+.block-markdown em {
+  font-style: italic;
+}
+
+.block-markdown del {
+  color: var(--ink-2);
+  text-decoration: line-through;
+}
+
+.block-markdown a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.block-markdown a:hover,
+.block-markdown a:focus-visible {
+  outline: none;
+  color: var(--accent-hover);
+  text-decoration-thickness: 2px;
+}
+
+.block-markdown .page-reference {
+  padding: 0 0.16em;
+  border-radius: var(--r-1);
+  color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 9%, transparent);
+  text-decoration: none;
+}
+
+.block-markdown .page-reference:hover,
+.block-markdown .page-reference:focus-visible {
+  background: color-mix(in oklab, var(--accent) 15%, transparent);
+  text-decoration: none;
+}
+
+/* Code is a surface, and a surface separates by lightness. --surface-1 against
+   the outline's --canvas is a 1.5% step, under the 3-5% the depth scale asks
+   for, so both the inline run and the fenced block take --surface-2 — the shape
+   already says which is which, and a drawn border is not available. */
+.block-markdown code {
+  padding: 1px var(--sp-1);
+  border-radius: var(--r-1);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  font-weight: var(--weight-normal);
+}
+
+.block-markdown pre {
+  max-width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+  overflow-x: auto;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  white-space: pre;
+}
+
+.block-markdown pre code {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  font: inherit;
+}
+
+.block-markdown blockquote {
+  padding-inline-start: var(--sp-3);
+  box-shadow: inset 1px 0 0 var(--line);
+  color: var(--ink-2);
+}
+
+/* Preflight clears the marker, and a list with no marker is a paragraph. The
+   marker is structure rather than writing, so it sits at --ink-3, and the three
+   depths differ the way a printed list does. */
+.block-markdown ul,
+.block-markdown ol {
+  padding-inline-start: var(--sp-5);
+  list-style-position: outside;
+}
+
+.block-markdown ul {
+  list-style-type: disc;
+}
+
+.block-markdown ul ul {
+  list-style-type: circle;
+}
+
+.block-markdown ul ul ul {
+  list-style-type: square;
+}
+
+.block-markdown ol {
+  list-style-type: decimal;
+}
+
+.block-markdown li::marker {
+  color: var(--ink-3);
+}
+
+.block-markdown li > ul,
+.block-markdown li > ol {
+  margin-top: var(--sp-0);
+}
+
+.block-markdown li + li {
+  margin-top: var(--sp-0);
+}
+
+/* A task written in Markdown is text, not a graph task: the box is inert, and
+   the row's own status glyph remains the only one that means anything. */
+.block-markdown li:has(> input[type="checkbox"]),
+.block-markdown li.task-list-item {
+  list-style-type: none;
+}
+
+.block-markdown input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  margin: 0 var(--sp-1) 0 0;
+  accent-color: var(--accent);
+  vertical-align: -1px;
+}
+
+/* The one horizontal rule the product draws, and it is the thread's own tone:
+   a break inside the writing, not a border around it. */
+.block-markdown hr {
+  height: 0;
+  margin: var(--sp-3) 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+/* Tables borrow the query result's language exactly: a --surface-2 header band,
+   --ink-2 body text, no row lines, and sideways scrolling of its own so a wide
+   table never widens the measure. */
+.markdown-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.block-markdown table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  text-align: start;
+}
+
+.block-markdown th {
+  padding: var(--sp-1) var(--sp-2);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
+.block-markdown td {
+  padding: var(--sp-1) var(--sp-2);
+  color: var(--ink);
+  vertical-align: top;
+}
+
+.block-markdown th:first-child {
+  border-start-start-radius: var(--r-1);
+}
+
+.block-markdown th:last-child {
+  border-start-end-radius: var(--r-1);
+}
+
+.markdown-image-alt,
+.markdown-link-blocked {
+  color: var(--ink-2);
+}
+
+.markdown-image-alt {
+  font-style: italic;
+}
+
+/* Query cells use the same parser and security profile but keep a phrasing-only
+   DOM. That lets the surrounding cell remain the one edit/open control instead
+   of nesting links or block boxes inside a button. */
+.block-markdown[data-variant="compact"] {
+  display: inline;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+}
+
+.block-markdown[data-variant="compact"] code {
+  padding: 0 var(--sp-0);
+}
+
+.markdown-compact-paragraph + .markdown-compact-paragraph::before,
+.markdown-compact-list + .markdown-compact-paragraph::before,
+.markdown-compact-paragraph + .markdown-compact-list::before,
+.markdown-compact-table + .markdown-compact-paragraph::before,
+.markdown-compact-paragraph + .markdown-compact-table::before {
+  content: " · ";
+  color: var(--ink-3);
+}
+
+.markdown-compact-quote::before {
+  content: "“";
+  color: var(--ink-3);
+}
+
+.markdown-compact-quote::after {
+  content: "”";
+  color: var(--ink-3);
+}
+
+.markdown-compact-list[data-kind="ordered"] {
+  counter-reset: markdown-item;
+}
+
+.markdown-compact-list-item {
+  display: inline;
+}
+
+.markdown-compact-list-item + .markdown-compact-list-item::before {
+  content: " · ";
+  color: var(--ink-3);
+}
+
+.markdown-compact-list[data-kind="unordered"] > .markdown-compact-list-item:first-child::before {
+  content: "• ";
+}
+
+.markdown-compact-list[data-kind="ordered"] > .markdown-compact-list-item {
+  counter-increment: markdown-item;
+}
+
+.markdown-compact-list[data-kind="ordered"] > .markdown-compact-list-item::before {
+  content: counter(markdown-item) ". ";
+}
+
+/* A flattened table keeps the same separator as a flattened list, so one row of
+   a result reads as one sentence however the author wrote it. */
+.markdown-compact-cell + .markdown-compact-cell::before,
+.markdown-compact-row + .markdown-compact-row::before,
+.markdown-compact-row-group + .markdown-compact-row-group::before {
+  content: " · ";
+  color: var(--ink-3);
+}
+
+.markdown-compact-task::before {
+  content: "☐ ";
+  color: var(--ink-3);
+}
+
+.markdown-compact-task[data-checked="true"]::before {
+  content: "☑ ";
+}
+
+.markdown-compact-link {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown-compact-break {
+  color: var(--ink-3);
+  letter-spacing: 0.12em;
+}
+
+/* Gathered at the right of the block's own line, not a line beneath it: a
+   22px chip inside a 26px text line, padded so the two share a centre.
+
+   12px between them, not 4. A boxed chip carries its own edge and needs only a
+   seam; a *bare* one is a run of words, and at 4px `#design #infra` read as one
+   token with punctuation in it. The gap is what separates them now, so it has to
+   be wider than the space inside a word — the same reason a list of links is not
+   set solid. */
+.outline-tags {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--sp-3);
+  min-width: 0;
+  margin-inline-start: auto;
+  padding: 2px var(--sp-1) 2px 0;
+}
+
+/* Empty outlines expose the first writing action on the same text axis.
+   The append reach is retained after the first block is created. */
+.outline-placeholder {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-0);
+  width: 100%;
+  min-height: var(--append-h);
+  padding: 2px 0 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: var(--text-md);
+  line-height: var(--lh-md);
+  text-align: start;
+  cursor: text;
+}
+
+.outline-placeholder-label {
+  padding-inline-start: var(--sp-1);
+  color: var(--ink-3);
+}
+
+.outline-placeholder .dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--slot);
+  height: var(--lh-md);
+}
+
+.outline-placeholder .dot::after {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: var(--r-full);
+  background: var(--ink-3);
+  /* "Comes straight back" — the reveal is instant, per designs/foundations.md § Motion. */
+  opacity: 0.4;
+}
+
+.outline-placeholder:hover .dot::after,
+.outline-placeholder:focus-visible .dot::after {
+  opacity: 1;
+}
+
+/* The region below the last block IS the add-a-block affordance. Approaching it
+   with the pointer raises the faint bullet of the line it would create, at the
+   exact gutter position and baseline that line will occupy. */
+.outline-append {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-height: var(--append-h);
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: text;
+}
+
+.outline-append::before {
+  content: "";
+  position: absolute;
+  top: 12px;
+  inset-inline-start: calc(var(--slot) / 2 - 2.5px);
+  width: 5px;
+  height: 5px;
+  border-radius: var(--r-full);
+  background: var(--ink-3);
+  /* Hover-revealed chrome is instant, per designs/foundations.md § Motion. */
+  opacity: 0;
+}
+
+.outline-append:hover::before {
+  opacity: 0.4;
+}
+
+/* Focus is not hover. The pointer is already at the dot it just raised, so 40% of
+   `--ink-3` is enough to confirm it; a keyboard arriving at a 320px-tall region
+   has nothing else to go on, so the mark comes up to full strength and takes the
+   accent — the same thing the caret would say once a line existed. */
+.outline-append:focus-visible::before {
+  opacity: 1;
+  background: var(--accent);
+}
+
+/* Nothing to hover with: the affordance has to be there already, or the region
+   below the last block is an invisible target. */
+@media (hover: none) {
+  .outline-append::before {
+    opacity: 0.4;
+  }
+}
+
+/* Contextual menus keep one zero-size Radix trigger at their captured point. */
+.menu-anchor {
+  position: fixed;
+  width: 0;
+  height: 0;
+}

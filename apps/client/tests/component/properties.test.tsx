@@ -2,7 +2,12 @@
 
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { useState } from "react";
+import { CommandPalette } from "../../src/features/commands/CommandPalette";
+import { useCommands } from "../../src/features/commands/context";
+import { PageView } from "../../src/features/page/PageView";
+import { PropertyPicker } from "../../src/features/properties/PropertyPicker";
 import { dateValue, stringValue } from "../../src/core-port/snapshot";
 import { chooseFromMenu, GRAPH_ID, mountAt, openPageMenu } from "./harness";
 
@@ -59,6 +64,146 @@ describe("the page's own menu", () => {
 });
 
 describe("property picker", () => {
+  it("returns to the page title after a palette command with no focused control", async () => {
+    let openPalette!: () => void;
+    function PageWithPalette() {
+      const [open, setOpen] = useState(false);
+      const commands = useCommands();
+      openPalette = () => setOpen(true);
+      return (
+        <>
+          <PageView />
+          {open && (
+            <CommandPalette
+              commands={[
+                {
+                  id: "properties",
+                  group: "Edit",
+                  label: "Properties",
+                  keywords: [],
+                  run: () => {
+                    commands.requestProperties();
+                  },
+                },
+              ]}
+              onClose={() => setOpen(false)}
+            />
+          )}
+        </>
+      );
+    }
+    const harness = await mountAt(`/g/${GRAPH_ID}/p/home`, <PageWithPalette />);
+    await harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
+    await waitFor(() => expect(screen.getByTestId("page-title")).toHaveValue("Home"));
+    const user = userEvent.setup();
+    // A global shortcut can start from the page itself, without an input or
+    // permanent button owning focus. The chosen editor still needs a return route.
+    await act(async () => {
+      (document.activeElement as HTMLElement).blur();
+    });
+    expect(document.body).toHaveFocus();
+    await harness.settle(openPalette);
+    await waitFor(() => expect(screen.getByTestId("command-input")).toHaveFocus());
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(screen.queryByTestId("command-palette")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText("Property key")).toHaveFocus());
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByTestId("property-picker")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("page-title")).toHaveFocus());
+  });
+
+  it("returns focus to the page title after closing an empty page picker", async () => {
+    await mountPage();
+    const user = userEvent.setup();
+    await openPagePicker(user);
+    await waitFor(() => expect(screen.getByLabelText("Property key")).toHaveFocus());
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.getByTestId("page-title")).toHaveFocus());
+  });
+
+  it("returns focus to the title when the invoking property chip is removed", async () => {
+    const { session } = await mountPage();
+    await session.execute({
+      type: "set_property",
+      owner: { kind: "page", id: "home" },
+      key: "user.note",
+      value: { type: "string", value: "Remove me" },
+    });
+    const user = userEvent.setup();
+    await user.click(await screen.findByTestId("prop-user.note"));
+    await user.click(await screen.findByRole("button", { name: "Remove property" }));
+    await waitFor(() => expect(screen.queryByTestId("prop-user.note")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("page-title")).toHaveFocus());
+  });
+
+  it("returns focus to an existing property chip after editing its value", async () => {
+    const { session } = await mountPage();
+    await session.execute({
+      type: "set_property",
+      owner: { kind: "page", id: "home" },
+      key: "user.note",
+      value: { type: "string", value: "Before" },
+    });
+    const user = userEvent.setup();
+    const chip = await screen.findByTestId("prop-user.note");
+    await user.click(chip);
+    await user.clear(screen.getByLabelText("note value"));
+    await user.type(screen.getByLabelText("note value"), "After{Enter}");
+    await waitFor(() => expect(chip).toHaveTextContent("After"));
+    await waitFor(() => expect(chip).toHaveFocus());
+  });
+
+  it("keeps a prefixed property batch in one pending editor until it settles", async () => {
+    let finish!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const onClose = vi.fn(finish);
+    const owner = { kind: "page", id: "home" } as const;
+    const { session, port } = await mountAt(
+      `/g/${GRAPH_ID}/custom`,
+      <PropertyPicker
+        target={{ ...owner, bag: [] }}
+        initialKey="user.note"
+        anchor={null}
+        commandPrefix={{
+          type: "set_property",
+          owner,
+          key: "user.prefix",
+          value: { type: "string", value: "once" },
+        }}
+        onClose={onClose}
+      />,
+    );
+    await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const commands: string[] = [];
+    port.beforeExecute = async (command) => {
+      commands.push(command.type);
+      await held;
+    };
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("note value"), "Saved once");
+    await user.click(screen.getByTestId("property-set"));
+    try {
+      await user.keyboard("{Escape}{Escape}");
+      expect(screen.getByLabelText("note value")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Back to properties" })).toBeDisabled();
+      expect(onClose).not.toHaveBeenCalled();
+      expect(commands).toEqual(["batch"]);
+    } finally {
+      await act(async () => {
+        release();
+        await closed;
+      });
+    }
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(commands).toEqual(["batch"]);
+  });
+
   it("edits all five value types and keeps unknown keys editable", async () => {
     const { session, port } = await mountPage();
     const user = userEvent.setup();
@@ -498,7 +643,7 @@ describe("property picker", () => {
     await user.type(textarea, "/");
     expect(await screen.findByTestId("slash-menu")).toBeVisible();
 
-    fireEvent.pointerDown(document.body, { button: 0 });
+    await user.click(document.body);
     await waitFor(() => expect(screen.queryByTestId("slash-menu")).not.toBeInTheDocument());
     expect(textarea).toHaveValue("/");
   });

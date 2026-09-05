@@ -122,6 +122,7 @@ test("slash, block properties, and tags share the same focused target", async ({
   await page.keyboard.press("Enter");
 
   let picker = page.getByTestId("property-picker");
+  await expect(picker.getByLabel("Property key")).toBeFocused();
   await picker.getByRole("option", { name: "Status", exact: true }).click();
   await picker.getByRole("option", { name: "Doing", exact: true }).click();
   await expect(page.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: Doing");
@@ -129,6 +130,7 @@ test("slash, block properties, and tags share the same focused target", async ({
 
   await openBlockTags(page);
   let tags = page.getByTestId("tag-picker");
+  await expect(tags.getByTestId("tag-autocomplete")).toBeFocused();
   await tags.getByTestId("tag-autocomplete").fill("Project");
   await page.getByRole("option", { name: "Project", exact: true }).click();
   await expect(tags.getByTestId("tag-chip")).toContainText("#Project");
@@ -142,6 +144,7 @@ test("slash, block properties, and tags share the same focused target", async ({
   await typeInFocusedBlock(page, "fresh block");
   await openBlockTags(page, 1);
   tags = page.getByTestId("tag-picker");
+  await expect(tags.getByTestId("tag-autocomplete")).toBeFocused();
   await tags.getByTestId("tag-autocomplete").fill("Proj");
   await page.getByRole("option", { name: "Project", exact: true }).click();
   await expect(tags.getByTestId("tag-chip")).toContainText("#Project");

@@ -1,0 +1,1709 @@
+/* ─────────────────────── 7. properties ─────────────────────── */
+
+/* Property rows belong to the document they describe. Their shared two-column
+   rhythm makes metadata scannable without turning the outline into a table. */
+.page-inline-properties {
+  min-height: 0;
+}
+
+.property-picker,
+.tag-picker,
+.slash-menu {
+  z-index: var(--z-popover);
+  padding: var(--sp-2);
+  border-radius: var(--r-3);
+  background: var(--overlay);
+  box-shadow: var(--e2);
+  color: var(--ink);
+}
+
+/* Height and placement belong to the anchored primitives: they hand every
+   summoned panel a `max-height` equal to the room actually left on the side they
+   chose, so the panel scrolls inside itself instead of off-screen. */
+.property-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  overflow: hidden;
+}
+
+.property-picker-head {
+  display: flex;
+  min-height: var(--sp-6);
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.property-picker-head > div {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.property-picker-head strong {
+  overflow: hidden;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.property-picker-head span {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.property-picker-list {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: var(--sp-0);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.property-picker-option {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-height: var(--sp-6);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  text-align: start;
+  cursor: pointer;
+}
+
+/* One highlight for every option list in the product — the palette's row
+   language: the rounded `--surface-2` wash (designs/interaction.md § Selection and Indicators). Pointer
+   hover, a keyboard's active index, and roving focus all land on this same
+   state, so "where am I" never has two answers. The *chosen* value is not a
+   position: it says so with its check mark, never a second wash. */
+.property-picker-option[data-active="true"],
+.property-picker-option:focus {
+  background: var(--surface-2);
+}
+
+.property-picker-option svg {
+  flex: none;
+  color: var(--accent);
+}
+
+/* Type and value glyphs are metadata marks, not actions: they rest at the
+   glyph ink, never the accent (that stays with the existing-value check) —
+   unless the row *is* a state, in which case the state's own tone is the point
+   of the row and arrives through `--glyph-tone`. */
+.property-picker-option svg[data-type-glyph],
+.property-picker-option svg[data-status-glyph],
+.property-picker-option svg[data-priority-glyph] {
+  width: 16px;
+  height: 16px;
+  color: var(--glyph-tone, var(--ink-2));
+}
+
+.property-picker-candidate {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.property-picker-candidate > span,
+.property-picker-candidate > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.property-picker-candidate > small {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+/* A value editor owns layout, not focus paint. Generic editors may scroll here;
+   the composed task-moment editor owns its one scrollport below so its footer
+   remains fixed. Neither path creates focus-specific padding or negative
+   margins: fields carry a complete inset focus edge themselves. */
+.property-picker-value {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.property-picker-value:not(:has(.moment-picker)) {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.property-picker-value:has(.moment-picker) {
+  overflow: hidden;
+}
+
+.property-current-value {
+  margin: 0;
+  padding: 0 var(--sp-2);
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.property-picker-members {
+  display: flex;
+  max-height: 144px;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.property-picker-members > div {
+  display: flex;
+  min-height: var(--sp-6);
+  align-items: center;
+  gap: var(--sp-2);
+  padding-inline-start: var(--sp-2);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+.property-picker-members span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.property-picker-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-1);
+}
+
+.property-picker-actions > :first-child:not(:last-child) {
+  margin-inline-end: auto;
+}
+
+/* The date editor: one field that reads words, the day it resolved to as a
+   pressable row, and the platform's own date input for precision. */
+.property-date-editor {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.property-date-native {
+  display: grid;
+}
+
+/* A task moment is one compact draft. The left column resolves a day and the
+   right column keeps time and recurrence in stable slots, so toggling a value
+   changes emphasis rather than moving the rest of the editor. */
+.moment-picker {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--sp-2);
+  overflow: hidden;
+}
+
+.moment-picker-body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--sp-2);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.moment-search-block {
+  position: relative;
+  z-index: 2;
+}
+
+.moment-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.moment-search-proposals {
+  position: absolute;
+  inset: calc(100% + var(--sp-1)) 0 auto;
+  z-index: 3;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  background: var(--raised);
+  box-shadow: var(--e2);
+}
+
+.moment-search-proposals > button {
+  display: flex;
+  width: 100%;
+  min-height: var(--sp-6);
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  border: 0;
+  border-radius: calc(var(--r-2) - 2px);
+  background: var(--accent-soft);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: start;
+  cursor: pointer;
+}
+
+.moment-search-proposals > button:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--accent) 18%, var(--raised));
+}
+
+.moment-search-proposals > button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-inset);
+}
+
+.moment-search-proposals svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  color: var(--accent);
+}
+
+.moment-search-result-details {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-inline-start: auto;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.moment-search-result-details strong {
+  overflow: hidden;
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+}
+
+.moment-search > svg {
+  position: absolute;
+  inset-inline-start: var(--sp-3);
+  z-index: 1;
+  width: 15px;
+  height: 15px;
+  color: var(--ink-3);
+  pointer-events: none;
+}
+
+.moment-mobile-tabs {
+  display: none;
+}
+
+.moment-picker-columns {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  grid-template-columns: minmax(290px, 324px) minmax(0, 1fr);
+  gap: var(--sp-2);
+}
+
+.moment-date-pane {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.moment-rules-pane {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: 1fr 1fr;
+  padding: var(--sp-2) var(--sp-3);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-3);
+  background: var(--surface-1);
+}
+
+.moment-calendar {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-3);
+  background: var(--surface-1);
+}
+
+.moment-calendar-head {
+  display: grid;
+  grid-template-columns: var(--sp-6) 1fr var(--sp-6);
+  align-items: center;
+}
+
+.moment-calendar-title {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  font-weight: var(--weight-strong);
+  text-align: center;
+}
+
+.moment-calendar-nav {
+  display: grid;
+  width: var(--sp-6);
+  height: var(--sp-6);
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-2);
+  place-items: center;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.moment-calendar-nav:hover:not([data-disabled]) {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.moment-calendar-nav:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.moment-calendar-nav svg {
+  width: 16px;
+  height: 16px;
+}
+
+.moment-calendar-grid {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 2px 1px;
+  table-layout: fixed;
+}
+
+.moment-calendar-weekday {
+  height: var(--sp-5);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-weight: var(--weight-medium);
+  text-align: center;
+}
+
+.moment-calendar-cell {
+  display: grid;
+  width: 100%;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-2);
+  place-items: center;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-align: center;
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+.moment-calendar-cell[data-hovered],
+.moment-calendar-cell:hover:not([data-disabled]) {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.moment-calendar-cell[data-today] {
+  color: var(--accent);
+  font-weight: var(--weight-strong);
+}
+
+.moment-calendar-cell[data-selected] {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: var(--weight-strong);
+}
+
+.moment-calendar-cell[data-focus-visible] {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.moment-calendar-cell[data-outside-month] {
+  color: var(--ink-3);
+  opacity: 0.45;
+}
+
+.moment-calendar-cell[data-disabled],
+.moment-picker button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.moment-rule-section {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: var(--sp-6) minmax(0, 1fr);
+  gap: var(--sp-2);
+  padding-bottom: var(--sp-2);
+}
+
+.moment-rule-section + .moment-rule-section {
+  padding-top: var(--sp-2);
+  padding-bottom: 0;
+  border-top: 1px solid var(--line);
+}
+
+.moment-rule-section[data-enabled="false"] .moment-time-controls,
+.moment-rule-section[data-enabled="false"] .moment-repeat-controls {
+  opacity: 0.52;
+}
+
+.moment-time-switch {
+  display: flex;
+  min-height: var(--sp-6);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.moment-switch-track {
+  display: flex;
+  width: 36px;
+  height: 20px;
+  flex: none;
+  align-items: center;
+  padding: 2px;
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+  box-shadow: var(--e1);
+  transition: background-color var(--dur-press) var(--ease-out);
+}
+
+.moment-switch-track > span {
+  width: 16px;
+  height: 16px;
+  border-radius: var(--r-full);
+  background: var(--raised);
+  box-shadow: 0 1px 3px color-mix(in oklab, var(--ink) 24%, transparent);
+  transition: transform var(--dur-press) var(--ease-out);
+}
+
+.moment-time-switch[data-selected] .moment-switch-track {
+  background: var(--accent);
+}
+
+.moment-time-switch[data-selected] .moment-switch-track > span {
+  transform: translateX(16px);
+}
+
+html[dir="rtl"] .moment-time-switch[data-selected] .moment-switch-track > span {
+  transform: translateX(-16px);
+}
+
+.moment-time-switch[data-focus-visible] {
+  outline: none;
+}
+
+.moment-time-switch[data-focus-visible] .moment-switch-track {
+  box-shadow: var(--e1), var(--focus-ring);
+}
+
+.moment-time-controls {
+  display: flex;
+  min-width: 0;
+  align-self: start;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--ink-3);
+  transition: opacity var(--dur-press) var(--ease-out);
+}
+
+.moment-time-controls > svg {
+  width: 16px;
+  height: 16px;
+}
+
+.moment-time-field {
+  min-width: 0;
+  flex: 1;
+}
+
+.moment-time-input {
+  display: inline-flex;
+  min-height: var(--sp-6);
+  align-items: center;
+  padding: 0 var(--sp-2);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+  box-shadow: var(--e1);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.moment-time-input[data-focus-within] {
+  box-shadow: var(--focus-inset);
+}
+
+.moment-time-segment {
+  padding: 1px 2px;
+  border-radius: var(--r-1);
+  outline: none;
+}
+
+.moment-time-literal {
+  padding-inline: 0;
+}
+
+.moment-time-segment[data-focused] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.moment-time-segment[data-placeholder] {
+  color: var(--ink-3);
+}
+
+.moment-repeat-controls {
+  display: grid;
+  min-width: 0;
+  align-self: start;
+  grid-template-columns: 16px 68px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--ink-3);
+  transition: opacity var(--dur-press) var(--ease-out);
+}
+
+.moment-repeat-controls > svg {
+  width: 16px;
+  height: 16px;
+}
+
+.moment-repeat-controls input {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.moment-repeat-unit {
+  min-width: 0;
+}
+
+.moment-repeat-preview {
+  grid-column: 2 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin: 0;
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.moment-repeat-preview span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.moment-repeat-preview span:last-child {
+  color: var(--ink-3);
+}
+
+.moment-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding-top: var(--sp-1);
+}
+
+.moment-clear {
+  color: var(--danger);
+}
+
+.moment-clear:hover:not(:disabled) {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.moment-actions {
+  display: flex;
+  flex: none;
+  gap: var(--sp-1);
+  margin-inline-start: auto;
+}
+
+.moment-actions svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* The interval: a count, a unit, and the words they make. The preview spans the
+   row underneath so the confirmation is read rather than assembled. */
+.property-repeat-editor {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.property-repeat-editor input {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.property-repeat-preview {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+.tag-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.tag-picker > strong {
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+/* ── A tag's own hue ──
+   A tag that has chosen a colour speaks in it — and only in it: the colour is a
+   *hue*, and `--quiet-l`/`--quiet-c` and `--accent-l`/`--accent-c` stay the
+   mode's, so every step on offer sits exactly where the accent sits on the
+   contrast table, in both modes and at all eight angles (designs/foundations.md § Semantic Color).
+   That is what makes eight tag colours safe where eight arbitrary colours would
+   not be.
+
+   `--tag` is declared *here* rather than beside the accent because a custom
+   property's `var()`s are substituted where the property is declared: written on
+   `:root`, it would have baked in the root's hue and every tag would be one
+   colour. The default carries no `data-hue` at all and simply is the accent,
+   which is what a tag has always been. */
+:root {
+  --tag: var(--accent);
+  --tag-quiet: var(--accent-quiet);
+  --tag-tint: var(--accent-tint);
+}
+
+[data-hue] {
+  --tag: oklch(var(--accent-l) var(--accent-c) var(--hue));
+  --tag-quiet: oklch(var(--quiet-l) var(--quiet-c) var(--hue));
+  --tag-tint: color-mix(in oklab, var(--tag) 7%, transparent);
+}
+
+[data-hue="red"] {
+  --hue: 15;
+}
+[data-hue="orange"] {
+  --hue: 55;
+}
+[data-hue="green"] {
+  --hue: 145;
+}
+[data-hue="teal"] {
+  --hue: 195;
+}
+[data-hue="blue"] {
+  --hue: 240;
+}
+[data-hue="iris"] {
+  --hue: 277;
+}
+[data-hue="violet"] {
+  --hue: 310;
+}
+[data-hue="rose"] {
+  --hue: 345;
+}
+
+/* ── The tag's mark ──
+   Every tag already wore a `#`. It is the mark now — the reader may swap it for
+   an emoji, and either way it takes the tag's own colour — and it is also the
+   *control*: pressing it opens the one panel that says what a tag looks like and
+   where it is filed. The object is the disclosure, so nothing is parked beside
+   it (designs/shell-and-navigation.md § Disclosure and Commands).
+
+   No tile behind it. A filled square would give a glyph weight it has not earned
+   and put a coloured box on every row of a list whose subject is the writing. */
+.tag-mark {
+  display: inline-flex;
+  width: var(--target);
+  height: var(--target);
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--tag);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: 1;
+  font-weight: var(--weight-strong);
+  transition: background-color var(--dur-press) var(--ease-out);
+}
+
+.tag-mark[data-icon] {
+  /* An emoji carries its own colour and its own weight; the hue would only fight
+     it, and the strong weight would ask a font for a face it does not have. */
+  color: inherit;
+  font-size: var(--text-md);
+  font-weight: var(--weight-normal);
+}
+
+.tag-mark[data-size="lg"] {
+  width: var(--sp-6);
+  height: var(--sp-6);
+  border-radius: var(--r-3);
+  font-size: 22px;
+}
+
+.tag-mark[data-size="lg"][data-icon] {
+  font-size: 24px;
+}
+
+button.tag-mark {
+  cursor: pointer;
+}
+
+/* In the rail a tag's mark is a rail glyph: it takes the one mark slot every
+   other row's icon takes, so every label in the list still starts at one x. */
+.shell-nav-item .tag-mark {
+  width: var(--mark-slot);
+  height: var(--mark-slot);
+  border-radius: var(--r-1);
+  font-size: var(--text-sm);
+}
+
+button.tag-mark:hover {
+  background: var(--surface-2);
+}
+
+button.tag-mark:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* ── The tags screen ──
+   A directory, not a grid of cards. A card can say a tag's name and nothing else;
+   forty of them say forty names. Rows under group headings say what each tag is,
+   what it does to a block, and how much of the graph is actually wearing it —
+   and they read *down*, in columns, which is the whole reason a list beats a
+   grid once there is more than a handful.
+
+   The heading language is the rail's own (designs/foundations.md § Typography), so a
+   group here and a group in the rail are the same kind of thing. */
+.tags-hint {
+  max-width: 60ch;
+  margin: 0 0 var(--sp-5);
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+.tags-empty {
+  margin: var(--sp-2) 0 0;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+/* Pulled out by exactly the padding its headings and rows carry, so their text
+   starts on the page's own left edge — the same edge the title and the note take
+   — and only the hover wash reaches past it. A heading four pixels inside that
+   edge is the near-miss this screen's first draft shipped: not one edge and not
+   two, just a column that looks slightly wrong and cannot be pointed at. */
+.tag-groups {
+  display: flex;
+  margin-inline: calc(var(--sp-1) * -1);
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.tag-group {
+  position: relative;
+  border-radius: var(--r-3);
+}
+
+/* ── The seam ──
+   Where the thing in the reader's hand will land, drawn as one 2px accent rule
+   in the gap it is about to occupy. A wash over the group under the pointer
+   answers "which group" and nothing else, which stopped being the question the
+   moment the list had an order; and a dashed outline would be a second
+   silhouette around a region (designs/foundations.md § Geometry, Depth, and Shape). Nothing reflows while the
+   pointer travels — rows sliding out from under a drag is the interface
+   guessing, and the guess is wrong on every frame the reader changes their mind.
+
+   The rule is drawn on a pseudo-element straddling the gap, so it occupies no
+   space and no row moves when it appears. It is instant: a hint about where the
+   pointer is now is late the moment it animates. */
+.tag-row[data-seam]::after,
+.tag-group[data-seam]::after,
+.tag-group-drop[data-seam]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.tag-row[data-seam="before"]::after {
+  top: -1px;
+}
+
+.tag-row[data-seam="after"]::after {
+  bottom: -1px;
+}
+
+/* A group's seam sits in the gap between sections, which is `--sp-5` of nothing:
+   half of it either way puts the rule where a reader would draw it. Above the
+   first group there is no such gap — only the note's margin — so the rule comes
+   in to where the list starts rather than reaching up to underline a sentence. */
+.tag-group[data-seam="before"]::after {
+  top: calc(var(--sp-3) * -1);
+}
+
+.tag-group:first-child[data-seam="before"]::after {
+  top: calc(var(--sp-1) * -1);
+}
+
+.tag-group[data-seam="after"]::after {
+  bottom: calc(var(--sp-3) * -1);
+}
+
+/* Being carried, not being read: the same fade a dragged row takes, so a group
+   in the reader's hand looks like one wherever the pointer has got to. */
+.tag-group[data-dragging],
+.tag-row[data-dragging] {
+  opacity: 0.45;
+}
+
+/* An empty group has no gap between rows to mark, so the seam is the row the
+   tag is about to become. */
+.tag-group-drop[data-seam]::after {
+  top: 50%;
+  margin-top: -1px;
+}
+
+/* A heading is the group's handle, so it says so with the cursor rather than
+   with a grip nobody asked for: a grip is a control, and this row already has
+   one control too many for its width. */
+.tag-group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  height: var(--sp-6);
+  padding: 0 var(--sp-1);
+}
+
+.tag-group-head[draggable="true"] {
+  cursor: grab;
+}
+
+.tag-group-head[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.tag-group-head h2 {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  letter-spacing: 0.06em;
+  font-weight: var(--weight-strong);
+  text-transform: uppercase;
+}
+
+/* How many are in it, in the heading's own voice: a fact, not a badge. */
+.tag-group-count {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.tag-group-actions {
+  margin-inline-start: auto;
+}
+
+.tag-group:hover .tag-group-actions,
+.tag-group-head:focus-within .tag-group-actions,
+.tag-group-head:has([data-state="open"]) .tag-group-actions {
+  opacity: 1;
+}
+
+/* A group is renamed where it is read, in the heading's own size and place. */
+.tag-group-field {
+  min-width: 0;
+  flex: 0 1 220px;
+  height: var(--target);
+  padding: 0 var(--sp-1);
+  border: 0;
+  border-radius: var(--r-1);
+  background: var(--surface-1);
+  box-shadow: var(--focus-inset);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  letter-spacing: 0.06em;
+  font-weight: var(--weight-strong);
+  text-transform: uppercase;
+  caret-color: var(--accent);
+}
+
+.tag-group-field:focus-visible {
+  outline: none;
+}
+
+.tag-rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A row is one object made of three controls, so the wash belongs to the row and
+   nothing inside it draws a box of its own. The row is also what a drag picks
+   up, which the cursor says on approach — each control inside it keeps its own. */
+.tag-row {
+  display: flex;
+  position: relative;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--sp-6);
+  padding: 0 var(--sp-1);
+  border-radius: var(--r-2);
+  transition: background-color var(--dur-press) var(--ease-out);
+}
+
+.tag-row[draggable="true"] {
+  cursor: grab;
+}
+
+.tag-row[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.tag-row:hover {
+  background: var(--surface-2);
+}
+
+.tag-row-mark {
+  display: inline-flex;
+  flex: none;
+}
+
+/* The link is as tall as the row, not as tall as its own line: a 20px target in
+   a 32px row is under the contract's floor and misses the half of the row a
+   pointer actually aims at. */
+.tag-row-name,
+.tag-row .icon-btn,
+.tag-mark {
+  cursor: pointer;
+}
+
+.tag-row-name {
+  display: flex;
+  min-width: 0;
+  max-width: 40ch;
+  flex: none;
+  align-self: stretch;
+  align-items: center;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  letter-spacing: var(--track-sm);
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-row-name:hover,
+.tag-row-name:focus-visible {
+  color: var(--tag-quiet);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.tag-row-name:focus-visible {
+  outline: none;
+  border-radius: var(--r-1);
+  box-shadow: var(--focus-ring);
+}
+
+/* What the tag does to a block: the keys, not their values. A value belongs on
+   the tag's own page, where it has a column to sit in. */
+.tag-row-defaults {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* How much of the graph wears it. Tabular, so a column of counts is a column
+   rather than a set of numbers that each start somewhere else. */
+.tag-row-uses {
+  flex: none;
+  margin-inline-start: auto;
+  min-width: 3ch;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+
+.tag-row-uses[data-empty] {
+  color: var(--ink-3);
+}
+
+.tag-row-actions {
+  flex: none;
+  opacity: 0;
+  transition: opacity var(--dur-view) var(--ease-out);
+}
+
+.tag-row:hover .tag-row-actions,
+.tag-row:focus-within .tag-row-actions,
+.tag-row:has([data-state="open"]) .tag-row-actions {
+  opacity: 1;
+}
+
+.tag-row-new input {
+  flex: 0 1 260px;
+}
+
+/* An empty group during a drag, and the ungrouped heading that appears for the
+   length of one: somewhere to let go of a tag that is filed everywhere. */
+.tag-group-drop {
+  position: relative;
+  padding: var(--sp-2) var(--sp-1);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+@media (max-width: 600px), (hover: none) {
+  .tag-row-actions,
+  .tag-group-actions {
+    opacity: 1;
+  }
+
+  .tag-row-defaults {
+    display: none;
+  }
+}
+
+/* ── A tag's page ──
+   Its mark, its name, where it is filed, what it does, and what it answers — in
+   that order, because that is the order the questions arrive in. */
+.tag-title-mark {
+  display: inline-flex;
+  flex: none;
+}
+
+.tag-title-field {
+  display: flex;
+  align-items: flex-start;
+}
+
+.tag-page-group {
+  margin: calc(var(--sp-1) * -1) 0 var(--sp-5);
+  padding-inline-start: calc(var(--sp-6) + var(--sp-2));
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  letter-spacing: 0.06em;
+  font-weight: var(--weight-strong);
+  text-transform: uppercase;
+}
+
+/* Narrower than the measure, like every other run of prose on a page: a heading,
+   a note, and two short rows spread across 848px is one component pretending to
+   be a table. The left edge is still the page's. */
+.tag-defaults {
+  max-width: 560px;
+  margin: 0 0 var(--sp-5);
+}
+
+.tag-section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  height: var(--sp-6);
+}
+
+.tag-section-head h2 {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  letter-spacing: 0.06em;
+  font-weight: var(--weight-strong);
+  text-transform: uppercase;
+}
+
+/* Quiet by default, a control on approach — the grammar every icon affordance in
+   the product uses: `--ink-3` rising, the one hover wash behind it. */
+.tag-section-action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  height: var(--target);
+  margin-inline-start: auto;
+  padding: 0 var(--sp-2);
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.tag-section-action:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.tag-section-action svg {
+  width: 12px;
+  height: 12px;
+}
+
+.tag-section-note {
+  max-width: 60ch;
+  margin: 0 0 var(--sp-2);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+/* Three columns, so several defaults read down as one list — and *one* grid, so
+   the key column is as wide as the widest key rather than as wide as each row's
+   own. Sibling grids repeating one template are several grids, not a table
+   (designs/foundations.md § Geometry, Depth, and Shape — rows of one table share their tracks), so the list owns the
+   tracks and every row borrows them through `subgrid`. */
+.tag-default-rows {
+  display: grid;
+  /* **One mark column on the page.** The title's mark, and every default's
+     glyph, sit in the same `--sp-6` column at the page's own left edge — so
+     everything the tag *says* starts at one x, whether it is the tag's name, the
+     group under it, or the key of a default. Two columns four pixels apart are
+     not two columns, they are one that looks wrong (DESIGN.md § Spatial Architecture). */
+  grid-template-columns: var(--sp-6) max-content minmax(0, 1fr);
+  column-gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tag-default-rows > li {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+
+/* The glyph is a column of its own because a mark that moves with the length of
+   the word before it is not a mark, it is decoration. */
+.tag-default-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  min-height: var(--sp-6);
+  align-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  text-align: start;
+  cursor: pointer;
+  transition: background-color var(--dur-press) var(--ease-out);
+}
+
+.tag-default-row:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.tag-default-row:focus-visible {
+  outline: none;
+  background: var(--surface-2);
+  box-shadow: var(--focus-ring);
+}
+
+.tag-default-row:disabled {
+  cursor: default;
+}
+
+.tag-default-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-3);
+}
+
+.tag-default-glyph svg {
+  width: var(--icon);
+  height: var(--icon);
+}
+
+.tag-default-key {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-default-value {
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── The identity panel ──
+   The one editor for what a tag looks like and where it is filed. Three sections
+   and every answer on screen: each of these is a choice among a handful, and a
+   choice among a handful is made by looking at the handful (designs/shell-and-navigation.md § Settings). */
+.tag-identity {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-3);
+  border-radius: var(--r-3);
+  background: var(--overlay);
+  box-shadow: var(--e2);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  z-index: var(--z-popover);
+}
+
+.tag-identity-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.tag-identity-section h3 {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  letter-spacing: 0.06em;
+  font-weight: var(--weight-strong);
+  text-transform: uppercase;
+}
+
+.tag-identity-mark {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* The field *is* the preview: what is being edited is what you press. It wears
+   the field's inset ring because that is what it is, and it centres one glyph. */
+.tag-mark-field {
+  width: var(--sp-6);
+  height: var(--sp-6);
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-2);
+  background: var(--surface-1);
+  box-shadow: var(--e1);
+  color: var(--tag);
+  font: inherit;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-strong);
+  text-align: center;
+  caret-color: transparent;
+}
+
+.tag-mark-field[data-icon] {
+  color: inherit;
+  font-weight: var(--weight-normal);
+}
+
+.tag-mark-field::placeholder {
+  color: var(--tag);
+  opacity: 0.5;
+}
+
+.tag-mark-field:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-inset);
+}
+
+.tag-identity-clear {
+  height: var(--target);
+  padding: 0 var(--sp-2);
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.tag-identity-clear:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.tag-identity-clear:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.tag-mark-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.tag-mark-option {
+  display: flex;
+  height: var(--sp-6);
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
+  font-size: var(--text-md);
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--dur-press) var(--ease-out);
+}
+
+.tag-mark-option:hover {
+  background: var(--surface-2);
+}
+
+.tag-mark-option[aria-pressed="true"] {
+  background: var(--accent-soft);
+}
+
+.tag-mark-option:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+/* The eight steps a tag may name, painted from the same two per-mode numbers the
+   accent is, plus the answer that is not a colour at all. Nine discs are one row
+   in a 296px panel only at the tighter gap; wrapped, the last colour reads as a
+   second, separate thing rather than as the end of one scale. */
+.color-choice[data-kind="tag"] {
+  gap: var(--sp-1);
+  flex-wrap: nowrap;
+}
+
+.color-choice[data-kind="tag"] .color-swatch {
+  --swatch: var(--tag);
+}
+
+.color-choice[data-kind="tag"] .color-swatch[data-kind="none"] {
+  --swatch: var(--surface-2);
+}
+
+.color-choice[data-kind="tag"] .color-swatch[data-kind="none"] svg {
+  color: var(--ink-2);
+}
+
+/* The slash menu is the editor's own command surface, so it borrows the
+   palette's row language — same highlight, same accent rule, same group
+   labels — at the caret instead of at 12vh. */
+.slash-menu {
+  display: flex;
+  flex-direction: column;
+  padding: var(--sp-1);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.slash-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-0);
+}
+
+.slash-group + .slash-group {
+  margin-top: var(--sp-1);
+}
+
+.slash-group > .group-label {
+  padding: var(--sp-1) var(--sp-2) var(--sp-0);
+}
+
+.slash-menu [role="option"] {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-height: 30px;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-0) var(--sp-2);
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  text-align: start;
+  cursor: pointer;
+}
+
+.slash-menu [role="option"] svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--ink-3);
+}
+
+.slash-menu [role="option"][data-active="true"] {
+  background: var(--surface-2);
+}
+
+.slash-item-text {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.slash-item-text strong {
+  overflow: hidden;
+  font-weight: var(--weight-normal);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slash-item-text small {
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A tag the block already carries: the check is the chosen-value mark, so it
+   takes the accent like the picker's own check — never a second wash. */
+.tag-menu .tag-opt-check {
+  margin-inline-start: auto;
+  color: var(--accent);
+}
+
+@media (max-width: 600px) {
+  /* Radix owns the desktop coordinates. On a compact viewport the property
+     editor becomes a sheet, so its positioning wrapper becomes the viewport
+     edge and the editor fills that wrapper. */
+  [data-radix-popper-content-wrapper]:has(> .property-picker),
+  [data-radix-popper-content-wrapper]:has(> .tag-picker) {
+    inset: auto 0 0 !important;
+    min-width: 0 !important;
+    transform: none !important;
+  }
+
+  .property-picker,
+  .tag-picker {
+    position: static !important;
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  .property-picker,
+  .tag-picker {
+    max-height: 70dvh;
+    padding-bottom: max(var(--sp-3), env(safe-area-inset-bottom));
+    border-radius: var(--r-4) var(--r-4) 0 0;
+  }
+
+  .property-picker-option,
+  .property-picker-members > div {
+    min-height: var(--sp-7);
+  }
+
+  .moment-mobile-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 3px;
+    border-radius: var(--r-2);
+    background: var(--surface-2);
+  }
+
+  .moment-mobile-tabs button {
+    min-height: var(--sp-7);
+    padding: 0 var(--sp-2);
+    border: 0;
+    border-radius: calc(var(--r-2) - 2px);
+    background: transparent;
+    color: var(--ink-2);
+    font: inherit;
+    font-size: var(--text-xs);
+    cursor: pointer;
+  }
+
+  .moment-mobile-tabs button[aria-selected="true"] {
+    background: var(--raised);
+    box-shadow: var(--e1);
+    color: var(--ink);
+    font-weight: var(--weight-strong);
+  }
+
+  .moment-mobile-tabs button:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-inset);
+  }
+
+  .moment-picker-columns {
+    display: block;
+    min-height: 262px;
+  }
+
+  .moment-picker[data-active-pane="date"] .moment-rules-pane,
+  .moment-picker[data-active-pane="rules"] .moment-date-pane {
+    display: none;
+  }
+
+  .moment-date-pane,
+  .moment-rules-pane {
+    height: 100%;
+  }
+
+  .moment-rules-pane {
+    min-height: 262px;
+  }
+}
+
+/* At rest, a non-empty bag is a strip of chips. An empty bag renders nothing. */
+.prop-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+/* The page strip speaks the block chip's exact language: same ring, same
+   hover wash, same name/value voices. */
+.prop-strip-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  height: var(--target);
+  max-width: 260px;
+  padding: 0 var(--sp-2);
+  border: none;
+  border-radius: var(--r-full);
+  background: transparent;
+  /* The chip ring, at the chip's own weight — the page strip and the strip under
+     a block are one language, so they cannot wear two different rings. */
+  box-shadow: var(--e1-chip);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  letter-spacing: var(--track-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-press) var(--ease-out),
+    color var(--dur-press) var(--ease-out);
+}
+
+.prop-strip-chip:hover {
+  background: var(--surface-2);
+  box-shadow: var(--e1-chip);
+  color: var(--ink);
+}
+
+.prop-strip-chip svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+/* --ink-3 fails AA on --surface-2 (designs/foundations.md § Modes and Contrast, the one hard rule), and a
+   chip fills with surface-2 on hover. The name keeps the chip's medium voice; the
+   value answers in the normal weight, exactly as under a block. */
+.prop-strip-chip .key {
+  white-space: nowrap;
+}
+
+.prop-strip-chip .value {
+  overflow: hidden;
+  font-weight: var(--weight-normal);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
