@@ -122,10 +122,12 @@ The gate previews a test-mode artifact built in the same task graph. A direct
 Playwright invocation builds that artifact itself, so neither route may reuse a
 stale checkout-local site.
 The scenario uses a test-only neoseq-server process with an allocated port and an
-isolated database on the managed PostgreSQL service. The profile adds this task
-to the shared verification graph and keeps the browser runtime out of the
-normal shell. CI runs the extended graph once and uploads checkout-local
-Playwright failure artifacts.
+isolated database on the managed PostgreSQL service. Both test artifacts finish
+building before process startup; readiness deadlines cover service startup,
+never compilation. The profile runs Playwright in devenv's post-startup test
+hook, after port reservations are released and both services are ready, and
+keeps the browser runtime out of the normal shell. CI runs this same lifecycle
+and uploads checkout-local Playwright failure artifacts.
 
 ## Asynchronous verification
 
@@ -167,11 +169,12 @@ Workspace tests cover the synchronization protocol and native/WebSocket
 convergence behavior. The database task depends on PostgreSQL readiness and
 runs the explicitly ignored schema, authorization, idempotency, and fault
 integration test against its own database.
-Portable checks attach directly to the test entry point. The browser profile
-adds its browser task to that same entry point. Browser build prerequisites and
-component tests finish before Playwright runs; the managed preview and
-collaboration processes both reach readiness first, so browser load cannot
-starve component tests.
+Portable checks and browser build prerequisites attach to the test entry point's
+preparation tasks. Network-dependent browser checks run in the subsequent test
+hook, after managed processes reach readiness. They must not start those
+processes from preparation tasks while devenv still holds port reservations.
+Component tests finish before Playwright runs, so browser load cannot starve
+component tests.
 
 The Rust, component, IndexedDB, and Web E2E suites cover the remote
 collaboration protocol/client contracts, authorization revocation, multi-tab

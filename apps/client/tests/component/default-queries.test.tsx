@@ -189,7 +189,7 @@ describe("writing a standing question", () => {
     expect(screen.queryByTestId("query-columns-trigger")).not.toBeInTheDocument();
     await user.click(screen.getByTestId("default-query-layout-table"));
 
-    await user.click(screen.getByTestId("query-columns-trigger"));
+    await user.click(await screen.findByTestId("query-columns-trigger"));
     const panel = await screen.findByTestId("query-columns-panel");
     await user.click(within(panel).getByTestId("query-column-toggle-property:builtin.task-status"));
 
