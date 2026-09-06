@@ -663,18 +663,12 @@ async function prepareArchive(payload: {
         source: { graph_id: string; document_schema: number };
         suggested_name?: string;
       };
-      if (manifest.source.document_schema !== SCHEMA_VERSION) {
-        throw failure(
-          "unsupported_schema",
-          `unsupported schema version ${manifest.source.document_schema}`,
-          false,
-        );
-      }
       const graphId = payload.locator.graph_id;
       const replicaId = randomReplicaId();
-      const source = WasmGraphCore.fromSnapshot(
+      const source = WasmGraphCore.fromArchiveSnapshot(
         manifest.source.graph_id,
         BigInt(replicaId),
+        manifest.source.document_schema,
         decoded.snapshot(),
       );
       let checkpoint: ArrayBuffer;

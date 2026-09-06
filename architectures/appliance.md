@@ -13,8 +13,11 @@ orchestrator and does not expose switches for removing, replacing, or rebinding
 members of the stack. Deployments that need independently scaled components use
 the component artifacts rather than partially disabling this image.
 
-The appliance runs as the fixed unprivileged identity `10001:10001`. `tini` is
-PID 1 and forwards container signals to the lifecycle controller. The controller
+Application processes run as the unprivileged identity selected by `PUID` and
+`PGID`, both defaulting to `10001`. The controller starts as root to prepare
+ownership and the named account, then permanently drops privileges before
+creating threads or application processes. `tini` remains PID 1 and forwards
+container signals to the lifecycle controller. The controller
 owns every child from spawn until reap. An unexpected child exit terminates the
 whole appliance, and the container runtime owns restart policy.
 
@@ -57,9 +60,14 @@ both are set. The image defaults to the username `admin` and the direct password
 The persistent volume is `/var/lib/neoseq`. Embedded PostgreSQL data lives at
 `/var/lib/neoseq/postgres/data`; `PG_VERSION` is the authoritative format marker
 and must match the image. Sockets and transient runtime configuration live under
-`/run/neoseq`. Backups belong on a separately mounted `/backups` volume. Named
-volumes inherit the image's fixed ownership; operator-provided bind mounts must
-already be writable by `10001:10001`.
+`/run/neoseq`. Backups belong on a separately mounted `/backups` volume. Startup
+and offline restore recursively assign `/var/lib/neoseq`, `/backups`,
+`/run/neoseq`, and `/home/neoseq` to the configured identity without following
+symlinks. This also migrates existing volumes when the identity changes; bind
+mounts must be dedicated directories whose ownership the container can change.
+UID and GID must be positive integers below the OS sentinel value `4294967295`.
+Health and backup commands drop to the initialized account without rewriting
+ownership, including when launched through `docker exec`.
 
 Startup validates only the selected database configuration, initializes an empty
 embedded cluster when needed, waits for database readiness, starts the server and
@@ -91,6 +99,7 @@ backup/restore into an image carrying the new major version.
 `outputs.neoseq-docker` composes the production client and dashboard with the
 server output, Caddy, `tini`, PostgreSQL, and the small runtime closure. The server
 output supplies both the synchronization server and lifecycle controller from one
-Cargo build. Build tools and privilege-changing utilities are absent. The image
+Cargo build. A POSIX shell supports PostgreSQL initialization and control commands;
+core utilities support volume ownership preparation. Build tools are absent. The image
 is Linux-only; amd64 and arm64 artifacts are built on matching Linux builders and
 may be published under one multi-architecture manifest.

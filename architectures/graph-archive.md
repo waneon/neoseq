@@ -40,8 +40,10 @@ Local import is staged in the Worker. Remote import separates preparation from
 publication so the server and browser cannot acquire unrelated CRDT histories:
 
 1. Decode and bound the container, then verify the manifest and checksum.
-2. Require the current document schema and validate the source snapshot through
-   `GraphCore` before creating the target graph.
+2. Open the source through `GraphCore`'s archive boundary, requiring the manifest
+   schema to agree with the snapshot. Schema 6 property slots are converted in
+   memory to schema 7 field generations; current-schema sources need no conversion.
+   Validate the complete current-schema source before creating the target graph.
 3. Generate the target graph and replica IDs locally and create a shallow clone
    baseline with the rewritten graph identity.
 4. Reopen the clone under its target identity and validate it again.
@@ -70,6 +72,13 @@ manifest contract. A future reader may add an explicitly supported archive or
 payload version, but it must preserve the copy-only identity rule and validate
 the complete staged graph before installation. Export and import remain adapter
 operations outside CorePort because they package and install platform storage.
-The current reader requires the manifest payload schema to match its graph
-schema exactly. Truncation and deterministic mutation corpora run in unit tests, and
+The reader supports document schemas 6 and 7 only. Compatibility belongs to
+portable import, not live recovery or synchronization. The conversion preserves
+entity and tree identities, reference marks, empty fields, set membership, query
+documents and view state, tag defaults, and lifecycle metadata. Invalid or
+orphaned legacy property slots fail rather than disappearing. It leaves the
+original archive untouched and produces a current-schema copy with a fresh
+history boundary. A synthetic fixture from the schema 6 writer covers this path
+in native and browser tests; private user archives are never repository fixtures.
+Truncation and deterministic mutation corpora run in unit tests, and
 `crates/graph-archive/fuzz` provides the untrusted decoder fuzz target.

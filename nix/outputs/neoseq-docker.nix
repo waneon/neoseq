@@ -1,7 +1,9 @@
 {
+  bash,
   cacert,
   caddy,
   client,
+  coreutils,
   dashboard,
   dockerTools,
   postgresql_17,
@@ -18,8 +20,11 @@ dockerTools.buildLayeredImage {
   name = "neoseq";
   tag = version;
   contents = [
+    # PostgreSQL tools invoke /bin/sh while locating and starting the server.
+    bash
     cacert
     caddy
+    coreutils
     postgresql_17
     server
     tini
@@ -66,11 +71,15 @@ dockerTools.buildLayeredImage {
       "${server}/bin/neoseq-appliance"
     ];
     Cmd = [ "serve" ];
-    User = "${uid}:${gid}";
+    # The controller prepares volume ownership, then drops privileges before
+    # starting its async runtime or any application process.
+    User = "0:0";
     WorkingDir = "/var/lib/neoseq";
     Env = [
       "HOME=/home/neoseq"
       "PATH=/bin"
+      "PUID=${uid}"
+      "PGID=${gid}"
       "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"
       "NEOSEQ_BOOTSTRAP_ADMIN_USERNAME=admin"
       "NEOSEQ_BOOTSTRAP_ADMIN_PASSWORD=change-me-later"

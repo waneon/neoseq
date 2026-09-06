@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { fileURLToPath } from "node:url";
 import { blockTexts, createGraph, startOutline, typeInFocusedBlock } from "./helpers";
 
 test("imports every archive copy under a fresh graph identity", async ({ page }) => {
@@ -45,3 +46,22 @@ function graphId(url: string): string {
   if (!match) throw new Error(`expected a graph route, received ${url}`);
   return decodeURIComponent(match[1]);
 }
+
+test("migrates a schema 6 archive before installing a durable graph copy", async ({ page }) => {
+  await page.goto("/");
+  const chooseArchive = page.waitForEvent("filechooser");
+  await page.getByTestId("import-graph").click();
+  await (
+    await chooseArchive
+  ).setFiles(
+    fileURLToPath(new URL("../../../../fixtures/graph-archive/schema-6.neoseq", import.meta.url)),
+  );
+  await expect(page.getByTestId("journal-title")).toBeVisible();
+  expect(graphId(page.url())).not.toBe("schema-six-fixture");
+  await page.getByRole("link", { name: "Schema six notes", exact: true }).click();
+  await expect(page.getByTestId("page-title")).toHaveValue("Schema six notes");
+  await expect.poll(() => blockTexts(page)).toContain("Nested note");
+  await page.reload();
+  await expect(page.getByTestId("page-title")).toHaveValue("Schema six notes");
+  await expect.poll(() => blockTexts(page)).toContain("Nested note");
+});

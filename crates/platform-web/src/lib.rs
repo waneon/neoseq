@@ -239,6 +239,25 @@ impl WasmGraphCore {
 
 #[wasm_bindgen]
 impl WasmGraphCore {
+    #[wasm_bindgen(js_name = fromArchiveSnapshot)]
+    pub fn from_archive_snapshot(
+        graph_id: &str,
+        peer_id: u64,
+        document_schema: u32,
+        snapshot: &[u8],
+    ) -> Result<WasmGraphCore, JsValue> {
+        let graph_id = domain::GraphId::new(graph_id).map_err(js_invalid_request)?;
+        let inner = GraphCore::from_archive_snapshot(graph_id, peer_id, document_schema, snapshot)
+            .map_err(js_core_error)?;
+        Ok(Self {
+            inner,
+            index: None,
+            pending_update: None,
+            #[cfg(test)]
+            fail_next_index_update: false,
+        })
+    }
+
     #[wasm_bindgen(constructor)]
     pub fn new(graph_id: &str, peer_id: u64, now: &str) -> Result<WasmGraphCore, JsValue> {
         let graph_id = domain::GraphId::new(graph_id).map_err(js_invalid_request)?;

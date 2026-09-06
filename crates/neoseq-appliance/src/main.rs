@@ -13,6 +13,8 @@ use tokio::{
     time::{sleep, timeout},
 };
 
+mod identity;
+
 const POSTGRES_MAJOR: &str = "17";
 const POSTGRES_USER: &str = "neoseq";
 const POSTGRES_DATABASE: &str = "neoseq";
@@ -111,40 +113,64 @@ impl Children {
     }
 }
 
-#[tokio::main]
-async fn main() {
-    if let Err(error) = run().await {
+fn main() {
+    if let Err(error) = run() {
         eprintln!("component=appliance level=error message={error:?}");
         std::process::exit(1);
     }
 }
 
-async fn run() -> Result<()> {
+enum Operation {
+    Serve,
+    Health,
+    Backup(std::path::PathBuf),
+    Restore(std::path::PathBuf),
+}
+
+fn run() -> Result<()> {
     let mut arguments = env::args().skip(1);
     let command = arguments.next().unwrap_or_else(|| "serve".into());
-    match command.as_str() {
-        "serve" => {
-            no_more_arguments(arguments)?;
-            serve(ServeConfig::from_environment()?).await
-        }
-        "health" => {
-            no_more_arguments(arguments)?;
-            health().await
-        }
+    let operation = match command.as_str() {
+        "serve" => Operation::Serve,
+        "health" => Operation::Health,
         "backup" => {
-            let destination = required_argument(&mut arguments, "backup destination")?;
-            no_more_arguments(arguments)?;
-            backup(Database::from_environment()?, Path::new(&destination)).await
+            Operation::Backup(required_argument(&mut arguments, "backup destination")?.into())
         }
-        "restore" => {
-            let source = required_argument(&mut arguments, "backup source")?;
-            no_more_arguments(arguments)?;
-            restore(RestoreConfig::from_environment()?, Path::new(&source)).await
+        "restore" => Operation::Restore(required_argument(&mut arguments, "backup source")?.into()),
+        _ => {
+            return Err(invalid(
+                "usage: neoseq-appliance [serve|health|backup <path>|restore <path>]",
+            )
+            .into());
         }
-        _ => Err(
-            invalid("usage: neoseq-appliance [serve|health|backup <path>|restore <path>]").into(),
-        ),
+    };
+    no_more_arguments(arguments)?;
+    if let Operation::Restore(source) = &operation {
+        validate_restore_source(source)?;
     }
+
+    // Process credentials must be changed before Tokio creates worker threads.
+    // Exec'd health and backup commands drop privileges without touching a live
+    // database's ownership or rewriting account files.
+    identity::enter(matches!(
+        operation,
+        Operation::Serve | Operation::Restore(_)
+    ))?;
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(async {
+            match operation {
+                Operation::Serve => serve(ServeConfig::from_environment()?).await,
+                Operation::Health => health().await,
+                Operation::Backup(destination) => {
+                    backup(Database::from_environment()?, &destination).await
+                }
+                Operation::Restore(source) => {
+                    restore(RestoreConfig::from_environment()?, &source).await
+                }
+            }
+        })
 }
 
 async fn serve(config: ServeConfig) -> Result<()> {
@@ -642,7 +668,7 @@ async fn backup(database: Database, destination: &Path) -> Result<()> {
     Ok(())
 }
 
-async fn restore(config: RestoreConfig, source: &Path) -> Result<()> {
+fn validate_restore_source(source: &Path) -> Result<()> {
     if optional("NEOSEQ_RESTORE_CONFIRM").as_deref() != Some("replace-neoseq-data") {
         return Err(invalid(
             "set NEOSEQ_RESTORE_CONFIRM=replace-neoseq-data for destructive restore",
@@ -658,7 +684,10 @@ async fn restore(config: RestoreConfig, source: &Path) -> Result<()> {
     {
         return Err(invalid("restore requires a stopped PostgreSQL cluster").into());
     }
+    Ok(())
+}
 
+async fn restore(config: RestoreConfig, source: &Path) -> Result<()> {
     prepare_runtime()?;
     let mut postgres = None;
     let startup = match timeout(config.startup_timeout, async {

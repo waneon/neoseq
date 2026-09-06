@@ -22,10 +22,11 @@ plans, and session UI state are disposable projections. A shared query document
 and its authored `QueryPlan` are canonical graph data whether an entity property
 or graph setting owns them.
 
-This pre-release build accepts schema v7 exactly. Recovery validates the Base
+Live replicas accept schema v7 exactly. Recovery validates the Base
 and complete Tail against current invariants before exposing the graph. There is
-no older-schema reader, migration registry, minimum-writer marker, or lazy
-repair path.
+no migration registry, minimum-writer marker, or lazy repair path. Portable
+[archive import](graph-archive.md) explicitly converts supported schema 6 copies
+before publishing a new graph; it does not upgrade an existing replica.
 
 ## Graph Settings
 
@@ -77,6 +78,10 @@ Every outline node is a block. Its Loro tree ID is the external `BlockId`, and
 the containing page or tag tree determines ownership. Indent, outdent, reorder,
 and move stay within one owner. Moving content between owners is an explicit
 copy with new block IDs.
+
+A deleted tree identity may survive after snapshot compaction has collected all
+of its metadata. Such an empty tombstone is valid. A live node still requires
+complete metadata, and any resurrection must pass that validation again.
 
 An Enter split preserves the source block's identity. A leading split inserts
 an empty sibling before it; a middle split retains metadata on the head and
@@ -322,6 +327,6 @@ Readers, commands, and projections never repair missing structure lazily.
   Tail resync, restart, protocol encoding, and acknowledgement;
 - compaction tests cross the periodic threshold and reopen from the retained
   current/prior checkpoints and remaining Tail;
-- graph documents, archives, and sync sessions reject non-current schemas at
-  their boundaries;
+- graph documents and sync sessions reject non-current schemas; archives accept
+  only explicitly supported source schemas and validate the converted copy;
 - generated contracts are synchronized before tests and checked by production builds.

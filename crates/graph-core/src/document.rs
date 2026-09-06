@@ -152,6 +152,12 @@ fn validate_outline(
     for node in outline.nodes() {
         let block_id = node.to_string();
         let meta = outline.get_meta(node)?;
+        // Shallow snapshots can retain a deleted tree identity after its
+        // metadata has been collected. A live node must always have metadata;
+        // any attempted resurrection is validated again before admission.
+        if meta.is_empty() && outline.is_node_deleted(&node)? {
+            continue;
+        }
         let content = required_child_text(
             &meta,
             "content",

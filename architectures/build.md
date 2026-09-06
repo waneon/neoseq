@@ -109,7 +109,9 @@ reproducible and cacheable. Linux CI realizes and loads the all-in-one image
 after the portable gate. A container smoke test verifies both public
 applications, readiness, bounded stop, logical backup, offline restore, and
 restart against the same persistent volume, so filesystem layers and OCI
-metadata cannot drift unexecuted.
+metadata cannot drift unexecuted. It also verifies the default and custom
+application identities, ownership migration, and initialization of a fresh
+cluster with custom ownership.
 
 `devenv --profile browser test` extends the portable gate with pinned
 Chromium-based IndexedDB contracts, parallel desktop E2E, focused mobile and

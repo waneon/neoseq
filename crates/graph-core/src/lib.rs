@@ -1,5 +1,6 @@
 //! Loro-backed graph core and runtime contracts.
 
+mod archive;
 #[cfg(test)]
 mod convergence_tests;
 mod core;

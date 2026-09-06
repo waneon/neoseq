@@ -10,7 +10,6 @@ PostgreSQL database — as one container:
 
 ```sh
 docker run -d --name neoseq \
-  --stop-timeout 60 \
   -p 8080:8080 -p 8081:8081 \
   -v neoseq-data:/var/lib/neoseq \
   -v neoseq-backups:/backups \
@@ -27,12 +26,6 @@ passwords, and revokes sessions. The server starts with one administrator,
 `admin` with the password `change-me-later`; reset that password before anyone
 else can reach the server.
 
-Everything the server stores lives in the `neoseq-data` volume. If no named
-volume is supplied, Docker creates an anonymous one that is easy to orphan when
-the container is replaced. Plain HTTP is enough on a private network. Before
-exposing the server beyond it, put a TLS-terminating reverse proxy in front of
-both ports.
-
 Persistent configuration, secret files, an external database, and a backup
 mount are shown in [`examples/compose.yaml`](examples/compose.yaml).
 
@@ -48,6 +41,8 @@ docker exec neoseq neoseq-appliance backup /backups/neoseq-$(date +%F).dump
 Restoring replaces the database and runs only against a stopped appliance.
 Start the image once with the same volumes, the confirmation variable, and the
 `restore` command:
+
+If you configured `PUID` and `PGID`, pass the same values to the restore container.
 
 ```sh
 docker stop neoseq

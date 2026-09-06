@@ -7,6 +7,9 @@ services:
       - "8080:8080" # Publish the client and synchronization API.
       - "8081:8081" # Publish the administration dashboard.
     environment:
+      # Run application processes and own data/backup files as this UID/GID.
+      PUID: "10001"
+      PGID: "10001"
       # Create this administrator only when no active administrator exists.
       NEOSEQ_BOOTSTRAP_ADMIN_USERNAME: "admin"
       NEOSEQ_BOOTSTRAP_ADMIN_PASSWORD: "change-me-later"
