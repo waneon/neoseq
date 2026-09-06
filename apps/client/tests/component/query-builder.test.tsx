@@ -363,7 +363,19 @@ describe("the query builder", () => {
       });
       expect(screen.getAllByTestId("qb-condition")).toHaveLength(2);
 
-      await act(async () => vi.advanceTimersByTimeAsync(600));
+      await act(async () => {
+        const published = new Promise<void>((resolve) => {
+          const unsubscribe = harness.session.subscribe(() => {
+            const plan = decodePlan(storedDefinition(harness)!.plan!.payload, QUERY_PLAN_VERSION);
+            const group = plan?.where.children[0];
+            if (group?.kind !== "group" || group.children.length !== 2) return;
+            unsubscribe();
+            resolve();
+          });
+        });
+        await vi.advanceTimersByTimeAsync(600);
+        await published;
+      });
       const plan = decodePlan(storedDefinition(harness)!.plan!.payload, QUERY_PLAN_VERSION);
       const group = plan?.where.children[0];
       expect(group?.kind === "group" && group.children).toHaveLength(2);
