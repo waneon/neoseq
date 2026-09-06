@@ -50,9 +50,10 @@ describe("block surface contracts", () => {
       label: "Scheduled",
       dateLabel: "August 26",
       timeLabel: "14:30",
-      due: { tier: "soon", tone: "caution" },
+      due: { tier: "soon", tone: "caution", distance: { unit: "day", value: 2 } },
+      relativeLabel: "In 2 days",
       repeating: true,
-      title: "August 26 · 14:30",
+      title: "August 26 · 14:30 · In 2 days",
     };
 
     const { container } = render(
@@ -69,10 +70,16 @@ describe("block surface contracts", () => {
       expect(projection).toHaveAttribute("data-palette", "caution");
       expect(projection).toHaveTextContent("August 26");
       expect(projection).toHaveTextContent("14:30");
+      expect(projection).toHaveTextContent("· In 2 days");
     }
     expect(container.querySelectorAll(".task-moment-value")).toHaveLength(2);
-    expect(screen.getByRole("button", { name: /Scheduled August 26 14:30/ })).toBeInTheDocument();
-    expect(container.querySelector(".query-due")).toHaveAttribute("title", "August 26 · 14:30");
+    expect(
+      screen.getByRole("button", { name: /Scheduled August 26 · 14:30 · In 2 days/ }),
+    ).toBeInTheDocument();
+    expect(container.querySelector(".query-due")).toHaveAttribute(
+      "title",
+      "August 26 · 14:30 · In 2 days",
+    );
   });
 
   it("removes urgency from settled moments before any surface sees them", () => {

@@ -165,10 +165,9 @@ describe("query and task projections", () => {
     const priority = await screen.findByTestId("task-priority-toggle");
     expect(priority).toHaveAccessibleName("Priority: High");
     expect(screen.queryByTestId("task-chip-priority")).not.toBeInTheDocument();
-    // A deadline in the past keeps the overdue tier's tone without appending a
-    // redundant status label to the date.
+    // A past deadline states how long it has been overdue alongside its tone.
     const deadline = await screen.findByTestId("task-chip-deadline");
-    expect(deadline).not.toHaveTextContent("Overdue");
+    expect(deadline.querySelector(".task-moment-relative")).toHaveTextContent(/days overdue/);
     expect(deadline).toHaveAttribute("data-due", "overdue");
     expect(deadline).toHaveAttribute("data-palette", "danger");
     // Task facts are positioned renderers, not generic rows: the same fact is
@@ -181,6 +180,31 @@ describe("query and task projections", () => {
       expect(block && stringValue(block.properties, "builtin.task-priority")).toBe("low");
     });
   });
+
+  it.each(["done", "cancelled"])(
+    "removes relative urgency when a task becomes %s",
+    async (status) => {
+      const { session, blockId } = await mountProjection();
+      const owner = { kind: "block", owner: { kind: "page", id: "home" }, id: blockId } as const;
+      await session.execute({
+        type: "set_property",
+        owner,
+        key: "builtin.task-deadline",
+        value: { type: "date", value: "2001-01-01" },
+      });
+      const deadline = await screen.findByTestId("task-chip-deadline");
+      expect(deadline.querySelector(".task-moment-relative")).toHaveTextContent(/days overdue/);
+      await session.execute({
+        type: "set_property",
+        owner,
+        key: "builtin.task-status",
+        value: { type: "string", value: status },
+      });
+      await waitFor(() => expect(deadline).not.toHaveAttribute("data-due"));
+      expect(deadline.querySelector(".task-moment-relative")).toBeNull();
+      expect(deadline).toHaveTextContent("2001");
+    },
+  );
 
   it("rolls a recurring task forward instead of settling it", async () => {
     const { session, blockId } = await mountProjection();

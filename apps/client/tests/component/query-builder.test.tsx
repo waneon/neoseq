@@ -2217,13 +2217,12 @@ describe("query result views", () => {
 
     const table = await screen.findByTestId("query-table");
     // The day and the time of day are one fact, drawn as the pill the strip
-    // under a block draws. Its overdue state changes the tone without adding a
-    // status label to the value.
+    // under a block draws. The relative label explains the distance in words.
     const moment = await waitFor(() => within(table).getByTestId("query-edit-scheduled"));
     expect(moment).toHaveTextContent("21:30");
     expect(moment).not.toHaveTextContent(/AM|PM/);
     const pill = moment.querySelector(".query-due")!;
-    expect(pill).not.toHaveTextContent("Overdue");
+    expect(pill.querySelector(".task-moment-relative")).toHaveTextContent(/days ago/);
     expect(pill).toHaveAttribute("data-due", "overdue");
     expect(pill).toHaveAttribute("data-palette", "danger");
     // The time rode along in the compiler's own namespace, so it is part of the

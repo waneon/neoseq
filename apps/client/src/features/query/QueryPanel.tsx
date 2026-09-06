@@ -88,9 +88,10 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
 import { Button } from "@/ui/shadcn/button";
-import { nowLocalTime, todayLocalDate } from "../../entities/journal";
+import { todayLocalDate } from "../../entities/journal";
+import { useTaskClock } from "../tasks/use-task-clock";
 import { newQueryDocument } from "../../entities/query-document";
-import { isSettledStatus, TASK_STATUS_KEY } from "../../entities/tasks";
+import { isSettledStatus, isTaskDateKey, TASK_STATUS_KEY } from "../../entities/tasks";
 import { taskMomentDue } from "../tasks/moment-presentation";
 import { canonicalEntityName, nextAvailableEntityName } from "../../entities/names";
 import { QUERY_LANGUAGE } from "../../entities/query-compile";
@@ -464,9 +465,13 @@ function QueryPanelSurface({
    * of day is the cell's to supply, and it decides only *today*: a job due at
    * nine this morning is overdue by ten.
    *
-   * `today` is read at call time rather than captured: a journal left open past
-   * midnight must not keep yesterday's opinion of what is overdue.
+   * A shared clock refreshes the presentation at minute and calendar boundaries.
    */
+  const taskClock = useTaskClock(
+    columns.some(
+      (column) => column.source?.kind === "property" && isTaskDateKey(column.source.key),
+    ),
+  );
   const momentDue = useCallback(
     (date: string, time: string | undefined, row: ResultRow) => {
       const status = statusVariable ? row[statusVariable]?.[0] : undefined;
@@ -474,12 +479,11 @@ function QueryPanelSurface({
         date,
         time,
         settled: status?.kind === "literal" && isSettledStatus(status.value),
-        today: todayLocalDate(),
-        now: nowLocalTime(),
+        ...taskClock,
         tiers: dueTiers,
       });
     },
-    [statusVariable, dueTiers],
+    [statusVariable, dueTiers, taskClock],
   );
 
   // Both derived once, not once per render: a canonical revision re-renders every

@@ -97,7 +97,7 @@ same written and tonal identity across outline chips and query cells, while its
 outer affordance follows the surface: the chip edits directly, whereas an
 interactive result cell owns the edit action.
 One presentation model resolves the localized label, formatted day and time,
-recurrence mark, urgency step, and reader-owned tone. Chip and cell appearances
+relative distance, recurrence mark, urgency step, and reader-owned tone. Chip and cell appearances
 project that model; they do not recalculate its meaning. A new surface may choose
 another affordance, but it must consume the same model.
 Its editor treats date, time, and task-level recurrence as one intent. Natural
@@ -116,6 +116,16 @@ is never presented as an independent query column because it has no meaning
 without its day; the moment column carries both and computes urgency from both.
 Every task time is written as `HH:MM` on a 24-hour clock, independent of the
 interface language.
+Active moments keep the exact date and optional time alongside a short relative
+label. Scheduled dates describe distance ("in 6 days", "2 days ago"); deadlines
+describe time remaining or elapsed ("6 days left", "2 days overdue"). Calendar
+days determine the distance, with explicit today and tomorrow labels. A time on
+the current day refines the distance to hours and minutes, with "now" at the
+current minute. Settled tasks retain only the absolute date and time. Every
+surface follows the configured timezone and a shared minute clock, refreshing
+on resume and at day boundaries without graph changes. Compact values prioritize the relative text when space is limited; the full value stays available to accessible names
+and hover text when the date is shortened.
+
 Today is its own fixed urgency step: it does not disappear into a configurable
 future range, while a time already passed today remains overdue.
 The default tonal progression is danger, attention, caution, information, then

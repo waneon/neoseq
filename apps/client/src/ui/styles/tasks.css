@@ -206,6 +206,7 @@
 
 .task-chip-value {
   display: inline-flex;
+  min-width: 0;
   align-items: center;
   gap: var(--sp-1);
   overflow: hidden;
@@ -225,7 +226,20 @@
 /* The clock beside the day. Tabular figures because a column of moments that
    jumps a pixel per digit reads as unaligned rather than as a list. */
 .task-chip-time {
+  flex: none;
   font-variant-numeric: tabular-nums;
+}
+
+.task-moment-date {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-moment-relative {
+  flex: none;
+  font-weight: var(--weight-normal);
+  white-space: nowrap;
 }
 
 /* "…and again after this one." The interval itself has its own chip; inside a

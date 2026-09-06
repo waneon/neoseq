@@ -44,8 +44,8 @@ function localDateIn(timezone: string, instant: Date = new Date()): string {
   }).format(instant);
 }
 
-export function todayLocalDate(): string {
-  return localDateIn(configuredTimezone());
+export function todayLocalDate(instant: Date = new Date()): string {
+  return localDateIn(configuredTimezone(), instant);
 }
 
 /** The wall-clock time of day (HH:MM) in the configured timezone. */

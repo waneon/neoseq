@@ -25,6 +25,9 @@ export function TaskMoment({
       >
         <span className="query-due-date">{value.dateLabel}</span>
         {value.timeLabel && <span className="query-due-time">{value.timeLabel}</span>}
+        {value.relativeLabel && (
+          <span className="task-moment-relative">· {value.relativeLabel}</span>
+        )}
       </span>
     );
   }
@@ -38,13 +41,18 @@ export function TaskMoment({
       data-due={value.due?.tier}
       {...tone}
       data-testid={testId}
+      title={value.title}
+      aria-label={`${value.label} ${value.title}`}
       onClick={(event) => onEdit?.(event.currentTarget)}
     >
       <Glyph aria-hidden />
       <span className="task-chip-name">{value.label}</span>
       <span className="task-chip-value task-moment-value">
-        {value.dateLabel}
+        <span className="task-moment-date">{value.dateLabel}</span>
         {value.timeLabel && <span className="task-chip-time">{value.timeLabel}</span>}
+        {value.relativeLabel && (
+          <span className="task-moment-relative">· {value.relativeLabel}</span>
+        )}
       </span>
       {value.repeating && <RepeatIcon className="task-chip-repeat" aria-hidden />}
     </button>

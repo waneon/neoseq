@@ -736,6 +736,13 @@ export interface MessageArgumentMap {
   "task.priority.low": undefined;
   "task.priority.medium": undefined;
   "task.priorityIs": { readonly "priority": string | number };
+  "task.relative.daysFuture": { readonly "count": number; readonly "kind": string };
+  "task.relative.daysPast": { readonly "count": number; readonly "kind": string };
+  "task.relative.now": undefined;
+  "task.relative.timeFuture": { readonly "hours": number; readonly "kind": string; readonly "minutes": number };
+  "task.relative.timePast": { readonly "hours": number; readonly "kind": string; readonly "minutes": number };
+  "task.relative.today": undefined;
+  "task.relative.tomorrow": undefined;
   "task.removePriority": undefined;
   "task.removeStatus": undefined;
   "task.repeat": undefined;

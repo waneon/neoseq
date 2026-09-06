@@ -24,9 +24,10 @@ const moment: TaskMomentPresentation = {
   label: "Scheduled",
   dateLabel: "August 28, 2026",
   timeLabel: "14:30",
-  due: { tier: "soon", tone: "caution" },
+  due: { tier: "soon", tone: "caution", distance: { unit: "day", value: 2 } },
+  relativeLabel: "In 2 days",
   repeating: true,
-  title: "August 28, 2026 · 14:30",
+  title: "August 28, 2026 · 14:30 · In 2 days",
 };
 
 function FocusRestorationControls() {

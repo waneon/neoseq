@@ -14,7 +14,6 @@
 import { RepeatIcon } from "lucide-react";
 import type { BlockSnapshot, PropertyValue } from "../../core-port/snapshot";
 import { dateValue, findPage, isDeleted, pageTitle, stringValue } from "../../core-port/snapshot";
-import { nowLocalTime, todayLocalDate } from "../../entities/journal";
 import { isGenericProperty } from "../../entities/properties";
 import {
   isSettledStatus,
@@ -33,6 +32,7 @@ import { useSessionSelector } from "../shell/session-context";
 import { useDueTiers } from "../settings/preferences";
 import { repeatLabel } from "../tasks/labels";
 import { TaskMoment } from "../tasks/TaskMoment";
+import { useTaskClock } from "../tasks/use-task-clock";
 import { presentTaskMoment, taskMomentDue } from "../tasks/moment-presentation";
 import { propertyDisplayName, propertyGlyph } from "./property-display";
 
@@ -52,6 +52,10 @@ export function BlockChips({
   const status = stringValue(block.properties, TASK_STATUS_KEY);
   const scheduled = dateValue(block.properties, TASK_SCHEDULED_KEY);
   const deadline = dateValue(block.properties, TASK_DEADLINE_KEY);
+  const settled = status !== undefined && isSettledStatus(status);
+  const { today, now } = useTaskClock(
+    !settled && (scheduled !== undefined || deadline !== undefined),
+  );
   // An interval that does not parse is still the user's own string: it stays on
   // screen and stays editable, it simply does not recur.
   const repeatRaw = stringValue(block.properties, TASK_REPEAT_KEY);
@@ -67,12 +71,6 @@ export function BlockChips({
   );
   const hasTaskFacts = scheduled !== undefined || deadline !== undefined || repeatRaw !== undefined;
   if (!hasTaskFacts && generic.length === 0) return null;
-
-  // A settled task has no urgency left to report: the strike through its line is
-  // the whole reading, and a red date on a finished job is noise.
-  const settled = status !== undefined && isSettledStatus(status);
-  const today = todayLocalDate();
-  const nowTime = nowLocalTime();
 
   const describe = (value: PropertyValue): string => {
     if (value.type === "document") {
@@ -108,7 +106,7 @@ export function BlockChips({
       key,
       date,
       time,
-      due: taskMomentDue({ date, time, settled, today, now: nowTime, tiers }),
+      due: taskMomentDue({ date, time, settled, today, now, tiers }),
       repeating: repeat !== null,
       message,
       formatDate: formatJournalDate,
