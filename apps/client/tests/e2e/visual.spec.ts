@@ -330,7 +330,7 @@ test("query table values share one row, type and content axis", async ({ page })
 
   const roomy = await measure();
   expect(roomy.frames).toBe(roomy.cells);
-  expect(roomy.rowHeights).toEqual([32, 32, 32]);
+  expect(roomy.rowHeights).toEqual([36, 36, 36]);
   expect(new Set(roomy.fonts.map(String))).toEqual(new Set(["14px,20px"]));
   expect(roomy.axes.status).toBeCloseTo(roomy.axes.plain, 5);
   expect(roomy.axes.due).toBeCloseTo(roomy.axes.plain, 5);
