@@ -55,7 +55,10 @@ function scheduleQueryPublications(): void {
       while (queuedQueryListeners.size > 0) {
         const listeners = [...queuedQueryListeners];
         queuedQueryListeners.clear();
-        await act(async () => {
+        // Publication itself is synchronous. Await React's returned thenable,
+        // without holding Testing Library's environment override across another
+        // userEvent/findBy scope that can start while React finishes flushing.
+        await act(() => {
           for (const publish of listeners) publish();
         });
       }
@@ -67,7 +70,7 @@ function scheduleQueryPublications(): void {
   queryPublications.add(publication);
 }
 
-async function settleQueryPublications(): Promise<void> {
+export async function settleQueryPublications(): Promise<void> {
   while (queryPublications.size > 0) await Promise.all([...queryPublications]);
 }
 

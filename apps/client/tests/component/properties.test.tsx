@@ -13,7 +13,9 @@ import { chooseFromMenu, GRAPH_ID, mountAt, openPageMenu } from "./harness";
 
 async function mountPage() {
   const harness = await mountAt(`/g/${GRAPH_ID}/p/home`);
-  await harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
+  await harness.settle(() =>
+    harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" }),
+  );
   await waitFor(() => expect(screen.getByTestId("page-title")).toHaveValue("Home"));
   return harness;
 }
@@ -351,7 +353,7 @@ describe("property picker", () => {
   });
 
   it("proposes and immediately applies a natural task moment with recurrence", async () => {
-    const { session } = await mountPage();
+    const { session, settle } = await mountPage();
     const user = userEvent.setup();
     const inserted = await session.execute({
       type: "insert_block",
@@ -389,7 +391,7 @@ describe("property picker", () => {
     expect(block && stringValue(block.properties, "builtin.task-scheduled-time")).toBeUndefined();
     expect(block && stringValue(block.properties, "builtin.task-repeat")).toBeUndefined();
 
-    fireEvent.keyDown(naturalInput, { key: "Enter" });
+    await settle(() => fireEvent.keyDown(naturalInput, { key: "Enter" }));
     await waitFor(() => expect(screen.queryByTestId("property-picker")).not.toBeInTheDocument());
     await waitFor(() => {
       block = session.getState().snapshot.pages[0]?.blocks[0];
@@ -399,7 +401,7 @@ describe("property picker", () => {
     });
 
     // All three storage facts share one command boundary and therefore one undo.
-    await session.execute({ type: "undo" });
+    await settle(() => session.execute({ type: "undo" }));
     block = session.getState().snapshot.pages[0]?.blocks[0];
     expect(block && dateValue(block.properties, "builtin.task-scheduled")).toBe("2026-08-21");
     expect(block && stringValue(block.properties, "builtin.task-scheduled-time")).toBeUndefined();

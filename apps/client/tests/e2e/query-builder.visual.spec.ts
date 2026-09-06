@@ -91,7 +91,7 @@ test("query controls name the question and recover an empty answer", async ({ pa
   await expect(query.locator(".query-summary")).toContainText(missing);
 
   const empty = query.getByTestId("query-empty");
-  await expect(empty).toContainText("Try adjusting the conditions or adding matching content.");
+  await expect(empty).toContainText("No matches. Adjust the conditions or add matching content.");
   const recover = empty.getByRole("button", { name: "Edit conditions", exact: true });
   await recover.focus();
   await recover.press("Space");
