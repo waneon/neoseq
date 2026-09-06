@@ -1,19 +1,4 @@
-// The query, restated in one line.
-//
-// The plan read back as a phrase — `Blocks · Status is Done` — built from the same
-// `labels` vocabulary the builder's own rows print, so what a reader is told the
-// query asks is word-for-word what they find when they open it.
-//
-// It is not printed over the answer. A machine-written sentence stated
-// permanently above every result is chrome that repeats the builder one hover
-// away, and it is noise beside a question the reader has already named. So the
-// phrase has two homes, both of them places somebody went looking for it: the
-// name of the control that opens the question, and the name Settings offers a
-// standing question that nobody has titled yet.
-//
-// It is a summary, not a transcript: two conditions per level, then a count of
-// what is left. A nested group keeps its parentheses, because "or" inside "and"
-// is the one thing a flattened list would misreport.
+// Localized context shared by the query heading, its conditions control, and settings.
 
 import type { GraphSnapshot } from "../../core-port/snapshot";
 import { stringChoicesOf } from "../../entities/properties";

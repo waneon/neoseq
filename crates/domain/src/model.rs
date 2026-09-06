@@ -366,6 +366,11 @@ pub struct QueryViewFieldSort {
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct QueryViewOptions {
+    /// Whether the conditions editor is expanded. Absent keeps the surface's
+    /// initial disclosure behavior until the user makes a choice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub conditions_open: Option<bool>,
     /// Rows at the outline's own row height instead of a roomier one.
     #[serde(default)]
     pub compact: bool,

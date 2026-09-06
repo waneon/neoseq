@@ -1,27 +1,8 @@
-// The query builder.
-//
-// It reads as a sentence — *Find blocks where all of …* — because that is the
-// shape of the question a person actually has. Every row is the product's one
-// dropdown (`ui/menu-select`), so a choice here behaves like a choice anywhere
-// else, and nesting a group is what gives it the reach of the SPARQL it compiles
-// to: any depth of AND / OR / NOT over any field the graph projects.
-//
-// **The sentence asks; it does not lay out.** What an answer shows and which way
-// it is ordered are the reader's, changed while reading and belonging to the
-// renderer they are read in — so they live on the answer
-// (`QueryColumnsControl`, `QuerySortControl`) and not in the question. A builder
-// that also held a `Show` row and a `Sort by` row was stating both twice, in a
-// place the reader has to open the editor to reach.
-//
-// The builder is a pure editor over a plan value. It never runs, saves, or
-// compiles anything; `QueryPanel` owns all of that.
-
 import { useMemo, useState } from "react";
 import { PlusIcon, Trash2Icon, XIcon } from "lucide-react";
 import { Input } from "@/ui/shadcn/input";
 import { Button } from "@/ui/shadcn/button";
 import { MenuSelect, type MenuSelectOption } from "@/ui/menu-select";
-import { cn } from "@/lib/utils";
 import type { GraphSnapshot } from "../../core-port/snapshot";
 import { stringChoicesOf } from "../../entities/properties";
 import { offeredChoices } from "../../entities/tasks";
@@ -82,16 +63,6 @@ import {
 const FIELD_PROPERTY_PREFIX = "property:";
 const EXACT_DATE = "exact";
 
-/**
- * A field in the builder is a word until someone reaches for it. `Input`'s own
- * ring and ground are Tailwind utilities, and the `utilities` layer outranks the
- * one `app.css` writes in — so a ghost field is stated here, at the call site,
- * where `tailwind-merge` can resolve it, rather than in a stylesheet that could
- * never win. Its focus state is the base field's already: `--surface-2` plus the
- * resting `--e1` edge.
- */
-const GHOST_FIELD = "bg-transparent shadow-none hover:bg-[var(--surface-2)] hover:shadow-none";
-
 export function QueryBuilder({
   id,
   plan,
@@ -113,13 +84,10 @@ export function QueryBuilder({
 
   return (
     <div className="query-builder" id={id} data-testid="query-builder">
-      {/* One clause, one line. *Find blocks — all of the following.* The subject
-          and the root group's match used to take a row each, which put two lead
-          words and a line break inside a single sentence; the root group's head
-          is this line, and only a nested group draws its own. */}
-      <span className="qb-lead">{message("query.find")}</span>
-      <div className="qb-line qb-head">
+      <div className="qb-target">
+        <span className="qb-heading">{message("query.find")}</span>
         <MenuSelect
+          className="qb-subject"
           value={plan.subject}
           label={message("query.subjectLabel")}
           testId="qb-subject"
@@ -130,22 +98,8 @@ export function QueryBuilder({
           }))}
           onValueChange={(value) => onChange(retarget(plan, value as PlanSubject))}
         />
-        <MenuSelect
-          value={plan.where.match}
-          label={message("query.matchLabel")}
-          testId="qb-match"
-          disabled={readonly}
-          options={(["all", "any", "none"] as const).map((match) => ({
-            value: match,
-            label: matchLabel(match, message),
-          }))}
-          onValueChange={(value) => setWhere({ ...plan.where, match: value as PlanGroup["match"] })}
-        />
-        <span className="qb-lead">{message("query.ofTheFollowing")}</span>
       </div>
 
-      {/* Column 2, with no lead of its own: the tree is the `Find` clause going
-          on, not a new one. */}
       <GroupEditor
         group={plan.where}
         plan={plan}
@@ -157,70 +111,60 @@ export function QueryBuilder({
         onRemove={null}
       />
 
-      <span className="qb-lead">{message("query.grain")}</span>
-      <div className="qb-line">
-        <MenuSelect
-          value={plan.grain}
-          label={message("query.grain")}
-          testId="qb-grain"
-          disabled={readonly}
-          options={[
-            { value: "entity", label: message("query.grain.entity") },
-            { value: "summary", label: message("query.grain.summary") },
-          ]}
-          onValueChange={(grain) =>
-            onChange({
-              ...plan,
-              grain: grain as QueryPlan["grain"],
-              columns:
-                grain === "summary"
-                  ? [{ id: "count", source: { kind: "subject" }, aggregate: "count" }]
-                  : defaultPlan(plan.subject).columns,
-            })
-          }
-        />
+      <div className="qb-settings">
+        <div className="qb-setting">
+          <span className="qb-label">{message("query.grain")}</span>
+          <MenuSelect
+            value={plan.grain}
+            label={message("query.grain")}
+            testId="qb-grain"
+            disabled={readonly}
+            options={[
+              { value: "entity", label: message("query.grain.entity") },
+              { value: "summary", label: message("query.grain.summary") },
+            ]}
+            onValueChange={(grain) =>
+              onChange({
+                ...plan,
+                grain: grain as QueryPlan["grain"],
+                columns:
+                  grain === "summary"
+                    ? [{ id: "count", source: { kind: "subject" }, aggregate: "count" }]
+                    : defaultPlan(plan.subject).columns,
+              })
+            }
+          />
+        </div>
+        <label className="qb-setting qb-limit">
+          <span className="qb-label">{message("query.limit")}</span>
+          <Input
+            className="w-20"
+            type="number"
+            min={1}
+            max={PLAN_LIMIT_MAX}
+            value={plan.limit}
+            readOnly={readonly}
+            aria-label={message("query.limit")}
+            data-testid="qb-limit"
+            onChange={(event) => {
+              const next = Number(event.target.value);
+              if (!Number.isFinite(next)) return;
+              onChange({ ...plan, limit: Math.min(PLAN_LIMIT_MAX, Math.max(1, Math.round(next))) });
+            }}
+          />
+        </label>
       </div>
       {plan.grain === "summary" && (
-        <>
-          <span className="qb-lead">{message("query.summaryFields")}</span>
+        <div className="qb-summary">
+          <span className="qb-heading">{message("query.summaryFields")}</span>
           <SummaryColumns
             plan={plan}
             propertyKeys={propertyKeys}
             readonly={readonly}
             onChange={onChange}
           />
-        </>
+        </div>
       )}
-
-      {/* The last of the sentence, and a clause like the two above it. Its lead
-          word takes the lead column, so `Limit` starts at the same left edge as
-          `Find` and its field at the same edge as the subject beside it — one
-          left edge for every word in the builder, and one for every control.
-          Held at the far end of the line instead, behind a seam, the two knobs
-          most queries never touch read as two controls that had come loose from
-          the sentence they belong to, and answered to no word at all. */}
-      <span className="qb-lead">{message("query.limit")}</span>
-      <div className="qb-line qb-tail">
-        <Input
-          // `px-2`, not the field's own 10px: it is the first control on its
-          // line, so its text shares the left edge of every other clause's
-          // first control exactly rather than nearly
-          // (designs/foundations.md § Geometry, Depth, and Shape).
-          className={cn(GHOST_FIELD, "w-16 px-2")}
-          type="number"
-          min={1}
-          max={PLAN_LIMIT_MAX}
-          value={plan.limit}
-          readOnly={readonly}
-          aria-label={message("query.limit")}
-          data-testid="qb-limit"
-          onChange={(event) => {
-            const next = Number(event.target.value);
-            if (!Number.isFinite(next)) return;
-            onChange({ ...plan, limit: Math.min(PLAN_LIMIT_MAX, Math.max(1, Math.round(next))) });
-          }}
-        />
-      </div>
     </div>
   );
 }
@@ -248,9 +192,9 @@ function SummaryColumns({
       columns: plan.columns.map((column) => (column.id === id ? { ...column, ...patch } : column)),
     });
   return (
-    <div className="qb-group" data-testid="qb-summary-fields">
+    <div className="qb-summary-fields" data-testid="qb-summary-fields">
       {plan.columns.map((column) => (
-        <div className="qb-line" key={column.id}>
+        <div className="qb-summary-row" key={column.id}>
           <MenuSelect
             value={column.aggregate ?? "group"}
             label={message("query.summaryOperation")}
@@ -285,6 +229,7 @@ function SummaryColumns({
           />
           <Button
             size="icon"
+            className="qb-remove"
             disabled={readonly || Boolean(column.aggregate && aggregates === 1)}
             aria-label={message("query.removeSummaryField")}
             onClick={() =>
@@ -296,6 +241,8 @@ function SummaryColumns({
         </div>
       ))}
       <Button
+        variant="ghost"
+        className="qb-add-btn"
         disabled={readonly}
         onClick={() =>
           onChange({
@@ -371,13 +318,13 @@ function GroupEditor({
 
   return (
     <div className="qb-group" data-depth={depth} data-testid="qb-group">
-      {/* The root group's head is the builder's first line, so it draws none of
-          its own; a nested one is a clause inside a clause and says so. */}
-      {depth > 0 && (
-        <div className="qb-line qb-group-head">
+      <div className="qb-group-head">
+        {depth === 0 && <span className="qb-heading">{message("query.conditions")}</span>}
+        <div className="qb-match">
           <MenuSelect
             value={group.match}
             label={message("query.matchLabel")}
+            testId={depth === 0 ? "qb-match" : undefined}
             disabled={readonly}
             options={(["all", "any", "none"] as const).map((match) => ({
               value: match,
@@ -385,22 +332,27 @@ function GroupEditor({
             }))}
             onValueChange={(value) => onChange({ ...group, match: value as PlanGroup["match"] })}
           />
-          <span className="qb-lead">{message("query.ofTheFollowing")}</span>
-          {onRemove && (
-            <Button
-              size="icon"
-              className="qb-remove"
-              disabled={readonly}
-              aria-label={message("query.removeGroup")}
-              onClick={onRemove}
-            >
-              <Trash2Icon aria-hidden />
-            </Button>
-          )}
+          <span className="qb-label">{message("query.ofTheFollowing")}</span>
         </div>
-      )}
+        {onRemove && (
+          <Button
+            size="icon"
+            className="qb-remove"
+            disabled={readonly}
+            aria-label={message("query.removeGroup")}
+            onClick={onRemove}
+          >
+            <Trash2Icon aria-hidden />
+          </Button>
+        )}
+      </div>
 
       <div className="qb-children">
+        {group.children.length === 0 && (
+          <p className="qb-empty">
+            {message(depth === 0 ? "query.noConditions" : "query.emptyGroup")}
+          </p>
+        )}
         {group.children.map((child) =>
           child.kind === "group" ? (
             <GroupEditor
@@ -427,9 +379,9 @@ function GroupEditor({
             />
           ),
         )}
-        <div className="qb-line qb-add">
-          <button
-            type="button"
+        <div className="qb-add">
+          <Button
+            variant="ghost"
             className="qb-add-btn"
             disabled={readonly || full}
             data-testid={depth === 0 ? "qb-add-condition" : undefined}
@@ -437,9 +389,9 @@ function GroupEditor({
           >
             <PlusIcon aria-hidden />
             {message("query.addCondition")}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="ghost"
             className="qb-add-btn"
             disabled={readonly || full || deep}
             data-testid={depth === 0 ? "qb-add-group" : undefined}
@@ -447,7 +399,7 @@ function GroupEditor({
           >
             <PlusIcon aria-hidden />
             {message("query.addGroup")}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -528,14 +480,16 @@ function ConditionEditor({
           });
         }}
       />
-      {operatorTakesValue(condition.op) && (
-        <ValueEditor
-          condition={condition}
-          snapshot={snapshot}
-          readonly={readonly}
-          onChange={onChange}
-        />
-      )}
+      <div className="qb-condition-value">
+        {operatorTakesValue(condition.op) && (
+          <ValueEditor
+            condition={condition}
+            snapshot={snapshot}
+            readonly={readonly}
+            onChange={onChange}
+          />
+        )}
+      </div>
       <Button
         size="icon"
         className="qb-remove"
@@ -584,9 +538,9 @@ function ValueEditor({
   );
   if (!operatorTakesRange(condition.op)) return operand;
   return (
-    <>
+    <div className="qb-range">
       {operand}
-      <span className="qb-lead">{message("query.and")}</span>
+      <span className="qb-label">{message("query.and")}</span>
       <Operand
         field={condition.field}
         value={condition.value2 ?? defaultValueForField(condition.field)}
@@ -594,7 +548,7 @@ function ValueEditor({
         readonly={readonly}
         onChange={(value) => onChange({ ...condition, value2: value })}
       />
-    </>
+    </div>
   );
 }
 
@@ -646,7 +600,7 @@ function Operand({
         {value.type === "date" && (
           <Input
             type="date"
-            className={cn(GHOST_FIELD, "w-36")}
+            className="qb-date-input"
             value={value.value}
             readOnly={readonly}
             aria-label={message("query.exactDate")}
@@ -662,7 +616,7 @@ function Operand({
   if (type === "number" || type === "integer") {
     return (
       <Input
-        className={cn(GHOST_FIELD, "w-20")}
+        className="qb-number-input"
         type="number"
         value={value.type === "number" ? value.value : 0}
         readOnly={readonly}
@@ -694,7 +648,11 @@ function Operand({
     const page = snapshot.pages.find((item) => item.id === current);
     return (
       <span className="qb-operand">
-        {page && <span className="qb-chip">{page.title || page.id}</span>}
+        {page && (
+          <span className="qb-chip">
+            <span>{page.title || page.id}</span>
+          </span>
+        )}
         {!readonly && (
           <PageAutocomplete
             placeholder={message("query.pickPage")}
@@ -729,7 +687,7 @@ function Operand({
 
   return (
     <Input
-      className={cn(GHOST_FIELD, "w-56 max-w-full")}
+      className="qb-text-input"
       value={value.type === "text" ? value.value : ""}
       readOnly={readonly}
       placeholder={message("query.valuePlaceholder")}
@@ -792,7 +750,7 @@ function ValueListEditor({
     <span className="qb-operand qb-list" data-testid="qb-value-list">
       {members.map((member) => (
         <span key={member} className="qb-chip">
-          {nameOf(member)}
+          <span>{nameOf(member)}</span>
           <button
             type="button"
             aria-label={message("query.removeValue", { value: nameOf(member) })}
@@ -819,7 +777,7 @@ function ValueListEditor({
         />
       ) : (
         <Input
-          className={cn(GHOST_FIELD, "w-56 max-w-full")}
+          className="qb-text-input"
           value={draft}
           readOnly={readonly}
           placeholder={message("query.addValue")}

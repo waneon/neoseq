@@ -1,59 +1,24 @@
-/* ── The answer is an object ──
-   A query result is the one thing in the writing that is not writing: it is a
-   view of the graph, embedded in a line. So it is a *ground of its own*: the
-   inset `--surface-1` fill, closed by the chip's `--line-strong` ring.
-
-   Both, not either. The fill alone — which is what this was before it was
-   bounded — is a 1.9% step from the canvas, a large pale rectangle whose edge
-   the eye has to guess. The hairline alone — which is what it became — draws
-   that edge at 11.5% ink and then leaves the inside of the object identical to
-   the page around it, so on a journal of white writing a panel of answers read
-   as writing with a faint line round it. Together the boundary is drawn *and*
-   the inside is a different surface, which is what "this is not your writing"
-   actually looks like. The table's own header is a hairline rather than a band
-   (designs/query.md § Table and List Views), so nothing puts two greys against each other any more,
-   which is the defect that took the fill away in the first place. */
+/* Query identity, authoring, and reading controls have separate rows. */
 .query-block {
+  container-type: inline-size;
+  min-width: 0;
   margin: var(--sp-2) 0 var(--sp-4);
+  border: 1px solid var(--line-strong);
   border-radius: var(--r-3);
-  background: var(--surface-1);
-  /* The chip's ring rather than the panel's, because this edge has more to do
-     than close a menu: it has to be found against a page of white writing at a
-     glance, where `--line` at 11.5% ink is a boundary the eye still has to look
-     for. `--surface-1` says "a different surface"; `--line-strong` says where it
-     stops. */
-  box-shadow: var(--e1-chip);
+  background: var(--canvas);
   overflow: hidden;
 }
 
-/* Given a page of its own the query is not an aside inside a paragraph, so it
-   stops leaving room above itself for the line it used to interrupt. */
 .query-block[data-variant="page"] {
   margin: 0 0 var(--sp-6);
 }
 
-/* ── The views of a query, when the query is the page ──
-   The product's one segmented control, doing the job it was built for: a
-   recessed track with the chosen key raised out of it, which is how this
-   interface says "this one of these" without spending a second signal. Inside a
-   bullet the same views stay in a menu — a row of tabs growing out of a line of
-   writing is a second interface inside a sentence — so this is the page's
-   grammar only.
-
-   **The track holds states; the verb stands beside it.** `+` sits outside the
-   track's edge, because dropped into it a verb would read as a view called
-   "plus". It wraps rather than scrolls: a document may hold thirty-two views,
-   and a tab that has to be scrolled to is a tab the reader cannot see is there.
-   designs/foundations.md § Geometry, Depth, and Shape allows exactly one
-   product scrollbar, owned by the content column. */
 .query-views {
   display: flex;
   align-items: center;
   gap: var(--sp-1);
-  /* Even top and bottom: a strip padded on one side only is a control sitting
-     off its own row's centre line, which is the kind of two-pixel wrong that is
-     invisible in a review and obvious on screen. */
-  padding: var(--sp-1);
+  margin-bottom: 10px;
+  padding: 0 12px;
 }
 
 .query-view-track {
@@ -68,16 +33,11 @@
   box-shadow: inset 0 0 0 1px var(--thread);
 }
 
-/* A key hugs its own name and starts it at a fixed inset, rather than centring
-   it in a minimum width. Centred, a tab's text landed at an x that depended on
-   how long the name was — which meant it could come to rest two pixels from the
-   caption's own left edge below it, and "nearly the same column" is the one
-   relationship a reader cannot name (DESIGN.md § Spatial Architecture). */
 .query-view-tab {
   display: inline-flex;
   position: relative;
   max-width: 220px;
-  height: 26px;
+  height: 30px;
   align-items: center;
   gap: var(--sp-0);
   padding: 0 var(--sp-2);
@@ -116,10 +76,6 @@
     0 0 0 2px var(--accent-soft);
 }
 
-/* ── The seam, on its side ──
-   The same rule the tag directory draws between two rows, drawn between two
-   tabs: where the thing in the reader's hand will land, taking no space, so
-   nothing in the strip moves while the pointer is still deciding. */
 .query-view-tab[data-dragging] {
   opacity: 0.45;
 }
@@ -158,10 +114,6 @@
   white-space: nowrap;
 }
 
-/* The current tab opens its own menu, so it says so — drawn rather than
-   revealed, because what a press will do may not wait for a hover to admit it.
-   Exactly one tab carries the mark, which is what keeps it reading as "this
-   view" rather than as a row of chrome. */
 .query-view-more {
   width: 12px;
   height: 12px;
@@ -174,14 +126,6 @@
   color: var(--ink-2);
 }
 
-/* A view is renamed where it stands, so the field *is* the tab: same box, same
-   raise, with the caret and the focus halo a typing surface carries.
-
-   It grows with what is in it, and the *text* is what measures itself. A width
-   counted in `ch` is the width of a zero, so a Korean name came out half the
-   size it needed and was clipped as it was typed. The wrapper repeats the string
-   in a hidden pseudo-element sharing one grid cell with the input: exact in every
-   engine, and no measurement pass. */
 .query-view-rename {
   display: inline-grid;
   align-items: center;
@@ -222,12 +166,9 @@
   outline: none;
 }
 
-/* Adding a view is a verb, so it is revealed like every other one and pinned
-   where there is no pointer to reveal it with (designs/shell-and-navigation.md § Disclosure and Commands). */
 .query-view-add {
   flex: none;
-  opacity: 0;
-  transition: opacity var(--dur-view) var(--ease-out);
+  opacity: 1;
 }
 
 .query-block:hover .query-view-add,
@@ -247,206 +188,249 @@
   }
 }
 
-/* ── The query header ──
-   One line above the answer: what the query is called, how much it found, and —
-   only once a pointer or the keyboard arrives — the controls that shape it. The
-   old toolbar stated six things at rest (a mode word, the view's name, a sliders
-   icon, the index revision, Run, and `⋯`) above five permanent rows of builder;
-   on a journal page that was ~500px of authoring chrome over a six-row answer.
-   Everything that is about *writing* the query now lives behind an icon beside
-   the ones that shape the reading of it, and the revision — a diagnostic, not a
-   fact about the answer — lives in `⋯`.
-
-   **The name leads, the count ends the line, and one control holds both.** What
-   used to sit here was a small count leading a machine-written phrase — two
-   pieces of 12px grey where a reader looks for a title. A question the reader
-   named has a name; it is the largest thing on the surface and it starts at the
-   panel's own inset. The count is a fact *about* the answer rather than the name
-   of it, so it goes to the far end in the metadata voice, and the phrase goes to
-   the control that opens the question (designs/query.md § Question and Answer Controls). Where nobody named the query
-   the count leads alone, which is the same rule with the title absent. */
 .query-header {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
-  min-height: 40px;
-  padding: var(--sp-1) var(--sp-2) var(--sp-1) var(--sp-1);
-  color: var(--ink-3);
-  font-size: var(--text-xs);
-  line-height: var(--lh-xs);
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 10px;
 }
 
-/* ── The disclosure is the line ──
-   Folding the answer is the one gesture a reader repeats on this surface, so it
-   gets the widest target on it: the control spans from the panel's inset to the
-   revealed icons, and the two things it says land where a reader looks for them
-   — the name at the start, the count at the end. A chip-sized disclosure hugging
-   its own words asked the reader to hit twelve-point text; this asks them to hit
-   the row.
+.query-block[data-variant="page"] .query-header,
+.query-block[data-variant="page"] .query-toolbar {
+  padding-inline: 16px;
+}
 
-   It is `--r-2` rather than the panel's own radius because it is a control lying
-   *on* the panel, not the panel's own top edge. */
-.query-disclosure {
-  /* The chevron and the gap after it — one figure, because the row that has no
-     chevron has to leave exactly this much room where it would have been. */
-  --chevron-slot: calc(14px + var(--sp-1));
+.query-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 0;
+}
+
+.query-heading-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--ink-3);
+}
+
+.query-heading-text {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.query-title {
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  font-weight: var(--weight-strong);
+  overflow-wrap: anywhere;
+}
+
+.query-summary {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  overflow-wrap: anywhere;
+}
+
+.query-header-actions,
+.query-result-tools {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.query-block .query-tool {
+  min-height: 30px;
+  height: auto;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: var(--r-2);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
+.query-block .query-tool:hover,
+.query-block .query-tool[aria-expanded="true"],
+.query-block .query-tool[data-state="open"] {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.query-block .query-filter-trigger {
+  box-shadow: var(--e1);
+}
+
+.query-block .query-filter-trigger[aria-expanded="true"] {
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+.query-block .query-tool[data-sorted] {
+  color: var(--accent);
+}
+
+.query-header svg,
+.query-toolbar svg,
+.query-tool svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.query-tool .query-tool-chevron {
+  width: 14px;
+  height: 14px;
+  color: var(--ink-3);
+}
+
+.query-tool-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.query-toolbar {
   display: flex;
   align-items: center;
-  gap: var(--sp-1);
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: var(--sp-6);
-  padding: 0 var(--sp-2) 0 var(--sp-1);
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  min-height: 44px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--thread);
+  background: var(--surface-1);
+}
+
+.query-result-tools {
+  margin-inline-start: auto;
+}
+
+.query-disclosure {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 5px;
+  min-height: 30px;
+  padding: 4px;
   border: 0;
   border-radius: var(--r-2);
-  background: transparent;
-  color: inherit;
+  background: none;
+  color: var(--ink-2);
   font: inherit;
-  text-align: start;
-  transition:
-    background-color var(--dur-press) var(--ease-out),
-    color var(--dur-press) var(--ease-out);
 }
 
 button.query-disclosure {
   cursor: pointer;
 }
 
-@media (hover: hover) {
-  button.query-disclosure:hover {
-    background: var(--surface-2);
-  }
-
-  button.query-disclosure:hover .query-count {
-    color: var(--ink);
-  }
-}
-
-button.query-disclosure:active {
-  background: var(--surface-3);
-}
-
-/* Header controls use an inset focus mark because the query block clips its
-   children. The disclosure's chevron already states open/closed; focus adds no
-   second state colour. */
-button.query-disclosure:focus-visible {
-  outline: none;
-  background: var(--surface-2);
-  box-shadow: var(--focus-inset);
-}
-
-.query-disclosure > svg {
-  flex: none;
-  color: var(--ink-3);
-}
-
-/* The name the reader gave the question — the title of the object, in the
-   product's own section-heading size and weight. It yields the line before the
-   count does and ellipsises rather than wrapping: a title is one line, and the
-   whole of it is in the control's accessible name either way (DESIGN.md § Spatial Architecture). */
-.query-title {
-  min-width: 0;
-  overflow: hidden;
+button.query-disclosure:hover {
   color: var(--ink);
-  font-size: var(--text-lg);
-  line-height: var(--lh-lg);
-  letter-spacing: var(--track-lg);
-  font-weight: var(--weight-strong);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  background: var(--wash);
 }
 
-/* How much it found — which is also the empty state, so it is the one fact in
-   the header that is never absent. Beside a title it is the caption at the far
-   end of the line; with no title it takes the lead, because then it is the only
-   thing naming the answer. Tabular figures because a count that shifts a pixel
-   as it changes reads as the layout moving rather than as the number. */
+.query-disclosure:has([data-static]) {
+  padding-inline-start: 23px;
+}
+
 .query-count {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-1);
-  flex: none;
-  height: var(--sp-5);
-  /* No inset of its own. Leading the line, this text stands on the outline's own
-     `text-inset`: the disclosure's padding plus the chevron's slot come to
-     exactly 26px, so an inline query's caption starts where the writing above it
-     starts. Four pixels of chip padding here made that a *near* miss, which is
-     the one thing designs/foundations.md § Geometry, Depth, and Shape forbids — an edge is shared exactly or not at all.
-     The failed state pays for its own fill below. */
-  padding: 0;
-  border-radius: var(--r-2);
-  color: var(--ink-2);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
   font-variant-numeric: tabular-nums;
-  font-weight: var(--weight-medium);
-  white-space: nowrap;
-  transition: color var(--dur-press) var(--ease-out);
 }
 
-/* Held at the end of the line, but only when something else is holding the
-   start of it. */
-.query-disclosure[data-titled] .query-count {
-  margin-inline-start: auto;
-}
-
-/* Nothing under it to open — a first run with no answer yet, or an empty one. It
-   *keeps* the chevron's slot rather than taking it back: a standing question is
-   answered again on every keystroke of the day it sits under, and an answer
-   arriving must not slide the line it arrives on eighteen pixels to the right.
-   An empty gutter is a quieter thing than a header that moves. */
-.query-disclosure:has(> .query-count[data-static]) {
-  padding-inline-start: calc(var(--sp-1) + var(--chevron-slot));
-}
-
-/* A count that failed says so in the one tone a failure has, wherever the count
-   is stated — over the answer, or beside the editor that wrote the question. It
-   is the one state that takes a fill, because it is the one the reader may not
-   miss. */
 .query-count[data-state="error"] {
-  padding: 0 var(--sp-1);
-  background: var(--danger-soft);
   color: var(--danger);
 }
 
-@media (hover: hover) {
-  button.query-disclosure:hover .query-count[data-state="error"] {
-    color: var(--danger);
+.query-disclosure:focus-visible,
+.query-header .icon-btn:focus-visible,
+.query-block .query-tool:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.query-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 28px 20px;
+  text-align: center;
+}
+
+.query-empty > svg {
+  width: 22px;
+  height: 22px;
+  color: var(--ink-3);
+}
+
+.query-empty p {
+  max-width: 34ch;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  text-wrap: pretty;
+}
+
+@container (max-width: 440px) {
+  .query-header {
+    gap: 8px;
+    padding: 10px;
+    flex-wrap: wrap;
+  }
+
+  .query-heading {
+    flex: 1 1 120px;
+  }
+
+  .query-header-actions {
+    margin-inline-start: auto;
+  }
+
+  .query-toolbar {
+    gap: 2px;
+    padding-inline: 8px;
+  }
+
+  .query-result-tools {
+    gap: 0;
+  }
+
+  .query-block .query-tool {
+    padding-inline: 6px;
   }
 }
 
-/* Query configuration remains visible, with the result count leading the row. */
-.query-header-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-0);
-  flex: none;
-  /* Held at the end of the line whether they are showing or not, so nothing
-     slides sideways when the pointer arrives. */
-  margin-inline-start: auto;
+@media (pointer: coarse) {
+  .query-block .query-tool,
+  .query-disclosure,
+  .query-view-tab {
+    min-height: 36px;
+  }
 }
 
-.query-header svg {
-  width: 14px;
-  height: 14px;
-}
-
-/* A sorted table says so on the control that sorted it, so the reader does not
-   have to open a panel to learn that the order is not the query's own. */
-.query-header-actions .icon-btn[data-sorted] {
-  color: var(--accent);
-}
-
-.query-header-actions .icon-btn[data-sorted]:hover:not(:disabled) {
-  color: var(--accent-hover);
-}
-
-/* ── The sort panel ──
-   The order is a list, and a list has precedence. An arrow on a heading can say
-   *which way*; only this panel can say *which first*, and only it can move a term
-   through the queue. It is a floating surface (designs/foundations.md § Geometry, Depth, and Shape) rather than a
-   menu, because a menu row may not hold four controls of its own — and the moves
-   are buttons rather than a drag, so the keyboard reaches every one of them. */
 .query-sort-panel {
   z-index: var(--z-menu);
   display: grid;
@@ -488,7 +472,6 @@ button.query-disclosure:focus-visible {
   padding-inline-start: var(--sp-1);
 }
 
-/* Precedence as a figure, in the same voice the heading states it in. */
 .query-sort-rank {
   flex: none;
   width: 12px;
@@ -563,8 +546,6 @@ button.query-disclosure:focus-visible {
   box-shadow: none;
 }
 
-/* `--ink-3` would fail AA once the row takes its hover wash, so the placeholder
-   this control always shows starts one level up (designs/foundations.md § Modes and Contrast). */
 .query-sort-panel .query-sort-add[data-placeholder="true"] .value {
   color: var(--ink-2);
 }
@@ -590,17 +571,6 @@ button.query-disclosure:focus-visible {
   color: var(--ink);
 }
 
-/* ── The columns panel ──
-   What a table shows, as a list of switches. It is the sort panel's twin — the
-   same floating surface at the same depth, opened by the icon beside it — because
-   the two answer the one question a reader has while *reading* an answer: which
-   of this, and in what order.
-
-   Every line is the same line: a switch, a name, and — only where the column is
-   actually there and its relation could fold — how it arrives. The name is a
-   `<label>` for the switch rather than a second target beside it, so the whole
-   row is the press, which is what makes a list of fifteen fields quick to work
-   through. */
 .query-columns-panel {
   z-index: var(--z-menu);
   display: grid;
@@ -618,9 +588,6 @@ button.query-disclosure:focus-visible {
   padding-inline: var(--sp-1);
 }
 
-/* A filter, not a field: it sits inside the panel's own ground with the glyph
-   leading it, and the hairline under it is what separates it from the list
-   rather than a box drawn around it. */
 .query-columns-search {
   display: flex;
   align-items: center;
@@ -681,10 +648,6 @@ button.query-disclosure:focus-visible {
   min-width: 0;
 }
 
-/* The name *is* the switch — a `<label>`, so the whole of it is the press rather
-   than a 14px box with a word parked beside it. It carries its own hover for
-   that reason: the summary menu at the end of the row is a second target, and one
-   wash over both would promise a press that lands on neither. */
 .query-columns-toggle {
   display: flex;
   align-items: center;
@@ -725,21 +688,10 @@ button.query-disclosure:focus-visible {
   white-space: nowrap;
 }
 
-/* A column the table draws is stated in the reading ink; one it does not is a
-   name in the metadata voice, which is the difference the switch already carries
-   and the ink repeats without a second signal (designs/foundations.md § Modes and Contrast). */
 .query-columns-row[data-shown] .query-columns-name {
   color: var(--ink);
 }
 
-/* No reserved height: an empty answer is stated by the header's count, so the
-   band under it must be able to be nothing at all rather than a 34px blank strip
-   under every query that found nothing. `:not(:empty)` is what buys both — React
-   renders a whole set of absent renderers as no child nodes at all, so an answer
-   that exists gets the panel's own bottom inset and one that does not gets
-   nothing. Without it the last row of every answer sat on the panel's hairline.
-   Horizontal insets stay the children's, because a table's header rule has to
-   span the object and a list's rows have to hang from their own indent. */
 .query-output {
   color: var(--ink-2);
   font-size: var(--text-sm);
@@ -766,328 +718,6 @@ button.query-disclosure:focus-visible {
   font-family: var(--font-mono);
 }
 
-/* ── The query builder ──
-   A query reads as a sentence, so its rows are sentence rows: a lead word in the
-   metadata voice, then the controls that finish the clause. Two things separate
-   that from a form out of 2012, and v2 got both wrong.
-
-   **No drawn boxes.** Every choice was a white `--e1` field on a grey slab — nine
-   of them on one screen, each announcing itself as a control before any of them
-   said what the query asked. A builder is a *sentence made of controls*, so its
-   controls read as words at rest and as controls under the pointer: they are
-   transparent, and they take the one hover colour when a pointer or a caret
-   arrives. The band went with them; the block's own ground is enough, and it
-   leaves the result's `--surface-2` header as the step that separates the two.
-
-   **One left edge.** The leads and the clauses were ragged — `Find` at one
-   indent, its conditions at another, `Show` back at the first — so the sentence
-   zig-zagged down the page. It is a two-column grid now, lead and clause, and
-   every control in the builder starts at the same x. */
-.query-builder {
-  display: grid;
-  /* A floor, not a fixed width: the lead column holds `Find` at 52px so the
-     condition tree under it starts at one edge, and still grows for a locale —
-     or a 2× expansion pseudo-locale — whose word is longer than the floor. */
-  grid-template-columns: minmax(52px, max-content) minmax(0, 1fr);
-  /* How tall the first line of a clause is. The grid is top-aligned, so a lead
-     word centres on its clause only while the two reserve the same height —
-     which is why this is declared per row rather than assumed. */
-  --qb-clause-h: var(--row-h);
-  column-gap: var(--sp-2);
-  row-gap: var(--sp-1);
-  align-items: start;
-  /* One hairline top and bottom, and no fill of its own: the builder is a *band*
-     inside the block rather than a differently-coloured region of it, and now
-     that the block itself is `--surface-1`, a fill here would be the same grey
-     drawn twice. See designs/query.md § The Answer as an Object. The rules are
-     what say where the question starts and stops. */
-  padding: var(--sp-2) var(--sp-4) var(--sp-3);
-  box-shadow:
-    inset 0 1px 0 var(--thread),
-    inset 0 -1px 0 var(--thread);
-  min-width: 0;
-}
-
-/* The condition tree is the `Find` clause continued, so it lines up under the
-   clause rather than taking a lead word of its own. */
-.query-builder > .qb-group {
-  grid-column: 2;
-}
-
-.qb-line {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--sp-1);
-  min-width: 0;
-}
-
-/* The connective tissue of the sentence: never a control, never a label for one.
-   The 12px metadata voice at `--ink-3`, which the block's own ground allows and
-   the old grey band did not (designs/foundations.md § Modes and Contrast). It holds the
-   control row's height so a lead word sits on its clause's centre line. */
-.qb-lead {
-  display: inline-flex;
-  align-items: center;
-  flex: none;
-  min-height: var(--qb-clause-h);
-  color: var(--ink-3);
-  font-size: var(--text-xs);
-  line-height: var(--lh-xs);
-}
-
-/* Inside a clause the lead is punctuation between two controls, so it needs no
-   row height of its own and steps in one ink level to read beside them. */
-.qb-line .qb-lead {
-  min-height: 0;
-  color: var(--ink-2);
-}
-
-.qb-head > .menu-select + .menu-select {
-  margin-inline-start: var(--sp-1);
-}
-
-/* ── A control that reads as a word ──
-   Transparent at rest, the one hover colour under the pointer, and the field's
-   resting ring only once the caret is actually in it. Controls keep the product's
-   32px form metric (designs/interaction.md § Choice and designs/accessibility.md § Input and Focus); only their width and
-   their ground are the builder's business. */
-.query-builder .menu-select {
-  width: auto;
-  max-width: 220px;
-  padding-inline: var(--sp-2);
-  background: transparent;
-  box-shadow: none;
-  font-weight: var(--weight-medium);
-  transition:
-    background-color var(--dur-press) var(--ease-out),
-    box-shadow var(--dur-press) var(--ease-out);
-}
-
-.query-builder .menu-select:hover:not(:disabled) {
-  background: var(--surface-2);
-  box-shadow: none;
-}
-
-.query-builder .menu-select:focus-visible,
-.query-builder .menu-select[data-state="open"] {
-  background: var(--surface-2);
-  box-shadow: var(--e1);
-}
-
-/* --ink-3 fails AA on --surface-2, so a placeholder steps up one level for as
-   long as the control is lit — the same carve-out the base field makes on focus. */
-.query-builder .menu-select:hover[data-placeholder="true"] [data-slot="select-value"] {
-  color: var(--ink-2);
-}
-
-/* The chevron is the only thing that says "this word opens something", so it
-   stays visible; it strengthens with the control rather than appearing with it. */
-.query-builder .menu-select:hover svg,
-.query-builder .menu-select:focus-visible svg,
-.query-builder .menu-select[data-state="open"] svg {
-  color: var(--ink-2);
-}
-
-.qb-field {
-  max-width: 180px;
-}
-
-.qb-operator {
-  max-width: 200px;
-}
-
-.qb-operand {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--sp-1);
-  min-width: 0;
-}
-
-/* A nested group is depth, so it is drawn the way the outline draws depth: one
-   indent and the resting thread colour, not a box inside a box. */
-.qb-group {
-  display: grid;
-  gap: var(--sp-1);
-  min-width: 0;
-}
-
-.qb-group:not([data-depth="0"]) > .qb-children {
-  margin-inline-start: var(--sp-1);
-  padding-inline-start: var(--sp-3);
-  box-shadow: inset 1px 0 0 var(--thread);
-}
-
-.qb-children {
-  display: grid;
-  gap: var(--sp-0);
-  min-width: 0;
-}
-
-.qb-condition {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--sp-0);
-  min-width: 0;
-}
-
-/* Remove is revealed, not summoned: it lives on the row it acts on and steps
-   forward on hover or focus (designs/shell-and-navigation.md § Disclosure and Commands). It never leaves the layout. */
-.qb-remove {
-  opacity: 0;
-  color: var(--ink-3);
-}
-
-.qb-condition:hover .qb-remove,
-.qb-group-head:hover .qb-remove,
-.qb-remove:focus-visible {
-  opacity: 1;
-}
-
-@media (hover: none) {
-  .qb-remove {
-    opacity: 1;
-  }
-}
-
-.qb-remove svg {
-  width: 14px;
-  height: 14px;
-}
-
-/* Adding a row is a quiet verb, not a primary action: the metadata voice with
-   the menu row's hover wash, and no filled button inside a form. */
-.qb-add {
-  gap: var(--sp-0);
-  margin-top: var(--sp-0);
-}
-
-.qb-add-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-1);
-  height: var(--sp-5);
-  padding: 0 var(--sp-2);
-  border: 0;
-  border-radius: var(--r-2);
-  background: transparent;
-  color: var(--ink-3);
-  font: inherit;
-  font-size: var(--text-xs);
-  line-height: var(--lh-xs);
-  cursor: pointer;
-  transition:
-    background-color var(--dur-press) var(--ease-out),
-    color var(--dur-press) var(--ease-out);
-}
-
-.qb-add-btn:hover:not(:disabled) {
-  background: var(--surface-2);
-  color: var(--ink);
-}
-
-.qb-add-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.qb-add-btn svg {
-  width: 12px;
-  height: 12px;
-}
-
-.qb-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-1);
-  height: var(--sp-5);
-  max-width: 180px;
-  padding: 0 var(--sp-1) 0 var(--sp-2);
-  border-radius: var(--r-2);
-  box-shadow: var(--e1-chip);
-  color: var(--ink-2);
-  font-size: var(--text-xs);
-  line-height: var(--lh-xs);
-  white-space: nowrap;
-}
-
-.qb-chip > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.qb-chip button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--r-1);
-  background: transparent;
-  color: var(--ink-3);
-  opacity: 0;
-  cursor: pointer;
-  transition: opacity var(--dur-press) var(--ease-out);
-}
-
-.qb-chip:hover button,
-.qb-chip button:focus-visible {
-  opacity: 1;
-}
-
-@media (hover: none) {
-  .qb-chip button {
-    opacity: 1;
-  }
-}
-
-.qb-chip button:hover {
-  background: var(--surface-2);
-  color: var(--ink);
-}
-
-.qb-chip svg {
-  width: 10px;
-  height: 10px;
-}
-
-/* The tail of the sentence is a clause like the two above it: its lead word takes
-   the lead column, so `Limit` starts where `Find` starts and its field where the
-   subject's control does — one left edge for every word in the builder, and one
-   for every control (designs/query.md § Question and Answer Controls). Held at the far end of the line behind a
-   seam, the two knobs most queries never touch read as controls that had come
-   loose from the sentence, and answered to no word at all. */
-.qb-tail {
-  grid-column: 2;
-  gap: var(--sp-3);
-}
-
-.qb-check {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-1);
-  min-height: var(--row-h);
-  color: var(--ink-2);
-  font-size: var(--text-xs);
-  line-height: var(--lh-xs);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.qb-check input[type="checkbox"] {
-  width: 14px;
-  height: 14px;
-  margin: 0;
-  accent-color: var(--accent);
-}
-
-/* The SPARQL the builder wrote. A disclosure, not a second editor: the mono
-   voice on the source ground, read-only, and it scrolls on its own. */
 .query-compiled {
   max-height: 200px;
   margin: 0;
@@ -1101,18 +731,6 @@ button.query-disclosure:focus-visible {
   white-space: pre;
 }
 
-/* ── The result table ──
-   Header separation is luminance, never a rule (designs/foundations.md § Geometry, Depth, and Shape): the
-   header row sits on --surface-2 in the --ink-3 voice.
-
-   An answer is shown in full. The table used to cap itself at 60vh and scroll
-   its own rows, which put a second scrollbar inside a document that already
-   scrolls and hid how much the query had actually found — the reader had to
-   discover the rest. Only the *sideways* overflow is the table's now: rows run
-   to the end and the page carries them. That is also why the header no longer
-   sticks — with no vertical scrollport of its own there is nothing for it to
-   stick to, and a sticky header per query block on a page of query blocks would
-   be a stack of floating bars. */
 .query-table-wrap {
   max-width: 100%;
   overflow-x: auto;
@@ -1155,20 +773,10 @@ button.query-disclosure:focus-visible {
   color: var(--ink);
 }
 
-/* `fixed`, and the widths live in the <colgroup>. Under the auto algorithm a
-   cell's `width` is only a suggestion, so dragging one column's handle made the
-   browser redistribute the difference across its neighbours — the column being
-   dragged was never the only one that moved. */
 .query-table {
-  --query-row-h: var(--sp-6);
+  --query-row-h: 36px;
   --query-cell-px: var(--sp-2);
   width: 100%;
-  /* No `min-width: max-content`. Under a *fixed* layout a cell is already cut to
-     its declared width, so the only thing an intrinsic minimum could do was
-     measure the text that is not being shown and stretch the table past its
-     block — a scrollbar with nothing on the other side of it. The declared
-     widths still win when their sum genuinely exceeds the block, which is the
-     one case a sideways scroll is for. */
   table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
@@ -1177,28 +785,17 @@ button.query-disclosure:focus-visible {
   text-align: start;
 }
 
-/* The last column is declared with no width, so it takes exactly the space the
-   real columns left over: the table still spans the block when the answer is
-   narrow, and still overflows it — sideways, with a scrollbar — when the reader
-   has widened the columns past the edge. */
 .query-cell-filler {
   padding: 0;
 }
 
-/* ── The header is a line, not a band ──
-   It used to be a `--surface-2` fill, which put a second grey rectangle directly
-   under the builder's grey band — and, because the filler column was filled too,
-   ran that rectangle out across the empty space to the right of the last real
-   column, which is the single clearest way to make a table look unfinished. One
-   hairline underneath separates the names from the rows, spans the table
-   honestly, and leaves `--ink-3` legal for 11px labels (designs/foundations.md § Modes and Contrast). */
 .query-table thead th,
 .query-table thead .query-cell-filler {
   padding: 0;
-  background: transparent;
-  box-shadow: inset 0 -1px 0 var(--thread);
-  color: var(--ink-3);
-  font-size: 11px;
+  background: var(--surface-1);
+  box-shadow: inset 0 -1px 0 var(--line);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
   line-height: var(--lh-xs);
   letter-spacing: 0.03em;
   font-weight: var(--weight-strong);
@@ -1214,11 +811,6 @@ button.query-disclosure:focus-visible {
   padding-inline: var(--sp-2);
 }
 
-/* A heading is its column's handle: the cursor says so, and the same seam the
-   view strip and the tag directory draw marks where the column will land. It is
-   drawn on the heading rather than down the whole column — a rule the height of
-   the answer would be a second table drawn over the first — and the header's own
-   hairline is what carries the eye down from it. */
 .query-table th[draggable="true"] .query-th {
   cursor: grab;
 }
@@ -1231,10 +823,6 @@ button.query-disclosure:focus-visible {
   opacity: 0.45;
 }
 
-/* The seam runs the height of the column, because a column is what is being
-   placed. Every cell draws its own two pixels and they stack into one line — no
-   measurement of a table that is still being laid out, and no overlay to keep in
-   step with a scroll. */
 .query-table th[data-seam] .query-th::after,
 .query-table td[data-seam]::after {
   content: "";
@@ -1268,8 +856,6 @@ button.query-disclosure:focus-visible {
   --query-row-h: var(--sp-5);
 }
 
-/* The heading is the sort control. It carries no button chrome at rest, because
-   a table of headings that all look like buttons reads as a toolbar. */
 .query-th-sort {
   display: flex;
   align-items: center;
@@ -1300,10 +886,6 @@ button.query-disclosure:focus-visible {
   color: var(--ink);
 }
 
-/* Where a heading stands in the order. An arrow says which way; with a second
-   term in the list only a number can say which column wins, so the rank appears
-   exactly when there is a second term for it to come before. Tabular figures,
-   for the same reason every other count in the product has them. */
 .query-th-rank {
   flex: none;
   color: var(--ink-3);
@@ -1351,10 +933,6 @@ button.query-disclosure:focus-visible {
   color: var(--ink);
 }
 
-/* The width handle. It is the only vertical line in a table, and it is the
-   thread colour, so it reads as the seam between two columns rather than as a
-   drawn cell border. The nine-pixel target stays inside the column: straddling
-   the outermost seam creates four pixels of empty horizontal overflow. */
 .query-resize {
   position: absolute;
   top: 0;
@@ -1373,21 +951,6 @@ button.query-disclosure:focus-visible {
   background: linear-gradient(to right, transparent 8px, var(--accent) 8px 9px);
 }
 
-/* ── A cell is the writing, not a note about it ──
-   Two defects, one cause: the table was being drawn as chrome.
-
-   `--ink-2` made every answer a shade quieter than the blocks it was quoting,
-   so a query's result read as a caption under the outline rather than as the
-   same graph seen a second way. The values in these cells *are* blocks — the
-   same names, the same words, often the same line the reader wrote a moment
-   ago — so they take the same ink the outline gives them, and the header keeps
-   `--ink-3` to stay the quieter of the two.
-
-   `vertical-align: top` was the other half. A row is as tall as its tallest
-   cell, and one cell carrying a wrapped sentence, a fact chip or a filled
-   editor made every plain cell beside it hang from the row's ceiling with the
-   whole difference below it — visible on any row that was not uniform, which
-   in a table of task facts is most of them. Cells centre. */
 .query-table tbody td {
   position: relative;
   height: var(--query-row-h);
@@ -1399,11 +962,6 @@ button.query-disclosure:focus-visible {
   white-space: nowrap;
 }
 
-/* Rows are separated by the panel hairline, which is what a table of data is: a
-   set of rows a reader's eye has to be able to travel along without losing the
-   line. Every seam belongs to the bottom of the row before it. Painting a seam
-   inside the next row's top made the first row and every later row have
-   different visual interiors even when their boxes measured exactly alike. */
 .query-table tbody tr:not(:last-child) td {
   box-shadow: inset 0 -1px 0 var(--thread);
 }
@@ -1417,16 +975,10 @@ button.query-disclosure:focus-visible {
   overflow-wrap: anywhere;
 }
 
-/* One row fill, and it is the product's one hover colour: the answer sits on
-   `--surface-1` (designs/query.md § The Answer as an Object), so following a row across a wide
-   table takes the next step up and not the ground the table is already on. */
 .query-table tbody tr:hover td {
   background: var(--surface-2);
 }
 
-/* An edit that changed the predicate stays present until its caret or picker
-   closes. The selection wash makes that temporary exception legible without a
-   new border language; the sentence in the first cell carries the meaning. */
 .query-table tbody tr[data-pinned="true"] td,
 .query-list-row[data-pinned="true"] {
   background: var(--accent-soft);
@@ -1446,22 +998,14 @@ button.query-disclosure:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
-/* A cell with nothing in it says so with the dash, not with fainter ink: the
-   hover wash puts it on --surface-2, where --ink-3 is out of bounds. */
 .query-empty-cell {
   color: var(--ink-2);
 }
 
-/* A cell that names something is a route to it, so it is a link in the
-   product's one link voice: the accent only on hover, never a resting colour
-   that competes with the text around it. */
 .query-link {
   display: inline-flex;
   align-items: center;
   max-width: 100%;
-  /* A 16px run of text is not a target. The link keeps its inline appearance —
-     no fill, no ring, the accent only on hover — and takes the control floor as
-     its height, which also puts it on the fact chips' line in a list row. */
   min-height: var(--target);
   padding: 0;
   border: 0;
@@ -1480,8 +1024,6 @@ button.query-disclosure:focus-visible {
   text-underline-offset: 2px;
 }
 
-/* Query cells remain result cells at rest. Editability appears only on hover or
-   keyboard focus, using the same filled focus state as every Neoseq input. */
 .query-edit-trigger {
   max-width: 100%;
   padding: 0;
@@ -1495,13 +1037,6 @@ button.query-disclosure:focus-visible {
   cursor: text;
 }
 
-/* ── One cell, one geometry ──
-   Every semantic renderer enters the same frame. The table owns its row height,
-   typography, padding, clipping and interaction wash here; status, moments,
-   Markdown and editors may change only what is drawn inside that box. No
-   percentage height is resolved against a content-sized table row, and no
-   `:has()` branch moves padding between a cell and whichever child happens to
-   be mounted today. */
 .query-cell-frame {
   position: relative;
   display: flex;
@@ -1540,9 +1075,6 @@ button.query-disclosure:focus-visible {
   padding-inline-end: var(--sp-6);
 }
 
-/* Pointer and edit state are a wash contained by the cell. They do not draw a
-   second grid or borrow a pixel from a neighbour; row seams remain the table's
-   separate paint layer. */
 .query-table tbody td[data-interactive]:hover,
 .query-table tbody td[data-interactive]:focus-within,
 .query-table tbody td[data-active="true"] {
@@ -1550,10 +1082,6 @@ button.query-disclosure:focus-visible {
   color: var(--ink);
 }
 
-/* Keyboard focus is the only cell state that needs a ring. It belongs to the
-   canonical frame and is inset, so its paint can never cross a row or column
-   boundary. The focused child gives up the global outline to avoid stating the
-   same focus twice. */
 .query-table tbody td:has(:focus-visible) > .query-cell-frame {
   box-shadow: var(--focus-inset);
 }
@@ -1654,8 +1182,6 @@ button.query-disclosure:focus-visible {
   outline: none;
 }
 
-/* A table editor is merely another value inside the frame. Its line is exactly
-   the table line; the frame supplies both the control target and its centring. */
 .query-table .query-result-editor.query-cell-control {
   align-items: stretch;
   justify-content: center;
@@ -1666,10 +1192,6 @@ button.query-disclosure:focus-visible {
   padding: 0;
 }
 
-/* Reading values clip with an ellipsis, even when wrapped content reaches the
-   height limit. Editing always wraps, grows to that limit, and scrolls only
-   vertically. The gutter reserves classic scrollbars; end padding also keeps
-   overlay scrollbars clear of the writing. */
 .query-table .query-result-input {
   overflow: hidden;
   overflow-wrap: anywhere;
@@ -1687,27 +1209,16 @@ button.query-disclosure:focus-visible {
   padding-inline-end: var(--sp-3);
 }
 
-/* The line makes room for the mark rather than sliding under it, which is what
-   keeps the mark a glyph instead of an opaque patch over the last characters —
-   there is no fill to keep in step with a row that changes colour under the
-   pointer. Only here: the axis a cell cuts on is horizontal, so the stack the
-   editor is at rest becomes a line for as long as something is cut from it. */
 .query-table tbody td .query-result-editor[data-clipped="true"] {
   flex-direction: row;
   align-items: center;
 }
 
-/* The line takes the whole of what the mark leaves, so there is no free space
-   for the cell's own centring to distribute and nothing here has to outrank it. */
 .query-table tbody td .query-result-editor[data-clipped="true"] > .query-result-input {
   flex: 1 1 auto;
   min-width: 0;
 }
 
-/* It is the same mark `text-overflow` would have drawn, so it is the same ink as
-   the writing it ends — a quieter one would read as a control rather than as the
-   rest of a sentence, and the rendered projection beside it draws the real one
-   in `--ink`. */
 .query-result-clip {
   flex: none;
   color: inherit;
@@ -1774,11 +1285,6 @@ button.query-disclosure:focus-visible {
   gap: var(--sp-1);
 }
 
-/* Tag chips inside a result read exactly as tag chips under a block, which now
-   means the accent as well: a tag is a reference wherever it is rendered, and a
-   result table quoting one is quoting the same thing the outline shows. It keeps
-   its ring, because in a cell there is no `#` and no line of writing to sit in —
-   the ring is what says "one of several", where under a block the sigil does. */
 .query-tag-chip {
   display: inline-flex;
   align-items: center;
@@ -1792,10 +1298,6 @@ button.query-disclosure:focus-visible {
   white-space: nowrap;
 }
 
-/* A table keeps the tag's written voice, but the column heading already
-   supplies its `#` context. A quiet pill distinguishes repeated values without
-   indenting their text: as with a moment, only the paint reaches into the cell
-   gutter and the first glyph stays on the common content axis. */
 .query-table .query-tags {
   flex-wrap: nowrap;
   gap: var(--sp-4);
@@ -1827,18 +1329,6 @@ button.query-disclosure:focus-visible {
   pointer-events: none;
 }
 
-/* ── The result list ──
-   Blocks answer as blocks. Same bullet, same gutter, same 15px line, the status
-   shape at the head of it — the outline's own grammar. The row remains a lens;
-   its field controls write back through the canonical block commands.
-
-   And they **hang from an indent**, the way the answer to a question sits under
-   it rather than beside it: the bullets start inside the title's own text, so the
-   panel reads as one object with a heading and a body instead of two runs of
-   content sharing a left edge. The figure is `--slot`, the outline's own bullet
-   column, which is what this product already means by "one level in". A table
-   takes no such indent: a grid's header rule and row seams have to span the
-   object they describe. */
 .query-list {
   display: grid;
   gap: 0;
@@ -1856,8 +1346,6 @@ button.query-disclosure:focus-visible {
   padding-block: 0;
 }
 
-/* The bullet is the route to the block, so unlike the outline's it is a real
-   focus stop; the dot itself is the outline's dot, unchanged. */
 .query-list-row .outline-bullet {
   cursor: pointer;
 }
@@ -1907,8 +1395,6 @@ button.query-block-content:focus-visible {
   margin-inline: var(--sp-1);
 }
 
-/* Task marks in a block result are the outline controls, even though the
-   query-level coordinator owns their draft/pinning lifecycle. */
 .query-list .task-status-toggle.query-edit-trigger,
 .query-list .task-priority-toggle.query-edit-trigger {
   max-width: none;
@@ -1957,21 +1443,11 @@ button.query-list-line {
   padding: 0;
 }
 
-/* In a cell the projection is a phrase, not a block line, so it keeps the
-   outline's wrapping and drops the rest: the block-line floor made a row two
-   pixels taller for having a `code` span in it, and the line it holds hung from
-   the top of whatever height the cell handed it — the same two pixels off the
-   row's centre the textarea beside it used to be. It still fills the cell,
-   because the cell is the target. */
 .query-table tbody td .query-markdown-preview {
   min-height: 0;
   align-content: center;
 }
 
-/* The one clipped value in the table that needs no mark of its own: a rendered
-   projection is a run of phrasing content in a box of its own, so the ellipsis
-   the rest of the product ends with reaches it. It used to be cut by the cell
-   with nothing to say it had been. */
 .query-table[data-wrap="false"] tbody td .query-markdown-preview {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2007,15 +1483,12 @@ button.query-list-status[data-active="true"] {
   height: 16px;
 }
 
-/* A settled task reads as settled, in the outline's exact terms. */
 .query-list-text[data-task-status="done"] > .query-list-line,
 .query-list-text[data-task-status="cancelled"] > .query-list-line {
   color: var(--ink-2);
   text-decoration: line-through;
 }
 
-/* Everything else the query asked for becomes the chip strip under the line —
-   the same strip a block's own properties render into. */
 .query-list-facts {
   display: flex;
   flex: 1 1 100%;
@@ -2066,21 +1539,8 @@ button.query-list-status[data-active="true"] {
   line-height: 16px;
 }
 
-/* A fact is already a pill, so a moment inside one keeps its tone and gives up
-   its own ring and height — the same accommodation the tag chip above makes. A
-   pill drawn inside a pill is two rings for one value. */
 .query-fact .query-due[data-due] {
   height: 16px;
   padding-inline: var(--sp-1);
   box-shadow: none;
-}
-
-/* At the outline's narrow widths the sentence rows wrap rather than scroll, and
-   the table keeps its own horizontal scroll (designs/query.md § The Answer as an Object). */
-@media (max-width: 640px) {
-  .query-builder .menu-select,
-  .qb-field,
-  .qb-operator {
-    max-width: 100%;
-  }
 }

@@ -7,30 +7,31 @@ views, and embedded in an outline, tag page, or journal. Query semantics and
 execution belong to the core/query architecture; this document owns the
 reader-facing question and answer.
 
-## The Answer as an Object
+## Question and Answer Hierarchy
 
-A query answer is a bounded ground within the writing surface. Its inset ground
-distinguishes it from authored prose, and its edge makes the whole answer an
-object that can be folded, shaped, and acted on. Internal table structure uses
-lighter separators so the object does not become a stack of competing bands.
+A query is a bounded surface with a clear question above its answer. Its ground
+and edge distinguish derived results from authored prose; internal separators
+express sections without competing with that boundary.
 
-At rest the header states the query's name and result count. The name leads; the
-count remains metadata. Where no name exists, the count can lead alone. The
-whole header is the folding target, and it reserves disclosure geometry even
-when an empty answer has nothing to fold so asynchronous results do not shift the
-line.
+The header leads with the query's name, falling back to its subject when unnamed.
+When the builder is closed, a short visible condition summary explains what the
+question asks. A labeled conditions control makes authoring discoverable and
+states whether the builder is open.
 
-The machine-readable plan is not repeated permanently above every answer. It is
-the accessible name and contextual explanation of the control that opens the
-question.
+A separate answer toolbar owns the result count and folding control, the current
+Table or List layout, Columns, and Sort. Labels explain actions; counts identify
+the applied conditions and ordering. Empty answers retain stable
+header geometry and offer a concise hint for adjusting the question. Recovery
+actions respect the surface's authoring authority.
 
 ## One Document, Different Contexts
 
 The same query document appears with different disclosure density according to
 its role:
 
-- In an outline it behaves like a paragraph that answers itself. Configuration controls stay
-  visible and saved views remain in a menu.
+- In an outline it behaves like a paragraph that answers itself. A single view
+  stays compact, with creation of another view in the actions menu. Multiple
+  views expose their shared tab strip.
 - On a tag page it is the body of the page. Saved views become a permanent
   surface instrument.
 - Under a journal it is a standing answer authored in graph settings. The
@@ -42,24 +43,30 @@ controls the surface may state permanently and who owns authoring.
 
 ## Question and Answer Controls
 
-The query builder edits what the question asks. It reads as a sentence in rows,
-with one lead column and groups expressed as depth rather than nested cards. A
-row limit is another clause, not an unrelated control bar. Builder state that has
-no semantic effect is omitted from storage.
+The query builder separates the source, its conditions, and the returned answer.
+A source header states which entities to search. Consistent filter rows make
+field, comparison, and value recognizable as controls; depth expresses nested
+condition groups. Adding a condition is the primary action within that section.
+A quieter footer holds result grain and row limit. Builder state that has no
+semantic effect is omitted from storage.
 
 The question explicitly returns entities or a summary. An entity answer has one
 row per selected thing; a summary states its grouping fields and scalar
 aggregates and is read-only. These are different questions, so their choice
 belongs in the builder. Repeated entity fields need no aggregation control.
 
-How the answer is read belongs on the answer itself. Layout, sort, visible table
-columns, and density are view controls rather than query clauses. There is one
-authoring grammar; generated query text may be inspected, but hand-written query
-text is not a parallel editor or conversion path.
+How the answer is read belongs on its toolbar. The labeled layout menu selects
+Table or List and holds density and wrapping preferences. Columns and Sort have
+their own labeled controls. These presentation choices remain separate from the
+query clauses. There is one authoring grammar; generated query text may be
+inspected, but hand-written query text is not a parallel editor or conversion
+path.
 
-Builder and folded state are remembered per reader and query. Storage records
-departures from the default so untouched graphs do not accumulate presentation
-state.
+Conditions disclosure is shared state on each saved view. Opening or closing it
+persists with the query and follows synchronization and undo/redo. An untouched
+view uses the surface's initial default; explicit closure remains closed even
+when the query has no conditions. Read-only graphs allow temporary inspection.
+Answer folding remains a browser-local reading preference.
 
 ## Saved Views
 
@@ -68,15 +75,17 @@ named after renderer shapes. Layout is a property of a view. A second view is an
 independent saved question: it may begin as a copy, but later authoring,
 execution, columns, and presentation never alter its siblings.
 
-When multiple views exist, they use the shared segmented-control language: a
-recessed track with the current key raised. The track contains states only; the
-action to add a view sits beside it. Choosing another tab changes the view;
-pressing the current tab opens operations that belong to that view, such as
-rename, duplicate, move, and delete.
+Saved views use the shared segmented-control language: a recessed track with the
+current key raised. The track appears permanently on a page and whenever an
+inline query has multiple views. It contains states only; a visible action to
+add a view sits beside it. Choosing another tab changes the view; pressing the
+current tab opens operations for that view, such as rename, duplicate, move, and
+delete.
 
 Tabs keep predictable inner alignment, state their menu disclosure, and wrap so
 every view remains visible. Reordering previews a seam and preserves geometry
-until commit.
+until commit. A surface that cannot manage views exposes selection without
+management actions.
 
 ## Table and List Views
 
@@ -96,10 +105,12 @@ meaning, and editing authority continue to describe the execution that produced
 it until the replacement arrives. A newer draft never changes the meaning of
 older visible values.
 
-Changing the question's returned fields or switching saved questions saves an
-active result edit first. A failed save leaves that edit available for retry.
-A remotely changed answer waits to replace an incompatible active editor until
-the edit closes; its visible values keep their original meaning throughout.
+Changing the question's returned fields, switching saved questions, or folding
+an edited answer settles the active result edit first. A failed save leaves that
+edit available for retry. A remotely changed answer waits to replace an
+incompatible active editor until the edit closes; its visible values keep their
+original meaning throughout. An active row remains available if its edit makes
+it stop matching, and leaves after the editor closes.
 
 Tables initially share available width. Once the reader resizes a column, all
 visible columns adopt the geometry already on screen before the drag continues,
@@ -138,8 +149,10 @@ additional enclosing heading or separator because each answer already has a
 name and boundary. Spacing treats each answer as a section rather than another
 result row.
 
-A standing answer may expose reading actions, saved-view shaping, folding, and
-editing of the blocks it quotes. It does not imply that the journal owns the
+A standing answer exposes its conditions for inspection as well as reading
+actions, saved-view shaping, folding, and editing of the blocks it quotes.
+Conditions disclosure is shared with its Settings editor; authoring the definition
+remains in Settings. It does not imply that the journal owns the
 question. The route to edit the question names and opens its graph-settings
 owner.
 

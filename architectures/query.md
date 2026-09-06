@@ -286,15 +286,21 @@ limit must express that semantic order in the authored query instead.
 The RDF projection emits the query property's presence but does not recursively
 project its document configuration. Query plans (in the SPARQL planner's sense),
 results, runtime bindings, revisions, loading/error state, private view
-overrides, whether the editor or result is open, and editor drafts do not
-synchronize.
+overrides, answer folding, and editor drafts do not synchronize.
 
-Both disclosures — the editor over the question, the fold over the answer — are
-reader preferences held in browser storage rather than in the graph, keyed by
-graph id and execution key. Each is one bounded list naming only its departures
-from the surface's own default: the answers folded, and the editors opened. They
-survive a reload and a new session; an editor the reader has never pressed still
-follows the surface, which opens it for a query that has no conditions yet.
+Conditions disclosure belongs to each saved view's shared presentation options.
+An explicit open or closed value is stored in Loro and follows the document
+through synchronization, archives, reloads, and undo/redo. If no value has been
+set, the surface supplies its initial default; an explicit closed value always
+wins, even for a question with no conditions. A read-only graph permits temporary
+local inspection without writing a shared preference.
+
+Default queries use that same view option in Settings and on the journal. The
+journal can disclose the conditions for inspection; Settings retains authority
+to edit their definition. Opening the conditions never grants authoring authority.
+
+Answer folding remains a browser-local reading preference, stored as a bounded
+list of folded execution keys per graph.
 
 ## Editable Result Projection
 

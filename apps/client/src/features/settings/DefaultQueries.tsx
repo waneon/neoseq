@@ -23,6 +23,7 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   ChevronUpIcon,
+  ListFilterIcon,
   MoreHorizontalIcon,
   PlusIcon,
   Trash2Icon,
@@ -62,6 +63,7 @@ import {
 import { useQueryAnswer } from "../query/execution";
 import { answerLabel } from "../query/labels";
 import { QueryBuilder } from "../query/QueryBuilder";
+import { useQueryConditions } from "../query/presentation";
 import {
   columnChoices,
   QueryColumnsControl,
@@ -181,6 +183,9 @@ function DefaultQueryRow({
   const activeView =
     query.document.views.find((view) => view.id === query.document.default_view_id) ??
     query.document.views[0]!;
+  const [conditionsOpen, setConditionsOpen] = useQueryConditions(activeView, true);
+  const [savingConditions, setSavingConditions] = useState(false);
+  const conditionsId = `${bodyId}-conditions`;
   const storedPlan = activeView.definition.plan;
   const plan = useMemo(
     () => (storedPlan ? decodePlan(storedPlan.payload, storedPlan.version) : null),
@@ -231,6 +236,26 @@ function DefaultQueryRow({
       });
   const save = (command: Parameters<typeof session.execute>[0]): void => {
     void executeCommand(command);
+  };
+  const toggleConditions = async (): Promise<void> => {
+    if (savingConditions) return;
+    if (state.mode === "readonly") {
+      setConditionsOpen(!conditionsOpen);
+      return;
+    }
+    setSavingConditions(true);
+    try {
+      await executeCommand({
+        type: "put_query_view",
+        owner,
+        view: {
+          ...activeView,
+          options: { ...activeView.options, conditions_open: !conditionsOpen },
+        },
+      });
+    } finally {
+      setSavingConditions(false);
+    }
   };
   /** The plan is authority; its marked SPARQL is regenerated beside it. */
   const commitPlan = (next: QueryPlan): Promise<void> =>
@@ -408,12 +433,30 @@ function DefaultQueryRow({
       {open && (
         <div className="default-query-body" id={bodyId}>
           {plan ? (
-            <QueryBuilder
-              plan={plan}
-              snapshot={state.snapshot}
-              readonly={state.mode === "readonly"}
-              onChange={commitPlan}
-            />
+            <>
+              <Button
+                variant="ghost"
+                className="default-query-conditions-trigger"
+                aria-expanded={conditionsOpen}
+                aria-controls={conditionsOpen ? conditionsId : undefined}
+                aria-disabled={savingConditions || undefined}
+                data-testid="default-query-conditions-trigger"
+                onClick={() => void toggleConditions()}
+              >
+                <ListFilterIcon aria-hidden />
+                {message("query.conditions")}
+                {conditionsOpen ? <ChevronUpIcon aria-hidden /> : <ChevronDownIcon aria-hidden />}
+              </Button>
+              {conditionsOpen && (
+                <QueryBuilder
+                  id={conditionsId}
+                  plan={plan}
+                  snapshot={state.snapshot}
+                  readonly={state.mode === "readonly"}
+                  onChange={commitPlan}
+                />
+              )}
+            </>
           ) : (
             // A question written by a build that had a SPARQL editor. It still
             // runs and still says what it asks; what it no longer has is an

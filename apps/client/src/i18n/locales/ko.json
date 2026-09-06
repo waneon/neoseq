@@ -329,8 +329,8 @@
   "properties.unchecked": "체크 안 됨",
   "properties.value": "{key} 값",
   "query.actions": "쿼리 작업",
-  "query.addCondition": "조건",
-  "query.addGroup": "그룹",
+  "query.addCondition": "조건 추가",
+  "query.addGroup": "그룹 추가",
   "query.addSort": "정렬 기준 추가",
   "query.addValue": "값 추가",
   "query.addSummaryField": "집계 필드 추가",
@@ -777,5 +777,11 @@
   "validation.propertyType": "“{key}”에는 {type} 유형 값이 필요합니다.",
   "validation.reservedKey": "“{key}”은(는) 예약되어 있어 속성으로 편집할 수 없습니다.",
   "validation.stringLength": "문자열이 65536바이트를 초과합니다.",
-  "validation.whitespaceKey": "속성 키 앞뒤에 공백을 사용할 수 없습니다."
+  "validation.whitespaceKey": "속성 키 앞뒤에 공백을 사용할 수 없습니다.",
+  "query.noConditions": "조건을 추가해 결과를 좁혀 보세요.",
+  "query.emptyGroup": "이 그룹에 조건을 추가하세요.",
+  "query.emptyHint": "아직 일치하는 항목이 없습니다. 조건을 바꾸거나 조건에 맞는 내용을 추가해 보세요.",
+  "query.editConditions": "조건 수정",
+  "query.sortShort": "정렬",
+  "query.displayOf": "결과 레이아웃: {layout}"
 }

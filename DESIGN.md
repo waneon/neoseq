@@ -135,9 +135,9 @@ Design follows the product's data boundaries:
 
 - Graph-shared state describes the graph or an object in it: tag identity and
   grouping, favourites and their order, property values, query definitions, and
-  shared saved views.
+  shared saved views, including whether their conditions are expanded.
 - Browser-local durable state describes how one reader uses the product: theme,
-  accent, rail geometry, open query disclosures, and folded answers.
+  accent, rail geometry, and folded query answers.
 - Session state describes the current act of use: caret, selection, open layers,
   drafts, loading, and scroll position.
 - Derived state such as query results and counts is presented but never styled as

@@ -1,37 +1,4 @@
-// The views of a query, when the query is the page.
-//
-// A saved view has always been part of the query document; what changes here is
-// how much of it the surface is allowed to say. Inside the outline the views are
-// two entries in a menu, because a row of tabs growing out of a bullet is a
-// second interface inside a sentence. Given a page, the views become the page's
-// own instrument: they are permanent, they are named by the reader, and moving
-// between them is the most repeated gesture on the surface — which is exactly
-// what may not be hidden behind a menu (designs/shell-and-navigation.md § Disclosure and Commands).
-//
-// **The track holds states; the verb stands outside it.** The strip is the
-// product's one segmented control: a recessed track with the chosen key raised
-// out of it, which is how this interface says "this one of these" without
-// spending a second signal on it. `+` is a *verb*, so it may not be a key —
-// dropped into the track it would read as a view called "plus". It sits beyond
-// the track's edge, revealed on approach and pinned where there is no pointer.
-//
-// **The order is the reader's, and a drag says where it lands.** A tab is dragged
-// past its neighbours and a seam — the same 2px accent rule the tag directory
-// draws, turned on its side — marks the gap it is about to occupy. Nothing
-// reflows while the pointer travels, and `Move left` / `Move right` in the tab's
-// own menu is the same move from a keyboard.
-//
-// **A tab's menu is about the tab.** Layout, density, order, and a table's
-// columns are asked on the answer, through the same controls a query in the
-// outline uses, so one choice is never in two places depending on where the
-// query is read. What is left here is what is true of this view alone: what it
-// is called, a copy of it, its place in the row, and deleting it. **The current
-// tab is the control that opens that menu**: pressing a tab that is not the
-// answer chooses it; pressing the one that already is opens what it can be named
-// and moved to. Its chevron is drawn rather than revealed, because a tab that
-// opens a menu has to say so before it is pressed — and it is drawn on exactly
-// one tab, so it reads as "this view" rather than as chrome. Right-click reaches
-// any tab's menu without selecting it first, as it does on a bullet.
+// Saved questions share a tab strip; the active tab exposes its own operations.
 
 import { useEffect, useRef, useState } from "react";
 import {

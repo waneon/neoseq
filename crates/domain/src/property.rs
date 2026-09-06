@@ -1239,6 +1239,29 @@ mod tests {
     }
 
     #[test]
+    fn query_conditions_disclosure_distinguishes_legacy_options_from_closed() {
+        let mut options: QueryViewOptions =
+            serde_json::from_str(r#"{"compact":true,"wrap":false}"#).unwrap();
+        assert_eq!(options.conditions_open, None);
+        assert!(
+            serde_json::to_value(&options)
+                .unwrap()
+                .get("conditions_open")
+                .is_none()
+        );
+
+        for open in [false, true] {
+            options.conditions_open = Some(open);
+            let encoded = serde_json::to_value(&options).unwrap();
+            assert_eq!(encoded["conditions_open"], open);
+            assert_eq!(
+                serde_json::from_value::<QueryViewOptions>(encoded).unwrap(),
+                options
+            );
+        }
+    }
+
+    #[test]
     fn query_view_columns_are_unique_and_bounded() {
         let mut document = PropertyDocument::default_query("SELECT * WHERE {}".to_owned());
         document.views[0].columns = vec![

@@ -1,16 +1,3 @@
-// The order the reader put the rows in.
-//
-// A result's order is a **list**, not one field. *By status, then by date* is one
-// of the most ordinary things to want, so adding a second term must not replace
-// the first. Table headers additionally cycle their own column — ascending,
-// descending, gone — and leave the other terms standing.
-//
-// A list has precedence, and precedence has to be visible and movable or the
-// second term is a guess. That is what this panel is for: the terms in order,
-// each with its direction and its place in the queue. Moving is two buttons
-// rather than a drag, because a drag is not reachable from a keyboard and this
-// list is never longer than a few rows.
-
 import { useRef, useState } from "react";
 import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon, XIcon } from "lucide-react";
 import { MenuSelect } from "@/ui/menu-select";
@@ -78,7 +65,8 @@ export function QuerySortControl({
   return (
     <>
       <Button
-        size="icon"
+        variant="ghost"
+        className="query-tool"
         ref={triggerRef}
         aria-label={message("query.sortOrder")}
         aria-expanded={open}
@@ -89,6 +77,8 @@ export function QuerySortControl({
         onClick={() => setOpen((current) => !current)}
       >
         <ArrowUpDownIcon aria-hidden />
+        <span>{message("query.sortShort")}</span>
+        {sorts.length > 0 && <span className="query-tool-count">{sorts.length}</span>}
       </Button>
       {open && (
         <AnchoredPanel

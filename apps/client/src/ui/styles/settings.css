@@ -990,11 +990,21 @@
   border-top: 1px solid var(--thread);
 }
 
+.default-query-conditions-trigger {
+  align-self: flex-start;
+}
+
+.default-query-conditions-trigger[aria-expanded="true"] {
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
 /* The builder is written for a query surface, where it sits inside a panel of its
    own. Here the row *is* that panel, so it gives up its own ground and keeps only
    its rows. */
 .default-query-body > .query-builder {
   padding: 0;
+  border: 0;
   background: none;
   /* Its own two hairlines would land on top of the seam above it and the row's
      own closing line below — three lines where the object has two edges. */

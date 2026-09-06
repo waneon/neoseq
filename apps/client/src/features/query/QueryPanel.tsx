@@ -1,61 +1,14 @@
-// A query, and the answer it stands for.
-//
-// One way to say it. The **builder** writes a plan that the core lowers directly
-// to logical algebra, so "due today" stays true tomorrow without a text
-// round-trip. Generated SPARQL stays readable — `Show SPARQL` is a disclosure on
-// every query — but it is a compatibility artifact, not an executable authority or
-// authoring surface: a second grammar for one document is a second product, and
-// the one thing it could say that the builder cannot is not worth a reader
-// meeting a text box where a question belongs. A document written by an older
-// build with no plan still runs, and still reads; it simply has no editor here.
-//
-// **The answer is the object; the question is a disclosure.** At rest a query is
-// its name, how much it found, and the result — nothing else. The name *leads*
-// the line and the count ends it, and both live inside one control that spans
-// the line: folding is the gesture a reader repeats, so it gets the widest
-// target on the surface. Where nobody named the query there is no title and the
-// count leads alone. The editor opens from an icon among the controls that act
-// on the answer — beside what a table shows, how it is ordered, and how it is
-// drawn, which with the question itself are the four things a reader reaches for
-// while reading — so the five rows of authoring that used to sit permanently
-// above every answer are there when someone is authoring and absent when nobody
-// is. **The plan read back as a phrase is not printed.** A machine-written
-// sentence stated over every answer forever — `Blocks · Tag is #neoseq · Status
-// is any of To-do, Doing` — is chrome that repeats what the builder one hover
-// away already says in rows, and it is noise beside a question the reader has
-// already named. It is the name of the control that opens the question instead.
-//
-// **One surface, two grounds.** Embedded in the outline (`inline`) a query is a
-// paragraph that answers itself, so its views live in a menu and its chrome waits
-// for a pointer. Given a page of its own (`page`) the query *is* the page, so its
-// views become a permanent tab strip and each one is a thing the reader names,
-// arranges, and deletes. The document underneath is identical; only how much of
-// it the surface is allowed to state permanently differs — and what a view *is*
-// is asked in the same place on both grounds, on the answer, so a tab's own menu
-// holds what is true of that view alone: its name, a copy of it, its place in the
-// row, and deleting it.
-//
-// **A surface need not author the document it presents.** A journal's standing
-// question belongs to the graph and is authored in that graph's Settings, but
-// its saved view is shaped where the answer is read. The binding therefore keeps
-// the document's real owner and states the surface's role separately: a managed
-// surface may change the question and its collection of views; a presented one
-// may change only the current view's presentation. What stays writable in either
-// role is the graph — a result row is still the block it quotes.
-//
-// The binding owns authority; the surface owns its local disclosures. The answer
-// itself has a graph-session lifetime: leaving the route or virtualizing the row
-// that holds it must not turn a result back into an empty first frame when it
-// returns.
-
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
+  ChevronUpIcon,
   CodeIcon,
   ListFilterIcon,
   ListIcon,
   MoreHorizontalIcon,
+  SearchIcon,
+  PlusIcon,
   Table2Icon,
   Trash2Icon,
 } from "lucide-react";
@@ -101,6 +54,7 @@ import {
   orderSemanticsForField,
 } from "../../entities/query-ordering";
 import {
+  countConditions,
   columnSourceKey,
   columnSourcesFor,
   decodePlan,
@@ -130,12 +84,7 @@ import { QueryEditPortals, useQueryResultEditor } from "./edit";
 import { useQueryAnswer } from "./execution";
 import { answerLabel, columnLabel, fieldLabel } from "./labels";
 import { orderBlockRows, orderResultRows, type ListSortField } from "./ordering";
-import {
-  queryEditorIsOpen,
-  queryResultsAreOpen,
-  rememberQueryEditorOpen,
-  rememberQueryResultsOpen,
-} from "./presentation";
+import { queryResultsAreOpen, rememberQueryResultsOpen, useQueryConditions } from "./presentation";
 import { planSummary, summaryLabel, type QuerySummary } from "./summary";
 import { randomUUID } from "@/lib/crypto";
 
@@ -230,7 +179,6 @@ function QueryPanelSurface({
   const canManageViews = binding.kind === "managed" && !readonly;
   /** Layout belongs where the answer is read, in either surface role. */
   const canEditCurrentView = !readonly;
-  const tabbed = variant === "page";
 
   // A presented surface does not choose the document-wide default view. Its
   // selection is local even while it may shape the selected view itself.
@@ -266,22 +214,11 @@ function QueryPanelSurface({
   // execute or save the previous view's plan for even a frame.
   const plan = unsupportedPlan ? null : draft.viewId === activeView.id ? draft.plan : incomingPlan;
   const viewExecutionKey = JSON.stringify([executionKey, activeView.id]);
-  // The editor opens for a query that has not been written yet and stays shut for
-  // one that has: a query with no conditions has nothing to say about itself, so
-  // showing it the builder is the only honest first screen. Once a reader has
-  // shaped it, reopening the page shows them the answer they shaped it for. Which
-  // it is, is theirs from the first press — never re-derived under their hands,
-  // and remembered in this browser past the visit that pressed it, the way the
-  // fold under it is (§ presentation).
-  const [editing, setEditing] = useState(
-    () =>
-      binding.kind === "managed" &&
-      queryEditorIsOpen(
-        session.graphId,
-        viewExecutionKey,
-        unwritten(storedPlan ?? seedPlan ?? null),
-      ),
+  const [editing, setEditing] = useQueryConditions(
+    activeView,
+    binding.kind === "managed" && unwritten(incomingPlan),
   );
+  const [savingConditions, setSavingConditions] = useState(false);
   const [showSource, setShowSource] = useState(false);
   // Reading is never read-only. On a read-only graph the order lives here for as
   // long as the surface is mounted, because there is nowhere to save it.
@@ -306,9 +243,6 @@ function QueryPanelSurface({
     [activeView.id, incomingPlanRef, storedPayload],
   );
   useEffect(() => {
-    setEditing(
-      queryEditorIsOpen(session.graphId, viewExecutionKey, unwritten(incomingPlanRef.current)),
-    );
     setShowSource(false);
     setLocalTableSorts([]);
     setLocalListSorts([]);
@@ -319,6 +253,16 @@ function QueryPanelSurface({
   // the stored source, which still runs.
   const outputId = useId();
   const builderId = useId();
+  const focusBuilderOnOpen = useRef(false);
+  useEffect(() => {
+    if (!editing || !focusBuilderOnOpen.current) return;
+    focusBuilderOnOpen.current = false;
+    window.document
+      .getElementById(builderId)
+      ?.querySelector<HTMLElement>("button:not(:disabled), input:not(:disabled)")
+      ?.focus();
+  }, [builderId, editing]);
+
   const [resultsOpen, setResultsOpen] = useState(() =>
     queryResultsAreOpen(session.graphId, viewExecutionKey),
   );
@@ -584,12 +528,7 @@ function QueryPanelSurface({
   );
   const visibleRows = canonicalBlockView ? listRows : tableRows;
 
-  // The plan read back as a phrase, following the plan in hand rather than the
-  // saved one so it tracks the builder keystroke for keystroke. It is no longer
-  // printed in the header: a machine-written sentence stated permanently over
-  // every answer is chrome, and the question already has a name where anybody
-  // gave it one. It stays the name of the control that *opens* the question, so
-  // reading what a query asks costs one hover rather than a line of the surface.
+  // The heading and disclosure describe the plan currently being authored.
   const summary = useMemo<QuerySummary>(
     () =>
       plan
@@ -890,6 +829,7 @@ function QueryPanelSurface({
    * itself is the debounced one above.
    */
   const changePlan = async (next: QueryPlan): Promise<boolean> => {
+    if (!canEditDefinition) return false;
     if (
       plan &&
       JSON.stringify([plan.grain, plan.subject, plan.columns]) !==
@@ -1003,18 +943,24 @@ function QueryPanelSurface({
     }
   };
 
+  const tabbed = variant === "page" || views.length > 1;
+  const conditionCount = plan ? countConditions(plan.where) : 0;
+
   const resultLabel = answerLabel({ frame, error, loading, run }, visibleRows.length, message);
   const resultCanCollapse = Boolean(
     error || result?.kind === "ask" || (select && visibleRows.length > 0),
   );
 
-  /* The two disclosures of one surface, and each remembers its own answer. The
-     question is the reader's working state, not the query's, so it is written
-     where the fold is: in this browser, against this graph and this key. */
-  const toggleEditing = () => {
-    const nextOpen = !editing;
-    rememberQueryEditorOpen(session.graphId, viewExecutionKey, nextOpen);
-    setEditing(nextOpen);
+  const toggleEditing = async () => {
+    if (savingConditions) return;
+    if (readonly) {
+      setEditing(!editing);
+      return;
+    }
+    setSavingConditions(true);
+    const saved = await setOption({ conditions_open: !editing });
+    if (!saved) focusBuilderOnOpen.current = false;
+    setSavingConditions(false);
   };
 
   const toggleResults = async () => {
@@ -1030,33 +976,9 @@ function QueryPanelSurface({
     setResultsOpen(nextOpen);
   };
 
-  /* The switches that shape one view: which renderer, and how tall its rows are.
-     They hang under the layout icon on both grounds, beside the columns panel and
-     the sort panel, because they are the same kind of fact as those two — how
-     this answer is laid out, changed while reading it. A page's tab strip used to
-     hold them in the tab's own menu, which put the same choice in two places
-     depending on where the query was read and left a tab's menu answering for
-     two things at once: what this view *is*, and what this view is *called*.
-     Which columns a table draws is not among them either — it is a table's own
-     question, asked on the table (§ QueryColumnsControl). */
+  // Layout and row presentation belong to the selected saved view.
   const layoutItems = (
     <>
-      {/* A document born with one view has nothing to switch between, and a
-          radio group of one is a statement dressed as a choice. The switcher
-          appears when a second view does. */}
-      {!tabbed && views.length > 1 && (
-        <>
-          <DropdownMenuLabel>{message("query.view")}</DropdownMenuLabel>
-          <DropdownMenuRadioGroup value={activeView.id} onValueChange={selectView}>
-            {views.map((view) => (
-              <DropdownMenuRadioItem key={view.id} value={view.id}>
-                {view.name}
-              </DropdownMenuRadioItem>
-            ))}
-          </DropdownMenuRadioGroup>
-          <DropdownMenuSeparator />
-        </>
-      )}
       <DropdownMenuLabel>{message("query.layout")}</DropdownMenuLabel>
       <DropdownMenuRadioGroup
         value={activeView.kind}
@@ -1107,167 +1029,43 @@ function QueryPanelSurface({
       // it and the header stays the query's name and how much it found.
       data-revision={result?.revision}
     >
-      {tabbed && (
-        <QueryViewTabs
-          views={views}
-          activeView={activeView}
-          readonly={!canManageViews}
-          panelId={outputId}
-          onSelect={selectView}
-          onAdd={addView}
-          onReorder={reorderViews}
-          onRename={renameView}
-          onDuplicate={duplicateView}
-          onRemove={removeView}
-          onMove={moveView}
-        />
-      )}
       <div className="query-header">
-        {/* The name of the question, and how much it found — the two facts a
-            folded query still has to state, in the one control that folds it.
-            The disclosure spans the line rather than hugging its own words: the
-            gesture a reader repeats deserves the widest target on the surface,
-            and the name and the count then land where a reader looks for them —
-            the title at the left edge, the count at the far end.
-
-            **The name leads and the count follows it.** A named question is
-            known by its name; the count is a fact *about* its answer, so it is
-            stated at the end of the line in the metadata voice. Where nobody
-            named the query there is no title, and the count takes the lead as
-            the only thing there is to name the answer by.
-
-            On the first run there is nothing to count yet and it says so;
-            afterwards a rerun updates the number in place rather than flickering
-            `running` over it on every debounced keystroke. */}
-        {(title || resultLabel) &&
-          (resultCanCollapse ? (
-            <button
-              type="button"
-              className="query-disclosure"
-              data-titled={title ? true : undefined}
-              aria-expanded={resultsOpen}
-              aria-controls={outputId}
-              aria-label={message(resultsOpen ? "query.collapseResults" : "query.expandResults", {
-                result: [title, resultLabel].filter(Boolean).join(" · "),
-              })}
-              aria-busy={loading || undefined}
-              data-testid="query-disclosure"
-              onPointerDown={() => resultEditor.preserveDraftForPresentationChange()}
-              onClick={() => void toggleResults()}
-            >
-              {/* A swap, not a rotation: designs/foundations.md § Motion allows no transform animation on
-                anything a pointer must hit or an audit must read. */}
-              {resultsOpen ? <ChevronDownIcon aria-hidden /> : <ChevronRightIcon aria-hidden />}
-              {title && (
-                <span className="query-title" data-testid="query-title">
-                  {title}
-                </span>
-              )}
-              {resultLabel && (
-                <span
-                  className="query-count"
-                  data-state={error ? "error" : undefined}
-                  data-testid="query-count"
-                >
-                  {resultLabel}
-                </span>
-              )}
-            </button>
-          ) : (
-            <span
-              className="query-disclosure"
-              data-titled={title ? true : undefined}
-              data-testid="query-disclosure"
-            >
-              {title && (
-                <span className="query-title" data-testid="query-title">
-                  {title}
-                </span>
-              )}
-              {resultLabel && (
-                <span
-                  className="query-count"
-                  data-static
-                  data-state={error ? "error" : undefined}
-                  data-testid="query-count"
-                  aria-busy={loading || undefined}
-                >
-                  {resultLabel}
-                </span>
-              )}
+        <div className="query-heading">
+          <SearchIcon className="query-heading-icon" aria-hidden />
+          <div className="query-heading-text">
+            <span className="query-title" data-testid={title ? "query-title" : undefined}>
+              {title || summary.lead}
             </span>
-          ))}
-
+            {!editing && summary.detail && (
+              <span className="query-summary" title={summary.detail}>
+                {summary.detail}
+              </span>
+            )}
+          </div>
+        </div>
         <div className="query-header-actions">
-          {/* What it asks, then what the table shows, then how it is ordered,
-              then what it is: the question first, because it is the one control
-              here that changes the answer rather than the reading of it, and the
-              switches a reader throws while reading before the one they set once.
-
-              A presented document has no editor here: a control that opened one
-              for a question authored somewhere else would be a promise the
-              surface cannot keep, and the route to its author is a row in the
-              `⋯` menu, named after that place. */}
-          {binding.kind === "managed" && plan && (
+          {plan && (
             <Button
-              size="icon"
+              variant="ghost"
+              className="query-tool query-filter-trigger"
+              aria-disabled={savingConditions || undefined}
               aria-expanded={editing}
               aria-controls={editing ? builderId : undefined}
               aria-label={message("query.conditions")}
-              // The plan read back as a phrase, on the control that opens it:
-              // what a query asks is written in the words the builder said it
-              // in, one hover from the answer, rather than printed permanently
-              // over every result whether anybody is reading it or not.
               title={summaryLabel(summary)}
-              // No lit state here, unlike the sort control's: a query with no
-              // conditions is one nobody has written yet, so a mark for "this
-              // answer is narrowed" would be on for every query in the graph.
               data-testid="query-conditions-trigger"
               onClick={toggleEditing}
             >
               <ListFilterIcon aria-hidden />
+              <span>{message("query.conditions")}</span>
+              {conditionCount > 0 && <span className="query-tool-count">{conditionCount}</span>}
+              {editing ? (
+                <ChevronUpIcon className="query-tool-chevron" aria-hidden />
+              ) : (
+                <ChevronDownIcon className="query-tool-chevron" aria-hidden />
+              )}
             </Button>
           )}
-          {choosesColumns && <QueryColumnsControl choices={choices} onToggle={toggleColumn} />}
-          {sortOptions.length > 0 && (
-            <QuerySortControl options={sortOptions} sorts={sortEntries} onChange={setSortEntries} />
-          )}
-          {/* These are facts about the current saved view, so they remain where
-              the answer is read even when its question is authored elsewhere. */}
-          {canEditCurrentView && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  size="icon"
-                  // The menu is wider than the view it opens on, so the name is the
-                  // whole question it answers, not just its first group.
-                  aria-label={message("query.display")}
-                  data-testid="query-view-trigger"
-                  data-view={activeView.kind}
-                  onPointerDown={() => resultEditor.preserveDraftForPresentationChange()}
-                >
-                  {activeView.kind === "table" ? (
-                    <Table2Icon aria-hidden />
-                  ) : (
-                    <ListIcon aria-hidden />
-                  )}
-                </Button>
-              </DropdownMenuTrigger>
-              {/* One menu, because table-or-list and how tall the rows are answer
-                  one question: how this answer is laid out. Table columns remain
-                  on the table itself.
-
-                  Every row in it is a **state**, so every row is checkable and
-                  every label starts at the same left edge. Before this, the two
-                  views were radio rows with icons and the switches below them were
-                  plain rows with none — three left edges and two idioms in a menu
-                  of eight lines, which is why Table and List looked like a
-                  different kind of thing from everything under them. Verbs carry
-                  icons (see the block's own `⋯`); states carry a check. */}
-              <DropdownMenuContent align="end">{layoutItems}</DropdownMenuContent>
-            </DropdownMenu>
-          )}
-
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -1278,19 +1076,15 @@ function QueryPanelSurface({
                 <MoreHorizontalIcon aria-hidden />
               </Button>
             </DropdownMenuTrigger>
-            {/* Verbs only. Running is not one — the query reruns on every edit
-                and every canonical revision, so a `Run` row was a button for a
-                thing that already happens. Neither is the index revision: it is
-                a diagnostic, and `data-revision` is where a diagnostic goes. */}
             <DropdownMenuContent align="end">
-              {/* The host's own rows come first: where this surface only reads the
-                  document, the route to the place that writes it is the verb the
-                  reader came to the menu for. */}
               {actions}
-              {/* Every query has a source that runs, and no query has an editor
-                  for it: reading what the graph was actually asked is a
-                  disclosure here, on the surface that asked it. */}
               {actions && <DropdownMenuSeparator />}
+              {canManageViews && !tabbed && (
+                <DropdownMenuItem onSelect={() => addView(activeView.kind)}>
+                  <PlusIcon aria-hidden />
+                  {message("query.newView")}
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onSelect={() => setShowSource((open) => !open)}>
                 <CodeIcon aria-hidden />
                 {showSource ? message("query.hideSource") : message("query.showSource")}
@@ -1308,13 +1102,28 @@ function QueryPanelSurface({
           </DropdownMenu>
         </div>
       </div>
+      {tabbed && (
+        <QueryViewTabs
+          views={views}
+          activeView={activeView}
+          readonly={!canManageViews}
+          panelId={outputId}
+          onSelect={selectView}
+          onAdd={addView}
+          onReorder={reorderViews}
+          onRename={renameView}
+          onDuplicate={duplicateView}
+          onRemove={removeView}
+          onMove={moveView}
+        />
+      )}
 
       {editing && plan && (
         <QueryBuilder
           id={builderId}
           plan={plan}
           snapshot={state.snapshot}
-          readonly={readonly}
+          readonly={!canEditDefinition}
           onChange={changePlan}
         />
       )}
@@ -1327,10 +1136,83 @@ function QueryPanelSurface({
         </pre>
       )}
 
+      <div className="query-toolbar">
+        {resultCanCollapse ? (
+          <button
+            type="button"
+            className="query-disclosure"
+            aria-expanded={resultsOpen}
+            aria-controls={outputId}
+            aria-label={message(resultsOpen ? "query.collapseResults" : "query.expandResults", {
+              result: [title, resultLabel].filter(Boolean).join(" · "),
+            })}
+            aria-busy={loading || undefined}
+            data-testid="query-disclosure"
+            onPointerDown={() => resultEditor.preserveDraftForPresentationChange()}
+            onClick={() => void toggleResults()}
+          >
+            {resultsOpen ? <ChevronDownIcon aria-hidden /> : <ChevronRightIcon aria-hidden />}
+            <span
+              className="query-count"
+              data-state={error ? "error" : undefined}
+              data-testid="query-count"
+            >
+              {resultLabel}
+            </span>
+          </button>
+        ) : (
+          <span className="query-disclosure" data-testid="query-disclosure">
+            <span
+              className="query-count"
+              data-static
+              data-testid="query-count"
+              aria-busy={loading || undefined}
+            >
+              {resultLabel}
+            </span>
+          </span>
+        )}
+        <div className="query-result-tools">
+          {choosesColumns && <QueryColumnsControl choices={choices} onToggle={toggleColumn} />}
+          {sortOptions.length > 0 && (
+            <QuerySortControl options={sortOptions} sorts={sortEntries} onChange={setSortEntries} />
+          )}
+          {canEditCurrentView && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  className="query-tool query-layout-trigger"
+                  aria-label={message("query.displayOf", {
+                    layout: message(
+                      activeView.kind === "table" ? "query.viewTable" : "query.viewList",
+                    ),
+                  })}
+                  data-testid="query-view-trigger"
+                  data-view={activeView.kind}
+                  onPointerDown={() => resultEditor.preserveDraftForPresentationChange()}
+                >
+                  {activeView.kind === "table" ? (
+                    <Table2Icon aria-hidden />
+                  ) : (
+                    <ListIcon aria-hidden />
+                  )}
+                  <span>
+                    {message(activeView.kind === "table" ? "query.viewTable" : "query.viewList")}
+                  </span>
+                  <ChevronDownIcon className="query-tool-chevron" aria-hidden />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">{layoutItems}</DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
+      </div>
+
       <div
         id={outputId}
         className="query-output"
-        hidden={!resultsOpen}
+        hidden={resultCanCollapse && !resultsOpen}
         aria-busy={loading}
         data-testid="query-output"
       >
@@ -1344,9 +1226,26 @@ function QueryPanelSurface({
             {result.value ? message("query.askTrue") : message("query.askFalse")}
           </p>
         )}
-        {/* An empty answer needs no sentence of its own: the count in the header
-            already says `No results`, and saying it twice is the redundancy this
-            block was full of. */}
+        {!error && !loading && select && visibleRows.length === 0 && (
+          <div className="query-empty" data-testid="query-empty">
+            <SearchIcon aria-hidden />
+            <p>{message("query.emptyHint")}</p>
+            {canEditDefinition && plan && !editing && (
+              <Button
+                variant="secondary"
+                className="query-tool"
+                aria-disabled={savingConditions || undefined}
+                onClick={() => {
+                  focusBuilderOnOpen.current = true;
+                  toggleEditing();
+                }}
+              >
+                <ListFilterIcon aria-hidden />
+                {message("query.editConditions")}
+              </Button>
+            )}
+          </div>
+        )}
         {!error && select && visibleRows.length > 0 && activeView.kind === "table" && (
           <QueryTableView
             columns={inViewOrder(shownColumns, activeView)}

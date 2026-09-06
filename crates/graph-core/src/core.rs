@@ -5717,6 +5717,107 @@ mod tests {
     }
 
     #[test]
+    fn query_conditions_disclosure_survives_reload_and_concurrent_plan_edits() {
+        let mut base = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut base, "page", &page());
+        let block = insert_root(&mut base, "block", &page(), 0, "query");
+        let default_query_id = DefaultQueryId::new("default-query").unwrap();
+        base.execute(
+            envelope(
+                "default-query",
+                Command::CreateDefaultQuery {
+                    default_query_id: default_query_id.clone(),
+                    title: "Default query".into(),
+                    document: PropertyDocument::default_query(String::new()),
+                },
+            ),
+            "t1",
+        )
+        .unwrap();
+        let owners = [
+            QueryOwner::Block {
+                owner: OutlineOwner::Page { id: page() },
+                id: block,
+            },
+            QueryOwner::GraphDefault { default_query_id },
+        ];
+        let view_id = QueryViewId::new("all").unwrap();
+        let initial_plan = query_plan("block");
+        for (index, owner) in owners.iter().enumerate() {
+            base.execute(
+                envelope(
+                    &format!("plan-{index}"),
+                    Command::SetQueryPlan {
+                        owner: owner.clone(),
+                        view_id: view_id.clone(),
+                        plan: initial_plan.clone(),
+                    },
+                ),
+                "t2",
+            )
+            .unwrap();
+        }
+
+        let baseline = base.export_snapshot().unwrap();
+        for owner in owners {
+            let mut left = GraphCore::from_snapshot(graph(), 2, &baseline).unwrap();
+            let mut right = GraphCore::from_snapshot(graph(), 3, &baseline).unwrap();
+            let mut view = right.query_document(&owner).unwrap().views.remove(0);
+            assert_eq!(view.options.conditions_open, None);
+
+            // Even an empty condition group can be closed explicitly, and
+            // changing disclosure must leave the query definition untouched.
+            for open in [false, true] {
+                view.options.conditions_open = Some(open);
+                right
+                    .execute(
+                        envelope(
+                            &format!("conditions-{open}"),
+                            Command::PutQueryView {
+                                owner: owner.clone(),
+                                view: view.clone(),
+                            },
+                        ),
+                        "t3",
+                    )
+                    .unwrap();
+                right = GraphCore::from_snapshot(graph(), 3, &right.export_snapshot().unwrap())
+                    .unwrap();
+                let restored = right.query_document(&owner).unwrap().views.remove(0);
+                assert_eq!(restored.options.conditions_open, Some(open));
+                assert_eq!(restored.definition.plan, Some(initial_plan.clone()));
+            }
+
+            let edited_plan = query_plan("page");
+            left.execute(
+                envelope(
+                    "edit-plan",
+                    Command::SetQueryPlan {
+                        owner: owner.clone(),
+                        view_id: view_id.clone(),
+                        plan: edited_plan.clone(),
+                    },
+                ),
+                "t4",
+            )
+            .unwrap();
+            let left_update = left.export_all().unwrap();
+            let right_update = right.export_all().unwrap();
+            left.import_remote(&right_update).unwrap();
+            right.import_remote(&left_update).unwrap();
+            for core in [&left, &right] {
+                let restored =
+                    GraphCore::from_snapshot(graph(), 4, &core.export_snapshot().unwrap()).unwrap();
+                let view = restored.query_document(&owner).unwrap().views.remove(0);
+                assert_eq!(view.options.conditions_open, Some(true));
+                assert_eq!(view.definition.plan, Some(edited_plan.clone()));
+                assert!(restored.snapshot().unwrap().quarantined.is_empty());
+            }
+            assert_eq!(left.fingerprint().unwrap(), right.fingerprint().unwrap());
+        }
+    }
+
+    #[test]
     fn query_view_columns_round_trip_through_loro() {
         let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
         ensure_regular_page(&mut core, "page", &page());
@@ -5761,6 +5862,7 @@ mod tests {
                             },
                         ],
                         options: QueryViewOptions {
+                            conditions_open: None,
                             compact: true,
                             wrap: false,
                             sort: vec![

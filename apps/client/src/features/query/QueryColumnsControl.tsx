@@ -1,24 +1,3 @@
-// What a table shows.
-//
-// **A column is a switch, not two of them.** Everything the subject could be
-// asked for is one list — its own useful fields, then the graph's reader-facing
-// vocabulary — and each line is on or off. Turning one on puts it in the query
-// and in this table; turning it off takes it out of this table, and out of the
-// query too unless another view still asks for it. One gesture, one meaning, in
-// both the ordinary case where a query has a single table and the case where it
-// has four. How values arrive is not another choice: cardinality decides it.
-//
-// **It belongs to the answer, not to the question.** Which columns a table shows
-// is changed while reading it, next to the order it is read in — not by opening
-// the editor that says what the query *looks for*. A `Show` row in the builder
-// stated the same thing one surface away from where it is used, and stated it
-// once for renderers that do not agree: a list of blocks draws the block, so it
-// takes every column the query returns and this control never appears over one.
-//
-// Order and width are the heading's (`QueryTableView`): a column is dragged where
-// it belongs, and this list stays in the order the product offers its fields, so
-// the same field is always in the same place in it.
-
 import { useMemo, useRef, useState } from "react";
 import { Columns3Icon, SearchIcon } from "lucide-react";
 import { AnchoredPanel } from "@/ui/anchored-panel";
@@ -120,7 +99,8 @@ export function QueryColumnsControl({
   return (
     <>
       <Button
-        size="icon"
+        variant="ghost"
+        className="query-tool"
         ref={triggerRef}
         aria-label={message("query.columns")}
         aria-expanded={open}
@@ -128,6 +108,7 @@ export function QueryColumnsControl({
         onClick={() => (open ? close() : setOpen(true))}
       >
         <Columns3Icon aria-hidden />
+        <span>{message("query.columns")}</span>
       </Button>
       {open && (
         <AnchoredPanel

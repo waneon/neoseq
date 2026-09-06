@@ -19,6 +19,7 @@ import {
 } from "../../src/entities/query-plan";
 import { resetAppSettingsCache } from "../../src/entities/settings";
 import { JournalView } from "../../src/features/journal/JournalView";
+import { DefaultQueriesSection } from "../../src/features/settings/DefaultQueries";
 import { SettingsDialog } from "../../src/features/settings/SettingsDialog";
 import { GRAPH_ID, mountAt, type Harness } from "./harness";
 
@@ -210,6 +211,57 @@ describe("writing a standing question", () => {
     });
   });
 
+  it("saves explicit Conditions folds in the view independently of the Settings row", async () => {
+    const user = userEvent.setup();
+    const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
+    await user.click(screen.getByTestId("add-default-query"));
+
+    const conditions = screen.getByTestId("default-query-conditions-trigger");
+    expect(conditions).toHaveAttribute("aria-expanded", "true");
+    await user.click(conditions);
+    await waitFor(() => {
+      expect(queries(harness)[0].document.views[0].options.conditions_open).toBe(false);
+      expect(conditions).toHaveAttribute("aria-expanded", "false");
+    });
+    expect(screen.queryByTestId("query-builder")).not.toBeInTheDocument();
+    expect(screen.getByTestId("default-query-layout-list")).toBeVisible();
+
+    // Opening the settings for a query preserves its saved Conditions choice.
+    await user.click(screen.getByTestId("default-query-disclose"));
+    await user.click(screen.getByTestId("default-query-disclose"));
+    expect(screen.getByTestId("default-query-conditions-trigger")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+
+    await user.click(screen.getByTestId("default-query-conditions-trigger"));
+    await waitFor(() =>
+      expect(queries(harness)[0].document.views[0].options.conditions_open).toBe(true),
+    );
+    expect(screen.getByTestId("query-builder")).toBeInTheDocument();
+  });
+
+  it("keeps Conditions open and reports a rejected disclosure write", async () => {
+    const user = userEvent.setup();
+    const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
+    await user.click(screen.getByTestId("add-default-query"));
+    const execute = vi
+      .spyOn(harness.session, "execute")
+      .mockRejectedValueOnce(new Error("Disclosure write rejected"));
+
+    await user.click(screen.getByTestId("default-query-conditions-trigger"));
+
+    expect(await screen.findByTestId("toast")).toHaveTextContent("Couldn’t save that query");
+    expect(screen.getByTestId("default-query-conditions-trigger")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByTestId("default-query-conditions-trigger")).toBeEnabled();
+    expect(screen.getByTestId("query-builder")).toBeInTheDocument();
+    expect(queries(harness)[0].document.views[0].options.conditions_open).toBeUndefined();
+    execute.mockRestore();
+  });
+
   it("names itself after the question until the reader names it", async () => {
     const user = userEvent.setup();
     const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
@@ -326,9 +378,13 @@ describe("reading a standing question", () => {
     await seed(harness, { plan: defaultPlan("block") });
     const section = await screen.findByTestId("journal-queries");
 
-    // The title is a title: there is nothing on this surface to disclose, because
-    // the question is not authored here.
-    expect(within(section).queryByTestId("query-conditions-trigger")).not.toBeInTheDocument();
+    // Conditions can be inspected here; their authoring still belongs to Settings.
+    const conditions = within(section).getByTestId("query-conditions-trigger");
+    expect(conditions).toHaveAttribute("aria-expanded", "false");
+    await user.click(conditions);
+    expect(await within(section).findByTestId("query-builder")).toBeInTheDocument();
+    expect(within(section).getByTestId("qb-subject")).toBeDisabled();
+    expect(within(section).getByTestId("qb-limit")).toHaveAttribute("readonly");
     expect(within(section).queryByTestId("query-columns-trigger")).not.toBeInTheDocument();
     // The question is external to this surface; its saved presentation is not.
     expect(within(section).getByTestId("query-view-trigger")).toBeInTheDocument();
@@ -403,5 +459,52 @@ describe("reading a standing question", () => {
       await vi.advanceTimersByTimeAsync(300);
     });
     expect(harness.port.queryRequests).toHaveLength(before + 1);
+  });
+
+  it("shares Conditions state between the journal and Settings through document history", async () => {
+    const user = userEvent.setup();
+    const harness = await mountAt(
+      `/g/${GRAPH_ID}/journal`,
+      <>
+        <JournalView />
+        <DefaultQueriesSection />
+      </>,
+    );
+    const query = await seed(harness, { plan: defaultPlan("block") });
+    await user.click(screen.getByTestId("default-query-disclose"));
+    const journal = within(screen.getByTestId("journal-queries"));
+    const editor = within(screen.getByTestId("settings-default-queries"));
+    const assertOpen = (open: boolean) => {
+      expect(journal.getByTestId("query-conditions-trigger")).toHaveAttribute(
+        "aria-expanded",
+        String(open),
+      );
+      expect(editor.getByTestId("default-query-conditions-trigger")).toHaveAttribute(
+        "aria-expanded",
+        String(open),
+      );
+    };
+
+    await user.click(editor.getByTestId("default-query-conditions-trigger"));
+    await waitFor(() => assertOpen(false));
+    await user.click(journal.getByTestId("query-conditions-trigger"));
+    await waitFor(() => assertOpen(true));
+    expect(queries(harness)[0].document.views[0].options.conditions_open).toBe(true);
+
+    await harness.settle(() => harness.session.execute({ type: "undo" }));
+    assertOpen(false);
+    await harness.settle(() => harness.session.execute({ type: "redo" }));
+    assertOpen(true);
+
+    // A canonical change arriving independently of either disclosure also wins.
+    const saved = queries(harness)[0].document.views[0];
+    await harness.settle(() =>
+      harness.session.execute({
+        type: "put_query_view",
+        owner: { kind: "graph_default", default_query_id: query.id },
+        view: { ...saved, options: { ...saved.options, conditions_open: false } },
+      }),
+    );
+    assertOpen(false);
   });
 });

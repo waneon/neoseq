@@ -128,6 +128,11 @@ export type QueryViewId = string;
 export type QueryViewKind = "table" | "list";
 export type QueryViewOptions = { 
 /**
+ * Whether the conditions editor is expanded. Absent keeps the surface's
+ * initial disclosure behavior until the user makes a choice.
+ */
+conditions_open?: boolean, 
+/**
  * Rows at the outline's own row height instead of a roomier one.
  */
 compact: boolean, 

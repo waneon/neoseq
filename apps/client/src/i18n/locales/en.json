@@ -329,8 +329,8 @@
   "properties.unchecked": "Unchecked",
   "properties.value": "{key} value",
   "query.actions": "Query actions",
-  "query.addCondition": "Condition",
-  "query.addGroup": "Group",
+  "query.addCondition": "Add condition",
+  "query.addGroup": "Add group",
   "query.addSort": "Sort by…",
   "query.addValue": "Add value",
   "query.addSummaryField": "Add summary field",
@@ -777,5 +777,11 @@
   "validation.propertyType": "“{key}” expects a {type} value.",
   "validation.reservedKey": "“{key}” is reserved and cannot be edited as a property.",
   "validation.stringLength": "String exceeds 65536 bytes.",
-  "validation.whitespaceKey": "Property key cannot have surrounding whitespace."
+  "validation.whitespaceKey": "Property key cannot have surrounding whitespace.",
+  "query.noConditions": "Add a condition to narrow the results.",
+  "query.emptyGroup": "Add conditions to this group.",
+  "query.emptyHint": "Nothing matches yet. Try adjusting the conditions or adding matching content.",
+  "query.editConditions": "Edit conditions",
+  "query.sortShort": "Sort",
+  "query.displayOf": "Result layout: {layout}"
 }

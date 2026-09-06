@@ -23,6 +23,7 @@ import {
 } from "../../src/features/commands/context";
 import { PageView } from "../../src/features/page/PageView";
 import { QueryPanel } from "../../src/features/query/QueryPanel";
+import { useSessionSelector } from "../../src/features/shell/session-context";
 
 interface PageHarness extends Harness {
   queryBlockId: string;
@@ -107,6 +108,10 @@ function commandBridge(): CommandBridge {
 
 function SeededQuerySwitcher() {
   const [tagId, setTagId] = useState("tag-a");
+  const document = useSessionSelector((state) => {
+    const tag = state.snapshot.tags.find((item) => item.id === tagId);
+    return tag && queryDocument(tag.properties);
+  });
   return (
     <>
       <button type="button" onClick={() => setTagId("tag-b")}>
@@ -116,7 +121,7 @@ function SeededQuerySwitcher() {
         binding={{
           kind: "managed",
           owner: { kind: "tag", tag_id: tagId },
-          document: undefined,
+          document,
           seedPlan: tagPlan(tagId),
         }}
         executionKey={JSON.stringify(["tag", tagId])}
@@ -140,6 +145,52 @@ async function createQuery(harness: Harness): Promise<void> {
 }
 
 describe("the query builder", () => {
+  it("stores explicit conditions disclosure even when the query has no conditions", async () => {
+    const harness = await mountPage();
+    await createQuery(harness);
+    const user = userEvent.setup();
+    const initialDefinition = storedDefinition(harness);
+    await user.click(screen.getByTestId("query-conditions-trigger"));
+    await waitFor(() => expect(storedQuery(harness)?.views[0].options.conditions_open).toBe(false));
+    expect(storedDefinition(harness)).toEqual(initialDefinition);
+    expect(screen.queryByTestId("query-builder")).not.toBeInTheDocument();
+    localStorage.clear();
+    await act(async () => {
+      await harness.router.navigate(`/g/${GRAPH_ID}/custom`);
+    });
+    await act(async () => {
+      await harness.router.navigate(`/g/${GRAPH_ID}/p/home`);
+    });
+    const toggle = await screen.findByTestId("query-conditions-trigger");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await user.click(toggle);
+    await waitFor(() => expect(storedQuery(harness)?.views[0].options.conditions_open).toBe(true));
+    expect(screen.getByTestId("query-builder")).toBeInTheDocument();
+  });
+
+  it("keeps conditions open after a rejected disclosure write and permits retry", async () => {
+    const harness = await mountPage();
+    await createQuery(harness);
+    const user = userEvent.setup();
+    harness.port.beforeExecute = async (command) => {
+      if (command.type === "put_query_view")
+        throw new CorePortFailure({
+          code: "invalid_request",
+          message: "rejected disclosure",
+          retryable: false,
+        });
+    };
+    const toggle = screen.getByTestId("query-conditions-trigger");
+    await user.click(toggle);
+    await waitFor(() => expect(toggle).not.toHaveAttribute("aria-disabled", "true"));
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(storedQuery(harness)?.views[0].options.conditions_open).toBeUndefined();
+    harness.port.beforeExecute = null;
+    await user.click(toggle);
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-expanded", "false"));
+    expect(storedQuery(harness)?.views[0].options.conditions_open).toBe(false);
+  });
+
   it.each([
     { name: "future plan", version: QUERY_PLAN_VERSION + 1, source: "SELECT * WHERE {}" },
     { name: "v1 plan with no source", version: 1, source: "" },
@@ -260,7 +311,7 @@ describe("the query builder", () => {
     await waitFor(() => expect(screen.getAllByTestId("qb-group")).toHaveLength(2));
     // A group renders inside its parent's children, so the nested group's own
     // "Condition" button comes first in the document.
-    const adders = () => screen.getAllByRole("button", { name: "Condition" });
+    const adders = () => screen.getAllByRole("button", { name: "Add condition" });
     await user.click(adders()[0]);
     await user.click(adders()[0]);
 
@@ -448,8 +499,7 @@ describe("the query builder", () => {
     });
 
     const conditions = screen.getByTestId("query-conditions-trigger");
-    // The phrase is the name of the control that opens the editor that wrote it,
-    // rather than a line printed over every answer forever.
+    // The control describes the authored question while the header uses its subject.
     expect(screen.queryByTestId("query-title")).not.toBeInTheDocument();
     expect(conditions).toHaveAttribute("aria-expanded", "true");
     expect(conditions).toHaveAttribute("title", "Blocks");

@@ -352,8 +352,12 @@ export interface MessageArgumentMap {
   "query.densityCompact": undefined;
   "query.descending": undefined;
   "query.display": undefined;
+  "query.displayOf": { readonly "layout": string | number };
   "query.duplicateView": undefined;
+  "query.editConditions": undefined;
   "query.editResult": { readonly "column": string | number };
+  "query.emptyGroup": undefined;
+  "query.emptyHint": undefined;
   "query.exactDate": undefined;
   "query.expandResults": { readonly "result": string | number };
   "query.failed": undefined;
@@ -388,6 +392,7 @@ export interface MessageArgumentMap {
   "query.moveViewRight": undefined;
   "query.newView": undefined;
   "query.noColumnMatches": undefined;
+  "query.noConditions": undefined;
   "query.noLongerMatches": undefined;
   "query.ofTheFollowing": undefined;
   "query.op.any_of": undefined;
@@ -447,6 +452,7 @@ export interface MessageArgumentMap {
   "query.sortDirectionOf": { readonly "column": string | number };
   "query.sortEmpty": undefined;
   "query.sortOrder": undefined;
+  "query.sortShort": undefined;
   "query.stopSorting": undefined;
   "query.subject.block": undefined;
   "query.subject.page": undefined;
