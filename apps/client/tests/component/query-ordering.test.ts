@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { RdfTerm } from "../../src/generated/core-port";
 import { EMPTY_SNAPSHOT } from "../../src/core-port/snapshot";
+import { TASK_DATE_KEYS, timeKeyFor } from "../../src/entities/tasks";
 import {
   inferOrderSemantics,
   orderSemanticsForColumn,
@@ -47,6 +48,144 @@ function sorted(values: Array<RdfTerm | undefined>, descending = false): Array<s
 }
 
 describe("query column ordering", () => {
+  it.each(TASK_DATE_KEYS)("orders %s by date and time in tables and block lists", (key) => {
+    const field = { kind: "property" as const, key };
+    const ordering = orderSemanticsForField(field);
+    const column: ResultColumn = {
+      variable: "moment",
+      label: key,
+      source: field,
+      timeColumn: "clock",
+      ordering,
+      sortable: true,
+      numeric: false,
+      width: null,
+    };
+    const fixtures = [
+      { id: "afternoon", date: "2026-09-06", time: "15:00" },
+      { id: "missing", time: "08:00" },
+      { id: "next-day", date: "2026-09-07", time: "00:00" },
+      { id: "no-time", date: "2026-09-06" },
+      { id: "morning-b", date: "2026-09-06", time: "09:30" },
+      { id: "invalid-time", date: "2026-09-06", time: "25:00" },
+      { id: "previous-day", date: "2026-09-05", time: "23:59" },
+      { id: "midnight", date: "2026-09-06", time: "00:00" },
+      { id: "morning-a", date: "2026-09-06", time: "09:30" },
+      { id: "earlier-minute", date: "2026-09-06", time: "09:05" },
+    ];
+    const rows: ResultViewRow[] = fixtures.map(({ id, date, time }) => ({
+      key: id,
+      subject: { kind: "block", owner: { kind: "page", id: "home" }, id },
+      values: {
+        moment: date ? [{ kind: "literal", value: date, datatype: `${XSD}date` }] : [],
+        clock: time ? [string(time)] : [],
+        content: [string(id)],
+      },
+    }));
+    const blockContext: CellContext = {
+      ...context,
+      snapshot: {
+        ...EMPTY_SNAPSHOT,
+        pages: [
+          {
+            id: "home",
+            title: "Home",
+            properties: [],
+            tags: [],
+            blocks: fixtures.map(({ id, date, time }) => ({
+              id,
+              markdown: id,
+              tags: [],
+              children: [],
+              properties: [
+                ...(date
+                  ? [
+                      {
+                        key,
+                        value_type: "date" as const,
+                        cardinality: "single" as const,
+                        values: [{ type: "date" as const, value: date }],
+                      },
+                    ]
+                  : []),
+                ...(time
+                  ? [
+                      {
+                        key: timeKeyFor(key),
+                        value_type: "string" as const,
+                        cardinality: "single" as const,
+                        values: [{ type: "string" as const, value: time }],
+                      },
+                    ]
+                  : []),
+              ],
+            })),
+          },
+        ],
+      },
+    };
+    const contentColumn: ResultColumn = {
+      ...column,
+      variable: "content",
+      source: { kind: "content" },
+      timeColumn: undefined,
+      ordering: { kind: "text" },
+    };
+    for (const descending of [false, true]) {
+      const expected = descending
+        ? [
+            "next-day",
+            "afternoon",
+            "morning-a",
+            "morning-b",
+            "earlier-minute",
+            "midnight",
+            "invalid-time",
+            "no-time",
+            "previous-day",
+            "missing",
+          ]
+        : [
+            "previous-day",
+            "midnight",
+            "earlier-minute",
+            "morning-a",
+            "morning-b",
+            "afternoon",
+            "invalid-time",
+            "no-time",
+            "next-day",
+            "missing",
+          ];
+      expect(
+        orderResultRows(
+          rows,
+          [
+            { variable: "moment", descending },
+            { variable: "content", descending: false },
+          ],
+          [column, contentColumn],
+          context,
+        ).map((row) => row.key),
+      ).toEqual(expected);
+      // List ordering must work without any projected result cells.
+      expect(
+        orderBlockRows(
+          rows.map((row) => ({ ...row, values: {} })),
+          [
+            { field: key, descending },
+            { field: "content", descending: false },
+          ],
+          [
+            { id: key, field, ordering },
+            { id: "content", field: { kind: "content" }, ordering: { kind: "text" } },
+          ],
+          blockContext,
+        ).map((row) => row.key),
+      ).toEqual(expected);
+    }
+  });
+
   it("derives ranked choices and typed primitives from column semantics", () => {
     expect(
       orderSemanticsForColumn({

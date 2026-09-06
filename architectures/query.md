@@ -273,6 +273,11 @@ vectors. Missing values remain last in either direction except task priority,
 where absence is the rank below Low. Equal rows use stable entity identity as the
 final tie-breaker.
 
+Scheduled and deadline ordering compares the date, then its companion time of
+day, before applying the next sort term. Missing or invalid times remain last
+within the same date in either direction. Tables use the result descriptor's
+time companion; block lists read it from the canonical property bag.
+
 The compiled plan carries no order of its own beyond the subject, which is what
 a `LIMIT` cuts against: renderer ordering rearranges only the answer already
 returned. A product question that needs ordering to choose which rows survive a

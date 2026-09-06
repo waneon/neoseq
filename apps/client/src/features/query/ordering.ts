@@ -2,6 +2,7 @@ import type { QueryEntityRef, RdfTerm } from "../../generated/core-port";
 import type { PropertyValue, QueryViewFieldSort, QueryViewSort } from "../../core-port/snapshot";
 import type { OrderSemantics } from "../../entities/query-ordering";
 import type { PlanField } from "../../entities/query-plan";
+import { isTaskDateKey, isTimeOfDay, timeKeyFor } from "../../entities/tasks";
 import { outlineIndex, type OutlineRow } from "../../core-port/outline-index";
 import { findOutline } from "../../core-port/snapshot";
 import { entityName, type CellContext, type ResultColumn, type ResultViewRow } from "./cells";
@@ -95,9 +96,15 @@ export function orderResultRows(
     for (const sort of sorts) {
       const column = byVariable.get(sort.variable);
       if (!column?.sortable) continue;
-      const comparison = compareTermLists(
-        left.values[sort.variable] ?? [],
-        right.values[sort.variable] ?? [],
+      const comparison = compareSortValues(
+        {
+          terms: left.values[sort.variable] ?? [],
+          time: column.timeColumn ? left.values[column.timeColumn]?.[0] : undefined,
+        },
+        {
+          terms: right.values[sort.variable] ?? [],
+          time: column.timeColumn ? right.values[column.timeColumn]?.[0] : undefined,
+        },
         column.ordering,
         context,
         sort.descending,
@@ -167,9 +174,18 @@ function fieldTerms(
   }
 }
 
-function compareTermLists(
-  left: readonly RdfTerm[],
-  right: readonly RdfTerm[],
+interface SortValue {
+  terms: readonly RdfTerm[];
+  time?: RdfTerm;
+}
+
+function validTime(term: RdfTerm | undefined): RdfTerm | undefined {
+  return term?.kind === "literal" && isTimeOfDay(term.value) ? term : undefined;
+}
+
+function compareSortValues(
+  { terms: left, time: leftTime }: SortValue,
+  { terms: right, time: rightTime }: SortValue,
   semantics: OrderSemantics,
   context: CellContext,
   descending: boolean,
@@ -191,7 +207,17 @@ function compareTermLists(
     );
     if (comparison !== 0) return comparison;
   }
-  return leftValues.length - rightValues.length;
+  const lengthComparison = leftValues.length - rightValues.length;
+  if (lengthComparison !== 0) return lengthComparison;
+  // A companion clock refines equal dates before the next saved sort term.
+  // Missing or invalid clocks stay last within that day in either direction.
+  return compareResultTerms(
+    validTime(leftTime),
+    validTime(rightTime),
+    { kind: "text" },
+    context,
+    descending,
+  );
 }
 
 /**
@@ -207,18 +233,24 @@ export function orderBlockRows(
 ): ResultViewRow[] {
   if (sorts.length === 0 || rows.length < 2) return [...rows];
   const descriptors = new Map(fields.map((field) => [field.id, field]));
-  const values = new Map<string, Map<string, RdfTerm[]>>();
+  const values = new Map<string, Map<string, SortValue>>();
 
   for (const result of rows) {
     const entity = result.subject;
-    const rowValues = new Map<string, RdfTerm[]>();
+    const rowValues = new Map<string, SortValue>();
     if (entity?.kind === "block") {
       const outline = findOutline(context.snapshot, entity.owner);
       const blockRow = outline && outlineIndex(outline.blocks).get(entity.id);
       if (blockRow) {
         for (const sort of sorts) {
           const descriptor = descriptors.get(sort.field);
-          if (descriptor) rowValues.set(sort.field, fieldTerms(entity, blockRow, descriptor.field));
+          if (!descriptor) continue;
+          const field = descriptor.field;
+          const time =
+            field.kind === "property" && isTaskDateKey(field.key)
+              ? fieldTerms(entity, blockRow, { kind: "property", key: timeKeyFor(field.key) })[0]
+              : undefined;
+          rowValues.set(sort.field, { terms: fieldTerms(entity, blockRow, field), time });
         }
       }
     }
@@ -229,9 +261,9 @@ export function orderBlockRows(
     for (const sort of sorts) {
       const descriptor = descriptors.get(sort.field);
       if (!descriptor) continue;
-      const comparison = compareTermLists(
-        values.get(left.key)?.get(sort.field) ?? [],
-        values.get(right.key)?.get(sort.field) ?? [],
+      const comparison = compareSortValues(
+        values.get(left.key)?.get(sort.field) ?? { terms: [] },
+        values.get(right.key)?.get(sort.field) ?? { terms: [] },
         descriptor.ordering,
         context,
         sort.descending,
