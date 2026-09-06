@@ -55,6 +55,10 @@ Focus follows stable object identity through virtualization and authoritative
 refresh. Opening a layer moves focus according to its pattern; closing restores
 the invoking control or editing caret. The topmost layer owns dismissal and
 announcement priority.
+Focus restoration and visible focus are distinct: dismissing a pointer-opened
+layer with Escape restores the owner without introducing keyboard emphasis.
+Keyboard navigation and activation retain visible location cues, including after
+dismissal; text-entry cues remain available regardless of input context.
 
 ## Status and Announcements
 

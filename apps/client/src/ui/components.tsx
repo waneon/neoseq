@@ -11,7 +11,7 @@ import {
 } from "@/ui/shadcn/alert-dialog";
 import { Button } from "@/ui/shadcn/button";
 import { OverlayRoot } from "@/ui/overlay-root";
-import { currentFocusOwner, restoreOverlayFocus } from "@/ui/overlay-focus";
+import { currentFocusOwner, focusOverlayOwner, restoreOverlayFocus } from "@/ui/overlay-focus";
 import { cn } from "@/lib/utils";
 import { useI18n } from "../i18n";
 
@@ -151,8 +151,7 @@ export function ConfirmDialog({
         onCloseAutoFocus={(event) => {
           if (returnFocus) {
             event.preventDefault();
-            const owner = returnFocus();
-            if (owner?.isConnected) owner.focus({ preventScroll: true });
+            focusOverlayOwner(returnFocus());
           } else {
             restoreOverlayFocus(event, focusOwner);
           }

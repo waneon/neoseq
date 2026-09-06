@@ -4,6 +4,7 @@ import { CheckIcon, ChevronDownIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { useOverlayRoot } from "@/ui/overlay-root";
+import { focusOverlayOwner } from "@/ui/overlay-focus";
 
 function Select(props: React.ComponentProps<typeof SelectPrimitive.Root>) {
   return <SelectPrimitive.Root data-slot="select" {...props} />;
@@ -39,15 +40,37 @@ function SelectContent({
   children,
   position = "popper",
   sideOffset = 6,
+  onCloseAutoFocus,
+  ref,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
   const container = useOverlayRoot();
+  const focusOwner = React.useRef<HTMLElement | null>(null);
   return (
     <SelectPrimitive.Portal container={container}>
       <SelectPrimitive.Content
+        ref={(surface) => {
+          // Radix removes aria-controls as the select closes; retain its owner
+          // while that relation is still present, before unmount autofocus runs.
+          if (surface?.id) {
+            focusOwner.current = surface.ownerDocument.querySelector<HTMLElement>(
+              `[data-slot="select-trigger"][aria-controls="${CSS.escape(surface.id)}"]`,
+            );
+          }
+          if (typeof ref === "function") return ref(surface);
+          if (ref) ref.current = surface;
+        }}
         data-slot="select-content"
         position={position}
         sideOffset={sideOffset}
+        onCloseAutoFocus={(event) => {
+          onCloseAutoFocus?.(event);
+          if (event.defaultPrevented || !focusOwner.current) return;
+          // Select owns a modal focus scope and always returns to its trigger,
+          // even when an enclosing dialog has briefly reclaimed focus.
+          event.preventDefault();
+          focusOverlayOwner(focusOwner.current);
+        }}
         className={cn(
           "menu-select-menu z-[var(--z-menu)] min-w-[12rem] rounded-lg bg-[var(--overlay)] p-1 text-popover-foreground shadow-[var(--e2)] enter-fade-fast",
           className,

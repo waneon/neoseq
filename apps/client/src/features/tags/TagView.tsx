@@ -33,6 +33,7 @@ import { LOCAL_REPOSITORY_ID } from "../repositories/directory";
 import { ConfirmDialog, Dialog } from "../../ui/components";
 import { Button } from "@/ui/shadcn/button";
 import { elementAnchor } from "@/ui/anchored";
+import { focusOverlayOwner } from "@/ui/overlay-focus";
 import { EditableTitle } from "../../ui/EditableTitle";
 import {
   DropdownMenu,
@@ -315,7 +316,9 @@ function TagMenu({
           align="start"
           onCloseAutoFocus={(event) => {
             event.preventDefault();
-            window.document.querySelector<HTMLElement>('[data-testid="tag-title"]')?.focus();
+            focusOverlayOwner(
+              window.document.querySelector<HTMLElement>('[data-testid="tag-title"]'),
+            );
           }}
         >
           {!readonly && (

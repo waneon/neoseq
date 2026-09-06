@@ -1,10 +1,21 @@
 // Test-build-only visual fixture. Production routing never imports it.
-import { CheckIcon } from "lucide-react";
+import { CheckIcon, Settings2Icon } from "lucide-react";
+import { useRef, useState } from "react";
 import { TaskMomentPicker } from "../properties/TaskMomentPicker";
 import { BlockMarkdown } from "../markdown/BlockMarkdown";
 import { TaskMoment } from "../tasks/TaskMoment";
 import type { TaskMomentPresentation } from "../tasks/moment-presentation";
-import { TaskStatusGlyph } from "../tasks/glyphs";
+import { PriorityGlyph, TaskStatusGlyph } from "../tasks/glyphs";
+import { elementAnchor } from "../../ui/anchored";
+import { AnchoredPanel } from "../../ui/anchored-panel";
+import { Dialog } from "../../ui/components";
+import { MenuSelect } from "../../ui/menu-select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../../ui/shadcn/dropdown-menu";
 import { QueryTableCellFrame } from "../query/QueryTableCell";
 import "./visual-verification.css";
 
@@ -17,6 +28,73 @@ const moment: TaskMomentPresentation = {
   repeating: true,
   title: "August 28, 2026 · 14:30",
 };
+
+function FocusRestorationControls() {
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const anchor = useRef<HTMLButtonElement>(null);
+  return (
+    <section aria-label="Focus restoration" className="visual-verification-section">
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger asChild>
+          <button className="task-priority-toggle" aria-label="Priority" data-testid="focus-menu">
+            <PriorityGlyph priority="low" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuItem>Low</DropdownMenuItem>
+          <DropdownMenuItem>High</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setDialogOpen(true)}>Edit details</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <button
+        ref={anchor}
+        className="icon-btn"
+        aria-label="Edit value"
+        data-testid="focus-panel"
+        onClick={() => setPanelOpen(true)}
+      >
+        <Settings2Icon aria-hidden />
+      </button>
+      {panelOpen && (
+        <AnchoredPanel
+          anchor={elementAnchor(anchor.current)}
+          label="Edit value"
+          className="context-panel"
+          onClose={() => setPanelOpen(false)}
+        >
+          <input aria-label="Value" />
+          <button onClick={() => setPanelOpen(false)}>Apply</button>
+        </AnchoredPanel>
+      )}
+      <MenuSelect
+        label="Status"
+        testId="focus-select"
+        value="todo"
+        options={[
+          { value: "todo", label: "To-do" },
+          { value: "done", label: "Done" },
+        ]}
+        onValueChange={() => {}}
+      />
+      {dialogOpen && (
+        <Dialog title="Details" onClose={() => setDialogOpen(false)}>
+          <input aria-label="Details value" />
+          <MenuSelect
+            label="Nested status"
+            testId="focus-nested-select"
+            value="todo"
+            options={[
+              { value: "todo", label: "To-do" },
+              { value: "done", label: "Done" },
+            ]}
+            onValueChange={() => {}}
+          />
+        </Dialog>
+      )}
+    </section>
+  );
+}
 
 export function VisualVerificationPage() {
   return (
@@ -48,6 +126,8 @@ export function VisualVerificationPage() {
           Unstyled focus fallback
         </button>
       </section>
+
+      <FocusRestorationControls />
 
       <section
         aria-label="Surface contracts"

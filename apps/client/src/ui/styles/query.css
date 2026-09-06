@@ -1916,13 +1916,17 @@ button.query-block-content:focus-visible {
   border-radius: var(--r-2);
 }
 
-.query-list .task-status-toggle.query-edit-trigger:hover,
-.query-list .task-status-toggle.query-edit-trigger:focus-visible,
-.query-list .task-status-toggle.query-edit-trigger[data-active="true"],
-.query-list .task-priority-toggle.query-edit-trigger:hover,
-.query-list .task-priority-toggle.query-edit-trigger:focus-visible,
-.query-list .task-priority-toggle.query-edit-trigger[data-active="true"] {
+.query-list .task-status-toggle.query-edit-trigger:hover:not(:focus-visible),
+.query-list .task-status-toggle.query-edit-trigger[data-active="true"]:not(:focus-visible),
+.query-list .task-priority-toggle.query-edit-trigger:hover:not(:focus-visible),
+.query-list .task-priority-toggle.query-edit-trigger[data-active="true"]:not(:focus-visible) {
   box-shadow: none;
+}
+
+.query-list .task-status-toggle.query-edit-trigger:focus-visible,
+.query-list .task-priority-toggle.query-edit-trigger:focus-visible {
+  background: var(--surface-2);
+  box-shadow: var(--focus-mark-inset);
 }
 
 .query-list-line {

@@ -45,6 +45,7 @@ import {
 } from "lucide-react";
 import type { QueryView, QueryViewKind } from "../../core-port/snapshot";
 import { Button } from "@/ui/shadcn/button";
+import { focusOverlayOwner } from "@/ui/overlay-focus";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -309,9 +310,11 @@ export function QueryViewTabs({
             // The anchor is hidden from assistive technology and cannot be
             // focused, so focus goes back to the tab the menu was summoned from.
             event.preventDefault();
-            strip.current
-              ?.querySelector<HTMLElement>(`[data-view-id="${CSS.escape(activeView.id)}"]`)
-              ?.focus();
+            focusOverlayOwner(
+              strip.current?.querySelector<HTMLElement>(
+                `[data-view-id="${CSS.escape(activeView.id)}"]`,
+              ) ?? null,
+            );
           }}
         >
           <DropdownMenuItem

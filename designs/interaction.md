@@ -113,6 +113,11 @@ retaining the gesture's owner.
 
 Opening and closing restore focus to the invoking control or caret unless the
 chosen action explicitly transfers focus elsewhere.
+Restoration preserves the input context: pointer interaction returns quietly,
+while keyboard navigation or activation retains a visible focus indicator.
+Escape and bare modifier keys do not change that context. Text-entry controls
+retain their caret and field cues in either case. Small task marks use a thin,
+neutral inset edge for keyboard focus, shared by outlines and query lists.
 An action invoked from a menu returns to its persistent trigger after the menu
 item disappears. Nested surfaces close one layer at a time and return through
 their owners. A focused field with an uncommitted draft may reserve Escape to

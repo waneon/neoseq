@@ -100,6 +100,14 @@
   color: var(--ink);
 }
 
+/* Small task marks keep a quiet, contained edge for keyboard navigation. */
+.task-status-toggle:focus-visible,
+.task-priority-toggle:focus-visible {
+  outline: none;
+  background: var(--surface-2);
+  box-shadow: var(--focus-mark-inset);
+}
+
 .task-status-toggle:disabled,
 .task-priority-toggle:disabled {
   opacity: 0.5;

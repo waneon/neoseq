@@ -3,6 +3,94 @@ import type { Locator, Page, TestInfo } from "@playwright/test";
 
 type Pixel = readonly [number, number, number, number];
 
+for (const kind of ["menu", "panel", "select"] as const) {
+  test(`overlay focus: ${kind} restores pointer and keyboard context`, async ({ page }) => {
+    await page.goto("/#/verify/visual");
+    const trigger = page.getByTestId(`focus-${kind}`);
+    const surface = page.getByRole(
+      kind === "menu" ? "menu" : kind === "panel" ? "dialog" : "listbox",
+    );
+    const visibleFocus = () => trigger.evaluate((element) => element.matches(":focus-visible"));
+
+    await trigger.click();
+    await expect(surface).toBeVisible();
+    // A bare modifier is not keyboard navigation either.
+    await page.keyboard.press("Shift");
+    await page.keyboard.press("Escape");
+    await expect(surface).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    await expect.poll(visibleFocus).toBe(false);
+    await expect
+      .poll(() => trigger.evaluate((element) => getComputedStyle(element).outlineStyle))
+      .toBe("none");
+
+    // Keyboard navigation after restoration must immediately recover its cue.
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Shift+Tab");
+    await expect(trigger).toBeFocused();
+    await expect.poll(visibleFocus).toBe(true);
+    await page.keyboard.press("Enter");
+    await expect(surface).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(surface).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    await expect.poll(visibleFocus).toBe(true);
+
+    // A pointer-opened surface may turn into a keyboard interaction.
+    await trigger.click();
+    await expect(surface).toBeVisible();
+    await page.keyboard.press(kind === "panel" ? "Tab" : "ArrowDown");
+    await page.keyboard.press("Escape");
+    await expect(surface).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    await expect.poll(visibleFocus).toBe(true);
+  });
+}
+
+test("overlay focus: nested dialog returns quietly and preserves text-entry cues", async ({
+  page,
+}) => {
+  await page.goto("/#/verify/visual");
+  const trigger = page.getByTestId("focus-menu");
+  await trigger.click();
+  await page.getByRole("menuitem", { name: "Edit details" }).click();
+  const input = page.getByRole("textbox", { name: "Details value" });
+  await expect(input).toBeFocused();
+  await expect
+    .poll(() => input.evaluate((element) => element.matches(":focus-visible")))
+    .toBe(true);
+  const nestedSelect = page.getByTestId("focus-nested-select");
+  await nestedSelect.click();
+  await expect(page.getByRole("listbox", { name: "Nested status" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("listbox", { name: "Nested status" })).toHaveCount(0);
+  await expect(nestedSelect).toBeFocused();
+  await expect
+    .poll(() => nestedSelect.evaluate((element) => element.matches(":focus-visible")))
+    .toBe(false);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Details", exact: true })).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await expect
+    .poll(() => trigger.evaluate((element) => element.matches(":focus-visible")))
+    .toBe(false);
+});
+
+test("overlay focus: priority keyboard cue is a thin inset edge", async ({ page }) => {
+  await page.goto("/#/verify/visual");
+  const trigger = page.getByTestId("focus-menu");
+  await trigger.click();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
+  await expect
+    .poll(() => trigger.evaluate((element) => getComputedStyle(element).outlineStyle))
+    .toBe("none");
+  await expect
+    .poll(() => trigger.evaluate((element) => getComputedStyle(element).boxShadow))
+    .toContain("0px 0px 0px 1px inset");
+});
+
 const distance = (left: Pixel, right: Pixel): number =>
   Math.hypot(left[0] - right[0], left[1] - right[1], left[2] - right[2], left[3] - right[3]);
 
