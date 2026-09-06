@@ -28,6 +28,8 @@ invoking control after the destination arrives, including newly created days.
 The bullet is the block's handle: it focuses, exposes contextual actions, and
 starts structural drag. Its hit area is larger than its resting mark and becomes
 visible under intent. The native text editor is the row's single tab stop.
+Bullets, collapse controls, and branch joins align with the first rendered line,
+including headings that wrap or precede additional content.
 
 Editing, structural selection, and the caret have separate state. A focused row
 does not receive a decorative fill; the caret and branch already identify the

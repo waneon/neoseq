@@ -123,9 +123,34 @@
 
    The thread is drawn in whichever tone the reader chose (designs/foundations.md § Semantic Color). */
 .block-row {
+  --block-first-line-height: var(--lh-md);
   display: flex;
   align-items: flex-start;
   gap: var(--sp-0);
+}
+
+/* Follow the first rendered line, including wrapped headings. Restrict the
+   projection to this row's text so headings in a nested query cannot move its
+   handle. Query lists wrap the same projection in their editing surface. */
+.block-row:has(
+  > .block-body > .block-markdown > .markdown-heading[data-level="1"]:first-child,
+  > .block-body > .block-line > .block-markdown > .markdown-heading[data-level="1"]:first-child
+) {
+  --block-first-line-height: var(--head-1-lh);
+}
+
+.block-row:has(
+  > .block-body > .block-markdown > .markdown-heading[data-level="2"]:first-child,
+  > .block-body > .block-line > .block-markdown > .markdown-heading[data-level="2"]:first-child
+) {
+  --block-first-line-height: var(--head-2-lh);
+}
+
+.block-row:has(
+  > .block-body > .block-markdown > .markdown-heading[data-level="3"]:first-child,
+  > .block-body > .block-line > .block-markdown > .markdown-heading[data-level="3"]:first-child
+) {
+  --block-first-line-height: var(--head-3-lh);
 }
 
 .outline-row {
@@ -135,12 +160,8 @@
      axis separate from each stroke's left edge prevents a 1px guide from
      starting on the axis while the bullet and the other strokes straddle it. */
   --thread-axis: calc(var(--gutter) + var(--slot) / 2);
-  /* Where a row's own thread begins: the bottom of the 6px bullet centred on the
-     26px text line, so the line leaves the mark rather than starting three
-     pixels under it. A tree is read as one continuous stroke from a parent to
-     each of its children (designs/outliner.md § Structural Thread), and a gap at the top of that stroke is
-     the one place the eye has to guess whether the two are connected. */
-  --thread-head: 17px;
+  /* Row padding + first-line centre + the bullet's 3px radius. */
+  --thread-head: calc(1px + var(--block-first-line-height) / 2 + 3px);
   /* How wide the live stroke is, and how far its corner turns. Both are the
      branch's own metrics and nothing else uses them. */
   --branch-w: 2px;
@@ -226,7 +247,7 @@
   /* Ends on the dot: the bullet's centre is one indent along and its mark is 6px,
      so 3px short of that centre is exactly its left edge. */
   width: calc(var(--indent) - 3px + var(--branch-w) / 2);
-  height: calc(1px + var(--lh-md) / 2 + var(--branch-w) / 2);
+  height: calc(1px + var(--block-first-line-height) / 2 + var(--branch-w) / 2);
   border-inline-start: var(--branch-w) solid var(--thread-lit);
   border-bottom: var(--branch-w) solid var(--thread-lit);
   border-end-start-radius: var(--branch-turn);
@@ -338,7 +359,7 @@
   justify-content: center;
   flex: none;
   width: var(--slot);
-  height: var(--lh-md);
+  height: var(--block-first-line-height);
 }
 
 /* The chevron sits in the middle of the indent column immediately left of the
