@@ -33,6 +33,17 @@ function queries(harness: Harness): DefaultQuery[] {
   return harness.session.getState().snapshot.settings.default_queries;
 }
 
+async function addQuery(user: ReturnType<typeof userEvent.setup>, harness: Harness): Promise<void> {
+  const count = queries(harness).length;
+  await user.click(screen.getByTestId("add-default-query"));
+  await waitFor(() => {
+    expect(queries(harness)).toHaveLength(count + 1);
+    const rows = screen.getAllByTestId("default-query-disclose");
+    expect(rows).toHaveLength(count + 1);
+    expect(rows[count]).toHaveAttribute("aria-expanded", "true");
+  });
+}
+
 async function seed(
   harness: Harness,
   query: {
@@ -159,7 +170,7 @@ describe("writing a standing question", () => {
     const user = userEvent.setup();
     const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
 
-    await user.click(screen.getByTestId("add-default-query"));
+    await addQuery(user, harness);
     const [built] = queries(harness);
     // The fake observes the same core-owned derivation boundary as a block query.
     expect(
@@ -182,7 +193,7 @@ describe("writing a standing question", () => {
   it("authors a table's executable columns here", async () => {
     const user = userEvent.setup();
     const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
-    await user.click(screen.getByTestId("add-default-query"));
+    await addQuery(user, harness);
 
     // A list draws entities and states everything; only a table has columns to
     // choose between, so only a table is asked.
@@ -214,7 +225,7 @@ describe("writing a standing question", () => {
   it("saves explicit Conditions folds in the view independently of the Settings row", async () => {
     const user = userEvent.setup();
     const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
-    await user.click(screen.getByTestId("add-default-query"));
+    await addQuery(user, harness);
 
     const conditions = screen.getByTestId("default-query-conditions-trigger");
     expect(conditions).toHaveAttribute("aria-expanded", "true");
@@ -244,7 +255,7 @@ describe("writing a standing question", () => {
   it("keeps Conditions open and reports a rejected disclosure write", async () => {
     const user = userEvent.setup();
     const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
-    await user.click(screen.getByTestId("add-default-query"));
+    await addQuery(user, harness);
     const execute = vi
       .spyOn(harness.session, "execute")
       .mockRejectedValueOnce(new Error("Disclosure write rejected"));
@@ -265,7 +276,7 @@ describe("writing a standing question", () => {
   it("names itself after the question until the reader names it", async () => {
     const user = userEvent.setup();
     const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
-    await user.click(screen.getByTestId("add-default-query"));
+    await addQuery(user, harness);
 
     const title = screen.getByTestId("default-query-title");
     expect(title).toHaveAttribute("placeholder", "Blocks");
@@ -283,7 +294,7 @@ describe("writing a standing question", () => {
     const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
     await oneRow(harness);
 
-    await user.click(screen.getByTestId("add-default-query"));
+    await addQuery(user, harness);
 
     await waitFor(() =>
       expect(screen.getByTestId("default-query-count")).toHaveTextContent("1 result"),
@@ -299,7 +310,7 @@ describe("writing a standing question", () => {
       retryable: false,
     };
 
-    await user.click(screen.getByTestId("add-default-query"));
+    await addQuery(user, harness);
 
     // The count is the first thing that says so, and the reason is stated beside
     // the editor that can fix it rather than only under the journal.
@@ -317,11 +328,13 @@ describe("writing a standing question", () => {
 
     await user.click(screen.getAllByTestId("default-query-actions")[0]);
     await user.click(await screen.findByRole("menuitem", { name: "Move down" }));
-    expect(queries(harness).map((query) => query.title)).toEqual(["Second", "First"]);
+    await waitFor(() =>
+      expect(queries(harness).map((query) => query.title)).toEqual(["Second", "First"]),
+    );
 
     await user.click(screen.getAllByTestId("default-query-actions")[0]);
     await user.click(await screen.findByRole("menuitem", { name: "Delete query" }));
-    expect(queries(harness).map((query) => query.title)).toEqual(["First"]);
+    await waitFor(() => expect(queries(harness).map((query) => query.title)).toEqual(["First"]));
   });
 
   it("shows a presented view's hidden column truthfully", async () => {
