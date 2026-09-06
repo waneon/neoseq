@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useState, type ReactElement } from "react";
 import { CorePortFailure } from "../../src/core-worker";
 import {
@@ -323,6 +323,55 @@ describe("the query builder", () => {
       expect(group?.kind === "group" && group.children).toHaveLength(2);
     });
     expect(storedDefinition(harness)?.source.startsWith(DERIVED_SOURCE_PROVENANCE)).toBe(true);
+  });
+
+  it("keeps newer conditions when an earlier plan save finishes", async () => {
+    const harness = await mountPage();
+    await createQuery(harness);
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let saving = false;
+    harness.port.beforeExecute = async (command) => {
+      if (command.type !== "set_query_plan" || saving) return;
+      saving = true;
+      await pending;
+    };
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      fireEvent.click(screen.getByTestId("qb-add-group"));
+      await act(async () => vi.advanceTimersByTimeAsync(600));
+      expect(saving).toBe(true);
+
+      const adders = () => screen.getAllByRole("button", { name: "Add condition" });
+      fireEvent.click(adders()[0]);
+      fireEvent.click(adders()[0]);
+      expect(screen.getAllByTestId("qb-condition")).toHaveLength(2);
+
+      await act(async () => {
+        const published = new Promise<void>((resolve) => {
+          const unsubscribe = harness.session.subscribe(() => {
+            const plan = decodePlan(storedDefinition(harness)!.plan!.payload, QUERY_PLAN_VERSION);
+            if (plan?.where.children[0]?.kind !== "group") return;
+            unsubscribe();
+            resolve();
+          });
+        });
+        release();
+        await published;
+      });
+      expect(screen.getAllByTestId("qb-condition")).toHaveLength(2);
+
+      await act(async () => vi.advanceTimersByTimeAsync(600));
+      const plan = decodePlan(storedDefinition(harness)!.plan!.payload, QUERY_PLAN_VERSION);
+      const group = plan?.where.children[0];
+      expect(group?.kind === "group" && group.children).toHaveLength(2);
+    } finally {
+      release();
+      harness.port.beforeExecute = null;
+      vi.useRealTimers();
+    }
   });
 
   // The sentence asks; it does not lay out. What an answer shows and which way it

@@ -262,6 +262,11 @@ owner and may persist layout, sort, and table column presentation through
 `put_query_view`. Result editing is unaffected: a row still names a block in
 this graph, and writing it remains an ordinary property command.
 
+A plan draft retains the saved payload it was based on. Incoming saved plans
+replace a clean draft; they cannot overwrite newer unsaved input in the same
+view. When persistence catches up, the draft becomes clean and follows later
+remote edits again. Switching views adopts that view's own definition.
+
 Ordering semantics are derived rather than stored. The selected field and the
 property registry resolve to one semantic order: declared choices use their
 stored-value rank, numbers and dates use typed value order, references use their

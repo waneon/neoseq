@@ -205,9 +205,14 @@ function QueryPanelSurface({
   const storedPayload = storedPlan ? encodePlan(storedPlan) : null;
   const incomingPlan = storedPlan ?? (document ? null : (seedPlan ?? null));
   const incomingPlanRef = useLatest(incomingPlan);
-  const [draft, setDraft] = useState<{ viewId: string; plan: QueryPlan | null }>(() => ({
+  const [draft, setDraft] = useState<{
+    viewId: string;
+    plan: QueryPlan | null;
+    basePayload: string | null;
+  }>(() => ({
     viewId: activeView.id,
     plan: incomingPlan,
+    basePayload: incomingPlan ? encodePlan(incomingPlan) : null,
   }));
   // A tab change is synchronous identity change. Until the effect adopts its
   // saved draft, render the incoming definition directly so one view can never
@@ -229,16 +234,24 @@ function QueryPanelSurface({
   const shaped = useRef(document !== undefined);
   if (document !== undefined) shaped.current = true;
   // The authoritative document is the truth after a remote edit or a reload; the
-  // local plan is the truth while the reader is shaping it. The encoded payload
-  // is the canonical identity: a freshly allocated but equal seed is not a new
-  // plan, while a stored payload change always adopts the latest decoded value.
+  // local plan is the truth while the reader is shaping it. Track the saved
+  // base separately: an older save acknowledgment must not replace newer input.
+  // Once the saved payload catches up, later remote edits are adopted normally.
   // A different execution key remounts this surface at the public boundary, so
   // every piece of surface-local state changes identity together.
   useEffect(
     () =>
-      setDraft({
-        viewId: activeView.id,
-        plan: incomingPlanRef.current,
+      setDraft((current) => {
+        const incoming = incomingPlanRef.current;
+        const dirty =
+          current.viewId === activeView.id &&
+          current.plan !== null &&
+          encodePlan(current.plan) !== current.basePayload;
+        return {
+          viewId: activeView.id,
+          plan: dirty && incoming ? current.plan : incoming,
+          basePayload: incoming ? encodePlan(incoming) : null,
+        };
       }),
     [activeView.id, incomingPlanRef, storedPayload],
   );
@@ -838,7 +851,16 @@ function QueryPanelSurface({
     )
       return false;
     shaped.current = true;
-    setDraft({ viewId: activeView.id, plan: next });
+    setDraft((current) => ({
+      viewId: activeView.id,
+      plan: next,
+      basePayload:
+        current.viewId === activeView.id
+          ? current.basePayload
+          : incomingPlan
+            ? encodePlan(incomingPlan)
+            : null,
+    }));
     return true;
   };
 
