@@ -67,7 +67,9 @@ half-created through the generic property route, and it has no tag-default
 placement either. The query block owns every later edit, including its removal.
 
 Labels are localized; matching runs the palette's fuzzy scorer over labels plus
-English and Korean aliases. An empty query renders the declared groups in order;
+declared search aliases. Alias vocabulary may span languages and extends with
+locale support; no fixed pair of languages defines the matching contract.
+An empty query renders the declared groups in order;
 a non-empty query renders one ranked list.
 
 The menu keeps focus in the textarea. `↑`/`↓` move the active row, `Enter` and
@@ -314,7 +316,7 @@ retry, and save-state behavior remain owned by `GraphSession` and its adapter.
 - Slash and shortcut matching stand down during IME composition.
 - User property keys and values are never translated. Here `user.*` means a
   user-defined graph property, not private metadata owned by one account. All
-  chrome comes from the typed English and Korean catalogs.
+  chrome comes from the active locale's typed catalog.
 - Focus returns to the invoking row, textarea, or page subject after close.
 
 ## Dependency Direction

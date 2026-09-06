@@ -40,7 +40,7 @@ cross into feature code.
 Each locale manifest entry names a temporal language pack. Multiple regional or
 script locales may deliberately share one pack. Locale selection follows BCP 47
 fallback from exact tag to language-script and then base language; grammar does
-not silently fall back to English after a locale has been selected.
+not silently fall back to another language after a locale has been selected.
 
 ISO dates, ISO date-time pairs, and 24-hour clock values form the invariant
 grammar available in every locale. Everything else belongs to a declared pack.

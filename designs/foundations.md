@@ -72,8 +72,9 @@ rules inside an outline, where a rule would imply a page boundary. Group labels
 and table column labels are separate roles because they describe different kinds
 of structure.
 
-The primary family supports Korean and Latin with one voice. Locale adaptations
-may relax tracking, but they do not create a parallel scale.
+Font selection and fallbacks must cover the scripts used by supported locales and
+user-authored text. Script-specific adaptations may adjust tracking and font
+metrics for legibility while preserving the shared typographic roles and scale.
 
 ## Geometry, Depth, and Shape
 

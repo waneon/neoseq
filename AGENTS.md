@@ -9,6 +9,7 @@ Practice good taste. Seek a simpler representation before adding logic. Prefer r
 ### Intent Documentation
 
 - Treat the high-level requirements in INTENT.md as invariants for the repository.
+- Do not modify this document.
 
 ### Architecture Documentation
 
