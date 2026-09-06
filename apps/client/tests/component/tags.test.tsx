@@ -40,26 +40,32 @@ async function mountTagged() {
 
 describe("first-class tags and tag defaults", () => {
   it("keeps a rejected tag choice in the field so it can be retried", async () => {
-    const { port } = await mountTagged();
+    const { port, settle } = await mountTagged();
     const user = userEvent.setup();
     await openBlockMenu();
-    await user.click(await screen.findByTestId("menu-tags"));
+    const tags = await screen.findByTestId("menu-tags");
+    await settle(() => fireEvent.click(tags));
     const picker = await screen.findByTestId("tag-picker");
     const input = within(picker).getByTestId("tag-autocomplete");
     port.beforeExecute = async (command) => {
       if (command.type === "add_tag") throw new Error("Rejected tag choice");
     };
     await user.type(input, "Proj");
-    await user.click(await screen.findByRole("option", { name: "Project" }));
+    const option = await screen.findByRole("option", { name: "Project" });
+    await settle(() => fireEvent.click(option));
     await waitFor(() => expect(input).toHaveValue("Project"));
+    expect(input).toHaveAttribute("aria-busy", "false");
     expect(within(picker).queryByTestId("tag-chip")).not.toBeInTheDocument();
 
     port.beforeExecute = null;
     // Opening the newly filtered collection can suspend; own that keyboard event.
-    await act(async () => {
+    await settle(() => {
       fireEvent.keyDown(input, { key: "ArrowDown" });
     });
-    await user.keyboard("{Enter}");
+    await settle(() => {
+      fireEvent.keyDown(input, { key: "Enter" });
+      fireEvent.keyUp(input, { key: "Enter" });
+    });
     await waitFor(() =>
       expect(within(picker).getByTestId("tag-chip")).toHaveTextContent("#Project"),
     );
@@ -304,17 +310,16 @@ describe("the tags screen", () => {
   });
 
   it("creates a tag, and keeps the field open for the next name", async () => {
-    const { session } = await mountAt(`/g/${GRAPH_ID}/tags`);
+    const { session, settle } = await mountAt(`/g/${GRAPH_ID}/tags`);
     const user = userEvent.setup();
     await user.click(await screen.findByTestId("new-tag"));
     const input = await screen.findByTestId("new-tag-name");
-    await user.type(input, "Research{enter}");
+    await user.type(input, "Research");
+    await settle(() => fireEvent.keyDown(input, { key: "Enter" }));
     expect(await screen.findByTestId("tag-row")).toHaveTextContent("#Research");
     expect(screen.getByTestId("new-tag-name")).toHaveValue("");
 
-    await act(async () => {
-      await session.execute({ type: "undo" });
-    });
+    await settle(() => session.execute({ type: "undo" }));
     await waitFor(() => expect(screen.queryByTestId("tag-row")).not.toBeInTheDocument());
   });
 
@@ -330,7 +335,6 @@ describe("the tags screen", () => {
 
   it("says what each tag does and leads to it", async () => {
     const { session, router, settle } = await mountAt(`/g/${GRAPH_ID}/tags`);
-    const user = userEvent.setup();
     await settle(async () => {
       await session.execute({ type: "ensure_tag", tag_id: "project", name: "Project" });
       await session.execute({
@@ -348,7 +352,7 @@ describe("the tags screen", () => {
     expect(row).toHaveTextContent("Priority");
     expect(row).not.toHaveTextContent("High");
 
-    await user.click(screen.getByTestId("tag-row-link"));
+    await settle(() => fireEvent.click(screen.getByTestId("tag-row-link")));
     await waitFor(() => expect(router.state.location.pathname).toBe(`/g/${GRAPH_ID}/t/project`));
   });
 
@@ -432,7 +436,8 @@ describe("the tags screen", () => {
     // The menu is the keyboard's half of the drag, and it moves the same tag the
     // same distance.
     await user.click(screen.getAllByTestId("tag-row-menu")[0]);
-    await user.click(await screen.findByTestId("tag-row-down"));
+    const moveDown = await screen.findByTestId("tag-row-down");
+    await settle(() => fireEvent.click(moveDown));
     await waitFor(() => expect(rowNames()).toEqual(["Bravo", "Alpha", "Charlie"]));
 
     // A drag says where it will land before it lands: one seam, on the row it is
@@ -442,12 +447,10 @@ describe("the tags screen", () => {
     fireEvent.dragOver(rows[2], { dataTransfer: transfer() });
     expect(rows[2]).toHaveAttribute("data-seam");
     expect(rowNames()).toEqual(["Bravo", "Alpha", "Charlie"]);
-    fireEvent.drop(rows[2], { dataTransfer: transfer() });
+    await settle(() => fireEvent.drop(rows[2], { dataTransfer: transfer() }));
     await waitFor(() => expect(rowNames()).toEqual(["Alpha", "Charlie", "Bravo"]));
 
-    await act(async () => {
-      await session.execute({ type: "undo" });
-    });
+    await settle(() => session.execute({ type: "undo" }));
     await waitFor(() => expect(rowNames()).toEqual(["Bravo", "Alpha", "Charlie"]));
   });
 
@@ -478,12 +481,12 @@ describe("the tags screen", () => {
   });
 
   it("customizes a tag's mark and colour from the one panel its mark opens", async () => {
-    const { session } = await mountAt(`/g/${GRAPH_ID}/tags`);
+    const { session, settle } = await mountAt(`/g/${GRAPH_ID}/tags`);
     const user = userEvent.setup();
     await session.execute({ type: "ensure_tag", tag_id: "reading", name: "Reading" });
     await screen.findByTestId("tag-row");
 
-    await user.click(screen.getByTestId("tag-mark"));
+    await settle(() => fireEvent.click(screen.getByTestId("tag-mark")));
     const panel = await screen.findByTestId("tag-identity");
     await user.click(within(panel).getByTestId("tag-colour-teal"));
     await waitFor(() => expect(screen.getByTestId("tag-mark")).toHaveAttribute("data-hue", "teal"));
@@ -541,19 +544,21 @@ describe("a tag's own page", () => {
   });
 
   it("writes blocks into the tag's own outline", async () => {
-    const { session } = await mountTagPage();
-    const user = userEvent.setup();
+    const { session, settle } = await mountTagPage();
 
-    await user.click(await screen.findByTestId("outline-start"));
+    const start = await screen.findByTestId("outline-start");
+    await settle(() => fireEvent.click(start));
     const editor = await screen.findByLabelText("Block text");
-    await user.type(editor, "Notes that belong to the tag");
-    await user.tab();
+    await settle(() => {
+      fireEvent.change(editor, { target: { value: "Notes that belong to the tag" } });
+      fireEvent.blur(editor);
+    });
 
     await waitFor(() => {
       const tag = session.getState().snapshot.tags.find((item) => item.id === "project");
       expect(tag?.blocks[0]?.markdown).toBe("Notes that belong to the tag");
     });
-    await session.hydratePage("home");
+    await settle(() => session.hydratePage("home"));
     expect(session.getState().snapshot.pages[0].blocks[0].markdown).toBe("ship the thing");
   });
 
@@ -569,7 +574,7 @@ describe("a tag's own page", () => {
       "title",
       expect.stringContaining("#Project"),
     );
-    const request = port.queryRequests.at(-1);
+    const request = port.queryRequests.filter(({ query }) => query.kind === "built").at(-1);
     expect(request?.query).toMatchObject({
       kind: "built",
       plan: {
@@ -611,7 +616,7 @@ describe("a tag's own page", () => {
   });
 
   it("edits its defaults through the same picker every other owner uses", async () => {
-    const { session } = await mountTagPage();
+    const { session, settle } = await mountTagPage();
     const user = userEvent.setup();
     await session.execute({
       type: "set_property",
@@ -626,12 +631,14 @@ describe("a tag's own page", () => {
     await user.click(screen.getByTestId("tag-add-default"));
     const picker = await screen.findByTestId("property-picker");
     await user.click(within(picker).getByRole("option", { name: "Status" }));
-    await user.click(within(picker).getByRole("option", { name: "To-do" }));
+    await settle(() => fireEvent.click(within(picker).getByRole("option", { name: "To-do" })));
     expect(await screen.findByTestId("tag-default-builtin.task-status")).toHaveTextContent("To-do");
 
     await user.click(screen.getByTestId("tag-default-builtin.task-priority"));
     const editor = await screen.findByTestId("property-picker");
-    await user.click(within(editor).getByRole("button", { name: "Remove property" }));
+    await settle(() =>
+      fireEvent.click(within(editor).getByRole("button", { name: "Remove property" })),
+    );
     await waitFor(() =>
       expect(screen.queryByTestId("tag-default-builtin.task-priority")).not.toBeInTheDocument(),
     );
@@ -647,12 +654,23 @@ describe("a tag's own page", () => {
   });
 
   it("deletes the tag from its own menu and leaves for the directory", async () => {
-    const { session, router } = await mountTagPage();
+    const { session, router, settle } = await mountTagPage();
     const user = userEvent.setup();
     const menu = await openTagMenu();
     await user.click(within(menu).getByTestId("tag-delete"));
-    await user.click(await screen.findByTestId("confirm-delete-tag"));
-    await waitFor(() => expect(router.state.location.pathname).toBe(`/g/${GRAPH_ID}/tags`));
+    const confirm = await screen.findByTestId("confirm-delete-tag");
+    await settle(async () => {
+      const navigated = new Promise<void>((resolve) => {
+        const unsubscribe = router.subscribe((state) => {
+          if (state.location.pathname !== `/g/${GRAPH_ID}/tags`) return;
+          unsubscribe();
+          resolve();
+        });
+      });
+      fireEvent.click(confirm);
+      await navigated;
+    });
+    expect(router.state.location.pathname).toBe(`/g/${GRAPH_ID}/tags`);
     expect(session.getState().snapshot.tags).toHaveLength(0);
   });
 

@@ -52,13 +52,15 @@ async function mountPage(custom?: ReactElement): Promise<PageHarness> {
     revision: 0,
     frontier: "query-builder-empty",
   };
-  await harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
-  const inserted = await harness.session.execute({
-    type: "insert_block",
-    owner: { kind: "page", id: "home" },
-    parent: null,
-    index: 0,
-    markdown: "",
+  const inserted = await harness.settle(async () => {
+    await harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
+    return harness.session.execute({
+      type: "insert_block",
+      owner: { kind: "page", id: "home" },
+      parent: null,
+      index: 0,
+      markdown: "",
+    });
   });
   return { ...harness, queryBlockId: createdBlock(inserted) };
 }
@@ -132,46 +134,68 @@ function SeededQuerySwitcher() {
   );
 }
 
-/** The one route to a query: `/`, never the property picker. */
+/** Creates a query through the slash menu. */
 async function createQuery(harness: Harness): Promise<void> {
   const user = userEvent.setup();
   const textarea = await screen.findByLabelText("Block text");
   await user.click(textarea);
   await user.type(textarea, "/query");
   const menu = await screen.findByTestId("slash-menu");
-  await user.click(within(menu).getByRole("option", { name: /^Query/ }));
+  await harness.settle(() => fireEvent.click(within(menu).getByRole("option", { name: /^Query/ })));
   await screen.findByTestId("query-builder");
   await waitFor(() => expect(storedDefinition(harness)?.plan).toBeTruthy());
+  // Slash completion restores the source caret after canonical publication.
+  await harness.settle(
+    () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+  );
 }
 
 describe("the query builder", () => {
   it("stores explicit conditions disclosure even when the query has no conditions", async () => {
     const harness = await mountPage();
     await createQuery(harness);
-    const user = userEvent.setup();
+    const toggleConditions = async (open: boolean) => {
+      let unsubscribe = () => {};
+      const published = new Promise<void>((resolve) => {
+        unsubscribe = harness.session.subscribe(() => {
+          if (storedQuery(harness)?.views[0].options.conditions_open === open) resolve();
+        });
+      });
+      try {
+        await harness.settle(async () => {
+          fireEvent.click(screen.getByTestId("query-conditions-trigger"));
+          await published;
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        });
+      } finally {
+        unsubscribe();
+      }
+    };
     const initialDefinition = storedDefinition(harness);
-    await user.click(screen.getByTestId("query-conditions-trigger"));
+    await toggleConditions(false);
     await waitFor(() => expect(storedQuery(harness)?.views[0].options.conditions_open).toBe(false));
+    await waitFor(() =>
+      expect(screen.getByTestId("query-conditions-trigger")).not.toHaveAttribute(
+        "aria-disabled",
+        "true",
+      ),
+    );
     expect(storedDefinition(harness)).toEqual(initialDefinition);
     expect(screen.queryByTestId("query-builder")).not.toBeInTheDocument();
     localStorage.clear();
-    await act(async () => {
-      await harness.router.navigate(`/g/${GRAPH_ID}/custom`);
-    });
-    await act(async () => {
-      await harness.router.navigate(`/g/${GRAPH_ID}/p/home`);
-    });
+    await harness.settle(() => harness.router.navigate(`/g/${GRAPH_ID}/custom`));
+    await harness.settle(() => harness.router.navigate(`/g/${GRAPH_ID}/p/home`));
     const toggle = await screen.findByTestId("query-conditions-trigger");
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await user.click(toggle);
+    await toggleConditions(true);
     await waitFor(() => expect(storedQuery(harness)?.views[0].options.conditions_open).toBe(true));
+    await waitFor(() => expect(toggle).not.toHaveAttribute("aria-disabled", "true"));
     expect(screen.getByTestId("query-builder")).toBeInTheDocument();
   });
 
   it("keeps conditions open after a rejected disclosure write and permits retry", async () => {
     const harness = await mountPage();
     await createQuery(harness);
-    const user = userEvent.setup();
     harness.port.beforeExecute = async (command) => {
       if (command.type === "put_query_view")
         throw new CorePortFailure({
@@ -181,13 +205,14 @@ describe("the query builder", () => {
         });
     };
     const toggle = screen.getByTestId("query-conditions-trigger");
-    await user.click(toggle);
+    await harness.settle(() => fireEvent.click(toggle));
     await waitFor(() => expect(toggle).not.toHaveAttribute("aria-disabled", "true"));
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(storedQuery(harness)?.views[0].options.conditions_open).toBeUndefined();
     harness.port.beforeExecute = null;
-    await user.click(toggle);
+    await harness.settle(() => fireEvent.click(toggle));
     await waitFor(() => expect(toggle).toHaveAttribute("aria-expanded", "false"));
+    expect(toggle).not.toHaveAttribute("aria-disabled", "true");
     expect(storedQuery(harness)?.views[0].options.conditions_open).toBe(false);
   });
 
@@ -255,7 +280,7 @@ describe("the query builder", () => {
     await harness.session.execute({ type: "ensure_tag", tag_id: "tag-b", name: "Beta" });
     const user = userEvent.setup();
 
-    await user.click(screen.getByTestId("query-conditions-trigger"));
+    await harness.settle(() => fireEvent.click(screen.getByTestId("query-conditions-trigger")));
     await waitFor(() => expect(screen.getByTestId("qb-value")).toHaveTextContent("Alpha"));
     await user.click(screen.getByRole("button", { name: "Switch tag" }));
     await waitFor(() =>
@@ -265,7 +290,7 @@ describe("the query builder", () => {
       ),
     );
     expect(screen.queryByTestId("query-builder")).not.toBeInTheDocument();
-    await user.click(screen.getByTestId("query-conditions-trigger"));
+    await harness.settle(() => fireEvent.click(screen.getByTestId("query-conditions-trigger")));
     await waitFor(() => expect(screen.getByTestId("qb-value")).toHaveTextContent("Beta"));
   });
 
@@ -288,16 +313,31 @@ describe("the query builder", () => {
   it("persists a condition as a typed plan and a derived explanation", async () => {
     const harness = await mountPage();
     await createQuery(harness);
-    const user = userEvent.setup();
-
-    await user.click(screen.getByTestId("qb-add-condition"));
+    await harness.settle(() => fireEvent.click(screen.getByTestId("qb-add-condition")));
     const condition = await screen.findByTestId("qb-condition");
-    await chooseFromMenu(user, within(condition).getByTestId("qb-field"), "Status");
-    await chooseFromMenu(user, within(condition).getByTestId("qb-value"), "Doing");
+    const choose = async (testId: string, name: string) => {
+      // Menu opening owns its asynchronous placement and focus before selection.
+      await harness.settle(() =>
+        fireEvent.pointerDown(within(condition).getByTestId(testId), {
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      const option = await screen.findByRole("option", { name, exact: true });
+      await harness.settle(() => fireEvent.click(option));
+    };
+    await choose("qb-field", "Status");
+    await choose("qb-value", "Doing");
 
     await waitFor(() => {
       const plan = decodePlan(storedDefinition(harness)!.plan!.payload, QUERY_PLAN_VERSION);
-      expect(plan?.where.children).toHaveLength(1);
+      expect(plan?.where.children).toEqual([
+        expect.objectContaining({
+          kind: "condition",
+          field: { kind: "property", key: "builtin.task-status" },
+          value: { type: "text", value: "doing" },
+        }),
+      ]);
     });
     expect(storedDefinition(harness)?.source.startsWith(DERIVED_SOURCE_PROVENANCE)).toBe(true);
   });
@@ -576,7 +616,7 @@ describe("the query builder", () => {
 
     await waitFor(() => expect(screen.getByTestId("query-count")).toHaveTextContent("1 result"));
 
-    await user.click(conditions);
+    await harness.settle(() => fireEvent.click(conditions));
     expect(conditions).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByTestId("query-builder")).not.toBeInTheDocument();
     // What the reader kept is what the query found — and how much of it.
@@ -601,7 +641,7 @@ describe("the query builder", () => {
     expect(screen.getByTestId("query-disclosure").tagName).toBe("SPAN");
   });
 
-  it("never offers the query property through the picker", async () => {
+  it("keeps an existing query in its builder instead of offering duplicate creation", async () => {
     const harness = await mountPage();
     await createQuery(harness);
     const user = userEvent.setup();
@@ -612,8 +652,7 @@ describe("the query builder", () => {
     await user.keyboard("{Enter}");
     const picker = await screen.findByTestId("property-picker");
     await user.type(within(picker).getByRole("searchbox"), "query");
-    // Not as a candidate, and not as an existing row either: the query block is
-    // the only surface that edits it.
+    // Creating another query must not reset an existing query document.
     expect(within(picker).queryByRole("option", { name: /Query/ })).not.toBeInTheDocument();
   });
 });
@@ -628,13 +667,15 @@ describe("query result views", () => {
     // The core chooses block identities. Insert first to learn that identity,
     // then make the final edit after installing the query answer so ordinary
     // canonical invalidation observes the injected row.
-    const inserted = await harness.session.execute({
-      type: "insert_block",
-      owner: { kind: "page", id: "home" },
-      parent: null,
-      index: 1,
-      markdown: "Preparing result",
-    });
+    const inserted = await harness.settle(() =>
+      harness.session.execute({
+        type: "insert_block",
+        owner: { kind: "page", id: "home" },
+        parent: null,
+        index: 1,
+        markdown: "Preparing result",
+      }),
+    );
     const resultBlockId = createdBlock(inserted);
     harness.port.queryResult = {
       kind: "built",
@@ -672,12 +713,14 @@ describe("query result views", () => {
       revision: 4,
       frontier: "fixture-4",
     };
-    await harness.session.execute({
-      type: "edit_markdown",
-      owner: { kind: "page", id: "home" },
-      block_id: resultBlockId,
-      markdown,
-    });
+    await harness.settle(() =>
+      harness.session.execute({
+        type: "edit_markdown",
+        owner: { kind: "page", id: "home" },
+        block_id: resultBlockId,
+        markdown,
+      }),
+    );
     return { ...harness, resultBlockId };
   }
 
@@ -1014,6 +1057,62 @@ describe("query result views", () => {
     expect(within(list).getByText("the builder").tagName).toBe("STRONG");
     expect(within(list).getByTestId("block-markdown")).toHaveAttribute("data-variant", "block");
     expect(within(list).getByTestId("block-markdown")).toHaveClass("outline-markdown");
+  });
+
+  it("follows Markdown links in a table without opening the text editor", async () => {
+    await withResult("Read [source](https://example.com)");
+    const table = await screen.findByTestId("query-table");
+    const link = within(table).getByRole("link", { name: "source" });
+    expect(link).toHaveAttribute("href", "https://example.com");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link.closest("button")).toBeNull();
+    await userEvent.setup().click(link);
+    expect(within(table).queryByTestId("query-markdown-editor")).not.toBeInTheDocument();
+    expect(link).toBeInTheDocument();
+  });
+
+  it("follows a settled table result's semantic page reference", async () => {
+    const harness = await withResult("See ");
+    await harness.session.execute({ type: "ensure_page", page_id: "roadmap", title: "Roadmap" });
+    const result = harness.port.queryResult;
+    if (result?.kind !== "built") throw new Error("expected a built answer");
+    result.rows[0].values.text = [
+      {
+        kind: "literal",
+        value: "See [[Roadmap]]",
+        datatype: "http://www.w3.org/2001/XMLSchema#string",
+      },
+    ];
+    await harness.session.execute({
+      type: "splice_block_content",
+      owner: { kind: "page", id: "home" },
+      block_id: harness.resultBlockId,
+      index: 4,
+      delete: 0,
+      insert: [{ type: "page_reference", page_id: "roadmap" }],
+    });
+    const table = await screen.findByTestId("query-table");
+    const link = await within(table).findByRole("link", { name: "[[Roadmap]]" });
+    await userEvent.setup().click(link);
+    expect(harness.router.state.location.pathname).toBe(`/g/${GRAPH_ID}/p/roadmap`);
+  });
+
+  it("briefly highlights a result's destination and repeats the cue on another visit", async () => {
+    const harness = await withResult();
+    const table = await screen.findByTestId("query-table");
+    const open = within(table).getByRole("button", { name: "Open “Ship the builder”" });
+    const user = userEvent.setup();
+    await user.click(open);
+    const row = screen
+      .getAllByTestId("outline-row")
+      .find((element) => element.dataset.blockId === harness.resultBlockId)!;
+    expect(row).toHaveAttribute("data-navigation-highlight", "true");
+    const firstCue = row.querySelector(".outline-navigation-highlight");
+    expect(firstCue).not.toBeNull();
+    await user.click(open);
+    expect(row.querySelector(".outline-navigation-highlight")).not.toBe(firstCue);
+    await harness.settle(() => new Promise((resolve) => setTimeout(resolve, 1150)));
+    expect(row).not.toHaveAttribute("data-navigation-highlight");
   });
 
   it("hides a column into the saved view, so the choice survives a reload", async () => {
@@ -1489,62 +1588,67 @@ describe("query result views", () => {
       owner: { kind: "page" as const, id: "home" },
       id: harness.resultBlockId,
     };
-    await harness.session.execute({
-      type: "edit_markdown",
-      owner: { kind: "page", id: "home" },
-      block_id: harness.resultBlockId,
-      markdown: "Canonical **block** text",
-    });
-    await harness.session.execute({
-      type: "set_property",
-      owner,
-      key: "builtin.task-status",
-      value: { type: "string", value: "done" },
-    });
-    await harness.session.execute({
-      type: "set_property",
-      owner,
-      key: "builtin.task-priority",
-      value: { type: "string", value: "high" },
-    });
-    await harness.session.execute({
-      type: "set_property",
-      owner,
-      key: "user.owner",
-      value: { type: "string", value: "Ada" },
-    });
-    // A repeated field stays one entity row in either layout. The list reads
-    // that same selected block through its canonical presentation.
-    const tableDocument = storedQuery(harness)!;
-    const tablePlan = decodePlan(
-      activeDefinition(tableDocument).plan!.payload,
-      activeDefinition(tableDocument).plan!.version,
-    )!;
-    const aggregatePlan = {
-      ...tablePlan,
-      columns: [...tablePlan.columns, { id: "tags", source: { kind: "tags" as const } }],
-    };
-    await harness.session.execute({
-      type: "set_query_plan",
-      owner: {
-        kind: "block",
+    await harness.settle(async () => {
+      await harness.session.execute({
+        type: "edit_markdown",
         owner: { kind: "page", id: "home" },
-        id: harness.queryBlockId,
-      },
-      view_id: "all",
-      plan: { version: QUERY_PLAN_VERSION, payload: JSON.stringify(aggregatePlan) },
-    });
-    const nestedPlan = storedDefinition(harness)!.plan!;
-    await harness.session.execute({
-      type: "set_query_plan",
-      owner,
-      view_id: "all",
-      plan: nestedPlan,
+        block_id: harness.resultBlockId,
+        markdown: "Canonical **block** text",
+      });
+      await harness.session.execute({
+        type: "set_property",
+        owner,
+        key: "builtin.task-status",
+        value: { type: "string", value: "done" },
+      });
+      await harness.session.execute({
+        type: "set_property",
+        owner,
+        key: "builtin.task-priority",
+        value: { type: "string", value: "high" },
+      });
+      await harness.session.execute({
+        type: "set_property",
+        owner,
+        key: "user.owner",
+        value: { type: "string", value: "Ada" },
+      });
+      // A repeated field stays one entity row in either layout. The list reads
+      // that same selected block through its canonical presentation.
+      const tableDocument = storedQuery(harness)!;
+      const tablePlan = decodePlan(
+        activeDefinition(tableDocument).plan!.payload,
+        activeDefinition(tableDocument).plan!.version,
+      )!;
+      const aggregatePlan = {
+        ...tablePlan,
+        columns: [...tablePlan.columns, { id: "tags", source: { kind: "tags" as const } }],
+      };
+      await harness.session.execute({
+        type: "set_query_plan",
+        owner: {
+          kind: "block",
+          owner: { kind: "page", id: "home" },
+          id: harness.queryBlockId,
+        },
+        view_id: "all",
+        plan: { version: QUERY_PLAN_VERSION, payload: JSON.stringify(aggregatePlan) },
+      });
+      const nestedPlan = storedDefinition(harness)!.plan!;
+      await harness.session.execute({
+        type: "set_query_plan",
+        owner,
+        view_id: "all",
+        plan: nestedPlan,
+      });
     });
 
     const user = userEvent.setup();
     const hostQuery = screen.getAllByTestId("query-block")[0];
     await chooseFromMenu(user, within(hostQuery).getByTestId("query-view-trigger"), "List");
+    await harness.settle(
+      () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
     await waitFor(() => {
       const executed = harness.port.queryRequests.at(-1)?.query;
       expect(executed).toMatchObject({ kind: "built", plan: { grain: "entity" } });
@@ -2110,6 +2214,41 @@ describe("query result views", () => {
 
     expect(editor).toHaveValue("()");
     expect([editor.selectionStart, editor.selectionEnd]).toEqual([1, 1]);
+  });
+
+  it("cycles a query result's task with Command+Enter while preserving its text and focus", async () => {
+    const harness = await withResult("Ship it");
+    const user = userEvent.setup();
+    await user.click(
+      within(await screen.findByTestId("query-table")).getByTestId("query-edit-text"),
+    );
+    const editor = await screen.findByTestId("query-markdown-editor");
+    fireEvent.change(editor, { target: { value: "Ship it today" } });
+    for (const status of ["todo", "doing", "done", undefined, "todo"]) {
+      let unsubscribe = () => {};
+      const published = new Promise<void>((resolve) => {
+        unsubscribe = harness.session.subscribe(() => {
+          if (stringValue(resultBlock(harness)!.properties, "builtin.task-status") === status)
+            resolve();
+        });
+      });
+      try {
+        await harness.settle(async () => {
+          fireEvent.keyDown(editor, { key: "Enter", metaKey: true });
+          await published;
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        });
+      } finally {
+        unsubscribe();
+      }
+      await waitFor(() =>
+        expect(stringValue(resultBlock(harness)!.properties, "builtin.task-status")).toBe(status),
+      );
+      expect(editor).toHaveFocus();
+      expect(editor).toHaveValue("Ship it today");
+    }
+    expect(resultBlock(harness)?.markdown).toBe("Ship it today");
+    expect(findPage(harness.session.getState().snapshot, "home")?.blocks).toHaveLength(2);
   });
 
   it("uses the same block input pipeline in the list renderer", async () => {

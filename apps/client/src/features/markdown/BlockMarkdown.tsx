@@ -142,9 +142,9 @@ const blockComponents: Components = {
 };
 
 /**
- * Query cells are frequently buttons that open an editor. Their projection is
- * phrasing-only, so Markdown never creates nested interactive or block content
- * inside that button, and never a second line inside a one-line row.
+ * Query cells use a phrasing-only projection, so block constructs cannot create
+ * a second line inside a one-line row. Links retain the same navigation as the
+ * outline; edit and open controls live outside the rendered content.
  */
 const compactComponents: Components = {
   p: ({ children }) => <span className="markdown-compact-paragraph">{children}</span>,
@@ -183,7 +183,6 @@ const compactComponents: Components = {
   input: ({ checked }) => (
     <span className="markdown-compact-task" data-checked={checked ?? false} />
   ),
-  a: ({ children }) => <span className="markdown-compact-link">{children}</span>,
   img: ({ alt }) => <InertImage alt={alt} />,
 };
 
@@ -245,7 +244,7 @@ function BlockMarkdownView({
   // for its tab stop too — otherwise a page of rendered blocks has none. A
   // pointer press is left to `activate`, which knows where the caret belongs.
   // Compact query projections use the same hand-off when they are editable;
-  // inert compact Markdown remains plain phrasing content.
+  // read-only Markdown keeps its ordinary link tab stops.
   const handOver = (event: FocusEvent<HTMLElement>) => {
     if (!onActivate || event.target !== event.currentTarget) return;
     // Pointer focus happens between pointerdown and click. Waiting for click is
@@ -258,16 +257,14 @@ function BlockMarkdownView({
 
   const Root = compact ? "span" : "div";
   const renderedMarkdown = projectPageReferences(markdown, pageReferences, pageReferencePrefix);
-  const components: Components = compact
-    ? compactComponents
-    : {
-        ...blockComponents,
-        a: ({ href, children }) => (
-          <SafeLink href={href} graphId={graphId} pageReferencePrefix={pageReferencePrefix}>
-            {children}
-          </SafeLink>
-        ),
-      };
+  const components: Components = {
+    ...(compact ? compactComponents : blockComponents),
+    a: ({ href, children }) => (
+      <SafeLink href={href} graphId={graphId} pageReferencePrefix={pageReferencePrefix}>
+        {children}
+      </SafeLink>
+    ),
+  };
 
   return (
     <Root

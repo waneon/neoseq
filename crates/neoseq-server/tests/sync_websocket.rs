@@ -323,6 +323,136 @@ async fn owner_manages_remote_graph_memberships_over_authenticated_http() {
 }
 
 #[tokio::test]
+async fn deleting_a_remote_graph_requires_its_owner_and_revokes_live_sessions() {
+    let fixture = fixture(RoomConfig::default());
+    let graph_id = GraphId::new(GRAPH).unwrap();
+    let state = AppState::new(
+        fixture.store.clone(),
+        Arc::new(TestIdentity),
+        Arc::new(neoseq_server::Metrics::default()),
+        RoomConfig::default(),
+        32,
+        Duration::from_secs(60),
+    );
+    let app = router(state);
+    let path = format!("/v1/graphs/{GRAPH}");
+    assert_eq!(
+        authorized_request(&app, "DELETE", &path, "invalid", "")
+            .await
+            .0,
+        401
+    );
+    let denied = authorized_request(&app, "DELETE", &path, PEER_TOKEN, "").await;
+    assert_eq!(denied.0, 403);
+    fixture.store.grant(&graph_id, PEER, GraphRole::Viewer);
+    assert_eq!(
+        authorized_request(&app, "DELETE", &path, PEER_TOKEN, "").await,
+        denied
+    );
+    assert_eq!(
+        authorized_request(&app, "DELETE", "/v1/graphs/missing", OWNER_TOKEN, "").await,
+        denied
+    );
+    assert_eq!(
+        authorized_request(
+            &app,
+            "DELETE",
+            &format!("/v1/graphs/{}", "x".repeat(161)),
+            OWNER_TOKEN,
+            ""
+        )
+        .await,
+        denied
+    );
+    fixture.store.revoke(&graph_id, PEER);
+    assert_eq!(
+        authorized_request(&app, "DELETE", &path, PEER_TOKEN, "").await,
+        denied
+    );
+    assert!(fixture.store.load_graph(&graph_id).await.is_ok());
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server_app = app.clone();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, server_app).await.unwrap();
+    });
+    let mut request = format!("ws://{address}/v1/sync")
+        .into_client_request()
+        .unwrap();
+    request.headers_mut().insert(
+        "sec-websocket-protocol",
+        HeaderValue::from_str(&format!(
+            "{SUBPROTOCOL}, neoseq.auth.{}",
+            URL_SAFE_NO_PAD.encode(OWNER_TOKEN)
+        ))
+        .unwrap(),
+    );
+    let (mut socket, _) = connect_async(request).await.unwrap();
+    socket
+        .send(WsMessage::Binary(
+            encode(
+                &Message::Hello(Hello {
+                    protocol: PROTOCOL_VERSION,
+                    schema: graph_core::SCHEMA_VERSION as u16,
+                    graph_id: graph_id.clone(),
+                    session_id: "delete-live-session".to_owned(),
+                    history_epoch: 0,
+                    version_vector: fixture.base_version.clone(),
+                    has_server_base: false,
+                }),
+                fixture.manager.limits().max_frame_bytes as usize,
+            )
+            .unwrap()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    assert!(matches!(
+        receive_wire(&mut socket).await,
+        Message::Welcome(_)
+    ));
+
+    fixture.store.set_available(false);
+    assert_eq!(
+        authorized_request(&app, "DELETE", &path, OWNER_TOKEN, "")
+            .await
+            .0,
+        503
+    );
+    fixture.store.set_available(true);
+    assert!(fixture.store.load_graph(&graph_id).await.is_ok());
+    assert_eq!(
+        authorized_request(&app, "DELETE", &path, OWNER_TOKEN, "")
+            .await
+            .0,
+        204
+    );
+    assert!(
+        matches!(receive_wire(&mut socket).await, Message::Error(error)
+        if error.code == sync_protocol::ErrorCode::MembershipRevoked && !error.recoverable)
+    );
+    assert!(matches!(
+        fixture.store.load_graph(&graph_id).await,
+        Err(StoreError::AccessDenied)
+    ));
+    assert!(
+        fixture
+            .store
+            .list_graphs(OWNER)
+            .await
+            .unwrap()
+            .iter()
+            .all(|graph| graph.graph_id != graph_id)
+    );
+    assert_eq!(
+        authorized_request(&app, "DELETE", &path, OWNER_TOKEN, "").await,
+        denied
+    );
+    server.abort();
+}
+
+#[tokio::test]
 async fn seeded_graph_creation_atomically_installs_a_validated_checkpoint_and_is_idempotent() {
     let fixture = fixture(RoomConfig::default());
     let app = router(AppState::new(

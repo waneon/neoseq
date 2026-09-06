@@ -51,6 +51,7 @@ import { useSession, useSessionSelector } from "../shell/session-context";
 import { TagDefaults } from "./TagDefaults";
 import { TagIdentityPicker, TagMark } from "./TagIdentity";
 import { writeClipboardText } from "@/lib/clipboard";
+import { LinkedReferences } from "../references/LinkedReferences";
 
 /** Where a context menu was summoned, in viewport coordinates. */
 interface MenuPoint {
@@ -199,6 +200,7 @@ function TagBody({ tag, graphId }: { tag: TagSnapshot; graphId: string }) {
           blocks={tag.blocks}
           scrollElement={scrollElement}
         />
+        <LinkedReferences owner={{ kind: "tag", id: tag.id }} />
       </article>
       {picker && (
         <PropertyPicker

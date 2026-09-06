@@ -96,7 +96,7 @@ export function useRepositoryCatalogs(selected: Repository | undefined) {
         return {
           ...current,
           [repository.id]:
-            previous?.status === "ready" || previous?.graphs.length
+            previous && previous.status !== "idle" && previous.status !== "loading"
               ? { ...previous, refreshing: true }
               : { ...EMPTY_CATALOG, status: "loading" },
         };
@@ -131,10 +131,9 @@ export function useRepositoryCatalogs(selected: Repository | undefined) {
   );
 
   useEffect(() => {
-    if (!selected) return;
+    if (!selected || requests.current.has(selected.id)) return;
     refresh(selected);
-    return () => cancel(selected.id);
-  }, [cancel, refresh, selected]);
+  }, [refresh, selected]);
 
   useEffect(
     () => () => {

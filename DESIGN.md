@@ -98,7 +98,7 @@ material owns the page edge; outline text owns an inset edge whose margin holds
 bullets and branches. This distinction makes a page the root of its outline
 rather than an oversized first block.
 
-Permanent chrome is limited to navigation, place, primary surface controls, and
+Permanent chrome is limited to navigation, place, Undo and Redo, primary surface controls, and
 exceptional state. Contextual verbs are revealed near their object or summoned
 through the command layer. The region below the last outline block remains a
 writing target; additional bodies such as standing query answers begin only

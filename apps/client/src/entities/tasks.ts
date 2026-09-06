@@ -172,8 +172,8 @@ export type DueTier = (typeof DUE_TIERS)[number];
  * Which of the five steps a moment falls in. The two thresholds are the user's
  * (designs/metadata.md § Moments); the boundaries themselves are not, because "already
  * past" and "further out than you asked about" are facts rather than choices. A
- * threshold counts calendar days with today as day one: one day reaches today,
- * seven days reach through six days from today.
+ * threshold includes that many calendar days ahead: one day reaches tomorrow,
+ * seven days reach through seven days from today.
  *
  * A time of day only ever decides *today*: a date without one is due for the
  * whole of its day, and a date in the future cannot be overdue no matter what
@@ -192,8 +192,8 @@ export function dueTierOf(
     return "overdue";
   }
   if (days === 0) return "today";
-  if (days < tiers.soonDays) return "soon";
-  if (days < tiers.upcomingDays) return "upcoming";
+  if (days <= tiers.soonDays) return "soon";
+  if (days <= tiers.upcomingDays) return "upcoming";
   return "later";
 }
 

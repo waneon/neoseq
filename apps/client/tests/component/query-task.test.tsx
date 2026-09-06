@@ -6,13 +6,15 @@ import { chooseFromMenu, GRAPH_ID, mountAt } from "./harness";
 
 async function mountProjection() {
   const harness = await mountAt(`/g/${GRAPH_ID}/p/home`);
-  await harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
-  const inserted = await harness.session.execute({
-    type: "insert_block",
-    owner: { kind: "page", id: "home" },
-    parent: null,
-    index: 0,
-    markdown: "Overdue work",
+  const inserted = await harness.settle(async () => {
+    await harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
+    return harness.session.execute({
+      type: "insert_block",
+      owner: { kind: "page", id: "home" },
+      parent: null,
+      index: 0,
+      markdown: "Overdue work",
+    });
   });
   if (!inserted.created_block) throw new Error("test block was not created");
   return { ...harness, blockId: inserted.created_block };
@@ -20,41 +22,48 @@ async function mountProjection() {
 
 describe("query and task projections", () => {
   it("keeps a query answer across page navigation and activates without a timer", async () => {
-    const { session, port, router, blockId } = await mountProjection();
+    const { session, port, router, blockId, settle } = await mountProjection();
     port.queryResult = {
       kind: "ask",
       value: true,
       revision: 3,
       frontier: "fixture-3",
     };
+    const source = "ASK { ?block ?predicate ?value }";
+    const authoredRequests = () =>
+      port.queryRequests.filter(
+        ({ query }) => query.kind === "raw_sparql" && query.source === source,
+      );
 
-    await session.execute({
-      type: "set_query_source",
-      owner: { kind: "block", owner: { kind: "page", id: "home" }, id: blockId },
-      view_id: "all",
-      source: "ASK { ?block ?predicate ?value }",
-    });
+    await settle(() =>
+      session.execute({
+        type: "set_query_source",
+        owner: { kind: "block", owner: { kind: "page", id: "home" }, id: blockId },
+        view_id: "all",
+        source,
+      }),
+    );
     // Activation is a demand read. Microtasks are enough to cross the session
     // queue; advancing the old 300ms run timer must not be necessary.
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(port.queryRequests).toHaveLength(1);
+    expect(authoredRequests()).toHaveLength(1);
     expect(screen.getByTestId("query-block")).toHaveTextContent("true");
 
-    await act(async () => {
-      await router.navigate(`/g/${GRAPH_ID}/custom`);
-    });
+    await settle(() => router.navigate(`/g/${GRAPH_ID}/custom`));
     expect(screen.queryByTestId("query-block")).not.toBeInTheDocument();
 
-    await act(async () => {
+    await settle(async () => {
       await router.navigate(`/g/${GRAPH_ID}/p/home`);
+      // Route entry restores the mounted outline and its measured scroll frame.
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     });
     // The result belongs to the graph session rather than the routed component,
     // so it is present in the first render and a fresh cache hit does no work.
     expect(screen.getByTestId("query-block")).toHaveTextContent("true");
-    expect(port.queryRequests).toHaveLength(1);
+    expect(authoredRequests()).toHaveLength(1);
   });
 
   // A document written before the builder was the only author. It still runs and

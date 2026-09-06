@@ -25,6 +25,7 @@ import {
 } from "../../core-port/directory";
 import {
   createRepositoryId,
+  findRepository,
   listRepositories,
   normalizeServerOrigin,
   registerRemoteRepository,
@@ -39,6 +40,7 @@ import {
 import {
   createRemoteGraph,
   createSeededRemoteGraph,
+  deleteRemoteGraph,
   listRemoteGraphs,
   RemoteApiError,
 } from "../sync/api";
@@ -70,7 +72,7 @@ import { StartupPreferences } from "./StartupPreferences";
 type GraphDialog =
   | { kind: "create" }
   | { kind: "rename"; graph: GraphSummary }
-  | { kind: "delete"; graph: GraphSummary }
+  | { kind: "delete"; graph: GraphSummary; server?: boolean }
   | { kind: "repository"; repository?: RemoteRepository }
   | { kind: "forget"; repository: RemoteRepository }
   | null;
@@ -238,7 +240,6 @@ export function GraphPicker() {
 
         <div className="picker-intro">
           <h1>{message("graph.yourGraphs")}</h1>
-          <p>{message("startup.lede")}</p>
         </div>
 
         <Tabs
@@ -290,12 +291,10 @@ export function GraphPicker() {
               <PlusIcon aria-hidden />
               {message("startup.connectServer")}
             </Button>
-            <p className="picker-location-hint">{message("startup.serverHint")}</p>
           </aside>
 
           {selected && (
             <TabsContent
-              key={selected.id}
               className="repository-panel"
               value={selected.id}
               aria-busy={initialLoading || catalog.refreshing || importing}
@@ -420,6 +419,7 @@ export function GraphPicker() {
                     }}
                     onRename={(graph) => setDialog({ kind: "rename", graph })}
                     onDelete={(graph) => setDialog({ kind: "delete", graph })}
+                    onDeleteServer={(graph) => setDialog({ kind: "delete", graph, server: true })}
                   />
                 )}
               </div>
@@ -434,7 +434,6 @@ export function GraphPicker() {
                   <UploadIcon aria-hidden />
                   {importing ? message("graph.importing") : message("startup.import")}
                 </Button>
-                <span>{message("startup.archiveHint")}</span>
                 <input
                   ref={archiveInput}
                   className="sr-only"
@@ -470,7 +469,6 @@ export function GraphPicker() {
           onClose={() => setDialog(null)}
           dismissible={!creating}
         >
-          <p className="dialog-lede">{message("startup.createDetail")}</p>
           <form
             className="picker-create-form"
             onSubmit={(event) => void create(event)}
@@ -523,6 +521,7 @@ export function GraphPicker() {
       {dialog?.kind === "delete" && (
         <DeleteDialog
           graph={dialog.graph}
+          server={dialog.server}
           returnFocus={() =>
             document.querySelector<HTMLButtonElement>(
               `[data-graph-actions="${CSS.escape(dialog.graph.id)}"]`,
@@ -584,6 +583,7 @@ function GraphList({
   onExport,
   onRename,
   onDelete,
+  onDeleteServer,
 }: {
   graphs: GraphSummary[];
   exporting: string | null;
@@ -592,12 +592,13 @@ function GraphList({
   onExport: (graph: GraphSummary) => void;
   onRename: (graph: GraphSummary) => void;
   onDelete: (graph: GraphSummary) => void;
+  onDeleteServer: (graph: GraphSummary) => void;
 }) {
   const { message } = useI18n();
   return (
     <ul className="graph-list" data-testid="graph-list">
       {graphs.map((graph) => {
-        const actions = graph.kind === "local" || graph.cached;
+        const actions = graph.kind === "local" || graph.cached || graph.role === "owner";
         return (
           <li key={`${graph.repository_id}:${graph.id}`} className="graph-card">
             <button
@@ -642,7 +643,7 @@ function GraphList({
                         </DropdownMenuItem>
                       )}
                       <DropdownMenuItem
-                        disabled={exporting !== null}
+                        disabled={exporting !== null || (graph.kind === "remote" && !graph.cached)}
                         onSelect={() => onExport(graph)}
                         data-testid={`export-graph-${graph.name}`}
                       >
@@ -654,9 +655,21 @@ function GraphList({
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />
                     <DropdownMenuGroup>
-                      <DropdownMenuItem variant="destructive" onSelect={() => onDelete(graph)}>
-                        {message(graph.kind === "local" ? "graph.delete" : "graph.removeReplica")}
-                      </DropdownMenuItem>
+                      {(graph.kind === "local" || graph.cached) && (
+                        <DropdownMenuItem variant="destructive" onSelect={() => onDelete(graph)}>
+                          {message(graph.kind === "local" ? "graph.delete" : "graph.removeReplica")}
+                        </DropdownMenuItem>
+                      )}
+                      {graph.kind === "remote" && graph.role === "owner" && (
+                        <DropdownMenuItem
+                          variant="destructive"
+                          disabled={!readAuthSession(graph.repository_id)}
+                          onSelect={() => onDeleteServer(graph)}
+                          data-testid={`delete-server-graph-${graph.name}`}
+                        >
+                          {message("graph.deleteServer")}
+                        </DropdownMenuItem>
+                      )}
                     </DropdownMenuGroup>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -851,29 +864,44 @@ function RenameDialog({
 
 function DeleteDialog({
   graph,
+  server = false,
   returnFocus,
   onClose,
   onDeleted,
 }: {
   graph: GraphSummary;
+  server?: boolean;
   returnFocus: () => HTMLElement | null;
   onClose: () => void;
   onDeleted: () => void;
 }) {
   const { message } = useI18n();
   const notify = useNotify();
-  // Deleting a local graph destroys the only copy; removing a remote graph
-  // drops this device's replica while the server keeps the graph.
-  const local = graph.kind === "local";
+  const permanent = graph.kind === "local" || server;
+  const serverDeleted = useRef(false);
   return (
     <ConfirmDialog
-      title={message(local ? "graph.deleteTitle" : "graph.removeReplicaTitle")}
+      title={message(
+        server
+          ? "graph.deleteServerTitle"
+          : permanent
+            ? "graph.deleteTitle"
+            : "graph.removeReplicaTitle",
+      )}
       cancelLabel={message("common.cancel")}
-      confirmLabel={message(local ? "common.deleteForever" : "graph.removeReplicaAction")}
+      confirmLabel={message(permanent ? "common.deleteForever" : "graph.removeReplicaAction")}
       testId="confirm-delete-graph"
       returnFocus={returnFocus}
       onClose={onClose}
       onConfirm={async () => {
+        if (server && !serverDeleted.current) {
+          const repository = findRepository(graph.repository_id);
+          const auth = readAuthSession(graph.repository_id);
+          if (repository?.kind !== "remote" || !auth)
+            throw new RemoteApiError(401, "sign in required");
+          await deleteRemoteGraph(repository.origin, auth, graph.id);
+          serverDeleted.current = true;
+        }
         await deleteGraph(graph.repository_id, graph.id);
         onDeleted();
       }}
@@ -881,7 +909,14 @@ function DeleteDialog({
         notify.failure(message("failure.deleteGraph", { name: graph.name }), cause)
       }
     >
-      {message(local ? "graph.deleteConfirm" : "graph.removeReplicaConfirm", { name: graph.name })}
+      {message(
+        server
+          ? "graph.deleteServerConfirm"
+          : permanent
+            ? "graph.deleteConfirm"
+            : "graph.removeReplicaConfirm",
+        { name: graph.name },
+      )}
     </ConfirmDialog>
   );
 }

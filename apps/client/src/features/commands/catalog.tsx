@@ -87,7 +87,7 @@ const THEME_MESSAGE = {
 /**
  * The application command catalog. All routes render these same command
  * objects, so label, binding, availability, and execution cannot drift between
- * the palette, shortcuts, and overflow menu.
+ * the palette, shortcuts, and history controls.
  */
 export function buildCommands(input: CommandInputs): Command[] {
   const {
@@ -300,7 +300,7 @@ export function buildCommands(input: CommandInputs): Command[] {
       binding: formatBindingParts(bindings.undo),
       icon: <Undo2Icon aria-hidden />,
       disabledReason: blocked,
-      pointerRoute: message("commands.paletteRoute"),
+      pointerRoute: message("shortcuts.historyRoute"),
       run: () => void runHistory(history, notify, message, false, { kind: "palette" }),
     },
     {
@@ -310,7 +310,7 @@ export function buildCommands(input: CommandInputs): Command[] {
       binding: formatBindingParts(bindings.redo),
       icon: <Redo2Icon aria-hidden />,
       disabledReason: blocked,
-      pointerRoute: message("commands.paletteRoute"),
+      pointerRoute: message("shortcuts.historyRoute"),
       run: () => void runHistory(history, notify, message, true, { kind: "palette" }),
     },
   );

@@ -22,7 +22,6 @@ import {
   FileTextIcon,
   HashIcon,
   Loader2Icon,
-  MoreHorizontalIcon,
   PanelLeftIcon,
   PlusIcon,
   SearchIcon,
@@ -80,9 +79,7 @@ import {
   bindingMatches,
   matchShortcut,
   useShortcutBindings,
-  type Binding,
   type ShortcutHandler,
-  type ShortcutId,
 } from "../commands/shortcuts";
 import { useNotify, type Notifier } from "../notify/context";
 import type { RdfTerm } from "../../generated/core-port";
@@ -866,10 +863,6 @@ SELECT ?entity ?content WHERE {
             <span className="topbar-title" aria-hidden>
               {contextTitle}
             </span>
-            {/* State, then the one verb. Durability and the read-only lease each
-                render nothing when there is nothing to say; the overflow menu is always the last thing on the
-                bar, which is where every application this one resembles puts
-                "everything else". */}
             <div className="topbar-right">
               <SessionSaveStatus />
               <SessionCollaborationStatus />
@@ -878,11 +871,7 @@ SELECT ?entity ?content WHERE {
                   {message(READONLY_COPY[readonlyReason].label)}
                 </span>
               )}
-              <OverflowMenu
-                commands={commands}
-                onOpenPalette={() => setOverlay("palette")}
-                bindings={bindings}
-              />
+              <HistoryControls commands={commands} />
             </div>
           </header>
           <div className="shell-content" id="page-content">
@@ -1096,89 +1085,34 @@ function FavouriteRail({
   );
 }
 
-/**
- * The top bar's `⋯`, and what it lists.
- *
- * designs/shell-and-navigation.md § Disclosure and Commands says the top bar holds no verbs, and it still does not:
- * a menu is summoned, and everything inside this one is also a palette row and,
- * where it has one, a key. What it adds is the affordance the bare interface was
- * missing — a single, conventional, always-there place a user who has learned no
- * shortcut and does not know a palette exists can look for "what else can this do".
- * `⌘K` licensed the emptiness for people who already knew about `⌘K`.
- *
- * It is generated from the command registry rather than hand-listed, so it cannot
- * drift from what the application actually does: every row's label, icon, keyboard
- * badge and disabled reason is the one the palette shows for the same verb, and a
- * verb that stops existing stops appearing here. `null` is a separator.
- */
-const OVERFLOW_ROWS: readonly (string | null)[] = [
-  "properties",
-  "shortcuts",
-  null,
-  "undo",
-  "redo",
-  null,
-  "theme",
-  "toggle-rail",
-  null,
-  "settings",
-  "all-graphs",
-];
-
-function OverflowMenu({
-  commands,
-  bindings,
-  onOpenPalette,
-}: {
-  commands: PaletteCommand[];
-  bindings: Record<ShortcutId, Binding>;
-  onOpenPalette: () => void;
-}) {
-  const { message } = useI18n();
-  const byId = new Map(commands.map((command) => [command.id, command]));
-
+/** History controls share the command palette's actions and availability. */
+function HistoryControls({ commands }: { commands: PaletteCommand[] }) {
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button size="icon" aria-label={message("shell.moreActions")} data-testid="overflow-menu">
-          <MoreHorizontalIcon aria-hidden />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        {/* Search leads, because it is what the rest of the menu is an overflow
-            of, and it is the only row whose verb the shell owns directly. */}
-        <DropdownMenuItem onSelect={onOpenPalette} data-testid="overflow-search">
-          <SearchIcon aria-hidden />
-          {message("shell.search")}
-          <DropdownMenuShortcut>
-            <Shortcut binding={bindings.palette} plain />
-          </DropdownMenuShortcut>
-        </DropdownMenuItem>
-        {OVERFLOW_ROWS.map((id, index) => {
-          if (id === null) return <DropdownMenuSeparator key={`separator-${index}`} />;
-          const command = byId.get(id);
-          if (!command) return null;
-          return (
-            <DropdownMenuItem
-              key={id}
-              // Listed with its reason rather than hidden, exactly as in the
-              // palette: a read-only graph should say why Undo is unavailable.
-              disabled={Boolean(command.disabledReason)}
-              onSelect={() => void command.run()}
-              data-testid={`overflow-${id}`}
-            >
-              {command.icon}
-              {command.label}
-              {command.binding && (
-                <DropdownMenuShortcut>
-                  <Kbd parts={command.binding} plain />
-                </DropdownMenuShortcut>
-              )}
-            </DropdownMenuItem>
-          );
-        })}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      {["undo", "redo"].map((id) => {
+        const command = commands.find((entry) => entry.id === id);
+        if (!command) return null;
+        return (
+          <Tooltip key={id}>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                aria-label={command.label}
+                disabled={Boolean(command.disabledReason)}
+                data-testid={`topbar-${id}`}
+                onClick={() => void command.run()}
+              >
+                {command.icon}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {command.disabledReason ?? command.label}
+              {command.binding && <Kbd parts={command.binding} plain />}
+            </TooltipContent>
+          </Tooltip>
+        );
+      })}
+    </>
   );
 }
 

@@ -106,6 +106,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/v1/sync", get(sync_upgrade))
         .route("/v1/graphs", get(list_graphs).post(create_graph))
+        .route("/v1/graphs/{graph_id}", delete(delete_graph))
         .route(
             "/v1/graphs/{graph_id}/checkpoint",
             get(download_graph_checkpoint),
@@ -484,6 +485,18 @@ async fn list_graphs(State(state): State<AppState>, headers: HeaderMap) -> ApiRe
             .collect(),
     })
     .into_response())
+}
+
+async fn delete_graph(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(graph_id): Path<String>,
+) -> ApiResult {
+    let principal = api_principal(&state, &headers).await?;
+    let graph_id = private_graph_id(&graph_id)?;
+    state.store.delete_graph(&graph_id, &principal).await?;
+    state.rooms.revoke_graph(&graph_id).await;
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
 async fn create_graph(

@@ -73,8 +73,7 @@ describe("block selection", () => {
   });
 
   it("deletes every selected block as one undoable command", async () => {
-    const user = userEvent.setup();
-    const { session, port } = await mountRows(["one", "two", "three"]);
+    const { session, port, settle } = await mountRows(["one", "two", "three"]);
     const commands: string[] = [];
     port.beforeExecute = async (command) => {
       commands.push(command.type);
@@ -85,7 +84,7 @@ describe("block selection", () => {
     fireEvent.contextMenu(screen.getAllByTestId("block-bullet")[1]);
     const item = await screen.findByTestId("menu-delete-selection");
     expect(item).toHaveTextContent("Delete 2 blocks");
-    await user.click(item);
+    await settle(() => fireEvent.click(item));
 
     await waitFor(() => {
       const page = session.getState().snapshot.pages.find((entry) => entry.id === "home");
@@ -93,7 +92,7 @@ describe("block selection", () => {
     });
     expect(commands).toEqual(["delete_blocks"]);
 
-    await session.execute({ type: "undo" });
+    await settle(() => session.execute({ type: "undo" }));
     expect(
       session
         .getState()
@@ -101,7 +100,7 @@ describe("block selection", () => {
         ?.blocks.map((block) => block.markdown),
     ).toEqual(["one", "two", "three"]);
 
-    await session.execute({ type: "redo" });
+    await settle(() => session.execute({ type: "redo" }));
     expect(
       session
         .getState()

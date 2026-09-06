@@ -59,8 +59,8 @@
 
 .title-row h1,
 .page-title {
-  font-size: var(--text-xl);
-  line-height: var(--lh-xl);
+  font-size: var(--text-title);
+  line-height: var(--lh-title);
   letter-spacing: var(--track-xl);
   font-weight: 600;
   color: var(--ink);
@@ -101,6 +101,68 @@
   align-items: center;
   gap: var(--sp-2);
   flex: none;
+}
+
+.linked-references {
+  margin-top: var(--sp-6);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--line);
+}
+
+.linked-references-toggle,
+.linked-reference-place {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+.linked-references-toggle {
+  min-height: var(--control-h);
+  font-weight: 500;
+}
+
+.linked-references-toggle svg {
+  width: var(--icon);
+  height: var(--icon);
+}
+
+.linked-references-count {
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.linked-reference-list {
+  display: grid;
+  gap: var(--sp-4);
+  margin: var(--sp-3) 0;
+  padding: 0;
+  list-style: none;
+}
+
+.linked-reference-place:hover {
+  color: var(--accent);
+}
+
+.linked-reference-pagination {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.linked-reference-block {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-1);
+  margin-top: var(--sp-1);
+}
+
+.linked-reference-block > .block-markdown {
+  min-width: 0;
+  flex: 1;
+  padding: var(--sp-1) 0;
+  overflow-wrap: anywhere;
 }
 
 /* A journal's title gets the full content measure on narrow screens. The

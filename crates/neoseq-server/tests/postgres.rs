@@ -671,11 +671,38 @@ async fn postgres_schema_persistence_and_authorization() {
         store.load_graph(&graph_id).await,
         Err(StoreError::Corrupt("update content identity mismatch"))
     ));
-    sqlx::query("DELETE FROM graph WHERE graph_id = $1")
-        .bind(graph_id.as_str())
-        .execute(store.pool())
+    assert!(matches!(
+        store.delete_graph(&graph_id, &editor.account_id).await,
+        Err(StoreError::AccessDenied)
+    ));
+    store
+        .delete_graph(&graph_id, &owner.account_id)
         .await
         .unwrap();
+    assert!(matches!(
+        store.load_graph(&graph_id).await,
+        Err(StoreError::AccessDenied)
+    ));
+    for table in [
+        "graph_membership",
+        "graph_checkpoint",
+        "graph_update",
+        "graph_update_receipt",
+    ] {
+        let remaining: i64 =
+            sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table} WHERE graph_id = $1"))
+                .bind(graph_id.as_str())
+                .fetch_one(store.pool())
+                .await
+                .unwrap();
+        assert_eq!(remaining, 0, "graph deletion must clear {table}");
+    }
+    let audit_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM graph_audit_event WHERE account_id = $1 AND action = 'graph.delete' AND graph_id IS NULL")
+        .bind(&owner.account_id)
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(audit_count, 1);
 }
 
 fn assert_session_lifetime(session: &neoseq_server::LoginSession, expected_seconds: i64) {

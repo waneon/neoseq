@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { downloadRemoteCheckpoint, listRemoteGraphs } from "../../src/features/sync/api";
+import {
+  deleteRemoteGraph,
+  downloadRemoteCheckpoint,
+  listRemoteGraphs,
+  RemoteApiError,
+} from "../../src/features/sync/api";
 
 const auth = {
   principal: "account-1",
@@ -11,6 +16,31 @@ const auth = {
 
 describe("remote graph catalog requests", () => {
   afterEach(() => vi.unstubAllGlobals());
+
+  it("deletes the encoded graph with the current account credential", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await deleteRemoteGraph("https://notes.example.test", auth, "graph/a");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL("https://notes.example.test/v1/graphs/graph%2Fa"),
+      expect.objectContaining({
+        method: "DELETE",
+        headers: expect.objectContaining({ Authorization: "Bearer session" }),
+      }),
+    );
+  });
+
+  it("preserves a server deletion failure for the confirmation dialog", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("graph access denied", { status: 403 })),
+    );
+    await expect(deleteRemoteGraph("https://notes.example.test", auth, "graph/a")).rejects.toEqual(
+      new RemoteApiError(403, "graph access denied"),
+    );
+  });
 
   it("forwards the caller's abort signal to fetch", async () => {
     const fetchMock = vi.fn().mockResolvedValue(

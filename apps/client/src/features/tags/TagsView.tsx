@@ -268,7 +268,6 @@ export function TagsView() {
             </div>
           )}
         </div>
-        <p className="tags-hint">{message("tags.hint")}</p>
 
         <div className="tag-groups" data-testid="tag-list">
           {sections.map((group) => {

@@ -41,8 +41,8 @@ At rest the top bar is page margin for controls that belong to the window rather
 than the page. It gains an opaque ground, edge, and the departed page title only
 when content scrolls beneath it. Its geometry remains stable during that change.
 
-The top bar exposes place and one registry-backed contextual menu; it does not
-become a toolbar of named feature verbs. Surface-specific primary controls, such
+The top bar exposes place and registry-backed Undo and Redo icon controls. The
+command palette and object menus expose the remaining actions. Surface-specific primary controls, such
 as journal date navigation or a query's view switcher, may remain visible because
 they define how that surface is used.
 
@@ -109,6 +109,9 @@ locations identify both account and server. Tab orientation and keyboard movemen
 follow the visible layout. The library's top edge stays fixed during loading and
 repository changes.
 
+Quick catalog requests do not flash a loading placeholder. Returning to a
+repository preserves its catalog or sign-in surface while it refreshes.
+
 The catalog prioritizes opening existing graphs. An empty catalog explains what
 a graph holds and offers creation directly; a populated catalog keeps that action
 in its header. Creation opens a dialog with a labeled name field, an example, and
@@ -117,7 +120,8 @@ import remains a secondary action in the catalog footer and always creates a cop
 
 A named server-connection action stays alongside repository navigation. The
 selected remote account's menu signs out or forgets that account. Remote graph
-actions remove this device's copy; only local graphs can be deleted. Repository
+actions distinguish removing this device's copy from permanent server deletion,
+which is available to the graph owner and names its effect on every member. Repository
 selection scopes listing, creation, and import together. Browser-wide language
 and appearance choices remain available from the masthead before opening a graph.
 

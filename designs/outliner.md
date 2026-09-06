@@ -13,6 +13,9 @@ A page is the root of its outline, not its first block. Page-owned material uses
 the page edge; block writing uses an inset text edge, with bullets and branches
 hanging between them. The page title, notes, and page properties therefore read
 as context for the tree rather than unmarked outline rows.
+Page and tag titles are larger than the first Markdown heading level.
+An explicitly added page query sits between page metadata and the outline,
+using the same managed answer surface as a tag query.
 
 The content measure is wider than a prose column because each nested level spends
 part of it on indentation. Page names wrap and remain fully readable; they are
@@ -41,6 +44,10 @@ visible on the same text axis as the block it creates. A quiet hint introduces
 commands and page links, and disappears with that action when writing starts.
 A second content body may follow only after the append surface has retained
 enough reach to invite continued writing.
+
+Incoming links appear in a collapsible Linked references section after the
+writing and any standing queries. Each reference identifies its source place
+and opens the source block or page. Empty reference sets add no chrome.
 
 ## Structural Thread
 

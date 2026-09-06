@@ -35,6 +35,7 @@ import { TagPicker } from "../properties/TagPicker";
 import { PriorityGlyph, TaskStatusGlyph } from "../tasks/glyphs";
 import { TaskStatusMenu } from "../tasks/StatusControl";
 import { TaskPriorityMenu } from "../tasks/PriorityControl";
+import { cycleTaskCommand, isTaskCycleKey } from "../tasks/commands";
 import { failureReason } from "../notify/errors";
 import { useNotify } from "../notify/context";
 import { createQueryCommand } from "./commands";
@@ -173,6 +174,7 @@ export interface QueryResultEditor {
   preserveDraftForPresentationChange(): void;
   consumePresentationChangeIntent(): boolean;
   commit(close: boolean): Promise<boolean>;
+  cycleTask(): void;
   acceptSlash(request: BlockCompletionRequest, item: SlashItem): boolean;
   acceptTag(request: BlockCompletionRequest, option: BlockTagOption): boolean;
   acceptPage(request: BlockCompletionRequest, option: BlockPageOption): number | null;
@@ -806,6 +808,14 @@ export function useQueryResultEditor({
     preserveDraftForPresentationChange,
     consumePresentationChangeIntent,
     commit,
+    cycleTask: () => {
+      const current = activeRef.current;
+      if (current?.phase !== "markdown" || current.saving) return;
+      const block = blockFrom(session.getState(), current.binding.block);
+      if (block) {
+        void commit(false, undefined, cycleTaskCommand(current.binding.block.owner, block));
+      }
+    },
     acceptSlash,
     acceptTag,
     acceptPage,
@@ -880,11 +890,12 @@ function QueryMarkdownField({
   const composing = useRef(false);
   const current = editor.isActive(binding, row) ? editor.active : null;
   const markdown = current?.phase === "markdown" ? current : null;
-  const block = editor.activeBlock;
+  const block = blockFrom(state, binding.block);
   const blockId = binding.block.id;
   const policy = BLOCK_SURFACE_POLICY[surface];
   const projected = markdown?.draft ?? value;
-  const pageReferences = markdown?.references ?? block?.page_references ?? [];
+  const pageReferences =
+    markdown?.references ?? (block?.markdown === projected ? block.page_references : []);
   const previewMarkdown = Boolean(
     !current && hasMarkdownSyntax(projected, pageReferences.length > 0),
   );
@@ -1129,6 +1140,11 @@ function QueryMarkdownField({
         onKeyDown={(event) => {
           if (!markdown) return;
           if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+          if (isTaskCycleKey(event)) {
+            event.preventDefault();
+            editor.cycleTask();
+            return;
+          }
           if (slashRequest) {
             if (event.key === "Escape") {
               event.preventDefault();

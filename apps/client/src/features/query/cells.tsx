@@ -13,6 +13,8 @@ import type { QueryEntityRef, RdfTerm, SparqlQueryResult } from "../../generated
 import type { GraphSnapshot } from "../../core-port/snapshot";
 import type { OrderSemantics } from "../../entities/query-ordering";
 import {
+  findBlock,
+  findOutline,
   findPage,
   findTag,
   journalDate,
@@ -278,18 +280,27 @@ function TermValue({
   // nothing written in it still needs an accessible name of its own.
   if (column.source?.kind === "content" && subject && term?.kind === "literal") {
     const empty = term.value.trim().length === 0;
-    const content = hasMarkdownSyntax(term.value) ? (
-      <BlockMarkdown markdown={term.value} variant="compact" />
-    ) : (
-      term.value
-    );
+    const outline =
+      subject.kind === "block" ? findOutline(context.snapshot, subject.owner) : undefined;
+    const block = outline ? findBlock(outline, subject.id) : undefined;
+    const pageReferences = block?.markdown === term.value ? block.page_references : [];
+    if (hasMarkdownSyntax(term.value, pageReferences.length > 0)) {
+      return (
+        <BlockMarkdown
+          markdown={term.value}
+          pageReferences={pageReferences}
+          graphId={context.snapshot.graph_id}
+          variant="compact"
+        />
+      );
+    }
     return (
       <EntityLink
         entity={subject}
         context={context}
         name={empty ? context.message("query.openEmptyResult") : undefined}
       >
-        {empty ? <span className="query-empty-cell">—</span> : content}
+        {empty ? <span className="query-empty-cell">—</span> : term.value}
       </EntityLink>
     );
   }

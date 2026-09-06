@@ -71,7 +71,7 @@ error surface.
 ## Client Coordination
 
 `HistoryProvider` is mounted once per open graph and is the only UI entry point
-for undo and redo. Global shortcuts, the command palette, overflow actions, and
+for undo and redo. Global shortcuts, the command palette, top-bar controls, and
 the outline editor all call it with an invocation kind.
 
 After a successful result it applies this policy:
@@ -96,10 +96,11 @@ and the virtualizer. For an accepted block request it:
 2. expands every collapsed ancestor;
 3. waits until the block enters the visible flattened rows;
 4. scrolls the virtualizer to its row;
-5. applies the existing short reveal treatment;
+5. briefly pulses an accent highlight on the destination, or keeps it stationary
+   when reduced motion is preferred;
 6. focuses the editor only for history invoked inside the outline.
 
-Global shortcuts, palette actions, and overflow actions reveal without stealing
+Global shortcuts, palette actions, and top-bar controls reveal without stealing
 focus. If the requested block is already the focused editor, the outliner keeps
 its current caret rather than resetting it.
 

@@ -534,6 +534,34 @@
   animation: ns-fade-in var(--dur-disclose) var(--ease-out) both;
 }
 
+/* An explicit destination keeps its position visible after the scroll lands.
+   A keyed overlay restarts the cue on repeated visits without remounting text. */
+.outline-navigation-highlight {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklch, var(--accent) 14%, transparent);
+  pointer-events: none;
+  animation: outline-destination-pulse 1s ease-out both;
+}
+
+@keyframes outline-destination-pulse {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  25%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .outline-navigation-highlight {
+    animation: none;
+  }
+}
+
 /* An empty line states its emptiness with a fainter mark instead of a sentence
    of instructions. The bullet is still there — it is the outliner's signature and
    the row's handle — just quieter, and it comes back to full strength the moment
@@ -698,7 +726,7 @@
 
 /* ── Six levels, four steps ──
    The scale is anchored at both ends rather than chosen in the middle. Level one
-   sits just under the 30px page title, so an `#` heading is the largest thing in
+   sits below the page title, so an `#` heading is the largest thing in
    the writing and still never ties with the name of the page it is written on;
    level four is the body size exactly, so `####` is a bold line rather than a
    size nobody asked for. Two and three are the interpolation between them

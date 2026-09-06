@@ -29,26 +29,27 @@ test("page and journal actions have a visible, keyboard reachable focus owner", 
   await expect(dialog).toHaveCount(0);
   await expect(trigger).toBeFocused();
 
-  const overflow = page.getByTestId("overflow-menu");
-  await overflow.click();
-  await page.getByTestId("overflow-search").click();
+  const search = page.getByTestId("open-palette");
+  await expect(page.getByTestId("topbar-undo")).toBeVisible();
+  await expect(page.getByTestId("topbar-redo")).toBeVisible();
+  await expect(page.getByTestId("overflow-menu")).toHaveCount(0);
+  await search.click();
   await expect(page.getByTestId("command-input")).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("command-palette")).toHaveCount(0);
-  await expect(overflow).toBeFocused();
+  await expect(search).toBeFocused();
 
-  await overflow.click();
-  await page.getByTestId("overflow-search").click();
+  await search.click();
   await page.getByTestId("command-input").fill("Settings");
   await page.getByTestId("cmd-settings").click();
   await expect(page.getByTestId("settings-dialog")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("settings-dialog")).toHaveCount(0);
-  await expect(overflow).toBeFocused();
+  await expect(search).toBeFocused();
 
   // A keyboard command can start with no focused control. The page provides
   // a persistent fallback after both the palette and its picker disappear.
-  await overflow.blur();
+  await search.blur();
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByTestId("command-input").fill("Properties");
   await page.getByTestId("cmd-properties").click();

@@ -21,16 +21,18 @@ import { GRAPH_ID, mountAt, openBlockMenu, TestCommandProvider } from "./harness
 async function mountOutline(markdowns: string[] = ["alpha"], custom?: ReactElement) {
   const harness = await mountAt(`/g/${GRAPH_ID}/p/home`, custom);
   const { session } = harness;
-  await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
-  for (const [index, markdown] of markdowns.entries()) {
-    await session.execute({
-      type: "insert_block",
-      owner: { kind: "page", id: "home" },
-      parent: null,
-      index,
-      markdown,
-    });
-  }
+  await harness.settle(async () => {
+    await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
+    for (const [index, markdown] of markdowns.entries()) {
+      await session.execute({
+        type: "insert_block",
+        owner: { kind: "page", id: "home" },
+        parent: null,
+        index,
+        markdown,
+      });
+    }
+  });
   await waitFor(() =>
     expect(screen.queryAllByLabelText("Block text")).toHaveLength(markdowns.length),
   );
@@ -58,7 +60,7 @@ function waitForPendingRowsToSettle(): Promise<void> {
 
 describe("outliner keyboard commands", () => {
   it("keeps rejected input and stops history until the shared target can save", async () => {
-    const { session, port } = await mountOutline();
+    const { session, port, settle } = await mountOutline();
     const user = userEvent.setup();
     const input = (await screen.findAllByLabelText("Block text"))[0];
     let rejected!: () => void;
@@ -72,7 +74,7 @@ describe("outliner keyboard commands", () => {
       }
     };
     await user.click(input);
-    await act(async () => {
+    await settle(async () => {
       fireEvent.change(input, { target: { value: "alpha tail" } });
       fireEvent.keyDown(input, { key: "z", metaKey: true });
       await rejection;
@@ -81,7 +83,24 @@ describe("outliner keyboard commands", () => {
     expect(input).toHaveValue("alpha tail");
     expect(findPage(session.getState().snapshot, "home")!.blocks).toHaveLength(1);
     port.beforeExecute = null;
-    await user.keyboard("{Meta>}z{/Meta}");
+    await settle(async () => {
+      const revision = session.getState().revision;
+      const restored = new Promise<void>((resolve) => {
+        const unsubscribe = session.subscribe(() => {
+          if (
+            session.getState().revision <= revision ||
+            findPage(session.getState().snapshot, "home")!.blocks[0].markdown !== "alpha"
+          )
+            return;
+          unsubscribe();
+          resolve();
+        });
+      });
+      fireEvent.keyDown(input, { key: "z", metaKey: true });
+      await restored;
+      // The content session settles the draft and reveal after core publication.
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    });
     await waitFor(() => expect(input).toHaveValue("alpha"));
   });
 
@@ -511,21 +530,23 @@ describe("outliner keyboard commands", () => {
   it("enters Vim Insert mode for every pointer-driven block creation", async () => {
     setEditorKeymap("vim");
     try {
-      await mountOutline([]);
+      const { settle } = await mountOutline([]);
       const user = userEvent.setup();
 
-      await user.click(screen.getByTestId("outline-start"));
+      await settle(() => fireEvent.click(screen.getByTestId("outline-start")));
       await waitFor(() => expect(screen.getAllByLabelText("Block text")).toHaveLength(1));
       expect(screen.getByTestId("vim-mode-indicator")).toHaveTextContent("INSERT");
 
       await user.keyboard("{Escape}");
-      await user.click(screen.getByTestId("outline-append"));
+      await settle(() => fireEvent.click(screen.getByTestId("outline-append")));
       await waitFor(() => expect(screen.getAllByLabelText("Block text")).toHaveLength(2));
       expect(screen.getByTestId("vim-mode-indicator")).toHaveTextContent("INSERT");
 
       await user.keyboard("{Escape}");
       await openBlockMenu(0);
-      await user.click(screen.getByRole("menuitem", { name: "Add child block" }));
+      await settle(() =>
+        fireEvent.click(screen.getByRole("menuitem", { name: "Add child block" })),
+      );
       await waitFor(() => expect(screen.getAllByLabelText("Block text")).toHaveLength(3));
       expect(screen.getByTestId("vim-mode-indicator")).toHaveTextContent("INSERT");
     } finally {

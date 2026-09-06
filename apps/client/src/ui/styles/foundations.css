@@ -193,6 +193,8 @@
   --text-xl: 28px;
   --lh-xl: 36px;
   --track-xl: -0.018em;
+  --text-title: 32px;
+  --lh-title: 42px;
 
   /* Headings *inside a block*. Four steps rather than the three this scale used
      to spend: the top one stays under the page title, so an `#` heading

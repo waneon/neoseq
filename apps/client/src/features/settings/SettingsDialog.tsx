@@ -8,6 +8,7 @@ import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react"
 import { useNavigate } from "react-router";
 import {
   deleteGraph,
+  graphConnection,
   graphName,
   renameGraph,
   subscribeGraphDirectory,
@@ -37,6 +38,8 @@ import { tonePresentation } from "../tasks/tone-presentation";
 import { Callout, ConfirmDialog, Dialog } from "../../ui/components";
 import { setTheme, storedTheme, subscribeTheme, type Theme } from "../../ui/theme";
 import { LOCAL_REPOSITORY_ID } from "../repositories/directory";
+import { readAuthSession } from "../sync/auth";
+import { deleteRemoteGraph, RemoteApiError } from "../sync/api";
 import { Input } from "@/ui/shadcn/input";
 import { Button } from "@/ui/shadcn/button";
 import { MenuSelect } from "@/ui/menu-select";
@@ -235,7 +238,6 @@ function LanguageSection() {
   return (
     <section className="settings-section">
       <h2>{message("language.label")}</h2>
-      <p>{message("language.description")}</p>
       <div className="field">
         <MenuSelect
           label={message("language.label")}
@@ -275,7 +277,6 @@ function JournalSection() {
     <>
       <section className="settings-section">
         <h2>{message("settings.dateFormat")}</h2>
-        <p>{message("settings.dateFormatDescription")}</p>
         <div className="field">
           <MenuSelect
             label={message("settings.dateFormat")}
@@ -328,14 +329,13 @@ function TasksSection() {
   const { message, formatJournalDate } = useI18n();
   const tiers = useDueTiers();
   const today = todayLocalDate();
-  // Thresholds count today as their first day, so their inclusive calendar end
-  // is one less than the stored count. A zero-width tier has no date of its own
-  // and keeps today's legible example.
+  // Preview each threshold's inclusive calendar end. A zero-width tier has no
+  // future date of its own and keeps tomorrow's legible example.
   const exampleDay: Record<DueTier, number> = {
     overdue: -1,
     today: 0,
-    soon: Math.max(tiers.soonDays - 1, 1),
-    upcoming: Math.max(tiers.upcomingDays - 1, 1),
+    soon: Math.max(tiers.soonDays, 1),
+    upcoming: Math.max(tiers.upcomingDays, 1),
     later: tiers.upcomingDays + 7,
   };
 
@@ -630,15 +630,17 @@ function DangerSection({ repositoryId, graphId }: { repositoryId: string; graphI
   const session = useSession();
   const { message } = useI18n();
   const notify = useNotify();
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<"device" | "server" | null>(null);
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
+  const serverDeleteButtonRef = useRef<HTMLButtonElement>(null);
   const deleteStarted = useRef(false);
-  // A local graph has one copy and deleting it is final. A remote graph lives
-  // on the server; here only this device's replica goes.
+  const serverDeleted = useRef(false);
   const local = repositoryId === LOCAL_REPOSITORY_ID;
+  const connection = graphConnection(repositoryId, graphId);
+  const server = confirmDelete === "server";
 
   const closeConfirmation = () => {
-    setConfirmDelete(false);
+    setConfirmDelete(null);
     // Once deletion has retired the owning session, the old graph surface is
     // no longer a safe place to return to — whether the storage deletion
     // succeeded or the user abandons a failed attempt.
@@ -648,25 +650,51 @@ function DangerSection({ repositoryId, graphId }: { repositoryId: string; graphI
   return (
     <section className="settings-section settings-danger">
       <h2>{message("settings.danger")}</h2>
-      <p>{message(local ? "settings.deleteDescription" : "settings.removeReplicaDescription")}</p>
+      {local && <p>{message("settings.deleteDescription")}</p>}
       <Button
         ref={deleteButtonRef}
         variant="destructive"
         className="self-start"
         data-testid="settings-delete-graph"
-        onClick={() => setConfirmDelete(true)}
+        onClick={() => setConfirmDelete("device")}
       >
         {message(local ? "settings.deleteGraph" : "settings.removeReplica")}
       </Button>
+      {connection?.role === "owner" && (
+        <Button
+          ref={serverDeleteButtonRef}
+          variant="destructive"
+          className="self-start"
+          data-testid="settings-delete-server-graph"
+          disabled={!readAuthSession(repositoryId)}
+          onClick={() => setConfirmDelete("server")}
+        >
+          {message("graph.deleteServer")}
+        </Button>
+      )}
       {confirmDelete && (
         <ConfirmDialog
-          title={message(local ? "graph.deleteTitle" : "graph.removeReplicaTitle")}
+          title={message(
+            server
+              ? "graph.deleteServerTitle"
+              : local
+                ? "graph.deleteTitle"
+                : "graph.removeReplicaTitle",
+          )}
           cancelLabel={message("common.cancel")}
-          confirmLabel={message(local ? "common.deleteForever" : "graph.removeReplicaAction")}
+          confirmLabel={message(
+            local || server ? "common.deleteForever" : "graph.removeReplicaAction",
+          )}
           testId="settings-confirm-delete"
-          returnFocus={() => deleteButtonRef.current}
+          returnFocus={() => (server ? serverDeleteButtonRef.current : deleteButtonRef.current)}
           onClose={closeConfirmation}
           onConfirm={async () => {
+            if (server && !serverDeleted.current) {
+              const auth = readAuthSession(repositoryId);
+              if (!connection || !auth) throw new RemoteApiError(401, "sign in required");
+              await deleteRemoteGraph(connection.server_url, auth, graphId);
+              serverDeleted.current = true;
+            }
             deleteStarted.current = true;
             // Release the current graph's lease first, then perform the same
             // durable deletion used by the graph picker. ConfirmDialog stays
@@ -681,9 +709,16 @@ function DangerSection({ repositoryId, graphId }: { repositoryId: string; graphI
             )
           }
         >
-          {message(local ? "graph.deleteConfirm" : "graph.removeReplicaConfirm", {
-            name: graphName(repositoryId, graphId),
-          })}
+          {message(
+            server
+              ? "graph.deleteServerConfirm"
+              : local
+                ? "graph.deleteConfirm"
+                : "graph.removeReplicaConfirm",
+            {
+              name: graphName(repositoryId, graphId),
+            },
+          )}
         </ConfirmDialog>
       )}
     </section>

@@ -509,7 +509,7 @@ export function QueryTableView({
                 const binding = editor.bindingFor(row.subject, column);
                 const active = binding ? editor.isActive(binding, row) : false;
                 const canOpen =
-                  binding?.kind === "markdown" &&
+                  column.source?.kind === "content" &&
                   row.subject !== undefined &&
                   context.onOpen !== undefined;
                 return (

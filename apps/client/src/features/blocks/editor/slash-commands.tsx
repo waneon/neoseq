@@ -127,9 +127,6 @@ export function buildSlashItems(message: MessageFunction): SlashItem[] {
     glyph: <RepeatIcon aria-hidden />,
     action: { kind: "picker", key: TASK_REPEAT_KEY },
   });
-  // `/` is the only route to a query: the property picker does not offer
-  // `builtin.query`, because a query is built, not filled in.
-  //
   // One item, and only ever one. Blocks / Pages / Tags were three menu rows for
   // one object whose *first dropdown* already asks which of them you meant, and
   // `Advanced query` was a fourth for the same object written in SPARQL by hand.

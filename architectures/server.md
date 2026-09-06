@@ -68,8 +68,8 @@ an ordinary client session expires after 12 hours and an explicitly persistent
 client session after 30 days. Both are fixed lifetimes rather than sliding
 sessions. Shorter one-hour Admin sessions ignore persistence requests and
 authorize only the account-management surface. The
-authenticated graph HTTP surface creates and lists graphs and lets an owner
-list, grant, or revoke memberships by username while membership rows retain the
+authenticated graph HTTP surface creates and lists graphs, lets an owner delete
+a graph, and lets an owner list, grant, or revoke memberships by username while membership rows retain the
 account's immutable ID. Browser WebSockets carry the session credential in
 a dedicated base64url subprotocol entry because the browser API cannot set an
 `Authorization` header; the server selects only the stable `neoseq.v6`
@@ -83,6 +83,13 @@ one database transaction. An exact retry returns the existing graph; differing
 input for an occupied ID is a conflict. The default durable and reconstructed
 graph limit is 1 GiB; the migration raises graphs still using the former
 64 MiB default without changing explicitly customized quotas.
+
+Graph deletion verifies current owner authority in the same locked transaction
+that removes graph metadata, memberships, checkpoints, updates, and receipts.
+The audit event remains without a graph-content reference. After commit the
+service invalidates the live room and revokes connected sessions; missing graphs
+and unauthorized deletion have the same private error response. Offline replicas
+on other devices remain local data and can no longer synchronize.
 
 ## Wire Protocol
 

@@ -60,6 +60,7 @@ import {
   TypeGlyph,
 } from "./property-display";
 import { validationMessage } from "./property-validation";
+import { createQueryCommand } from "../query/commands";
 
 export interface PropertyTarget {
   owner: PropertyOwnerRef;
@@ -163,7 +164,10 @@ export function PropertyPicker({
     const normalized = query.trim().toLocaleLowerCase();
     const present = new Set(visibleEntries.map((entry) => entry.key));
     const known = Object.keys(REGISTRY).filter(
-      (key) => isGenericProperty(key) && canUserWrite(key, writeTarget),
+      (key) =>
+        (isGenericProperty(key) ||
+          (key === "builtin.query" && !target.bag.some((field) => field.key === key))) &&
+        canUserWrite(key, writeTarget),
     );
     // A query reaches a key through its storage name OR the name it goes by on
     // screen, so "예정" finds builtin.task-scheduled and "effort" finds
@@ -197,7 +201,7 @@ export function PropertyPicker({
       result.push({ key: storageKey, existing: false, create: true });
     }
     return result.slice(0, 12);
-  }, [compare, message, query, writeTarget, visibleEntries]);
+  }, [compare, message, query, writeTarget, visibleEntries, target.bag]);
 
   const run = async (command: Command): Promise<boolean> => {
     if (submitting.current) return false;
@@ -233,6 +237,13 @@ export function PropertyPicker({
   };
 
   const chooseKey = (candidate: Candidate) => {
+    if (candidate.key === "builtin.query") {
+      if (readonly || owner.kind === "tag_default") return;
+      void run(createQueryCommand(owner)).then((saved) => {
+        if (saved) close();
+      });
+      return;
+    }
     const found = target.bag.find((field) => field.key === candidate.key);
     const nextType = valueTypeOf(candidate.key) ?? found?.value_type;
     setQuery("");

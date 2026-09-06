@@ -59,12 +59,11 @@ carries writes nothing. Pending blocks defer the choice until the real
 Slash items are declared in `features/blocks/editor/slash-commands.tsx`: task
 statuses and priorities as **direct** items carrying one `PropertyValue`,
 `Scheduled` / `Deadline` / `Add property` as **picker** items carrying an
-optional initial key, and `Query blocks` / `Query pages` / `Query tags` as
-**query** items carrying the subject a new plan starts on. `/` is the only route
-to a query: `builtin.query` is deliberately absent from the picker's candidates
-(`entities/properties.ts` marks it `feature_only`), so a query is never
-half-created through the generic property route, and it has no tag-default
-placement either. The query block owns every later edit, including its removal.
+optional initial key, and `Query` as a **query** item creating the default block
+plan. The property picker offers the same query creation action when its target
+allows queries and has no query document. Both routes use `set_query_plan` to
+create a complete document; the query builder owns later edits and removal.
+Queries have no tag-default placement.
 
 Labels are localized; matching runs the palette's fuzzy scorer over labels plus
 declared search aliases. Alias vocabulary may span languages and extends with
@@ -143,8 +142,9 @@ Property candidates are bounded to:
 2. registry definitions that are user-writable on the resolved target; and
 3. one validated custom-key creation result for the current query.
 
-A key whose feature owns its whole surface — currently only `builtin.query` — is
-outside all three, on either an entity or a tag default.
+Feature-owned values stay outside the generic value controls. `builtin.query`
+appears only as a creation action on eligible targets without a query; selecting
+it creates the default plan and closes the picker.
 
 Existing keys sort first. The picker does not scan the graph document or any
 adapter-owned state.
@@ -224,13 +224,18 @@ Task status and priority stay **positioned renderers** at the head of the line
 owns the recurrence behaviour: when the block carries an interval and a moment,
 `Done` becomes `Complete this one` and issues the ordinary property commands that
 advance the dates and keep the status at `todo`. On pages the task keys stay in the
-generic strip.
+generic strip. While editing block text, `Mod+Enter` cycles status through
+`todo`, `doing`, `done`, absence, and back to `todo`. This direct status cycle
+leaves other task facts intact. Outline and query editors submit the action
+with their current draft as one undoable edit; pending outline rows retain the
+intent until their real identity arrives. Completion and Vim modes share the
+shortcut, while active IME composition is left untouched.
 
 The moment chips read their companion time key and their due tier, and carry the
 tier's tone through the shared task presentation path that `ui/app.css` resolves.
 A day threshold
-counts calendar dates with today as day one, so an N-day tier ends N-1 dates
-after today. Today is a fixed tier between overdue and soon; a time earlier today
+includes calendar dates through N days after today, so a one-day tier includes
+tomorrow. Today is a fixed tier between overdue and soon; a time earlier today
 remains overdue. Both the thresholds and tones are browser-local presentation
 preferences read through `features/settings/preferences.ts`; neither reaches a
 command or the graph.
@@ -245,14 +250,16 @@ Tag membership
 lives in `TagPicker` — which reuses `TagChips` and `PageAutocomplete` while
 continuing to issue `add_tag` and `remove_tag` commands — and inline in the
 outline's `#` tag menu; both attach existing tags only. `TagChips` renders as
-a right-aligned cluster on the block's own line, each chip a single remove
-button. `features/tags/TagsView.tsx` owns the tag lifecycle: a card per live
+a right-aligned cluster on the block's own line: each tag name navigates, and
+an adjacent, separately named remove button detaches membership. The picker
+continues to show tags as remove buttons. `features/tags/TagsView.tsx` owns the tag lifecycle: a card per live
 tag, inline creation (`ensure_tag`), confirmed graph-wide deletion
 (`delete_tag`, which detaches every page and block membership), and the picker
 on a tag target for defaults.
 
 The query projection remains a view over the well-known `builtin.query`
-document. The outline's `/` menu creates it through `set_query_plan`, and the
+document. The outline's `/` menu and the property picker's Query action create
+it through `set_query_plan`, and the
 mounted query block owns every later edit: the builder writes only the
 authoritative plan and the Rust core derives its compatibility source; the
 SPARQL escape hatch splices raw source and clears the plan. Saved views and their
@@ -345,7 +352,7 @@ implementations.
   tag separation. The query document has its own
   suite: `/` creating a plan, conditions and nested groups reaching the compiled
   source, column and view layout persisting, the SPARQL escape hatch, removal,
-  and the picker's refusal to offer the key.
+  and property-picker creation without duplicate query replacement.
 - Outline tests continue to cover pending-row reconciliation, structure, undo,
   selection, and virtualization-sensitive focus behavior.
 - Shortcut tests cover the new default, conflicts, formatting, and browser-key

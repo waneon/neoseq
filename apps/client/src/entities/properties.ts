@@ -12,7 +12,7 @@ type PropertyAccess = "user" | "core";
 export type PropertyVisibility =
   | "generic"
   | "feature_and_generic"
-  /** Its feature owns the whole surface; the generic property route never offers it. */
+  /** Its feature owns value editing; the picker may offer a complete creation action. */
   | "feature_only"
   | "read_only_metadata"
   | "hidden";
@@ -55,9 +55,8 @@ const FEATURE_RENDERERS = new Set([
   "builtin.task-priority",
   "builtin.task-repeat",
 ]);
-// A query is authored, not filled in: `/` builds one and the query block owns
-// every edit and its removal. Offering `builtin.query` as a property row would
-// put a second, worse editor beside the builder for the same value.
+// Query creation is offered by both `/` and the property picker. Its complete
+// document is edited by the query builder, never by a generic value control.
 //
 // A task date's time of day is the same argument in miniature: it refines a date
 // that already has an editor, and on its own it means nothing at all. The date

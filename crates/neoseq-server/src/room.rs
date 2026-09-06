@@ -163,6 +163,8 @@ impl RoomManager {
         }
         let room = self.room_for(graph_id).await?;
         let mut guard = room.lock().await;
+        // Loading a room can race graph deletion or membership revocation.
+        let membership = self.store.authorize(graph_id, account_id).await?;
         if !guard.valid {
             return Err(RoomError::ReconnectRequired);
         }
@@ -246,6 +248,7 @@ impl RoomManager {
         }
         let room = self.room_for(graph_id).await?;
         let guard = room.lock().await;
+        self.store.authorize(graph_id, account_id).await?;
         if !guard.valid {
             return Err(RoomError::ReconnectRequired);
         }
@@ -586,6 +589,32 @@ impl RoomManager {
         if slot.as_ref().is_some_and(|slot| slot.room.initialized()) {
             self.metrics.room_closed();
         }
+    }
+
+    pub async fn revoke_graph(&self, graph_id: &GraphId) {
+        let Some(slot) = self.rooms.lock().await.remove(graph_id) else {
+            return;
+        };
+        // Join a reconstruction already in progress so its room cannot outlive
+        // deletion. An empty slot must not start loading deleted graph data.
+        let Ok(room) = slot
+            .room
+            .get_or_try_init(|| async { Err::<_, RoomError>(StoreError::AccessDenied.into()) })
+            .await
+        else {
+            return;
+        };
+        let mut room = room.lock().await;
+        room.valid = false;
+        for session in room.sessions.values() {
+            let _ = session.outbound.try_send(Message::Error(ErrorMessage {
+                code: ErrorCode::MembershipRevoked,
+                recoverable: false,
+                diagnostic: "graph access was revoked".into(),
+            }));
+        }
+        room.sessions.clear();
+        self.metrics.room_closed();
     }
 }
 

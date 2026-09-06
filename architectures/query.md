@@ -326,13 +326,12 @@ the owner-based property commands; tag collections use `add_tag` and
 unknown plan versions, and raw results remain read-only. SPARQL Update is
 not introduced.
 
-RDF rows are display data rather than edit baselines. Entering an editor lazily
-hydrates the subject's canonical outline owner and reads its `BlockSnapshot`; only the
-active table result pays that cost. A block list is an entity projection: it
-deduplicates the result subjects' owners, hydrates their page or tag outlines as
-one session operation, then renders canonical block snapshots through the same
-presentation primitives as the outline. Direct block fields use the native block
-presentation.
+RDF rows are display data rather than edit baselines. An editor reads its
+subject's canonical `BlockSnapshot`, hydrating its outline owner as needed.
+Content projections hydrate the distinct result owners to resolve stable
+page-reference spans. A block list uses those same canonical snapshots to
+render each block through the outline's presentation primitives. Direct block
+fields use the native block presentation.
 Selected aggregates and structural relations remain table cells rather than
 block facts. Plan-less and non-block results may use generic result cells.
 Embedded feature surfaces and children do not render through a result reference.
@@ -356,7 +355,10 @@ refreshes still update normally and may pin the active row.
 
 Writable plain content uses one textarea before and after focus, so a pointer
 press places the native caret and starts editing in the same interaction.
-Rendered Markdown uses the outline's preview-to-source caret hand-off. A
+Rendered Markdown uses the outline's preview-to-source caret hand-off. Links
+remain navigable in both table and list projections, with a separate control to
+open the block. Explicit block navigation reveals the destination with a brief
+accent pulse, or a stationary highlight when reduced motion is preferred. A
 cross-owner result stays read-only only while its canonical block hydrates; the
 input element itself remains stable.
 

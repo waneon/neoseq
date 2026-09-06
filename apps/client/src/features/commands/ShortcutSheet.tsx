@@ -11,6 +11,7 @@ import { Dialog } from "../../ui/components";
 import { Kbd } from "../../ui/kbd";
 import { useI18n } from "../../i18n";
 import { formatBindingParts, useShortcutBindings, type ShortcutId } from "./shortcuts";
+import { MOD } from "./keys";
 
 interface Entry {
   label: string;
@@ -52,6 +53,7 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
       entries: [
         { label: message("shortcuts.newBlock"), keys: [["⏎"]] },
         { label: message("shortcuts.lineBreak"), keys: [["⇧", "⏎"]] },
+        { label: message("shortcuts.cycleTask"), keys: [[MOD, "⏎"]] },
         { label: message("shortcuts.indent"), keys: [["⇥"]] },
         { label: message("shortcuts.outdent"), keys: [["⇧", "⇥"]] },
         { label: message("shortcuts.moveUp"), keys: [["⌥", "↑"]] },

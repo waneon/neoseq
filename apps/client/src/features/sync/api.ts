@@ -157,6 +157,16 @@ export function listRemoteGraphs(
   return request(serverUrl, auth, "/v1/graphs", { signal });
 }
 
+export function deleteRemoteGraph(
+  serverUrl: string,
+  auth: AuthSession,
+  graphId: string,
+): Promise<void> {
+  return request(serverUrl, auth, `/v1/graphs/${encodeURIComponent(graphId)}`, {
+    method: "DELETE",
+  });
+}
+
 export function listMemberships(
   serverUrl: string,
   auth: AuthSession,

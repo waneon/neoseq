@@ -232,6 +232,13 @@ pub trait GraphStore: Send + Sync + 'static {
 pub trait GraphAdmin: GraphStore {
     async fn create_graph(&self, graph: NewGraph<'_>) -> Result<CreateGraphOutcome, StoreError>;
 
+    /// Deletes graph data and memberships after atomically verifying owner authority.
+    async fn delete_graph(
+        &self,
+        graph_id: &GraphId,
+        actor_account_id: &str,
+    ) -> Result<(), StoreError>;
+
     async fn list_graphs(&self, account_id: &str) -> Result<Vec<GraphListing>, StoreError>;
 
     async fn list_memberships(
@@ -869,6 +876,29 @@ impl GraphStore for PgStore {
 impl GraphAdmin for PgStore {
     async fn create_graph(&self, graph: NewGraph<'_>) -> Result<CreateGraphOutcome, StoreError> {
         self.insert_graph(graph).await
+    }
+
+    async fn delete_graph(
+        &self,
+        graph_id: &GraphId,
+        actor_account_id: &str,
+    ) -> Result<(), StoreError> {
+        let mut transaction = self.pool.begin().await?;
+        lock_and_authorize_owner(&mut transaction, graph_id, actor_account_id).await?;
+        audit(
+            &mut transaction,
+            graph_id,
+            actor_account_id,
+            "graph.delete",
+            "ok",
+        )
+        .await?;
+        sqlx::query("DELETE FROM graph WHERE graph_id = $1")
+            .bind(graph_id.as_str())
+            .execute(&mut *transaction)
+            .await?;
+        transaction.commit().await?;
+        Ok(())
     }
 
     async fn list_graphs(&self, account_id: &str) -> Result<Vec<GraphListing>, StoreError> {

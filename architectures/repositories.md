@@ -43,9 +43,11 @@ all graph operations:
 
 The picker keeps catalog state under the repository ID. Revisiting a repository
 shows its last successful catalog immediately while a new request revalidates
-it. Revalidation never clears successful data, and an obsolete or cancelled
-request cannot publish into another repository's panel. Initial loads reserve
-the ordinary catalog footprint; the picker header is anchored independently of
+it. Revalidation preserves both successful catalogs and sign-in panels, and an
+obsolete request cannot publish into another repository's panel. Switching away
+lets an in-flight catalog finish into its own cache. Initial loads reserve the
+ordinary catalog footprint and only show loading placeholders when the request
+takes long enough to perceive; the picker header is anchored independently of
 catalog height.
 
 Graph creation names its selected destination in a dialog; archive import stays
@@ -85,8 +87,11 @@ durable repository directory.
 A remote repository can be signed out of, which discards only the session, or
 forgotten, which removes its cached replicas, its session, and its directory
 entry together. A cached remote replica can be removed from the device on its
-own; the graph itself is never deleted from the browser because the server owns
-it. Remote HTTP requests are cross-origin by design and always use an explicit
+own. A graph owner can instead permanently delete the server graph through an
+authenticated request, then remove this device's replica. The confirmation
+distinguishes these scopes; deletion revokes server access for all members but
+cannot erase offline copies on other devices. Remote HTTP requests are
+cross-origin by design and always use an explicit
 bearer session. WebSocket authentication uses the protocol credential entry.
 The service has no cookie authority, so allowing browser origins does not grant
 access by itself.

@@ -476,12 +476,12 @@ function QueryPanelSurface({
     [resultRows],
   );
 
-  // A list of blocks is an entity projection, not a set of RDF cells. Resolve
-  // its canonical display snapshots by page so the shared block presentation
-  // sees the same markdown, task marks, tags, and property bag as the outline.
-  // Table and non-block results stay query-shaped and pay no hydration cost.
+  // Canonical content carries stable page-reference spans that the RDF text
+  // cannot retain. Lists also need the full block's task marks and metadata.
+  const needsBlockSnapshots =
+    canonicalBlockView || columns.some((column) => column.source?.kind === "content");
   useEffect(() => {
-    if (!canonicalBlockView || state.status !== "ready") return;
+    if (!needsBlockSnapshots || state.status !== "ready") return;
     const missing = resultBlockOwners.filter(
       (owner) =>
         !state.hydratedOutlines.has(outlineOwnerKey(owner)) &&
@@ -492,7 +492,7 @@ function QueryPanelSurface({
       notify.failure(message("failure.loadPage"), cause);
     });
   }, [
-    canonicalBlockView,
+    needsBlockSnapshots,
     message,
     notify,
     resultBlockOwners,

@@ -173,6 +173,34 @@ test("repository tabs retain cached catalogs while revalidating without moving t
   expect((await picker.boundingBox())?.y).toBeCloseTo(localTop!, 1);
 });
 
+test("owners can delete an uncached remote graph from the server", async ({ page }) => {
+  const graphs = await installRemoteApi(page);
+  graphs.push({ graph_id: "g-delete-remote", name: "Remote deletion" });
+  let deletions = 0;
+  await page.route("**/v1/graphs/g-delete-remote", async (route) => {
+    expect(route.request().method()).toBe("DELETE");
+    expect(route.request().headers().authorization).toBe("Bearer test-browser-token");
+    deletions += 1;
+    graphs.splice(0, graphs.length);
+    await route.fulfill({ status: 204 });
+  });
+
+  await page.goto("/");
+  await addRemoteRepository(page);
+  await page.getByRole("button", { name: "Actions for Remote deletion" }).click();
+  await expect(page.getByRole("menuitem", { name: "Remove from this device…" })).toHaveCount(0);
+  await page.getByTestId("delete-server-graph-Remote deletion").click();
+  await expect(page.getByRole("alertdialog")).toContainText("All members will lose access");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  expect(deletions).toBe(0);
+  await page.getByRole("button", { name: "Actions for Remote deletion" }).click();
+  await page.getByTestId("delete-server-graph-Remote deletion").click();
+  await page.getByTestId("confirm-delete-graph").click();
+  await expect(page.getByTestId("picker-empty")).toBeVisible();
+  await expect(page.getByTestId("open-graph-Remote deletion")).toHaveCount(0);
+  expect(deletions).toBe(1);
+});
+
 async function installRemoteApi(page: Page, expectedPersistent = true): Promise<CreatedGraph[]> {
   const created: CreatedGraph[] = [];
   await page.route("**/v1/auth/login", async (route) => {

@@ -65,6 +65,18 @@ projection as one unit; canonical blocks are never rewritten. The reference
 edges form the boundary for a future incremental reverse ledger if rename
 rebuild cost becomes material.
 
+Page and tag surfaces expose incoming links through the session-scoped query
+execution cache. Page links include semantic inline atoms and typed page
+properties; tag links include explicit attachments on pages and blocks.
+Structural ownership and unresolved text do not count as links. The disposable
+RDF index finds sources across unloaded outlines, and its entity references
+provide canonical navigation. References refresh with graph revisions and are
+never stored as authored queries. Bounded result pages stay below the query row
+budget, retain the previous answer while loading, and allow returning after an
+empty or failed page. Counts describe only a complete first page or its lower
+bound. Source previews remain read-only; an explicit block button handles
+navigation without turning keyboard focus into a route change.
+
 `neoseq.outline` v2 carries page-reference spans and descriptors. Same-graph
 paste keeps IDs; cross-graph paste resolves journals by date and regular pages
 by normalized title before creating target-local identities. Standard Markdown

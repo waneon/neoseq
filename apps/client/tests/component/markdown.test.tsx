@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
 import { BlockMarkdown } from "../../src/features/markdown/BlockMarkdown";
 import { alignSourceOffset } from "../../src/features/markdown/caret";
@@ -80,36 +80,46 @@ describe("block Markdown projection", () => {
     expect(checkbox?.disabled).toBe(true);
   });
 
-  it("keeps compact query content phrasing-only and non-interactive", () => {
+  it("keeps compact links navigable without activating the source editor", () => {
+    const activate = vi.fn();
     const { container } = render(
-      <button type="button">
-        <BlockMarkdown markdown={"**Work** with [source](https://example.com)"} variant="compact" />
-      </button>,
+      <BlockMarkdown
+        markdown={"**Work** with [source](https://example.com)"}
+        variant="compact"
+        onActivate={activate}
+      />,
     );
 
-    expect(container.querySelector("button a")).toBeNull();
-    expect(container.querySelector("button p, button ul, button ol, button pre")).toBeNull();
+    const link = screen.getByRole("link", { name: "source" });
+    expect(link).toHaveAttribute("href", "https://example.com");
+    fireEvent.click(link);
+    expect(activate).not.toHaveBeenCalled();
+    expect(container.querySelector("p, ul, ol, pre")).toBeNull();
     expect(screen.getByText("Work").tagName).toBe("STRONG");
   });
 
-  it("renders only declared page-reference spans as internal links", () => {
-    const { container } = render(
-      <MemoryRouter>
-        <BlockMarkdown
-          markdown={"See [[Roadmap]] and [[literal]]"}
-          pageReferences={[{ start: 4, end: 15, index: 4, page_id: "roadmap" }]}
-          graphId="graph"
-        />
-      </MemoryRouter>,
-    );
+  it.each(["block", "compact"] as const)(
+    "renders declared page references in %s content",
+    (variant) => {
+      const { container } = render(
+        <MemoryRouter>
+          <BlockMarkdown
+            markdown={"See [[Roadmap]] and [[literal]]"}
+            pageReferences={[{ start: 4, end: 15, index: 4, page_id: "roadmap" }]}
+            graphId="graph"
+            variant={variant}
+          />
+        </MemoryRouter>,
+      );
 
-    expect(screen.getByRole("link", { name: "[[Roadmap]]" })).toHaveAttribute(
-      "href",
-      "/g/graph/p/roadmap",
-    );
-    expect(container.querySelectorAll(".page-reference")).toHaveLength(1);
-    expect(container).toHaveTextContent("and [[literal]]");
-  });
+      expect(screen.getByRole("link", { name: "[[Roadmap]]" })).toHaveAttribute(
+        "href",
+        "/g/graph/p/roadmap",
+      );
+      expect(container.querySelectorAll(".page-reference")).toHaveLength(1);
+      expect(container).toHaveTextContent("and [[literal]]");
+    },
+  );
 
   it("does not treat an authored reserved-looking link as a semantic reference", () => {
     const { container } = render(

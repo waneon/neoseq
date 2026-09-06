@@ -142,6 +142,10 @@ clear of the writing. Entering or leaving editing and changing the wrap
 preference reflows the value without changing column widths; leaving editing
 restores the reading geometry and shows the beginning of the content.
 
+Markdown links and stable page references remain interactive in both layouts.
+Opening a result block uses a separate control and briefly highlights its
+destination after navigation; reduced motion uses a stationary highlight.
+
 ## Standing Answers
 
 Journal standing answers begin after the outline's append region. They need no

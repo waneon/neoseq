@@ -177,6 +177,9 @@ export interface MessageArgumentMap {
   "graph.defaultName": undefined;
   "graph.delete": undefined;
   "graph.deleteConfirm": { readonly "name": string | number };
+  "graph.deleteServer": undefined;
+  "graph.deleteServerConfirm": { readonly "name": string | number };
+  "graph.deleteServerTitle": undefined;
   "graph.deleteTitle": undefined;
   "graph.editor": undefined;
   "graph.empty": undefined;
@@ -473,6 +476,11 @@ export interface MessageArgumentMap {
   "query.viewTable": undefined;
   "query.views": undefined;
   "query.wrap": undefined;
+  "references.emptyBlock": undefined;
+  "references.next": undefined;
+  "references.openBlock": undefined;
+  "references.previous": undefined;
+  "references.title": undefined;
   "repository.actions": undefined;
   "repository.add": undefined;
   "repository.addDetail": undefined;
@@ -619,6 +627,7 @@ export interface MessageArgumentMap {
   "shortcuts.collapseParent": undefined;
   "shortcuts.customise": undefined;
   "shortcuts.customiseRoute": undefined;
+  "shortcuts.cycleTask": undefined;
   "shortcuts.dateExamples": { readonly "key": string | number };
   "shortcuts.deleteBlock": undefined;
   "shortcuts.deletePage": undefined;
@@ -628,6 +637,7 @@ export interface MessageArgumentMap {
   "shortcuts.graph": undefined;
   "shortcuts.graphSettings": undefined;
   "shortcuts.graphSettingsRoute": { readonly "key": string | number };
+  "shortcuts.historyRoute": undefined;
   "shortcuts.indent": undefined;
   "shortcuts.journalPages": undefined;
   "shortcuts.jumpDate": undefined;

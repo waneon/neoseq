@@ -357,6 +357,14 @@
 
 .graph-list-loading {
   pointer-events: none;
+  visibility: hidden;
+  animation: reveal-catalog-loading 0s 200ms forwards;
+}
+
+@keyframes reveal-catalog-loading {
+  to {
+    visibility: visible;
+  }
 }
 
 .graph-card-placeholder {

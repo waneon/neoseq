@@ -43,6 +43,23 @@ const answer: BuiltQueryResult = {
 };
 
 describe("executed query answers", () => {
+  it("keeps links in a read-only content result outside its open control", () => {
+    const onOpen = vi.fn();
+    const columns = resultColumns(answer, initialQueryView(""), context.message);
+    render(
+      <CellValue
+        terms={[text("Read [source](https://example.com)")]}
+        column={columns[0]}
+        subject={answer.rows[0].subject ?? undefined}
+        context={{ ...context, onOpen }}
+      />,
+    );
+    const link = screen.getByRole("link", { name: "source" });
+    expect(link.closest("button")).toBeNull();
+    fireEvent.click(link);
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
   it("reads stable column ids and authored labels directly from the executed descriptor", () => {
     const columns = resultColumns(answer, initialQueryView(""), context.message);
     expect(columns.map((column) => column.variable)).toEqual(["q_제목", "tags"]);

@@ -173,6 +173,8 @@ CorePort.
 - A user intent that needs several ordinary commands uses one bounded, flat
   batch. The core preflights its ordered steps on a fork, then commits one CRDT
   transaction, history entry, durable update, and semantic event.
+- Page and tag linked references are reverse views of semantic inline links,
+  typed page properties, and explicit tag attachments in the disposable index.
 - Shared saved-view definitions, conditions disclosure, and the query builder's
   plan behind a built query are graph data. RDF triples, query results and evaluation plans, private
   presentation preferences, UI selection, and connection state are derived,

@@ -384,6 +384,27 @@ impl GraphStore for MemoryStore {
 
 #[async_trait]
 impl GraphAdmin for MemoryStore {
+    async fn delete_graph(
+        &self,
+        graph_id: &GraphId,
+        actor_account_id: &str,
+    ) -> Result<(), StoreError> {
+        let mut state = self.inner.lock().expect("memory store mutex");
+        if !state.available {
+            return Err(StoreError::Unavailable("injected outage"));
+        }
+        let graph = state.graphs.get(graph_id).ok_or(StoreError::AccessDenied)?;
+        let owner = graph
+            .memberships
+            .get(actor_account_id)
+            .is_some_and(|membership| membership.role == GraphRole::Owner && !membership.revoked);
+        if !owner {
+            return Err(StoreError::AccessDenied);
+        }
+        state.graphs.remove(graph_id);
+        Ok(())
+    }
+
     async fn create_graph(&self, graph: NewGraph<'_>) -> Result<CreateGraphOutcome, StoreError> {
         let mut state = self.inner.lock().expect("memory store mutex");
         if let Some(existing) = state.graphs.get(graph.graph_id) {

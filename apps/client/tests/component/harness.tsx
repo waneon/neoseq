@@ -40,12 +40,43 @@ export const GRAPH_ID = "test-graph";
 // so every mounted session is closed once its tree is gone: on an explicit
 // unmount, and after each test for the trees testing-library tears down.
 const openSessions = new Set<GraphSession>();
+const queryPublications = new Set<Promise<void>>();
+const queuedQueryListeners = new Set<() => void>();
+
+function queueQueryPublication(listener: () => void): void {
+  queuedQueryListeners.add(listener);
+  scheduleQueryPublications();
+}
+
+function scheduleQueryPublications(): void {
+  if (queryPublications.size > 0 || queuedQueryListeners.size === 0) return;
+  const publication = Promise.resolve()
+    .then(async () => {
+      while (queuedQueryListeners.size > 0) {
+        const listeners = [...queuedQueryListeners];
+        queuedQueryListeners.clear();
+        await act(async () => {
+          for (const publish of listeners) publish();
+        });
+      }
+    })
+    .finally(() => {
+      queryPublications.delete(publication);
+      scheduleQueryPublications();
+    });
+  queryPublications.add(publication);
+}
+
+async function settleQueryPublications(): Promise<void> {
+  while (queryPublications.size > 0) await Promise.all([...queryPublications]);
+}
 
 afterEach(async () => {
   cleanup();
   const sessions = [...openSessions];
   openSessions.clear();
   await Promise.all(sessions.map((session) => session.close()));
+  await settleQueryPublications();
 });
 
 export interface Harness {
@@ -120,6 +151,22 @@ export async function mountAt(initialPath: string, custom?: ReactElement): Promi
       act(listener);
     });
   const queryStore = queryExecutionStore(session);
+  // Page and tag references subscribe even when a test is not authoring a query.
+  // Own background answer publications at the same external-store boundary as
+  // session publications; settle() still awaits work explicitly started by a gesture.
+  const subscribeQuery = queryStore.subscribe.bind(queryStore);
+  queryStore.subscribe = (key, listener) => {
+    let subscribed = true;
+    const publish = () => {
+      if (subscribed) listener();
+    };
+    const unsubscribe = subscribeQuery(key, () => queueQueryPublication(publish));
+    return () => {
+      subscribed = false;
+      queuedQueryListeners.delete(publish);
+      unsubscribe();
+    };
+  };
   const router = createMemoryRouter(
     [
       {
@@ -148,22 +195,32 @@ export async function mountAt(initialPath: string, custom?: ReactElement): Promi
   );
   // The notification layer wraps the router in the real app too, so a failure
   // raised by a routed view has the same surface here as in production.
-  const view = render(
-    <LocaleProvider initialPreference="en">
-      <NotifyProvider>
-        <RouterProvider router={router} />
-      </NotifyProvider>
-    </LocaleProvider>,
-  );
+  let view!: RenderResult;
+  await act(async () => {
+    view = render(
+      <LocaleProvider initialPreference="en">
+        <NotifyProvider>
+          <RouterProvider router={router} />
+        </NotifyProvider>
+      </LocaleProvider>,
+    );
+    await Promise.resolve();
+    await queryStore.whenIdle();
+  });
   async function settle(): Promise<void>;
   async function settle<T>(work: () => T | Promise<T>): Promise<T>;
   async function settle<T>(work?: () => T | Promise<T>): Promise<T | void> {
     let value: T | undefined;
     await act(async () => {
       value = await work?.();
+      // A gesture can dispatch execute() without returning its promise. Queue a
+      // no-op preparation behind those commands so their canonical publication
+      // and completion callbacks precede the query-idle snapshot.
+      await session.executePrepared(() => null);
       // Let effects claim their query before taking the store's idle snapshot.
       await Promise.resolve();
       await queryStore.whenIdle();
+      await settleQueryPublications();
     });
     return value;
   }

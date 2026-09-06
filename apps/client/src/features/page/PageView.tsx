@@ -15,6 +15,7 @@ import {
   outlineOwnerKey,
   pageKind,
   pageTitle,
+  queryDocument,
   stringValue,
 } from "../../core-port/snapshot";
 import { FAVOURITE_KEY, isFavourite } from "../../entities/favourites";
@@ -42,6 +43,8 @@ import { useI18n } from "../../i18n";
 import { graphPath } from "../graphs/routing";
 import { LOCAL_REPOSITORY_ID } from "../repositories/directory";
 import { writeClipboardText } from "@/lib/clipboard";
+import { LinkedReferences } from "../references/LinkedReferences";
+import { QueryPanel } from "../query/QueryPanel";
 
 export function PageView() {
   const { graphId = "", pageId = "" } = useParams();
@@ -184,14 +187,38 @@ export function PageBody({
         <AutoHeight>
           <PageProperties page={page} open={propsOpen} onOpenChange={setPropsOpen} />
         </AutoHeight>
+        <PageQuery page={page} />
         <Outliner
           owner={{ kind: "page", id: page.id }}
           blocks={page.blocks}
           scrollElement={scrollElement}
         />
         {foot}
+        <LinkedReferences key={page.id} owner={{ kind: "page", id: page.id }} />
       </article>
     </div>
+  );
+}
+
+function PageQuery({ page }: { page: PageSnapshot }) {
+  const session = useSession();
+  const notify = useNotify();
+  const { message } = useI18n();
+  const document = queryDocument(page.properties);
+  if (!document) return null;
+  const owner = { kind: "page", id: page.id } as const;
+  return (
+    <QueryPanel
+      binding={{ kind: "managed", owner, document }}
+      executionKey={JSON.stringify(["page", page.id])}
+      variant="page"
+      label={message("query.section")}
+      onRemove={() => {
+        void session
+          .execute({ type: "remove_property", owner, key: "builtin.query" })
+          .catch((cause: unknown) => notify.failure(message("failure.saveQuery"), cause));
+      }}
+    />
   );
 }
 

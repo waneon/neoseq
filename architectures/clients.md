@@ -240,13 +240,12 @@ specialized controls without becoming a schema authority:
 - `builtin.query` provides the query builder, read-only source inspection, and
   schema-owned saved result views. Unsupported plans retain their payload and any
   source without automatic migration or raw execution fallback. One surface serves
-  both grounds it appears on:
-  embedded in the outline its views stay in a menu, and on a routed tag page —
-  where the query _is_ the body — they become a permanent tab strip the reader
+  its owning surfaces: embedded in the outline its views stay in a menu,
+  while page and tag queries use a permanent tab strip the reader
   names, drags into order, and deletes. Result columns are dragged into order the
-  same way, and a table declares no column widths until the reader sizes one. It is authored only through `/` on a block or a
-  page: the generic property route never offers it, so a query is never
-  half-created by a picker. A tag's query needs no authoring step at all; the tag
+  same way, and a table declares no column widths until the reader sizes one.
+  Slash commands and Add property create complete query documents; subsequent
+  edits and removal belong to the query panel. A tag's query needs no authoring step at all; the tag
   page seeds a plan that asks what the tag is for and writes nothing until a
   reader shapes it. The same surface serves graph-owned standing journal queries.
   Their documents live in graph settings and retain a `graph_default` write owner
@@ -286,7 +285,7 @@ never hides or destroys its values.
 ## Commands, Navigation, and Errors
 
 `features/commands/` owns the command registry, binding table, global keyboard
-arbitration, command palette, shortcut sheet, and overflow menu. All routes to a
+arbitration, command palette, shortcut sheet, and top-bar history controls. All routes to a
 command share its localized label, binding, icon, and disabled reason. IME and
 already-handled events win before global shortcuts; global shortcuts stand down
 while a modal is open.

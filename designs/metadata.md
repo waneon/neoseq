@@ -23,7 +23,8 @@ One contextual property picker is the authoring surface reached from writing,
 commands, and context menus. The route may differ, but the value semantics and
 control do not. Dates accept language-oriented input while retaining the
 platform picker as a precision route. System-owned keys appear as information,
-not editable generic fields.
+not editable generic fields. Query creation is also available here; it opens the
+same complete query as the slash command, then hands editing to the builder.
 
 Reference pickers keep keyboard focus in the search field and select only from
 an open list. A pending choice runs once; rejection preserves its label for
@@ -35,9 +36,9 @@ persistent title/action control.
 ## Tag References and Identity
 
 A tag beneath a block is a reference. It uses the quiet accent and link behavior,
-and pressing it navigates to the tag. Removing a tag is a separate editing action
-inside the property surface or contextual menu; the most link-like object on a
-row is never destructive.
+and pressing it navigates to the tag. A separate adjacent remove control detaches
+membership without changing the tag itself. Both controls remain independently
+named and keyboard reachable; read-only surfaces retain only navigation.
 
 A deleted tag becomes a tombstone: it gives up link styling, states its missing
 condition, and no longer promises navigation.
@@ -89,6 +90,8 @@ Choice menus preserve stored values outside the current suggested set and make
 removal explicit; merely opening an editor never rewrites data. Completing one
 occurrence of a recurring task advances its moments by the stored cadence and
 keeps the task active rather than presenting the whole task as finished.
+`Mod+Enter` while writing cycles `todo` → `doing` → `done` → no status. It retains
+other task facts and does not split the block or finish editing the result.
 
 ## Moments
 

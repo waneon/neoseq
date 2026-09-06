@@ -407,7 +407,7 @@ describe("property picker", () => {
   });
 
   it("preserves an uninterpreted recurrence while only the moment changes", async () => {
-    const { session } = await mountPage();
+    const { session, settle } = await mountPage();
     const user = userEvent.setup();
     const inserted = await session.execute({
       type: "insert_block",
@@ -437,7 +437,7 @@ describe("property picker", () => {
     fireEvent.change(naturalInput, {
       target: { value: "2026-08-24" },
     });
-    fireEvent.keyDown(naturalInput, { key: "Enter" });
+    await settle(() => fireEvent.keyDown(naturalInput, { key: "Enter" }));
 
     await waitFor(() => {
       const block = session.getState().snapshot.pages[0]?.blocks[0];

@@ -19,27 +19,29 @@ function HistoryPage() {
 
 describe("history navigation", () => {
   it("expands collapsed ancestors before revealing a same-page target", async () => {
-    const { session } = await mountAt(`/g/${GRAPH_ID}/p/home`, <HistoryPage />);
-    await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
-    const parent = await session.execute({
-      type: "insert_block",
-      owner: { kind: "page", id: "home" },
-      parent: null,
-      index: 0,
-      markdown: "parent",
-    });
-    const child = await session.execute({
-      type: "insert_block",
-      owner: { kind: "page", id: "home" },
-      parent: parent.created_block,
-      index: 0,
-      markdown: "before",
-    });
-    await session.execute({
-      type: "edit_markdown",
-      owner: { kind: "page", id: "home" },
-      block_id: child.created_block!,
-      markdown: "after",
+    const { session, settle } = await mountAt(`/g/${GRAPH_ID}/p/home`, <HistoryPage />);
+    await settle(async () => {
+      await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
+      const parent = await session.execute({
+        type: "insert_block",
+        owner: { kind: "page", id: "home" },
+        parent: null,
+        index: 0,
+        markdown: "parent",
+      });
+      const child = await session.execute({
+        type: "insert_block",
+        owner: { kind: "page", id: "home" },
+        parent: parent.created_block,
+        index: 0,
+        markdown: "before",
+      });
+      await session.execute({
+        type: "edit_markdown",
+        owner: { kind: "page", id: "home" },
+        block_id: child.created_block!,
+        markdown: "after",
+      });
     });
 
     const user = userEvent.setup();
@@ -57,28 +59,30 @@ describe("history navigation", () => {
   });
 
   it("moves to a cross-page block target and reveals it without stealing focus", async () => {
-    const { session, router } = await mountAt(`/g/${GRAPH_ID}/p/home`, <HistoryPage />);
-    await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
-    await session.execute({ type: "ensure_page", page_id: "target", title: "Target" });
-    await session.execute({
-      type: "insert_block",
-      owner: { kind: "page", id: "home" },
-      parent: null,
-      index: 0,
-      markdown: "stay here",
-    });
-    const inserted = await session.execute({
-      type: "insert_block",
-      owner: { kind: "page", id: "target" },
-      parent: null,
-      index: 0,
-      markdown: "before",
-    });
-    await session.execute({
-      type: "edit_markdown",
-      owner: { kind: "page", id: "target" },
-      block_id: inserted.created_block!,
-      markdown: "after",
+    const { session, router, settle } = await mountAt(`/g/${GRAPH_ID}/p/home`, <HistoryPage />);
+    await settle(async () => {
+      await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
+      await session.execute({ type: "ensure_page", page_id: "target", title: "Target" });
+      await session.execute({
+        type: "insert_block",
+        owner: { kind: "page", id: "home" },
+        parent: null,
+        index: 0,
+        markdown: "stay here",
+      });
+      const inserted = await session.execute({
+        type: "insert_block",
+        owner: { kind: "page", id: "target" },
+        parent: null,
+        index: 0,
+        markdown: "before",
+      });
+      await session.execute({
+        type: "edit_markdown",
+        owner: { kind: "page", id: "target" },
+        block_id: inserted.created_block!,
+        markdown: "after",
+      });
     });
 
     const user = userEvent.setup();
@@ -90,14 +94,20 @@ describe("history navigation", () => {
     });
     const textarea = screen.getByLabelText("Block text");
     expect(textarea.closest('[role="treeitem"]')).toHaveAttribute("data-revealed", "true");
+    expect(textarea.closest('[role="treeitem"]')).toHaveAttribute(
+      "data-navigation-highlight",
+      "true",
+    );
     expect(document.activeElement).not.toBe(textarea);
   });
 
   it("keeps the current route for graph-wide history effects", async () => {
-    const { session, router } = await mountAt(`/g/${GRAPH_ID}/p/home`, <HistoryPage />);
-    await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
-    await session.execute({ type: "ensure_tag", tag_id: "topic", name: "Topic" });
-    await session.execute({ type: "delete_tag", tag_id: "topic" });
+    const { session, router, settle } = await mountAt(`/g/${GRAPH_ID}/p/home`, <HistoryPage />);
+    await settle(async () => {
+      await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
+      await session.execute({ type: "ensure_tag", tag_id: "topic", name: "Topic" });
+      await session.execute({ type: "delete_tag", tag_id: "topic" });
+    });
 
     await userEvent.setup().click(screen.getByRole("button", { name: "Undo history" }));
 

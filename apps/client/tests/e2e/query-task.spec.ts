@@ -43,8 +43,7 @@ test("query-task projections share ordinary properties and the SPARQL index", as
   await typeInFocusedBlock(page, "Ship the query engine");
 
   // Make the query while the outline is the only active surface. Property and
-  // dropdown focus restoration below must not overlap the slash command that is
-  // the query's sole creation route.
+  // dropdown focus restoration below must not overlap the slash command.
   const taskText = page.locator(".outline-input").first();
   await taskText.click();
   await taskText.press("End");
@@ -64,14 +63,14 @@ test("query-task projections share ordinary properties and the SPARQL index", as
   await mutateAndAwaitSaved(page, () => chooseFromMenu(page, status, "Done"));
   await expect(page.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: Done");
 
-  // The query property has no picker route: `/` is the only way to make one.
+  // The slash menu and property picker create the same query document.
   // (A `user.query` key of one's own is still offerable — that is a different
   // property that happens to share a word.)
   await openBlockProperties(page, 0);
   await page.getByTestId("property-picker").getByLabel("Property key").fill("query");
   await expect(
     page.getByTestId("property-picker").getByRole("option", { name: "Query", exact: true }),
-  ).toHaveCount(0);
+  ).toHaveCount(1);
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("property-picker")).toHaveCount(0);
 

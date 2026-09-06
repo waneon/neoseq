@@ -88,9 +88,9 @@ export function customToneCss(value: ToneValue): string | undefined {
  * reader-owned hue/chroma pairs.
  */
 export interface DueTierSettings {
-  /** Due in this many calendar days, counting today as day one, reads as `soon`. */
+  /** Due through this many calendar days ahead reads as `soon`. */
   soonDays: number;
-  /** Due in this many calendar days, counting today as day one, reads as `upcoming`. */
+  /** Due through this many calendar days ahead reads as `upcoming`. */
   upcomingDays: number;
   overdueTone: ToneValue;
   todayTone: ToneValue;

@@ -80,6 +80,7 @@ import { QueryBlock } from "../query/QueryBlock";
 import { TaskPriorityControl } from "../tasks/PriorityControl";
 import { TaskStatusControl } from "../tasks/StatusControl";
 import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
+import { cycleTaskCommand, isTaskCycleKey } from "../tasks/commands";
 import { transformAutoClosers, type AutoCloserMarker } from "../blocks/editor/auto-pair";
 import type { PeerPresence } from "../sync/SyncAgent";
 import {
@@ -288,6 +289,7 @@ interface EditorContext {
   covered: ReadonlySet<string>;
   /** Rows the last expand uncovered. They fade up; nothing else in the list does. */
   revealed: ReadonlySet<string>;
+  navigationHighlight: HistoryRevealRequest | null;
   /** Rows the selection covers, passengers included — what a bulk verb will take. */
   selectionCount: number;
   presence: readonly PeerPresence[];
@@ -308,6 +310,7 @@ interface EditorContext {
   closeSlash(): void;
   setSlashActive(index: number): void;
   acceptSlash(row: OutlineRow, item?: SlashItem): void;
+  cycleTask(row: OutlineRow): void;
   closeHash(): void;
   setHashActive(index: number): void;
   acceptHash(row: OutlineRow, option?: TagOption): void;
@@ -496,6 +499,12 @@ export function Outliner({
   }, []);
   const [collapsed, setCollapsed, collapsedRef] = useImmediateState<ReadonlySet<string>>(new Set());
   const [revealed, setRevealed] = useState<ReadonlySet<string>>(NOTHING_REVEALED);
+  const [navigationHighlight, setNavigationHighlight] = useState<HistoryRevealRequest | null>(null);
+  useEffect(() => {
+    if (!navigationHighlight) return;
+    const timer = setTimeout(() => setNavigationHighlight(null), 1100);
+    return () => clearTimeout(timer);
+  }, [navigationHighlight]);
   const [selected, setSelected, selectedRef] = useImmediateState<ReadonlySet<string>>(new Set());
   const [visualLine, setVisualLine, visualLineRef] = useImmediateState<VisualLineRange | null>(
     null,
@@ -548,8 +557,9 @@ export function Outliner({
     blockId: string;
     selection?: { start: number; end: number };
     /** A slash choice made on a pending row, replayed once the real id lands. */
-    action?: SlashItem["action"];
+    action?: SlashItem["action"] | { kind: "cycle_task"; steps: number };
   } | null>(null);
+  const taskCycleQueue = useRef(Promise.resolve());
   /** A `#` choice made on a pending row, replayed once the real id lands. */
   const pendingTag = useRef<{ blockId: string; option: TagOption } | null>(null);
   const anchorId = useRef<string | null>(null);
@@ -1158,7 +1168,19 @@ export function Outliner({
           if (pendingProperty.current?.blockId === head.tempId) {
             const intent = pendingProperty.current;
             pendingProperty.current = null;
-            if (intent.action?.kind === "set") {
+            if (intent.action?.kind === "cycle_task") {
+              const currentOutline = findOutline(session.getState().snapshot, ownerRef.current);
+              const block = currentOutline && findBlock(currentOutline, realId);
+              if (block) {
+                void commitDraftWith(
+                  realId,
+                  typed,
+                  cycleTaskCommand(ownerRef.current, block, intent.action.steps),
+                  message("failure.setProperty"),
+                );
+                completionCommitted = true;
+              }
+            } else if (intent.action?.kind === "set") {
               const action = intent.action;
               void commitDraftWith(
                 realId,
@@ -2097,6 +2119,7 @@ export function Outliner({
     menuAnchor,
     covered: selectionCovered,
     revealed,
+    navigationHighlight,
     selectionCount,
     presence: [...state.presence.values()].filter(
       (peer) => peer.owner !== undefined && sameOutlineOwner(peer.owner, owner),
@@ -2144,6 +2167,30 @@ export function Outliner({
     },
     closeSlash: () => setSlashRequest(null),
     setSlashActive: setSlashActiveState,
+    cycleTask: (row) => {
+      if (readonly) return;
+      if (isPendingId(row.block.id)) {
+        const pending = pendingProperty.current;
+        const steps =
+          pending?.blockId === row.block.id && pending.action?.kind === "cycle_task"
+            ? pending.action.steps + 1
+            : 1;
+        pendingProperty.current = { blockId: row.block.id, action: { kind: "cycle_task", steps } };
+        dispatchPending();
+        return;
+      }
+      taskCycleQueue.current = taskCycleQueue.current.then(async () => {
+        const currentOutline = findOutline(session.getState().snapshot, owner);
+        const block = currentOutline && findBlock(currentOutline, row.block.id);
+        if (!block) return;
+        await commitDraftWith(
+          block.id,
+          readDraft(block.id)?.markdown ?? block.markdown,
+          cycleTaskCommand(owner, block),
+          message("failure.setProperty"),
+        );
+      });
+    },
     acceptSlash: (row, item) => {
       const request = slashRequest;
       const chosen = item ?? slashResults[slashIndex];
@@ -2777,6 +2824,7 @@ export function Outliner({
     }
 
     setRevealed(new Set([request.blockId]));
+    setNavigationHighlight(request);
     if (revealTimer.current) clearTimeout(revealTimer.current);
     revealTimer.current = setTimeout(() => {
       revealTimer.current = null;
@@ -3446,6 +3494,11 @@ function onKeyDown(
 ) {
   // Never let structural commands interrupt an active IME composition.
   if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+  if (isTaskCycleKey(event)) {
+    event.preventDefault();
+    editor.cycleTask(row);
+    return;
+  }
   if (editor.slashRequest?.blockId === row.block.id) {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -3955,6 +4008,7 @@ interface BlockRowProps {
   focused: boolean;
   selected: boolean;
   revealed: boolean;
+  highlightToken?: string;
   readonly: boolean;
   keymap: EditorKeymap;
   vimMode: VimMode;
@@ -3981,6 +4035,10 @@ function blockRowProps(
     focused,
     selected: editor.covered.has(row.block.id),
     revealed: editor.revealed.has(row.block.id),
+    highlightToken:
+      editor.navigationHighlight?.blockId === row.block.id
+        ? editor.navigationHighlight.token
+        : undefined,
     readonly: editor.readonly,
     keymap: editor.keymap,
     vimMode: editor.vim.state.mode,
@@ -4075,6 +4133,7 @@ function BlockRow({
       data-empty={value.length === 0}
       data-collapsed={row.collapsed}
       data-revealed={view.revealed || undefined}
+      data-navigation-highlight={view.highlightToken ? true : undefined}
       data-has-children={row.hasChildren}
       data-ancestor={ancestor || undefined}
       data-block-id={row.block.id}
@@ -4122,6 +4181,9 @@ function BlockRow({
         </>
       }
     >
+      {view.highlightToken && (
+        <span key={view.highlightToken} className="outline-navigation-highlight" aria-hidden />
+      )}
       <BlockBody
         className="outline-text"
         taskStatus={taskStatus}

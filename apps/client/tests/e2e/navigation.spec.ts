@@ -80,8 +80,7 @@ for (const direction of ["ltr", "rtl"] as const) {
   test(`a collapsed desktop rail still opens as a narrow ${direction} drawer`, async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await createGraph(page, "Responsive navigation");
-    await page.getByTestId("overflow-menu").click();
-    await page.getByTestId("overflow-toggle-rail").click();
+    await page.keyboard.press("ControlOrMeta+\\");
     await expect(page.locator(".shell-sidebar")).not.toBeVisible();
 
     // The desktop preference survives a reload, while compact drawer openness

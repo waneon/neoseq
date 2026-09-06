@@ -5,7 +5,7 @@
 // the question can be changed, that the journal states it and answers it, and
 // that both are talking about one execution rather than two.
 
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { newDefaultQueryDocument, type DefaultQuery } from "../../src/entities/default-queries";
@@ -33,9 +33,9 @@ function queries(harness: Harness): DefaultQuery[] {
   return harness.session.getState().snapshot.settings.default_queries;
 }
 
-async function addQuery(user: ReturnType<typeof userEvent.setup>, harness: Harness): Promise<void> {
+async function addQuery(harness: Harness): Promise<void> {
   const count = queries(harness).length;
-  await user.click(screen.getByTestId("add-default-query"));
+  await harness.settle(() => fireEvent.click(screen.getByTestId("add-default-query")));
   await waitFor(() => {
     expect(queries(harness)).toHaveLength(count + 1);
     const rows = screen.getAllByTestId("default-query-disclose");
@@ -130,16 +130,18 @@ async function tableRow(harness: Harness): Promise<void> {
 }
 
 async function installResultBlock(harness: Harness): Promise<string> {
-  await harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
-  const result = await harness.session.execute({
-    type: "insert_block",
-    owner: { kind: "page", id: "home" },
-    parent: null,
-    index: 0,
-    markdown: "",
+  return harness.settle(async () => {
+    await harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
+    const result = await harness.session.execute({
+      type: "insert_block",
+      owner: { kind: "page", id: "home" },
+      parent: null,
+      index: 0,
+      markdown: "",
+    });
+    if (!result.created_block) throw new Error("query result block was not created");
+    return result.created_block;
   });
-  if (!result.created_block) throw new Error("query result block was not created");
-  return result.created_block;
 }
 
 async function revealInjectedResult(
@@ -147,12 +149,14 @@ async function revealInjectedResult(
   blockId: string,
   markdown: string,
 ): Promise<void> {
-  await harness.session.execute({
-    type: "edit_markdown",
-    owner: { kind: "page", id: "home" },
-    block_id: blockId,
-    markdown,
-  });
+  await harness.settle(() =>
+    harness.session.execute({
+      type: "edit_markdown",
+      owner: { kind: "page", id: "home" },
+      block_id: blockId,
+      markdown,
+    }),
+  );
 }
 
 beforeEach(() => {
@@ -167,10 +171,9 @@ afterEach(() => {
 
 describe("writing a standing question", () => {
   it("offers the one entrance the outline's `/` does, and only that one", async () => {
-    const user = userEvent.setup();
     const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
 
-    await addQuery(user, harness);
+    await addQuery(harness);
     const [built] = queries(harness);
     // The fake observes the same core-owned derivation boundary as a block query.
     expect(
@@ -193,7 +196,7 @@ describe("writing a standing question", () => {
   it("authors a table's executable columns here", async () => {
     const user = userEvent.setup();
     const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
-    await addQuery(user, harness);
+    await addQuery(harness);
 
     // A list draws entities and states everything; only a table has columns to
     // choose between, so only a table is asked.
@@ -225,7 +228,7 @@ describe("writing a standing question", () => {
   it("saves explicit Conditions folds in the view independently of the Settings row", async () => {
     const user = userEvent.setup();
     const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
-    await addQuery(user, harness);
+    await addQuery(harness);
 
     const conditions = screen.getByTestId("default-query-conditions-trigger");
     expect(conditions).toHaveAttribute("aria-expanded", "true");
@@ -255,7 +258,7 @@ describe("writing a standing question", () => {
   it("keeps Conditions open and reports a rejected disclosure write", async () => {
     const user = userEvent.setup();
     const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
-    await addQuery(user, harness);
+    await addQuery(harness);
     const execute = vi
       .spyOn(harness.session, "execute")
       .mockRejectedValueOnce(new Error("Disclosure write rejected"));
@@ -276,7 +279,7 @@ describe("writing a standing question", () => {
   it("names itself after the question until the reader names it", async () => {
     const user = userEvent.setup();
     const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
-    await addQuery(user, harness);
+    await addQuery(harness);
 
     const title = screen.getByTestId("default-query-title");
     expect(title).toHaveAttribute("placeholder", "Blocks");
@@ -290,11 +293,10 @@ describe("writing a standing question", () => {
   });
 
   it("says how much a standing question finds, at the size the journal prints it", async () => {
-    const user = userEvent.setup();
     const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
     await oneRow(harness);
 
-    await addQuery(user, harness);
+    await addQuery(harness);
 
     await waitFor(() =>
       expect(screen.getByTestId("default-query-count")).toHaveTextContent("1 result"),
@@ -302,7 +304,6 @@ describe("writing a standing question", () => {
   });
 
   it("reports a failing query as a failure rather than as an empty answer", async () => {
-    const user = userEvent.setup();
     const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
     harness.port.queryFailure = {
       code: "invalid_query",
@@ -310,7 +311,7 @@ describe("writing a standing question", () => {
       retryable: false,
     };
 
-    await addQuery(user, harness);
+    await addQuery(harness);
 
     // The count is the first thing that says so, and the reason is stated beside
     // the editor that can fix it rather than only under the journal.
@@ -402,7 +403,12 @@ describe("reading a standing question", () => {
     // The question is external to this surface; its saved presentation is not.
     expect(within(section).getByTestId("query-view-trigger")).toBeInTheDocument();
 
-    await user.click(within(section).getByTestId("query-actions-trigger"));
+    await harness.settle(() =>
+      fireEvent.pointerDown(within(section).getByTestId("query-actions-trigger"), {
+        button: 0,
+        ctrlKey: false,
+      }),
+    );
     expect(await screen.findByTestId("journal-query-settings")).toHaveTextContent(
       "Edit in Settings",
     );
@@ -462,16 +468,20 @@ describe("reading a standing question", () => {
 
     // The journal's answer and the editor's count are the same question under one
     // key, so a canonical change costs one execution rather than one per surface.
-    const before = harness.port.queryRequests.length;
+    const standingRequests = () =>
+      harness.port.queryRequests.filter(
+        ({ query }) => query.kind === "raw_sparql" && query.source === SOURCE,
+      );
+    const before = standingRequests().length;
     vi.useFakeTimers();
     await act(async () => {
       await harness.session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
     });
-    expect(harness.port.queryRequests).toHaveLength(before);
+    expect(standingRequests()).toHaveLength(before);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(300);
     });
-    expect(harness.port.queryRequests).toHaveLength(before + 1);
+    expect(standingRequests()).toHaveLength(before + 1);
   });
 
   it("shares Conditions state between the journal and Settings through document history", async () => {
