@@ -556,6 +556,7 @@ export function QueryTableView({
                         row={row}
                         editor={editor}
                         className="query-cell-control"
+                        wrap={wrap}
                       />
                     </QueryTableCellFrame>
                   </td>

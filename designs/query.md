@@ -123,6 +123,14 @@ states use a contained fill, while keyboard focus alone adds an inset ring. Grid
 separators are independent and consistently belong to the preceding row's
 bottom edge.
 
+Content cells never own a horizontal scrollbar. Reading follows the view's wrap
+preference and marks clipped text with an ellipsis without introducing a cell
+scrollport. Inline editing always wraps, including unbroken text, and grows to
+a bounded height before allowing vertical scrolling. Scrollbar space stays
+clear of the writing. Entering or leaving editing and changing the wrap
+preference reflows the value without changing column widths; leaving editing
+restores the reading geometry and shows the beginning of the content.
+
 ## Standing Answers
 
 Journal standing answers begin after the outline's append region. They need no

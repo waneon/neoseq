@@ -7,6 +7,8 @@ export function useTextAreaSize(
   value: string,
   hidden: boolean,
   onMeasure?: (textarea: HTMLTextAreaElement) => void,
+  /** Wrapping or insets can change without a new value or outer box width. */
+  layoutKey?: string,
 ) {
   const afterMeasure = useLatest(onMeasure);
   useLayoutEffect(() => {
@@ -35,5 +37,5 @@ export function useTextAreaSize(
     });
     observer.observe(textarea);
     return () => observer.disconnect();
-  }, [afterMeasure, hidden, ref, value]);
+  }, [afterMeasure, hidden, ref, value, layoutKey]);
 }

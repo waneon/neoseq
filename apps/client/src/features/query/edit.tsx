@@ -856,6 +856,7 @@ function QueryMarkdownField({
   editLabel,
   column,
   surface,
+  wrap = true,
 }: {
   editor: QueryResultEditor;
   binding: Extract<QueryEditBinding, { kind: "markdown" }>;
@@ -866,6 +867,7 @@ function QueryMarkdownField({
   editLabel?: string;
   column?: ResultColumn;
   surface: "queryList" | "queryTable";
+  wrap?: boolean;
 }) {
   const state = useSessionSelector(
     (current) => current,
@@ -996,13 +998,29 @@ function QueryMarkdownField({
     [block?.tags, blockId, compare, editor, pageDirectory, slashItems, state.snapshot.tags],
   );
 
-  useTextAreaSize(textarea, projected, previewMarkdown, (element) => {
-    const style = getComputedStyle(element);
-    setClipped(
-      (style.overflowX === "hidden" && element.scrollWidth > element.clientWidth) ||
-        (style.overflowY === "hidden" && element.scrollHeight > element.clientHeight),
-    );
-  });
+  const textLayout = current ? "editing" : wrap ? "wrapped" : "single-line";
+  useTextAreaSize(
+    textarea,
+    projected,
+    previewMarkdown,
+    (element) => {
+      const style = getComputedStyle(element);
+      setClipped(
+        (style.overflowX === "hidden" && element.scrollWidth > element.clientWidth) ||
+          (style.overflowY === "hidden" && element.scrollHeight > element.clientHeight),
+      );
+    },
+    textLayout,
+  );
+
+  useLayoutEffect(() => {
+    if (surface !== "queryTable" || current || !textarea.current) return;
+    // Reset the inactive caret with the reading position so keyboard re-entry
+    // cannot inherit an offscreen selection from the previous edit.
+    textarea.current.setSelectionRange(0, 0);
+    textarea.current.scrollTop = 0;
+    textarea.current.scrollLeft = 0;
+  }, [current, surface, projected]);
 
   const editing = Boolean(markdown);
   useLayoutEffect(() => {
@@ -1015,8 +1033,8 @@ function QueryMarkdownField({
   }, [editing]);
 
   const Root = policy.markdown === "block" ? "div" : "span";
-  // An open cell scrolls again: a caret that has travelled past the edge has to
-  // be followed, and the mark would be standing where the writing is.
+  // An open cell wraps and grows to its height limit; only then does it scroll
+  // vertically to follow the caret. The ellipsis belongs to the reading state.
   const cut = clipped && !current && !previewMarkdown;
   return (
     <Root
@@ -1028,6 +1046,7 @@ function QueryMarkdownField({
       <BlockTextArea
         ref={textarea}
         rows={1}
+        wrap={textLayout === "single-line" ? "off" : "soft"}
         className="query-result-input"
         value={projected}
         autoClosers={markdown?.autoClosers ?? []}
@@ -1606,6 +1625,7 @@ export function EditableCellValue({
   row,
   editor,
   className,
+  wrap = true,
 }: {
   terms: RdfTerm[] | undefined;
   column: ResultColumn;
@@ -1613,6 +1633,7 @@ export function EditableCellValue({
   row: ResultViewRow;
   editor: QueryResultEditor;
   className?: string;
+  wrap?: boolean;
 }): ReactNode {
   const term = terms?.[0];
   const binding = editor.bindingFor(row.subject, column);
@@ -1628,6 +1649,7 @@ export function EditableCellValue({
         label={context.message("outline.blockText")}
         column={column}
         surface="queryTable"
+        wrap={wrap}
       />
     );
   }

@@ -1666,22 +1666,25 @@ button.query-disclosure:focus-visible {
   padding: 0;
 }
 
-/* ── A cut value ends in a mark, not a scrollbar ──
-   Every other clipped run in the product ends in `text-overflow: ellipsis`, and
-   a table cell is the one place that property cannot reach: it never applies to
-   the text inside a textarea. So a value wider than its column grew a trough
-   under one row of a table that already scrolls sideways — the second scrollbar
-   that designs/query.md § Table and List Views excludes, this time on the other
-   axis and inside a single cell. A settled cell hides what it cannot show and
-   the editor draws the ellipsis beside the line; an open one scrolls again,
-   because a caret that has travelled past the edge has to be followed. */
-.query-table[data-wrap="false"] .query-result-input {
+/* Reading values clip with an ellipsis, even when wrapped content reaches the
+   height limit. Editing always wraps, grows to that limit, and scrolls only
+   vertically. The gutter reserves classic scrollbars; end padding also keeps
+   overlay scrollbars clear of the writing. */
+.query-table .query-result-input {
   overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.query-table .query-result-input[wrap="off"] {
+  max-height: var(--lh-sm);
   white-space: pre;
 }
 
-.query-table[data-wrap="false"] .query-result-editor[data-active] .query-result-input {
-  overflow: auto;
+.query-table .query-result-editor[data-active] .query-result-input {
+  overflow-y: auto;
+  white-space: pre-wrap;
+  scrollbar-gutter: stable;
+  padding-inline-end: var(--sp-3);
 }
 
 /* The line makes room for the mark rather than sliding under it, which is what
@@ -1709,10 +1712,6 @@ button.query-disclosure:focus-visible {
   flex: none;
   color: inherit;
   cursor: text;
-}
-
-.query-table[data-wrap="true"] .query-result-input {
-  overflow-wrap: anywhere;
 }
 
 .query-result-editor[data-saving="true"] .query-result-input {
