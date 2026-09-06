@@ -6,7 +6,7 @@ import { login } from "@/api";
 import { useI18n } from "@/i18n";
 import { Button } from "@/ui/shadcn/button";
 import { Callout, TextField } from "@/ui/components";
-import { LogoMark } from "@/ui/brand";
+import { Wordmark } from "@/ui/brand";
 import { LanguageControl, ThemeControl } from "./Appearance";
 import { failureMessage, type Session } from "./session";
 
@@ -48,8 +48,7 @@ export function SignIn({
     <main className="signin">
       <div className="signin-inner">
         <p className="signin-mark">
-          <LogoMark aria-hidden />
-          <span>{message("dashboard.wordmark")}</span>
+          <Wordmark name={message("dashboard.wordmark")} />
           <span className="wordmark-role">{message("dashboard.wordmarkRole")}</span>
         </p>
         <h1>{message("signIn.title")}</h1>

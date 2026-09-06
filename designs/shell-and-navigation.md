@@ -98,21 +98,28 @@ how a reader shapes a saved view.
 
 ## First Light
 
-Graph opening uses a narrow, centered catalog on the same neutral canvas as the
-writing surface. Identity, repository scope, and graph cards carry the hierarchy;
-the page remains fixed while the selected catalog loads. Graph creation keeps a
-visible name label and an example; on the narrowest screens its action stacks
-below the field so neither loses its usable width.
+Graph opening is a bounded library on the writing surface's neutral canvas.
+A faint wash of the reader's accent fades from the top into the neutral canvas.
+On wide screens its ordinary catalog footprint sits near the viewport's vertical
+center; short and compact screens retain comfortable edge padding. Longer
+catalogs grow downward from that anchor rather than recentering the screen.
+Repository navigation sits beside one catalog on wide screens and becomes a
+horizontal, scrolling tab list on compact screens. Local stays first; remote
+locations identify both account and server. Tab orientation and keyboard movement
+follow the visible layout. The library's top edge stays fixed during loading and
+repository changes.
 
-Repositories form one horizontal index above the graph list. Local is the
-stable first tab; each remote tab represents exactly one server account, an
-adjacent `+` opens the connection dialog, and a remote tab's own menu signs
-out or forgets that account. A remote graph card offers to remove this device's
-copy; only a local graph can be deleted, because only its browser holds it. Selecting a tab changes the scope of
-listing, creation, and archive import together. The active tab uses a single
-accent underline rather than a filled pill, keeping the graph cards as the
-screen's primary objects. Tabs may scroll horizontally without wrapping or
-moving the add control.
+The catalog prioritizes opening existing graphs. An empty catalog explains what
+a graph holds and offers creation directly; a populated catalog keeps that action
+in its header. Creation opens a dialog with a labeled name field, an example, and
+the selected destination. Dismissal returns focus to its initiating action. Archive
+import remains a secondary action in the catalog footer and always creates a copy.
+
+A named server-connection action stays alongside repository navigation. The
+selected remote account's menu signs out or forgets that account. Remote graph
+actions remove this device's copy; only local graphs can be deleted. Repository
+selection scopes listing, creation, and import together. Browser-wide language
+and appearance choices remain available from the masthead before opening a graph.
 
 ## Responsive Contract
 

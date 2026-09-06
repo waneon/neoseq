@@ -123,9 +123,11 @@ test("mobile navigation and editing remain reachable through the drawer", async 
 test("graph creation preserves usable fields on the narrowest screen", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await page.goto("/");
+  await expect(page.getByTestId("picker-empty")).toBeVisible();
+  await page.getByTestId("new-graph").tap();
   const name = page.getByTestId("new-graph-name");
   const create = page.getByTestId("create-graph");
-  await expect(page.getByTestId("picker-empty")).toBeVisible();
+  await expect(name).toBeFocused();
   const field = await name.boundingBox();
   const action = await create.boundingBox();
   expect(field!.height).toBeGreaterThanOrEqual(32);

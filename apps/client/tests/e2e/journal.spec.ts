@@ -31,6 +31,52 @@ test("creates a graph, writes today's journal, and survives reload", async ({ pa
   await expect.poll(() => blockTexts(page)).toEqual(["captured before reload"]);
 });
 
+test("graph creation supports keyboard entry and returns focus when cancelled", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const opener = page.getByTestId("new-graph");
+  const name = page.getByTestId("new-graph-name");
+  await expect(page.getByTestId("picker-empty")).toBeVisible();
+  await expect(page.getByTestId("import-graph")).toBeVisible();
+  await expect(name).toHaveCount(0);
+
+  for (const dismissal of ["Escape", "Cancel"]) {
+    await opener.focus();
+    await page.keyboard.press("Enter");
+    await expect(name).toBeFocused();
+    await name.fill("Uncreated draft");
+
+    if (dismissal === "Escape") await page.keyboard.press("Escape");
+    else await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(opener).toBeFocused();
+    await expect(page.getByTestId("picker-empty")).toBeVisible();
+  }
+
+  await page.keyboard.press("Enter");
+  await expect(name).toBeFocused();
+  await expect(name).toHaveValue("");
+  await name.fill("Keyboard graph");
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("journal-title")).toBeVisible();
+
+  await page.goto("/");
+  await expect(page.getByTestId("open-graph-Keyboard graph")).toBeVisible();
+  await expect(page.getByTestId("open-graph-Uncreated draft")).toHaveCount(0);
+  await expect(page.getByTestId("import-graph")).toBeVisible();
+  await opener.click();
+  await expect(name).toBeFocused();
+  await name.fill("Second graph");
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("journal-title")).toBeVisible();
+
+  await page.goto("/");
+  await expect(page.getByTestId("open-graph-Keyboard graph")).toBeVisible();
+  await expect(page.getByTestId("open-graph-Second graph")).toBeVisible();
+});
+
 test("navigates journal days and keeps entries per date", async ({ page }) => {
   await createGraph(page, "Days Graph");
   const today = await page.getByTestId("journal-calendar-trigger").getAttribute("data-date");
@@ -101,8 +147,9 @@ test("names the product once in the rail, and again in the tab", async ({ page }
 
   // The rail says it, above the graph switcher, with the mark beside it.
   const brand = page.getByTestId("brand");
-  await expect(brand).toHaveText("Neoseq");
-  await expect(brand.locator("svg")).toBeVisible();
+  await expect(brand.getByRole("img", { name: "Neoseq" })).toBeVisible();
+  await expect(brand.locator(".brand-symbol")).toBeVisible();
+  await expect(brand.locator(".brand-wordmark")).toBeVisible();
 
   // And the tab: the title comes from the locale catalog, the icon from a real
   // asset that the production bundle actually ships.
@@ -112,5 +159,6 @@ test("names the product once in the rail, and again in the tab", async ({ page }
   const href = await icon.getAttribute("href");
   const response = await page.request.get(new URL(href ?? "", page.url()).href);
   expect(response.status()).toBe(200);
+  expect(response.headers()["content-type"]).toContain("image/svg+xml");
   expect(await response.text()).toContain("<svg");
 });

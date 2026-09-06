@@ -1,0 +1,32 @@
+/* The supplied symbol and lettering share proportions, not a text font. */
+.brand-lockup {
+  --brand-size: 24px;
+  display: inline-flex;
+  align-items: flex-end;
+  flex: none;
+  gap: calc(var(--brand-size) * 0.147);
+  line-height: 0;
+  color: var(--ink);
+}
+
+.brand-symbol,
+.brand-wordmark {
+  display: block;
+  flex: none;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
+}
+
+.brand-symbol {
+  width: calc(var(--brand-size, 24px) * 1.02);
+  height: var(--brand-size, 24px);
+  background: var(--brand-ink);
+}
+
+.brand-wordmark {
+  width: calc(var(--brand-size) * 2.675);
+  height: calc(var(--brand-size) * 0.592);
+  margin-bottom: calc(var(--brand-size) * 0.024);
+  background: currentColor;
+}

@@ -30,8 +30,10 @@ history navigation preserves that repository prefix.
 
 ## Directory and Catalog
 
-The main screen renders repositories as tabs. Selecting a tab scopes all graph
-operations:
+The main screen presents one selected catalog inside a bounded graph library.
+Repository tabs form a sidebar on wide screens and a horizontal index on compact
+screens. A named connection action adds a server account. Selecting a tab scopes
+all graph operations:
 
 - local lists the browser's local replica metadata;
 - remote lists every graph authorized for that server account;
@@ -45,6 +47,11 @@ it. Revalidation never clears successful data, and an obsolete or cancelled
 request cannot publish into another repository's panel. Initial loads reserve
 the ordinary catalog footprint; the picker header is anchored independently of
 catalog height.
+
+Graph creation names its selected destination in a dialog; archive import stays
+in the catalog footer. An empty catalog offers creation directly. Browser-local
+language and appearance preferences are available before a graph session opens
+and do not belong to the repository directory.
 
 Opening an uncached remote graph creates only a provisional local replica. Its
 sync-state record has no server-Base provenance, so it remains read-only and says

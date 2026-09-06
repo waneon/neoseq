@@ -1,165 +1,356 @@
-/* ─────────────────────── 9. graph picker ─────────────────────── */
-
-/* Graph selection is a stable, centered catalog; only its list grows. */
+/* Startup is a library: location navigation beside a stable graph catalog. */
 .picker {
   min-height: 100%;
-  display: flex;
-  justify-content: center;
-  padding: var(--sp-8) var(--gutter);
+  padding: var(--sp-6) var(--gutter) var(--sp-7);
   background: var(--canvas);
 }
 
-/* A catalog changes height as repositories change and remote results arrive.
-   Its header stays on one physical line; only the list grows toward the page
-   foot. Centring this column made every catalog response move the whole screen. */
+.picker-startup {
+  background-image: linear-gradient(to bottom, var(--accent-tint), transparent min(420px, 60svh));
+}
+
+/* Center the ordinary startup footprint without moving its anchor when a
+   catalog loads or grows. Compact and short viewports retain edge padding. */
+@media (min-width: 701px) {
+  .picker:has(> .picker-inner) {
+    padding-block-start: max(var(--sp-6), calc((100svh - 600px) / 2));
+  }
+}
+
 .picker-inner {
-  width: min(620px, 100%);
-  margin-block: 0;
-  padding-bottom: var(--sp-8);
+  width: min(100%, 1000px);
+  margin-inline: auto;
+}
+
+.picker-masthead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
 }
 
 .picker-wordmark {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0 0 var(--sp-5);
-  color: var(--ink);
-  font-size: var(--text-sm);
-  line-height: var(--lh-sm);
-  letter-spacing: var(--track-sm);
-  font-weight: var(--weight-medium);
+  margin: 0;
 }
 
-/* The mark gets a tile of its own here, and nowhere else. In the rail it is a
-   13px glyph beside a graph name; on the launch screen it is the product. */
-.picker-wordmark svg {
+.picker-wordmark .brand-lockup {
+  --brand-size: 36px;
+}
+
+.picker .btn > svg,
+.picker-create-form .btn > svg {
+  width: 16px;
+  height: 16px;
   flex: none;
-  box-sizing: content-box;
-  width: 18px;
-  height: 18px;
-  padding: 6px;
-  border-radius: var(--r-2);
-  background: var(--accent);
-  box-shadow: var(--lit-edge);
-  color: var(--on-accent);
 }
 
-.picker h1 {
-  margin-bottom: var(--sp-2);
+.picker-intro {
+  margin-block: var(--sp-6) var(--sp-5);
 }
 
-.picker-lede {
-  max-width: 42ch;
-  word-break: keep-all;
-  margin: 0 0 var(--sp-6);
+.picker-intro h1 {
+  margin: 0 0 var(--sp-2);
+}
+
+.picker-intro p {
+  margin: 0;
   color: var(--ink-2);
-  font-size: var(--text-sm);
-  line-height: 21px;
+  font-size: var(--text-md);
+  line-height: var(--lh-md);
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 
-/* Repository tabs read like index cards: a quiet rule carries the whole row,
-   while the active account gets the single accent stroke. This keeps a growing
-   list of servers legible without turning the picker into a toolbar. */
-.repository-tabs-row {
-  display: flex;
-  align-items: flex-end;
-  gap: var(--sp-1);
-  margin-bottom: var(--sp-5);
-  border-bottom: 1px solid var(--thread);
+.picker-library {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  min-height: 400px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-4);
+  overflow: clip;
 }
 
-.repository-tabs-row .tabs-list {
+.picker-locations {
   min-width: 0;
-  flex: 1;
-  display: flex;
-  overflow-x: auto;
-  scrollbar-width: none;
+  padding: var(--sp-5) var(--sp-3);
+  background: var(--surface-1);
+  border-inline-end: 1px solid var(--thread);
 }
 
-.repository-tabs-row .tabs-list::-webkit-scrollbar {
-  display: none;
-}
-
-.repository-tabs-row .tabs-trigger {
-  position: relative;
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 36px;
-  padding: 0 var(--sp-3);
-  border: 0;
-  background: transparent;
+.picker-section-label {
+  margin: 0 var(--sp-3) var(--sp-3);
   color: var(--ink-3);
-  font: inherit;
-  font-size: var(--text-sm);
-  line-height: var(--lh-sm);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.repository-tabs-row .tabs-trigger::after {
-  content: "";
-  position: absolute;
-  inset: auto var(--sp-2) -1px;
-  height: 2px;
-  background: transparent;
-}
-
-.repository-tabs-row .tabs-trigger[data-state="active"] {
-  color: var(--ink);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
   font-weight: var(--weight-medium);
 }
 
-.repository-tabs-row .tabs-trigger[data-state="active"]::after {
-  background: var(--accent);
+.picker-locations .tabs-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
 }
 
-.repository-tabs-row .tabs-trigger:focus-visible {
+.picker-locations .tabs-trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+  min-height: 60px;
+  padding: var(--sp-3);
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  transition: background-color var(--dur-press) var(--ease-out);
+}
+
+.picker-locations .tabs-trigger:hover {
+  background: var(--surface-2);
+}
+
+.picker-locations .tabs-trigger[data-state="active"] {
+  background: var(--canvas);
+  color: var(--ink);
+  box-shadow: var(--e1);
+}
+
+.picker-locations .tabs-trigger:focus-visible,
+.repository-panel:focus-visible {
   outline: none;
   box-shadow: var(--focus-inset);
 }
 
-.repository-tabs-row .tabs-trigger svg,
-.repository-tabs-row > .btn svg {
-  width: 14px;
-  height: 14px;
+.picker-locations .tabs-trigger:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
-.repository-tabs-row > .btn {
+.picker-locations .tabs-trigger > svg {
   flex: none;
-  margin-bottom: 2px;
+  width: 16px;
+  height: 16px;
 }
 
-.tabs-content:focus-visible {
-  outline: none;
+.picker-locations .tabs-trigger[data-state="active"] > svg:first-child {
+  color: var(--accent);
 }
 
-/* The common four-row catalog and its first-load skeleton occupy the same
-   footprint. Smaller catalogs retain a quiet trailing field, so changing tabs
-   never collapses the picker around its controls. Longer lists grow downward. */
+.picker-location-text {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: var(--sp-0);
+}
+
+.picker-location-text > * {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.picker-location-text > span {
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  font-weight: var(--weight-medium);
+}
+
+.picker-location-text small {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+.picker-location-current {
+  visibility: hidden;
+}
+
+[data-state="active"] > .picker-location-current {
+  visibility: visible;
+}
+
+.picker-connect.btn {
+  justify-content: start;
+  width: 100%;
+  margin-top: var(--sp-3);
+  padding-inline: var(--sp-3);
+  gap: var(--sp-3);
+}
+
+.picker-location-hint {
+  margin: var(--sp-2) var(--sp-3) 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-sm);
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
 .repository-panel {
-  min-height: min(355px, 45vh);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas);
 }
 
-.repository-auth-required {
+.repository-panel[hidden] {
+  display: none;
+}
+
+.picker-catalog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  min-height: 80px;
+  margin-inline: var(--sp-6);
+  padding-block: var(--sp-4);
+  border-bottom: 1px solid var(--thread);
+}
+
+.picker-catalog-heading {
+  min-width: 0;
+}
+
+.picker-catalog-heading h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-md);
+  line-height: var(--lh-md);
+  font-weight: var(--weight-medium);
+  overflow-wrap: anywhere;
+}
+
+.picker-catalog-heading p {
+  margin: var(--sp-0) 0 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  overflow-wrap: anywhere;
+}
+
+.picker-catalog-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: none;
+}
+
+.picker-catalog-body {
+  flex: 1;
+  padding: var(--sp-3) var(--sp-5);
+}
+
+.picker-catalog-message {
   display: grid;
   justify-items: start;
-  gap: var(--sp-2);
-  margin-bottom: var(--sp-4);
+  gap: var(--sp-3);
+  padding: var(--sp-5) var(--sp-2);
 }
 
 .picker-empty {
-  margin: 0 0 var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+  padding: var(--sp-5) var(--sp-4);
+  text-align: center;
+}
+
+.picker-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: var(--sp-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-3);
+  background: var(--surface-1);
+  color: var(--accent-quiet);
+}
+
+.picker-empty-icon svg {
+  width: 24px;
+  height: 24px;
+  stroke-width: 1.5;
+}
+
+.picker-empty h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-lg);
+  line-height: var(--lh-lg);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--track-lg);
+}
+
+.picker-empty p {
+  max-width: 34ch;
+  margin: var(--sp-2) 0 var(--sp-5);
   color: var(--ink-3);
   font-size: var(--text-sm);
   line-height: var(--lh-sm);
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.picker-empty > .btn {
+  min-height: 36px;
+}
+
+.picker-catalog-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-inline: var(--sp-6);
+  padding-block: var(--sp-3);
+  border-top: 1px solid var(--thread);
+}
+
+.picker-catalog-footer .btn {
+  margin-inline-start: calc(-1 * var(--sp-2));
+}
+
+.picker-catalog-footer > span {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+.picker-footnote,
+.picker-create-location {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-sm);
+}
+
+.picker-footnote {
+  margin: var(--sp-4) 0 0;
+}
+
+.picker-footnote svg,
+.picker-create-location svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.picker-create-location {
+  margin: var(--sp-3) 0 0;
+  overflow-wrap: anywhere;
 }
 
 .graph-list {
   display: grid;
-  gap: 6px;
-  margin: 0 0 var(--sp-5);
+  margin: 0;
   padding: 0;
   list-style: none;
 }
@@ -169,29 +360,26 @@
 }
 
 .graph-card-placeholder {
-  height: 52px;
-  border-radius: var(--r-3);
+  height: 60px;
+  margin-block: var(--sp-2);
+  border-radius: var(--r-2);
   background: var(--surface-1);
-  box-shadow: var(--e1);
 }
 
-/* A graph is a thing you open, so it is a bounded object that lifts under the
-   pointer — not a patch of grey that gets slightly greyer. */
 .graph-card {
   display: flex;
   align-items: center;
   gap: var(--sp-1);
-  border-radius: var(--r-3);
-  background: var(--canvas);
-  box-shadow: var(--e1);
-  transition:
-    background-color var(--dur-press) var(--ease-out),
-    box-shadow var(--dur-press) var(--ease-out);
+  transition: background-color var(--dur-press) var(--ease-out);
 }
 
-.graph-card:hover {
+.graph-card + .graph-card {
+  border-top: 1px solid var(--thread);
+}
+
+.graph-card:hover,
+.graph-card:focus-within {
   background: var(--surface-1);
-  box-shadow: var(--e1-raised);
 }
 
 .graph-card-open {
@@ -199,10 +387,11 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px var(--sp-3);
+  gap: var(--sp-4);
+  min-height: 76px;
+  padding: var(--sp-4) var(--sp-2);
   border: none;
-  border-radius: var(--r-3);
+  border-radius: var(--r-2);
   background: none;
   color: inherit;
   font: inherit;
@@ -215,20 +404,18 @@
   box-shadow: var(--focus-inset);
 }
 
-/* The same initial tile the rail carries, so a graph looks like itself before
-   and after it is opened. */
 .graph-card-avatar {
   display: grid;
   place-items: center;
   flex: none;
-  width: 30px;
-  height: 30px;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--thread);
   border-radius: var(--r-2);
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: var(--text-sm);
-  line-height: 1;
-  font-weight: var(--weight-strong);
+  background: var(--surface-1);
+  color: var(--accent-quiet);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
   text-transform: uppercase;
 }
 
@@ -245,20 +432,35 @@
   color: var(--ink);
   font-size: var(--text-sm);
   line-height: var(--lh-sm);
-  letter-spacing: var(--track-sm);
   font-weight: var(--weight-medium);
 }
 
-/* Hovering a card raises it to --surface-1, where --ink-3 is still legal — but
-   --ink-2 is what a line of metadata under a name wants anyway. */
 .graph-card-open .meta {
   display: block;
+  margin-top: var(--sp-1);
   color: var(--ink-3);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
 }
 
-/* The read-only label's own idiom: a 12px glyph beside 12px metadata text. */
+.graph-card-arrow {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--ink-3);
+  opacity: 0;
+}
+
+.graph-card:hover .graph-card-arrow,
+.graph-card:focus-within .graph-card-arrow {
+  opacity: 1;
+}
+
+.graph-actions {
+  flex: none;
+  padding-inline-end: var(--sp-2);
+}
+
 .graph-remote-label {
   display: inline-flex;
   align-items: center;
@@ -272,49 +474,88 @@
   height: 12px;
 }
 
-.graph-actions {
-  flex: none;
-  padding-inline-end: var(--sp-2);
-  opacity: 0;
-  transition: opacity 0ms;
+:dir(rtl) .picker-location-current,
+:dir(rtl) .graph-card-arrow,
+:dir(rtl) .picker-create-form .btn-primary > svg,
+:dir(rtl) .picker-auth .btn > svg {
+  transform: scaleX(-1);
 }
 
-.graph-card:hover .graph-actions,
-.graph-card:focus-within .graph-actions,
-.graph-actions:has([data-state="open"]) {
-  opacity: 1;
-}
-
-/* Nothing is hover-gated on touch: at this width the row menu is permanent. */
-@media (max-width: 600px), (hover: none) {
-  .graph-actions {
-    opacity: 1;
+@media (max-width: 700px) {
+  .picker {
+    padding-block: var(--sp-5);
   }
-}
 
-.picker-new {
-  display: grid;
-  gap: var(--sp-1);
-}
+  .picker-intro {
+    margin-block: var(--sp-7) var(--sp-5);
+  }
 
-.picker-new-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--sp-2);
-}
+  .picker-library {
+    grid-template-columns: minmax(0, 1fr);
+  }
 
-.picker-new-actions {
-  margin-top: var(--sp-2);
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-2);
-  padding-top: var(--sp-3);
-  border-top: 1px solid var(--thread);
-}
+  .picker-locations {
+    padding: var(--sp-3);
+    border-inline-end: none;
+    border-bottom: 1px solid var(--thread);
+  }
 
-.picker-new-actions .btn svg {
-  width: 14px;
-  height: 14px;
+  .picker-section-label,
+  .picker-location-hint {
+    display: none;
+  }
+
+  .picker-locations .tabs-list {
+    flex-direction: row;
+    overflow-x: auto;
+  }
+
+  .picker-locations .tabs-trigger {
+    flex: 0 0 auto;
+    max-width: 220px;
+    min-height: 52px;
+    gap: var(--sp-2);
+  }
+
+  .picker-connect.btn {
+    width: auto;
+    margin-top: var(--sp-2);
+    gap: var(--sp-2);
+  }
+
+  .picker-catalog-header {
+    margin-inline: var(--sp-4);
+    padding-block: var(--sp-4);
+    flex-wrap: wrap;
+    gap: var(--sp-3);
+  }
+
+  .picker-catalog-body {
+    padding-inline: var(--sp-2);
+  }
+
+  .picker-empty {
+    min-height: 280px;
+    padding-inline: var(--sp-3);
+  }
+
+  .picker-catalog-footer {
+    flex-wrap: wrap;
+    margin-inline: var(--sp-4);
+    gap: 0 var(--sp-2);
+  }
+
+  .picker-catalog-footer > span {
+    display: none;
+  }
+
+  .graph-card-open {
+    gap: var(--sp-3);
+  }
+
+  .graph-card-arrow {
+    display: none;
+  }
 }
 
 .field-group {
@@ -457,15 +698,5 @@
 
   .member-invite-row > :first-child {
     grid-column: 1 / -1;
-  }
-}
-
-.picker-new > .field-label {
-  margin: 0;
-}
-
-@media (max-width: 400px) {
-  .picker-new-row {
-    grid-template-columns: minmax(0, 1fr);
   }
 }

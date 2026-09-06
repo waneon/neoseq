@@ -60,32 +60,13 @@
 .rail-brand {
   display: flex;
   align-items: center;
-  gap: var(--mark-gap);
-  height: 20px;
+  height: 24px;
   padding: 0 var(--sp-2);
   margin: 0;
-  color: var(--ink-3);
-  font-size: 11px;
-  line-height: 16px;
-  letter-spacing: 0.04em;
-  font-weight: var(--weight-medium);
 }
 
-/* 14px centred in the 16px mark column, so the wordmark's text starts on the
-   same x as every label under it and the mark itself stays crisp. */
-.rail-brand svg {
-  flex: none;
-  width: var(--icon);
-  height: var(--icon);
-  margin: 0 calc((var(--mark-slot) - var(--icon)) / 2);
-  color: var(--accent);
-}
-
-.wordmark-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.rail-brand .brand-lockup {
+  --brand-size: 18px;
 }
 
 .rail-switcher {

@@ -49,6 +49,7 @@
   --ink: oklch(0.235 0.014 264);
   --ink-2: oklch(0.462 0.014 264);
   --ink-3: oklch(0.548 0.013 264);
+  --brand-ink: #4f44c5;
 
   /* ── Iris ──
      One structural chroma for action, focus, selection and current place. The
@@ -226,6 +227,7 @@
     --ink: oklch(0.955 0.004 264);
     --ink-2: oklch(0.762 0.011 264);
     --ink-3: oklch(0.632 0.013 264);
+    --brand-ink: #9b91ff;
 
     --accent-l: 0.705;
     --accent-c: 0.185;
@@ -270,6 +272,7 @@
   --ink: oklch(0.955 0.004 264);
   --ink-2: oklch(0.762 0.011 264);
   --ink-3: oklch(0.632 0.013 264);
+  --brand-ink: #9b91ff;
 
   --accent-l: 0.705;
   --accent-c: 0.185;
@@ -983,6 +986,7 @@ h2 {
    it is not the subject of the page, and the heading below it is. */
 .console-brand {
   display: flex;
+  flex: none;
   align-items: center;
   gap: var(--sp-2);
   min-width: 0;
@@ -993,11 +997,38 @@ h2 {
   font-weight: var(--weight-medium);
 }
 
-.console-brand svg {
+.brand-lockup {
+  --brand-size: 24px;
+  display: inline-flex;
   flex: none;
-  width: var(--icon-lg);
-  height: var(--icon-lg);
-  color: var(--accent);
+  align-items: flex-end;
+  gap: calc(var(--brand-size) * 0.147);
+}
+
+.brand-symbol,
+.brand-wordmark {
+  display: block;
+  flex: none;
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+}
+
+.brand-symbol {
+  width: calc(var(--brand-size, 24px) * 1.02);
+  height: var(--brand-size, 24px);
+  background: var(--brand-ink);
+}
+
+.brand-wordmark {
+  width: calc(var(--brand-size) * 2.675);
+  height: calc(var(--brand-size) * 0.592);
+  margin-bottom: calc(var(--brand-size) * 0.024);
+  background: currentColor;
+}
+
+.console-brand .brand-lockup {
+  --brand-size: 20px;
 }
 
 /* "Dashboard" after the product's name: what this build of the product is,
@@ -1106,9 +1137,14 @@ h2 {
   /* The bar keeps the mark and the way out. The operator's own name and what
      this build is called are both facts that do not change while they work, and
      they are the first things a bar this narrow can afford to stop repeating. */
-  .console-brand span,
+  .console-brand .brand-wordmark,
+  .console-brand .wordmark-role,
   .console-operator {
     display: none;
+  }
+
+  .console-actions {
+    gap: var(--sp-1);
   }
 
   .console-actions .field {
@@ -1152,8 +1188,7 @@ h2 {
   padding-bottom: var(--sp-8);
 }
 
-/* The mark gets a tile of its own here and nowhere else: in the bar it is a
-   glyph beside a name, and on this screen it is the product. */
+/* The full identity introduces the app before the sign-in form. */
 .signin-mark {
   display: flex;
   align-items: center;
@@ -1166,16 +1201,8 @@ h2 {
   font-weight: var(--weight-medium);
 }
 
-.signin-mark svg {
-  flex: none;
-  box-sizing: content-box;
-  width: 18px;
-  height: 18px;
-  padding: 6px;
-  border-radius: var(--r-2);
-  background: var(--accent);
-  box-shadow: var(--lit-edge);
-  color: var(--on-accent);
+.signin-mark .brand-lockup {
+  --brand-size: 36px;
 }
 
 .signin h1 {

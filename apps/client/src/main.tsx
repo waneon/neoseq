@@ -3,7 +3,11 @@ import { createRoot } from "react-dom/client";
 import App from "./app/App";
 import { applyInitialDocumentLocale } from "./i18n";
 import { trackOverlayFocusInput } from "./ui/overlay-focus";
+import faviconUrl from "../../../assets/brand/symbol.svg?url&no-inline";
 import "./ui/globals.css";
+
+// Module asset resolution works in both Vite development and production builds.
+document.querySelector<HTMLLinkElement>('link[rel="icon"]')!.href = faviconUrl;
 
 applyInitialDocumentLocale();
 const stopTrackingFocus = trackOverlayFocusInput(document);

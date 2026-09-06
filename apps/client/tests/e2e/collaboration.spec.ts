@@ -78,6 +78,7 @@ async function provisionAccounts(request: APIRequestContext) {
 async function createRemote(page: Page, name: string, username: string, password: string) {
   await page.goto("/");
   await addRepository(page, username, password);
+  await page.getByTestId("new-graph").click();
   await page.getByTestId("new-graph-name").fill(name);
   await expect(page.getByTestId("new-graph-name")).toHaveValue(name);
   await page.getByTestId("create-graph").click();
@@ -103,8 +104,8 @@ async function addRepository(page: Page, username: string, password: string) {
   await page.getByLabel("Username").fill(username);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  // Sign-in also loads the catalog and selects a new repository panel. The
-  // previous panel's input can still accept fill while the dialog is pending.
+  // Sign-in also loads the catalog and selects a new repository panel. Wait
+  // for that selection before opening or creating a graph in the repository.
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(
     page.getByRole("tab", { name: `${username}@${new URL(syncOrigin!).host}`, exact: true }),

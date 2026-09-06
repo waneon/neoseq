@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError, listAccounts, logout, type Account } from "@/api";
 import { useI18n } from "@/i18n";
 import { Button } from "@/ui/shadcn/button";
-import { LogoMark } from "@/ui/brand";
+import { Wordmark } from "@/ui/brand";
 import { AccountDirectory } from "./AccountDirectory";
 import { CreateAccount } from "./CreateAccount";
 import { LanguageControl, ThemeControl } from "./Appearance";
@@ -67,8 +67,7 @@ export function Console({
       <header className="console-topbar">
         <div>
           <p className="console-brand">
-            <LogoMark aria-hidden />
-            <span>{message("dashboard.wordmark")}</span>
+            <Wordmark name={message("dashboard.wordmark")} />
             <span className="wordmark-role">{message("dashboard.wordmarkRole")}</span>
           </p>
           <div className="console-actions">

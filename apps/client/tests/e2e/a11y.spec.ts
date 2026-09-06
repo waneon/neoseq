@@ -25,6 +25,10 @@ test("graph picker passes the basic accessibility audit", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Your graphs" })).toBeVisible();
   expect(await audit(page)).toEqual([]);
+
+  await page.getByTestId("new-graph").click();
+  await expect(page.getByTestId("new-graph-name")).toBeFocused();
+  expect(await audit(page)).toEqual([]);
 });
 
 test("journal, outline, and property editors pass the basic audit", async ({ page }) => {

@@ -19,6 +19,7 @@ test("a remote repository keeps its opaque session without persisting the passwo
     "active",
   );
 
+  await page.getByTestId("new-graph").click();
   await page.getByTestId("new-graph-name").fill("Shared notes");
   await page.getByTestId("create-graph").click();
 
@@ -62,6 +63,7 @@ test("imports an archive as a new graph in the selected remote repository", asyn
   const created = await installRemoteApi(page);
 
   await page.goto("/");
+  await page.getByTestId("new-graph").click();
   await page.getByTestId("new-graph-name").fill("Archive source");
   await page.getByTestId("create-graph").click();
   await startOutline(page);

@@ -4,6 +4,7 @@ import type { SettingsSection } from "../../src/features/settings/SettingsDialog
 /** Creates a fresh local graph and lands on today's journal. */
 export async function createGraph(page: Page, name: string): Promise<void> {
   await page.goto("/");
+  await page.getByTestId("new-graph").click();
   await page.getByTestId("new-graph-name").fill(name);
   await page.getByTestId("create-graph").click();
   await expect(page.getByTestId("journal-title")).toBeVisible();

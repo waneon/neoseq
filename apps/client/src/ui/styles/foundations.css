@@ -22,6 +22,7 @@
   --raised: oklch(1 0 0);
   --raised-hover: oklch(0.981 0.003 264);
 
+  --brand-ink: #4f44c5;
   --ink: oklch(0.235 0.014 264);
   --ink-2: oklch(0.462 0.014 264);
   --ink-3: oklch(0.548 0.013 264);
@@ -361,6 +362,7 @@
     --raised: oklch(0.3 0.01 264);
     --raised-hover: oklch(0.34 0.011 264);
 
+    --brand-ink: #9b91ff;
     --ink: oklch(0.955 0.004 264);
     --ink-2: oklch(0.762 0.011 264);
     --ink-3: oklch(0.632 0.013 264);
@@ -420,6 +422,7 @@
   --raised: oklch(0.3 0.01 264);
   --raised-hover: oklch(0.34 0.011 264);
 
+  --brand-ink: #9b91ff;
   --ink: oklch(0.955 0.004 264);
   --ink-2: oklch(0.762 0.011 264);
   --ink-3: oklch(0.632 0.013 264);

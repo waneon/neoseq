@@ -22,6 +22,8 @@ The palette has three independent responsibilities:
 These responsibilities do not cross. The accent is not a generic decoration or
 status color; a status tone does not mark navigation or focus. Categories are
 distinguished by name, mark, or position rather than arbitrary chroma.
+The startup canvas permits a faint accent wash at its top, following the reader's
+chosen hue without carrying status or interaction meaning.
 
 The accent has a strong form for marks and a quieter form for references inside
 prose. A reader may choose any hue, while lightness and chroma remain
@@ -29,6 +31,12 @@ system-owned so every point on the hue circle satisfies the same contrast
 contract. Common hues remain direct choices; continuous adjustment is an
 explicit secondary action. Tags reuse this safe hue family; they do not create
 another structural palette.
+
+Product identity uses the supplied violet symbol and neutral wordmark as separate
+assets. Its color identifies the product independently of the action accent and
+adapts in luminance for each mode; the wordmark follows the surface's ink role.
+Compact contexts may show the symbol alone. Each identity instance exposes one
+accessible product name, including when its wordmark is hidden.
 
 State palettes store semantic tone names rather than raw colors. Due-date
 preferences may instead store a bounded OKLCH hue and chroma pair when the reader

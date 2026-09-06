@@ -76,6 +76,8 @@ contrast, keyboard reachability, focus clarity, or localized readability.
 - **Graphite and one accent.** Cool neutral surfaces and inks carry hierarchy.
   One accent identifies action, reference, focus, selection, and current place.
   Semantic status tones never become a second accent.
+  Product identity keeps its own violet symbol and neutral wordmark, independent
+  of the reader's accent choice.
 - **The writing is the typographic top.** Product chrome is smaller and quieter
   than authored content. Weight and color are reserved for hierarchy and state.
 - **Depth is compositional.** Luminance establishes ground, a hairline closes a
@@ -173,8 +175,9 @@ selection models, or positioning, but they do not supply Neoseq's appearance or
 override its interaction contracts.
 
 `apps/dashboard` is a separately built React application. It shares no client state,
-graph runtime, or component implementation with `apps/client`; only semantic
-foundation and accessibility intent cross that boundary.
+graph runtime, or component implementation with `apps/client`; semantic
+foundation, accessibility intent, and the shared product identity assets cross
+that boundary.
 
 Shared day selection serves both journal navigation and task editing; each
 surface owns the consequence of choosing a date. Native controls follow the

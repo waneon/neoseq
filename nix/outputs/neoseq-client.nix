@@ -17,6 +17,7 @@ let
   cargoLockDigest = builtins.hashFile "sha256" ../../Cargo.lock;
   pnpmLockDigest = builtins.hashFile "sha256" ../../pnpm-lock.yaml;
   applicationFiles = lib.fileset.unions [
+    ../../assets/brand
     ../../Cargo.lock
     ../../Cargo.toml
     ../../contracts
@@ -29,7 +30,6 @@ let
     ../../apps/client/index.html
     ../../apps/client/package.json
     ../../apps/client/playwright.config.ts
-    ../../apps/client/public
     ../../apps/client/src
     ../../apps/client/sw-template.js
     ../../apps/client/tsconfig.app.json

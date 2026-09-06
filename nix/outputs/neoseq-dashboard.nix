@@ -13,13 +13,13 @@ let
   version = (builtins.fromJSON (builtins.readFile ../../apps/dashboard/package.json)).version;
   pnpmLockDigest = builtins.hashFile "sha256" ../../pnpm-lock.yaml;
   applicationFiles = lib.fileset.unions [
+    ../../assets/brand
     ../../package.json
     ../../patches
     ../../pnpm-lock.yaml
     ../../pnpm-workspace.yaml
     ../../apps/dashboard/index.html
     ../../apps/dashboard/package.json
-    ../../apps/dashboard/public
     ../../apps/dashboard/src
     ../../apps/dashboard/tsconfig.json
     ../../apps/dashboard/vite.config.ts
