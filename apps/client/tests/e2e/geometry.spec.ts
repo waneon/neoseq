@@ -1113,7 +1113,7 @@ test("the scheduled editor flips above before it has to shrink", async ({ page }
   expect(pickerBox.width).toBeCloseTo(640, 0);
 
   const selectedCenterDelta = await picker
-    .locator(".moment-calendar-cell[data-selected]")
+    .locator(".date-calendar-cell[data-selected]")
     .evaluate((cell) => {
       const text = document.createRange();
       text.selectNodeContents(cell);

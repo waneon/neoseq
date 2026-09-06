@@ -1048,6 +1048,8 @@
 }
 
 .outline-placeholder-label {
+  display: grid;
+  gap: var(--sp-2);
   padding-inline-start: var(--sp-1);
   color: var(--ink-3);
 }
@@ -1129,4 +1131,9 @@
   position: fixed;
   width: 0;
   height: 0;
+}
+
+.outline-placeholder-hint {
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
 }

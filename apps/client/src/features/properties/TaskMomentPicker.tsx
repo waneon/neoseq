@@ -1,29 +1,7 @@
 import { useId, useMemo, useState, type KeyboardEvent } from "react";
 import { parseDate, parseTime, Time, type CalendarDate } from "@internationalized/date";
-import {
-  Button as AriaButton,
-  Calendar,
-  CalendarCell,
-  CalendarGrid,
-  CalendarGridBody,
-  CalendarGridHeader,
-  CalendarHeaderCell,
-  DateInput,
-  DateSegment,
-  Heading,
-  I18nProvider,
-  Switch,
-  TimeField,
-} from "react-aria-components";
-import {
-  CalendarIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  ClockIcon,
-  RepeatIcon,
-  SearchIcon,
-  Trash2Icon,
-} from "lucide-react";
+import { DateInput, DateSegment, I18nProvider, Switch, TimeField } from "react-aria-components";
+import { CalendarIcon, ClockIcon, RepeatIcon, SearchIcon, Trash2Icon } from "lucide-react";
 import { nowLocalTime, todayLocalDate } from "../../entities/journal";
 import {
   advanceDate,
@@ -39,6 +17,7 @@ import { useI18n } from "../../i18n";
 import { repeatLabel, repeatUnitLabel } from "../tasks/labels";
 import { Button } from "@/ui/shadcn/button";
 import { Input } from "@/ui/shadcn/input";
+import { DateCalendar } from "@/ui/DateCalendar";
 import { MenuSelect } from "@/ui/menu-select";
 
 interface TaskMomentPickerProps {
@@ -56,40 +35,6 @@ interface TaskMomentPickerProps {
 
 function pad(value: number): string {
   return String(value).padStart(2, "0");
-}
-
-interface AdjacentMonthCellProps {
-  date: CalendarDate;
-  disabled: boolean;
-  label: string;
-  today: string;
-  onSelect: (date: CalendarDate) => void;
-}
-
-/**
- * React Aria deliberately disables dates outside a calendar's visible month.
- * Active-month cells retain its roving keyboard model, while these explicit
- * buttons make the adjacent dates that are already visible honest pointer
- * targets. Arrow keys still cross the same month boundary through React Aria.
- */
-function AdjacentMonthCell({ date, disabled, label, today, onSelect }: AdjacentMonthCellProps) {
-  return (
-    <td role="gridcell" aria-selected={false}>
-      <button
-        type="button"
-        className="moment-calendar-cell"
-        aria-label={label}
-        data-disabled={disabled || undefined}
-        data-outside-month
-        data-today={date.toString() === today || undefined}
-        disabled={disabled}
-        tabIndex={-1}
-        onClick={() => onSelect(date)}
-      >
-        {date.day}
-      </button>
-    </td>
-  );
 }
 
 /**
@@ -283,57 +228,13 @@ export function TaskMomentPicker({
                 )}
               </div>
 
-              <Calendar
-                aria-label={message("properties.pickDate")}
-                className="moment-calendar"
+              <DateCalendar
                 value={calendarDate}
                 focusedValue={focusedDate}
-                firstDayOfWeek="mon"
-                isDisabled={disabled}
+                disabled={disabled}
                 onChange={chooseDate}
                 onFocusChange={setFocusedDate}
-              >
-                {({ state }) => (
-                  <>
-                    <header className="moment-calendar-head">
-                      <AriaButton slot="previous" className="moment-calendar-nav">
-                        <ChevronLeftIcon aria-hidden />
-                      </AriaButton>
-                      <Heading className="moment-calendar-title" />
-                      <AriaButton slot="next" className="moment-calendar-nav">
-                        <ChevronRightIcon aria-hidden />
-                      </AriaButton>
-                    </header>
-                    <CalendarGrid className="moment-calendar-grid" weekdayStyle="short">
-                      <CalendarGridHeader>
-                        {(day) => (
-                          <CalendarHeaderCell className="moment-calendar-weekday">
-                            {day}
-                          </CalendarHeaderCell>
-                        )}
-                      </CalendarGridHeader>
-                      <CalendarGridBody>
-                        {(value) => {
-                          const visibleMonth = state.visibleRange.start;
-                          const outsideMonth =
-                            value.year !== visibleMonth.year || value.month !== visibleMonth.month;
-                          return outsideMonth ? (
-                            <AdjacentMonthCell
-                              date={value}
-                              disabled={disabled}
-                              label={formatJournalDate(value.toString())}
-                              today={today}
-                              onSelect={chooseDate}
-                            />
-                          ) : (
-                            <CalendarCell date={value} className="moment-calendar-cell" />
-                          );
-                        }}
-                      </CalendarGridBody>
-                    </CalendarGrid>
-                  </>
-                )}
-              </Calendar>
+              />
             </section>
 
             <section

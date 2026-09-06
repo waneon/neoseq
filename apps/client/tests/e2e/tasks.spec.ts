@@ -156,14 +156,14 @@ test("a moment keeps language and adjacent-month choices inside its draft", asyn
   // Choosing the proposal resolves a local draft and follows it to the right
   // month without persisting; Enter on the input is the immediate route.
   await expect(picker).toBeVisible();
-  await expect(picker.locator(".moment-calendar-title")).toContainText("2031");
-  await expect(picker.locator(".moment-calendar-cell[data-selected]")).toHaveText("18");
+  await expect(picker.locator(".date-calendar-title")).toContainText("2031");
+  await expect(picker.locator(".date-calendar-cell[data-selected]")).toHaveText("18");
 
-  const titleBefore = await picker.locator(".moment-calendar-title").textContent();
-  const adjacent = picker.locator("button.moment-calendar-cell[data-outside-month]").first();
+  const titleBefore = await picker.locator(".date-calendar-title").textContent();
+  const adjacent = picker.locator("button.date-calendar-cell[data-outside-month]").first();
   await expect(adjacent).toBeEnabled();
   await adjacent.click();
-  await expect(picker.locator(".moment-calendar-title")).not.toHaveText(titleBefore ?? "");
+  await expect(picker.locator(".date-calendar-title")).not.toHaveText(titleBefore ?? "");
   await expect(picker).toBeVisible();
 
   await mutateAndAwaitSaved(page, () => picker.getByTestId("moment-apply").click());

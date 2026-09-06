@@ -564,18 +564,3 @@ button.chip:focus-visible .chip-glyph .chip-x {
 [data-slot="dropdown-menu-item"][data-variant="destructive"][data-highlighted] svg {
   color: var(--danger);
 }
-
-/* A real control that must stay focusable and value-synced without stating its
-   value on screen: the journal's native date input. Not display:none — that
-   would remove it from the tab order and make showPicker() illegal. */
-.clipped-control {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border: 0;
-}

@@ -18,6 +18,10 @@ The content measure is wider than a prose column because each nested level spend
 part of it on indentation. Page names wrap and remain fully readable; they are
 not constrained to a single-line field. On compact journals the date owns the
 full measure and navigation sits beneath it, avoiding fragments beside controls.
+Journal date selection opens a visible field and the shared day calendar. Typing
+a date is a draft until submitted; selecting a calendar day navigates directly.
+Cancellation leaves the current day unchanged. Day navigation restores its
+invoking control after the destination arrives, including newly created days.
 
 ## Blocks and Editing
 
@@ -31,8 +35,10 @@ active writing position. Empty lines remain visible through a quiet bullet.
 
 The region below the last block is an active append surface. No form or status
 chrome may occupy it. Before the first block, a localized writing action is
-visible on the same text axis as the block it creates. A second content body may follow only after the append
-surface has retained enough reach to invite continued writing.
+visible on the same text axis as the block it creates. A quiet hint introduces
+commands and page links, and disappears with that action when writing starts.
+A second content body may follow only after the append surface has retained
+enough reach to invite continued writing.
 
 ## Structural Thread
 

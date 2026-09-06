@@ -301,3 +301,40 @@
 .page-info button:hover {
   color: var(--ink);
 }
+
+/* The visible date field and calendar share one bounded, scrollable surface. */
+.journal-calendar {
+  z-index: var(--z-popover);
+  background: var(--overlay);
+  box-shadow: var(--e2);
+  color: var(--ink);
+  display: grid;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  overflow-y: auto;
+}
+
+.journal-calendar-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.journal-calendar-jump {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.journal-calendar-jump input {
+  min-width: 0;
+  flex: 1;
+}
+
+.journal-calendar .date-calendar {
+  padding: var(--sp-1);
+  border: 0;
+  background: transparent;
+}

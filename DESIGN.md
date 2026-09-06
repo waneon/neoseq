@@ -176,6 +176,10 @@ override its interaction contracts.
 graph runtime, or component implementation with `apps/client`; only semantic
 foundation and accessibility intent cross that boundary.
 
+Shared day selection serves both journal navigation and task editing; each
+surface owns the consequence of choosing a date. Native controls follow the
+resolved product theme alongside custom controls.
+
 Semantic roles have one implementation owner. `app.css` owns the design tokens
 and shared visual mechanisms; feature code consumes them and owns only the
 composition specific to that feature. Reimplementing a global interaction or

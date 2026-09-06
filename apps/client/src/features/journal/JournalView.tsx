@@ -3,9 +3,17 @@
 // by its builtin.journal-date property, so identity stays with the core (deterministic
 // PageId), not with the client.
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { useNavigate, useParams } from "react-router";
-import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { Button } from "@/ui/shadcn/button";
 import { findJournalPage, outlineOwnerKey } from "../../core-port/snapshot";
 import { todayLocalDate } from "../../entities/journal";
@@ -14,6 +22,7 @@ import { useI18n } from "../../i18n";
 import { isValidLocalDate } from "../../entities/calendar";
 import { useNotify } from "../notify/context";
 import { PageBody, Tombstone } from "../page/PageView";
+import { JournalCalendar } from "./JournalCalendar";
 import { JournalQueries } from "./JournalQueries";
 import { useSession, useSessionSelector } from "../shell/session-context";
 import { graphPath } from "../graphs/routing";
@@ -36,7 +45,13 @@ export function JournalView() {
   const [today] = useState(todayLocalDate);
   const date = routeDate ?? today;
   const ensured = useRef<string | null>(null);
-  const dateInput = useRef<HTMLInputElement>(null);
+  const calendarTrigger = useRef<HTMLButtonElement>(null);
+  const previousTrigger = useRef<HTMLButtonElement>(null);
+  const nextTrigger = useRef<HTMLButtonElement>(null);
+  const navigationFocus = useRef<{
+    date: string;
+    control: RefObject<HTMLButtonElement | null>;
+  } | null>(null);
 
   const valid = isValidLocalDate(date);
   const page = valid ? findJournalPage(state.snapshot, date) : undefined;
@@ -76,6 +91,15 @@ export function JournalView() {
     });
   }, [message, notify, page, session, state.hydratedOutlines, state.status]);
 
+  // A new day replaces the page body, including its controls. Restore the
+  // navigation control only when the destination page has actually arrived.
+  useLayoutEffect(() => {
+    const pending = navigationFocus.current;
+    if (!page || pending?.date !== date || !pending.control.current) return;
+    pending.control.current.focus({ preventScroll: true });
+    navigationFocus.current = null;
+  }, [date, page]);
+
   if (!valid) {
     return (
       <Tombstone
@@ -86,8 +110,10 @@ export function JournalView() {
     );
   }
 
-  const go = (target: string) =>
+  const go = (target: string, control = calendarTrigger) => {
+    if (target !== date) navigationFocus.current = { date: target, control };
     navigate(graphPath(session.repositoryId, graphId, `journal/${target}`));
+  };
 
   // Standing questions belong to the day they are standing in: their relative
   // operands resolve against the reader's real today, so asked from last March
@@ -95,12 +121,7 @@ export function JournalView() {
   // March. Today's journal is the only day they are true on.
   const foot = date === today ? <JournalQueries /> : null;
 
-  // One title row. The heading is the date; the stepper is permanent; `Today`
-  // appears only when the answer is not "today". The native date
-  // input stays mounted, focusable and value-synced but clipped — it is a real
-  // keyboard tab stop and the target of showPicker(), without restating the date
-  // a third time in the platform's own locale format. Right-clicking the row
-  // reaches the page's own verbs, exactly as it does on a regular page.
+  // Date navigation stays visible; its popup owns date entry and focus return.
   const header = (menu: ReactNode, onContextMenu: (event: React.MouseEvent) => void) => (
     <div className="title-row journal-header" onContextMenu={onContextMenu}>
       <h1 data-testid="journal-title">{formatJournalDate(date)}</h1>
@@ -118,42 +139,24 @@ export function JournalView() {
         <div className="date-stepper">
           <Button
             size="icon"
+            disabled={date === "0001-01-01"}
+            ref={previousTrigger}
             aria-label={message("journal.previousDay")}
-            onClick={() => go(addDays(date, -1))}
+            onClick={() => go(addDays(date, -1), previousTrigger)}
           >
             <ChevronLeftIcon aria-hidden />
           </Button>
+          <JournalCalendar date={date} today={today} onSelect={go} trigger={calendarTrigger} />
           <Button
             size="icon"
-            aria-label={message("journal.calendarOpen")}
-            onClick={() => {
-              const input = dateInput.current;
-              if (!input) return;
-              input.showPicker?.();
-              input.focus();
-            }}
-          >
-            <CalendarIcon aria-hidden />
-          </Button>
-          <Button
-            size="icon"
+            disabled={date === "9999-12-31"}
+            ref={nextTrigger}
             aria-label={message("journal.nextDay")}
-            onClick={() => go(addDays(date, 1))}
+            onClick={() => go(addDays(date, 1), nextTrigger)}
           >
             <ChevronRightIcon aria-hidden />
           </Button>
         </div>
-        <input
-          ref={dateInput}
-          className="clipped-control"
-          type="date"
-          aria-label={message("journal.jumpToDate")}
-          value={date}
-          data-testid="journal-date"
-          onChange={(event) => {
-            if (event.target.value) go(event.target.value);
-          }}
-        />
         {menu}
       </div>
     </div>

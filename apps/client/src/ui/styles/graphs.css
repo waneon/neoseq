@@ -50,6 +50,7 @@
 
 .picker-lede {
   max-width: 42ch;
+  word-break: keep-all;
   margin: 0 0 var(--sp-6);
   color: var(--ink-2);
   font-size: var(--text-sm);
@@ -293,24 +294,17 @@
 
 .picker-new {
   display: grid;
-  gap: var(--sp-3);
+  gap: var(--sp-1);
 }
 
 .picker-new-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--sp-2);
 }
 
-.picker-new-row > :first-child {
-  flex: 1;
-  min-width: 0;
-}
-
-.picker-new-row .btn {
-  flex: none;
-}
-
 .picker-new-actions {
+  margin-top: var(--sp-2);
   display: flex;
   flex-wrap: wrap;
   gap: var(--sp-2);
@@ -463,5 +457,15 @@
 
   .member-invite-row > :first-child {
     grid-column: 1 / -1;
+  }
+}
+
+.picker-new > .field-label {
+  margin: 0;
+}
+
+@media (max-width: 400px) {
+  .picker-new-row {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

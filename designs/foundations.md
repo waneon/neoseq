@@ -42,7 +42,8 @@ panel, or body of text.
 
 Light and dark modes are two realizations of the same roles. Every token exists
 in both modes, and mode resolution occurs before the application paints. Feature
-logic never chooses a mode-specific color.
+logic never chooses a mode-specific color. Native controls use the resolved
+product color scheme, including when an explicit theme overrides the OS.
 
 Contrast is a property of role pairs, not isolated swatches. Text roles declare
 which grounds they may occupy; tinted grounds use a dedicated foreground role;

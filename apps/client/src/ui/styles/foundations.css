@@ -1,7 +1,7 @@
 /* ─────────────────────────── 1. tokens ─────────────────────────── */
 
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
 
   /* ── Light. Paper, then graphite. ──
      Hue 264 at almost no chroma: a neutral that is cool rather than beige, so
@@ -350,6 +350,7 @@
    for an explicit choice. They must stay identical — see designs/foundations.md § Semantic Color. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --canvas: oklch(0.207 0.007 264);
     --surface-1: oklch(0.242 0.008 264);
     --surface-2: oklch(0.278 0.009 264);
@@ -408,6 +409,7 @@
 }
 
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --canvas: oklch(0.207 0.007 264);
   --surface-1: oklch(0.242 0.008 264);
   --surface-2: oklch(0.278 0.009 264);

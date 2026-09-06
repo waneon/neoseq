@@ -33,15 +33,18 @@ test("creates a graph, writes today's journal, and survives reload", async ({ pa
 
 test("navigates journal days and keeps entries per date", async ({ page }) => {
   await createGraph(page, "Days Graph");
-  const today = await page.getByTestId("journal-date").inputValue();
+  const today = await page.getByTestId("journal-calendar-trigger").getAttribute("data-date");
 
   await page.getByRole("button", { name: "Previous day" }).click();
-  await expect(page.getByTestId("journal-date")).not.toHaveValue(today);
+  await expect(page.getByTestId("journal-calendar-trigger")).not.toHaveAttribute(
+    "data-date",
+    today!,
+  );
   await startOutline(page);
   await typeInFocusedBlock(page, "yesterday note");
 
   await page.getByRole("button", { name: "Today" }).click();
-  await expect(page.getByTestId("journal-date")).toHaveValue(today);
+  await expect(page.getByTestId("journal-calendar-trigger")).toHaveAttribute("data-date", today!);
   await expect.poll(() => blockTexts(page)).toEqual([]);
 
   await page.getByRole("button", { name: "Previous day" }).click();

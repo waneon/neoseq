@@ -351,9 +351,13 @@ export function GraphPicker() {
                 )}
 
                 <form className="picker-new" onSubmit={(event) => void create(event)}>
+                  <label className="field-label" htmlFor={`new-graph-${repository.id}`}>
+                    {message("graph.newName")}
+                  </label>
                   <div className="picker-new-row">
                     <Input
-                      placeholder={message("graph.newName")}
+                      id={`new-graph-${repository.id}`}
+                      placeholder={message("graph.nameExample")}
                       aria-label={message("graph.newName")}
                       value={newName}
                       onChange={(event) => setNewName(event.target.value)}

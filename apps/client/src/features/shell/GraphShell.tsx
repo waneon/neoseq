@@ -744,11 +744,7 @@ SELECT ?entity ?content WHERE {
             <Shortcut binding={bindings.palette} />
           </button>
           <div className="shell-nav">
-            <NavLink
-              className="shell-nav-item"
-              to={graphPath(repositoryId, graphId, "journal")}
-              end
-            >
+            <NavLink className="shell-nav-item" to={graphPath(repositoryId, graphId, "journal")}>
               <CalendarDaysIcon aria-hidden />
               <span className="nav-label">{message("shell.journal")}</span>
             </NavLink>

@@ -24,7 +24,7 @@ outline inset, and floating layers.
 The rail is quieter than the writing canvas. Its head identifies the product and
 current graph; search has the visual shape of the field it opens. The current row
 uses the accent because the rail is scanned for location rather than read as
-content.
+content. Journal remains the current place on every dated journal route.
 
 Favourites form one list across pages and tags: the organizing idea is return,
 not entity type. Each item retains its own mark, and all labels share one mark
@@ -100,7 +100,9 @@ how a reader shapes a saved view.
 
 Graph opening uses a narrow, centered catalog on the same neutral canvas as the
 writing surface. Identity, repository scope, and graph cards carry the hierarchy;
-the page remains fixed while the selected catalog loads.
+the page remains fixed while the selected catalog loads. Graph creation keeps a
+visible name label and an example; on the narrowest screens its action stacks
+below the field so neither loses its usable width.
 
 Repositories form one horizontal index above the graph list. Local is the
 stable first tab; each remote tab represents exactly one server account, an

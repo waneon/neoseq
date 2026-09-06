@@ -3025,10 +3025,7 @@ export function Outliner({
         </span>
       )}
       {rows.length === 0 ? (
-        // A fake first line rather than a button labelled with a mouse
-        // instruction: a faint bullet in row 1's exact gutter position over a
-        // target big enough to hit anywhere. No placeholder sentence — the
-        // document belongs to the user, including when it is empty.
+        // The first writing action and a short hint disappear once writing starts.
         <button
           className="outline-placeholder"
           onClick={() => {
@@ -3044,7 +3041,10 @@ export function Outliner({
         >
           <span className="dot" aria-hidden />
           {/* An empty outline names its writing entry point before a caret exists. */}
-          <span className="outline-placeholder-label">{message("outline.addFirstBlock")}</span>
+          <span className="outline-placeholder-label">
+            <span>{message("outline.addFirstBlock")}</span>
+            <span className="outline-placeholder-hint">{message("outline.writingHint")}</span>
+          </span>
         </button>
       ) : (
         <div

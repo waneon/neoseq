@@ -50,6 +50,10 @@ A closed, non-filterable set is a select. A filterable set is a combobox backed
 by a listbox. Features own the domain values and labels, while the combobox owns
 active-option focus, filtering, and selection semantics.
 
+Journal navigation and task moments share one day calendar with localized labels,
+keyboard movement, selectable adjacent days, and a stable month footprint. The
+consumer determines whether choosing a day navigates or changes a local draft.
+
 Native controls remain where the platform provides the better precision or
 semantics, including checkboxes and generic date fields. A composed domain value
 may use a product-owned accessible control when it must preserve one interaction

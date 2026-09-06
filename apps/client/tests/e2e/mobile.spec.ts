@@ -119,3 +119,21 @@ test("mobile navigation and editing remain reachable through the drawer", async 
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
     .toBe(true);
 });
+
+test("graph creation preserves usable fields on the narrowest screen", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.goto("/");
+  const name = page.getByTestId("new-graph-name");
+  const create = page.getByTestId("create-graph");
+  await expect(page.getByTestId("picker-empty")).toBeVisible();
+  const field = await name.boundingBox();
+  const action = await create.boundingBox();
+  expect(field!.height).toBeGreaterThanOrEqual(32);
+  expect(action!.height).toBeGreaterThanOrEqual(32);
+  expect(action!.y).toBeGreaterThanOrEqual(field!.y + field!.height);
+  expect(field!.width).toBeGreaterThanOrEqual(250);
+  await name.fill("Pocket notes");
+  await create.tap();
+  await expect(page.getByTestId("journal-title")).toBeVisible();
+  await expect(page.getByTestId("outline-start")).toContainText("Start writing");
+});

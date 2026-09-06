@@ -197,6 +197,7 @@ export interface MessageArgumentMap {
   "graph.membersDetail": undefined;
   "graph.membersLoadFailed": undefined;
   "graph.membersTitle": undefined;
+  "graph.nameExample": undefined;
   "graph.newName": undefined;
   "graph.owner": undefined;
   "graph.password": undefined;
@@ -216,6 +217,7 @@ export interface MessageArgumentMap {
   "graph.yourGraphs": undefined;
   "journal.calendarOpen": undefined;
   "journal.emptyReadonly": undefined;
+  "journal.goToDate": undefined;
   "journal.invalidDate": undefined;
   "journal.invalidDateDetail": { readonly "date": string | number };
   "journal.jumpToDate": undefined;
@@ -253,6 +255,7 @@ export interface MessageArgumentMap {
   "outline.pendingTypedLost": { readonly "reason": string | number };
   "outline.selection": { readonly "count": number };
   "outline.tags": undefined;
+  "outline.writingHint": undefined;
   "page.actions": undefined;
   "page.copyId": undefined;
   "page.created": undefined;

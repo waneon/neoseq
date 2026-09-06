@@ -16,7 +16,7 @@ describe("journal and navigation", () => {
       expect(page).toBeDefined();
     });
     expect(screen.getByTestId("journal-title")).toBeInTheDocument();
-    expect(screen.getByTestId("journal-date")).toHaveValue(today);
+    expect(screen.getByTestId("journal-calendar-trigger")).toHaveAttribute("data-date", today);
   });
 
   it("opens a specific journal date from the route", async () => {

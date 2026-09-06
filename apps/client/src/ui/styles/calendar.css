@@ -1,0 +1,125 @@
+/* Shared day selection, consumed by journals and task moments. */
+.date-calendar {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-3);
+  background: var(--surface-1);
+}
+
+.date-calendar-head {
+  display: grid;
+  grid-template-columns: var(--sp-6) 1fr var(--sp-6);
+  align-items: center;
+}
+
+.date-calendar-title {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  font-weight: var(--weight-strong);
+  text-align: center;
+}
+
+.date-calendar-nav {
+  display: grid;
+  width: var(--sp-6);
+  height: var(--sp-6);
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-2);
+  place-items: center;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.date-calendar-nav:hover:not([data-disabled]) {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.date-calendar-nav:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.date-calendar-nav svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Reserve six weeks so month navigation never moves the actions below it. */
+.date-calendar-month {
+  min-height: calc(var(--sp-5) + 6 * (var(--sp-6) + 2px) + 2px);
+}
+
+.date-calendar-grid {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 2px 1px;
+  table-layout: fixed;
+}
+
+.date-calendar-weekday {
+  height: var(--sp-5);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  font-weight: var(--weight-medium);
+  text-align: center;
+}
+
+.date-calendar-cell {
+  display: grid;
+  width: 100%;
+  height: var(--sp-6);
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-2);
+  place-items: center;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-align: center;
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+.date-calendar-cell[data-hovered],
+.date-calendar-cell:hover:not([data-disabled]) {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.date-calendar-cell[data-today] {
+  color: var(--accent);
+  font-weight: var(--weight-strong);
+}
+
+.date-calendar-cell[data-selected] {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: var(--weight-strong);
+}
+
+.date-calendar-cell[data-focus-visible] {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.date-calendar-cell[data-outside-month] {
+  color: var(--ink-3);
+}
+
+.date-calendar-cell[data-disabled] {
+  opacity: 0.5;
+  cursor: default;
+}
