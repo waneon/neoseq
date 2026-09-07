@@ -37,7 +37,7 @@
   min-height: 52px;
   align-items: center;
   gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
   border-bottom: 1px solid var(--line);
 }
 
@@ -187,8 +187,8 @@
 }
 
 .property-picker-option .property-picker-chevron {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   color: var(--ink-3);
   opacity: 0;
 }
@@ -252,7 +252,13 @@
 .property-picker-create.btn {
   justify-content: flex-start;
   gap: var(--sp-3);
+  padding-inline: var(--sp-2);
   color: var(--accent);
+}
+
+.property-picker-create svg {
+  width: 16px;
+  height: 16px;
 }
 
 .property-picker-keyboard {
@@ -275,24 +281,6 @@
 
 .property-picker-keyboard > span:last-child {
   margin-inline-start: auto;
-}
-
-.property-picker-keyboard kbd {
-  display: inline-flex;
-  min-width: 16px;
-  height: 18px;
-  align-items: center;
-  justify-content: center;
-  padding: 0 3px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-1);
-  background: var(--overlay);
-  font: inherit;
-}
-
-.property-picker-keyboard svg {
-  width: 11px;
-  height: 11px;
 }
 
 .property-picker-new {

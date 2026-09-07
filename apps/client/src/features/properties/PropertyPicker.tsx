@@ -4,7 +4,6 @@ import {
   CalendarIcon,
   CheckIcon,
   ChevronRightIcon,
-  CornerDownLeftIcon,
   PlusIcon,
   SearchIcon,
   SquareIcon,
@@ -50,6 +49,7 @@ import type { Anchor } from "@/ui/anchored";
 import { AnchoredPanel } from "@/ui/anchored-panel";
 import { Button } from "@/ui/shadcn/button";
 import { Input } from "@/ui/shadcn/input";
+import { Kbd } from "@/ui/kbd";
 import {
   Autocomplete,
   SearchField,
@@ -606,7 +606,7 @@ export function PropertyPicker({
               >
                 <SearchIcon data-icon aria-hidden />
                 <AriaInput
-                  render={(props) => <Input {...props} className="h-9 ps-9" />}
+                  render={(props) => <Input {...props} className="h-9 ps-8" />}
                   ref={searchRef}
                   autoFocus
                   placeholder={message("properties.searchPlaceholder")}
@@ -730,19 +730,16 @@ export function PropertyPicker({
           </div>
           <div className="property-picker-keyboard" aria-hidden="true">
             <span>
-              <kbd>↑</kbd>
-              <kbd>↓</kbd>
-              {message("properties.navigationHint")}
+              <Kbd parts={["↑", "↓"]} />
+              <span>{message("properties.navigationHint")}</span>
             </span>
             <span>
-              <kbd>
-                <CornerDownLeftIcon />
-              </kbd>
-              {message("properties.selectHint")}
+              <Kbd parts={["⏎"]} />
+              <span>{message("properties.selectHint")}</span>
             </span>
             <span>
-              <kbd>esc</kbd>
-              {message("properties.closeHint")}
+              <Kbd parts={["esc"]} />
+              <span>{message("properties.closeHint")}</span>
             </span>
           </div>
         </>
