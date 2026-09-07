@@ -1,5 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeftIcon, CalendarIcon, CheckIcon, Trash2Icon } from "lucide-react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  ArrowLeftIcon,
+  CalendarIcon,
+  CheckIcon,
+  ChevronRightIcon,
+  CornerDownLeftIcon,
+  PlusIcon,
+  SearchIcon,
+  SquareIcon,
+  SquareCheckIcon,
+  Trash2Icon,
+  XIcon,
+} from "lucide-react";
 import type { Command, PropertyChange, PropertyOwnerRef } from "../../core-port/commands";
 import type { PropertyField, PropertyValue, PropertyValueType } from "../../core-port/snapshot";
 import { findPage, isDeleted, pageTitle } from "../../core-port/snapshot";
@@ -26,6 +38,7 @@ import {
   offeredChoices,
   parseRepeat,
   REPEAT_UNITS,
+  TASK_DEADLINE_KEY,
   TASK_PRIORITY_KEY,
   TASK_REPEAT_KEY,
   TASK_SCHEDULED_KEY,
@@ -43,6 +56,9 @@ import {
   Input as AriaInput,
   ListBox,
   ListBoxItem,
+  ListBoxSection,
+  Header,
+  Text,
 } from "react-aria-components";
 import { MenuSelect } from "@/ui/menu-select";
 import { useI18n } from "../../i18n";
@@ -69,14 +85,29 @@ export interface PropertyTarget {
 
 type PickerStage =
   | { kind: "property" }
-  | { kind: "type"; key: string }
-  | { kind: "value"; key: string; valueType: PropertyValueType; draft: PropertyValue };
+  | { kind: "type"; name: string; draft?: PropertyValue }
+  | {
+      kind: "value";
+      key: string;
+      valueType: PropertyValueType;
+      draft: PropertyValue;
+      customName?: string;
+    };
 
 interface Candidate {
   key: string;
   existing: boolean;
   create: boolean;
 }
+
+const PROPERTY_ORDER = [
+  TASK_STATUS_KEY,
+  TASK_PRIORITY_KEY,
+  TASK_SCHEDULED_KEY,
+  TASK_DEADLINE_KEY,
+  TASK_REPEAT_KEY,
+  "builtin.query",
+];
 
 export function PropertyPicker({
   target,
@@ -110,8 +141,15 @@ export function PropertyPicker({
   const submitting = useRef(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const nameId = useId();
   const prefixPending = useRef(commandPrefix);
-  const key = stage.kind === "property" ? null : stage.key;
+  const key =
+    stage.kind === "property"
+      ? null
+      : stage.kind === "type"
+        ? storageKeyForQuery(stage.name)
+        : stage.key;
 
   const { owner } = target;
   const writeTarget = owner.kind === "tag" ? "tag_metadata" : owner.kind;
@@ -124,7 +162,11 @@ export function PropertyPicker({
     readonly || selectedUnsupported || (key !== null && !canUserWrite(key, writeTarget));
 
   const resetStage = useCallback(() => {
-    setStage({ kind: "property" });
+    setStage((current) =>
+      current.kind === "value" && current.customName !== undefined
+        ? { kind: "type", name: current.customName, draft: current.draft }
+        : { kind: "property" },
+    );
     setRequest({ status: "idle" });
   }, []);
 
@@ -144,6 +186,10 @@ export function PropertyPicker({
   useEffect(() => {
     if (stage.kind === "property") {
       searchRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    if (stage.kind === "type") {
+      nameRef.current?.focus({ preventScroll: true });
       return;
     }
     if (panelRef.current?.contains(document.activeElement)) return;
@@ -183,6 +229,9 @@ export function PropertyPicker({
         const existing = Number(present.has(right)) - Number(present.has(left));
         return (
           existing ||
+          (!present.has(left) && !present.has(right)
+            ? PROPERTY_ORDER.indexOf(left) - PROPERTY_ORDER.indexOf(right)
+            : 0) ||
           compare(propertyDisplayName(left, message), propertyDisplayName(right, message))
         );
       });
@@ -200,7 +249,7 @@ export function PropertyPicker({
     ) {
       result.push({ key: storageKey, existing: false, create: true });
     }
-    return result.slice(0, 12);
+    return result;
   }, [compare, message, query, writeTarget, visibleEntries, target.bag]);
 
   const run = async (command: Command): Promise<boolean> => {
@@ -246,9 +295,8 @@ export function PropertyPicker({
     }
     const found = target.bag.find((field) => field.key === candidate.key);
     const nextType = valueTypeOf(candidate.key) ?? found?.value_type;
-    setQuery("");
     if (!nextType) {
-      setStage({ kind: "type", key: candidate.key });
+      setStage({ kind: "type", name: propertyDisplayName(candidate.key, message) });
       return;
     }
     setStage({
@@ -260,13 +308,24 @@ export function PropertyPicker({
   };
 
   const chooseType = (nextType: PropertyValueType) => {
-    if (stage.kind !== "type") return;
+    if (stage.kind !== "type" || !key || readonly || committing) return;
+    const issue = validateKey(key) ?? validateWriteTarget(key, writeTarget);
+    if (issue || Object.hasOwn(REGISTRY, key) || target.bag.some((field) => field.key === key)) {
+      setRequest({
+        status: "failed",
+        message: issue ? validationMessage(issue, message) : message("properties.nameTaken"),
+      });
+      return;
+    }
     setStage({
       kind: "value",
-      key: stage.key,
+      key,
       valueType: nextType,
-      draft: defaultValueFor(nextType, todayLocalDate()),
+      draft:
+        stage.draft?.type === nextType ? stage.draft : defaultValueFor(nextType, todayLocalDate()),
+      customName: stage.name,
     });
+    setRequest({ status: "idle" });
   };
 
   const commit = async (value: PropertyValue) => {
@@ -417,7 +476,58 @@ export function PropertyPicker({
   const describeField = (field: PropertyField): string =>
     field.values.length === 0
       ? message("properties.noValue")
-      : field.values.map(describeValue).join(", ");
+      : field.values
+          .map((value) =>
+            field.key === TASK_STATUS_KEY && value.type === "string"
+              ? statusLabel(value.value, message)
+              : field.key === TASK_PRIORITY_KEY && value.type === "string"
+                ? priorityLabel(value.value, message)
+                : describeValue(value),
+          )
+          .join(", ");
+
+  const groups = [
+    {
+      id: "existing",
+      label: message(
+        owner.kind === "block"
+          ? "properties.onBlock"
+          : owner.kind === "page"
+            ? "properties.onPage"
+            : "properties.onTag",
+      ),
+      items: candidates.filter((candidate) => candidate.existing),
+    },
+    {
+      id: "available",
+      label: message("properties.available"),
+      items: candidates.filter((candidate) => !candidate.existing && !candidate.create),
+    },
+    {
+      id: "create",
+      label: message("properties.newProperty"),
+      items: candidates.filter((candidate) => candidate.create),
+    },
+  ].filter((group) => group.items.length > 0);
+  const descriptionFor = (candidateKey: string) => {
+    switch (candidateKey) {
+      case TASK_STATUS_KEY:
+        return message("properties.description.status");
+      case TASK_PRIORITY_KEY:
+        return message("properties.description.priority");
+      case TASK_SCHEDULED_KEY:
+        return message("properties.description.scheduled");
+      case TASK_DEADLINE_KEY:
+        return message("properties.description.deadline");
+      case TASK_REPEAT_KEY:
+        return message("properties.description.repeat");
+      case "builtin.query":
+        return message("properties.description.query");
+      default:
+        return undefined;
+    }
+  };
+  const backToCreation = stage.kind === "value" && stage.customName !== undefined;
 
   return (
     <AnchoredPanel
@@ -425,9 +535,9 @@ export function PropertyPicker({
       className="property-picker"
       label={message("properties.addOrChange")}
       options={{
-        width: taskMoment ? 640 : 360,
+        width: taskMoment ? 640 : 400,
         minWidth: 280,
-        maxHeight: taskMoment ? 480 : 420,
+        maxHeight: taskMoment ? 480 : 520,
       }}
       revision={stage.kind}
       testId="property-picker"
@@ -444,8 +554,6 @@ export function PropertyPicker({
         event.preventDefault();
         resetStage();
       }}
-      // Pointer dismissal remains Radix's. Focus alone may leave briefly when
-      // the command or chip that opened this staged editor restores itself.
       onFocusOutside={(event) => event.preventDefault()}
     >
       <div className="property-picker-head">
@@ -453,113 +561,253 @@ export function PropertyPicker({
           <Button
             variant="ghost"
             size="icon"
-            aria-label={message("properties.back")}
+            aria-label={message(backToCreation ? "properties.backToNew" : "properties.back")}
             disabled={committing}
-            onClick={() => {
-              resetStage();
-            }}
+            onClick={resetStage}
           >
             <ArrowLeftIcon data-icon aria-hidden />
           </Button>
         )}
-        <div>
-          <strong title={key ?? undefined}>
-            {stage.kind === "property"
-              ? message("properties.addOrChange")
+        {stage.kind === "value" && (
+          <span className="property-picker-heading-glyph">
+            {propertyGlyph(stage.key, stage.valueType)}
+          </span>
+        )}
+        <strong>
+          {stage.kind === "property"
+            ? message("properties.title")
+            : stage.kind === "type"
+              ? message("properties.newProperty")
               : propertyDisplayName(stage.key, message)}
-          </strong>
-          {stage.kind === "value" && !taskMoment && (
-            <span>{message(`properties.type.${stage.valueType}`)}</span>
-          )}
-        </div>
+        </strong>
+        {stage.kind === "value" && !taskMoment && (
+          <span className="property-picker-type-label">
+            {message(`properties.typeLabel.${stage.valueType}`)}
+          </span>
+        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={message("properties.closeHint")}
+          disabled={committing}
+          onClick={close}
+        >
+          <XIcon data-icon aria-hidden />
+        </Button>
       </div>
 
       {stage.kind === "property" && (
         <>
-          <Autocomplete inputValue={query} onInputChange={setQuery}>
-            <SearchField aria-label={message("properties.propertyKey")}>
-              <AriaInput
-                render={(props) => <Input {...props} />}
-                ref={searchRef}
-                autoFocus
-                placeholder={message("properties.propertyKey")}
-              />
-            </SearchField>
-            <ListBox
-              aria-label={message("properties.addOrChange")}
-              className="property-picker-list"
-              items={candidates}
-              onAction={(id) => {
-                const candidate = candidates.find((candidate) => candidate.key === id);
-                if (candidate) chooseKey(candidate);
-              }}
-              renderEmptyState={() => <p className="ac-hint">{message("properties.noKeys")}</p>}
-            >
-              {(candidate) => (
-                <ListBoxItem
-                  id={candidate.key}
-                  textValue={propertyDisplayName(candidate.key, message)}
-                  className="property-picker-option"
-                >
-                  {candidate.create ? (
-                    <TypeGlyph type={undefined} />
-                  ) : (
-                    propertyGlyph(
-                      candidate.key,
-                      valueTypeOf(candidate.key) ??
-                        target.bag.find((field) => field.key === candidate.key)?.value_type,
-                    )
-                  )}
-                  <span className="property-picker-candidate">
-                    <span className={candidate.key.startsWith("builtin.") ? undefined : "mono"}>
-                      {candidate.create
-                        ? message("properties.createProperty", {
-                            key: propertyDisplayName(candidate.key, message),
-                          })
-                        : propertyDisplayName(candidate.key, message)}
-                    </span>
-                    {candidate.existing && (
-                      <small>
-                        {describeField(
-                          visibleEntries.find((field) => field.key === candidate.key)!,
-                        )}
-                      </small>
+          <div className="property-picker-browser">
+            <Autocomplete inputValue={query} onInputChange={setQuery}>
+              <SearchField
+                className="property-picker-search"
+                aria-label={message("properties.propertyKey")}
+              >
+                <SearchIcon data-icon aria-hidden />
+                <AriaInput
+                  render={(props) => <Input {...props} className="h-9 ps-9" />}
+                  ref={searchRef}
+                  autoFocus
+                  placeholder={message("properties.searchPlaceholder")}
+                />
+              </SearchField>
+              <ListBox
+                aria-label={message("properties.addOrChange")}
+                className="property-picker-list property-picker-catalog"
+                items={groups}
+                disabledKeys={
+                  committing
+                    ? candidates.map((candidate) => candidate.key)
+                    : readonly
+                      ? candidates
+                          .filter(
+                            (candidate) => candidate.create || candidate.key === "builtin.query",
+                          )
+                          .map((candidate) => candidate.key)
+                      : []
+                }
+                onAction={(id) => {
+                  const candidate = candidates.find((candidate) => candidate.key === id);
+                  if (candidate && !submitting.current) chooseKey(candidate);
+                }}
+                renderEmptyState={() => (
+                  <p className="property-picker-empty">{message("properties.noKeys")}</p>
+                )}
+              >
+                {(group) => (
+                  <ListBoxSection
+                    id={group.id}
+                    className="property-picker-section"
+                    aria-label={group.label}
+                  >
+                    {group.id !== "create" && (
+                      <Header className="property-picker-section-title">{group.label}</Header>
                     )}
-                  </span>
-                  {candidate.existing && <CheckIcon data-icon aria-hidden />}
-                </ListBoxItem>
-              )}
-            </ListBox>
-          </Autocomplete>
+                    {group.items.map((candidate) => {
+                      const field = visibleEntries.find((field) => field.key === candidate.key);
+                      const description =
+                        candidate.existing && field
+                          ? describeField(field)
+                          : descriptionFor(candidate.key);
+                      return (
+                        <ListBoxItem
+                          key={candidate.key}
+                          id={candidate.key}
+                          textValue={propertyDisplayName(candidate.key, message)}
+                          className="property-picker-option property-picker-property"
+                          data-existing={candidate.existing || undefined}
+                          data-create={candidate.create || undefined}
+                        >
+                          {candidate.create ? (
+                            <PlusIcon data-type-glyph aria-hidden />
+                          ) : (
+                            propertyGlyph(
+                              candidate.key,
+                              valueTypeOf(candidate.key) ?? field?.value_type,
+                            )
+                          )}
+                          <span className="property-picker-candidate">
+                            <Text slot="label">
+                              {candidate.create
+                                ? message("properties.createProperty", {
+                                    key: propertyDisplayName(candidate.key, message),
+                                  })
+                                : propertyDisplayName(candidate.key, message)}
+                            </Text>
+                            {description && !candidate.existing && (
+                              <Text slot="description" className="property-picker-description">
+                                {description}
+                              </Text>
+                            )}
+                          </span>
+                          {candidate.existing && (
+                            <Text
+                              slot="description"
+                              className="property-picker-preview"
+                              title={description}
+                            >
+                              {description}
+                            </Text>
+                          )}
+                          <ChevronRightIcon
+                            className="property-picker-chevron"
+                            data-icon
+                            aria-hidden
+                          />
+                        </ListBoxItem>
+                      );
+                    })}
+                  </ListBoxSection>
+                )}
+              </ListBox>
+            </Autocomplete>
+          </div>
           {queryIssue && (
             <p className="field-error" role="alert" data-testid="props-error">
               {validationMessage(queryIssue, message)}
             </p>
           )}
+          <div className="property-picker-create-bar">
+            <Button
+              variant="ghost"
+              className="property-picker-create"
+              disabled={readonly || committing}
+              onClick={() => {
+                setStage({
+                  kind: "type",
+                  name: query.trim() ? propertyDisplayName(storageKeyForQuery(query), message) : "",
+                });
+                setRequest({ status: "idle" });
+              }}
+            >
+              <PlusIcon data-icon aria-hidden />
+              {message("properties.newProperty")}
+            </Button>
+            {readonly && (
+              <span className="property-picker-readonly">{message("properties.readonly")}</span>
+            )}
+          </div>
+          <div className="property-picker-keyboard" aria-hidden="true">
+            <span>
+              <kbd>↑</kbd>
+              <kbd>↓</kbd>
+              {message("properties.navigationHint")}
+            </span>
+            <span>
+              <kbd>
+                <CornerDownLeftIcon />
+              </kbd>
+              {message("properties.selectHint")}
+            </span>
+            <span>
+              <kbd>esc</kbd>
+              {message("properties.closeHint")}
+            </span>
+          </div>
         </>
       )}
 
       {stage.kind === "type" && (
-        <ListBox
-          className="property-picker-list"
-          aria-label={message("properties.newType")}
-          disabledKeys={readonly ? VALUE_TYPES : []}
-          onAction={(key) => chooseType(key as PropertyValueType)}
-        >
-          {VALUE_TYPES.map((valueType) => (
-            <ListBoxItem
-              id={valueType}
-              key={valueType}
-              textValue={message(`properties.type.${valueType}`)}
-              className="property-picker-option"
-            >
-              <TypeGlyph type={valueType} />
-              <span className="property-picker-candidate">
-                <span>{message(`properties.type.${valueType}`)}</span>
-              </span>
-            </ListBoxItem>
-          ))}
-        </ListBox>
+        <div className="property-picker-new">
+          <div className="property-picker-name">
+            <label htmlFor={nameId}>{message("properties.name")}</label>
+            <Input
+              id={nameId}
+              ref={nameRef}
+              autoFocus
+              value={stage.name}
+              placeholder={message("properties.namePlaceholder")}
+              aria-describedby={`${nameId}-hint`}
+              disabled={readonly || committing}
+              onChange={(event) => {
+                setStage({ ...stage, name: event.target.value });
+                setRequest({ status: "idle" });
+              }}
+              onKeyDown={(event) => {
+                if (
+                  (event.key === "Enter" || event.key === "ArrowDown") &&
+                  !event.nativeEvent.isComposing
+                ) {
+                  event.preventDefault();
+                  panelRef.current
+                    ?.querySelector<HTMLElement>(
+                      '.property-picker-types [role="option"]:not([data-disabled])',
+                    )
+                    ?.focus();
+                }
+              }}
+            />
+            <p id={`${nameId}-hint`}>{message("properties.nameHint")}</p>
+          </div>
+          <div className="property-picker-section-title">{message("properties.chooseType")}</div>
+          <ListBox
+            className="property-picker-list property-picker-types"
+            aria-label={message("properties.newType")}
+            disabledKeys={readonly || !stage.name.trim() ? VALUE_TYPES : []}
+            onAction={(key) => chooseType(key as PropertyValueType)}
+          >
+            {VALUE_TYPES.map((valueType) => (
+              <ListBoxItem
+                id={valueType}
+                key={valueType}
+                textValue={message(`properties.typeLabel.${valueType}`)}
+                className="property-picker-option"
+              >
+                <TypeGlyph type={valueType} />
+                <span className="property-picker-candidate">
+                  <Text slot="label">{message(`properties.typeLabel.${valueType}`)}</Text>
+                  {valueType !== "document" && (
+                    <Text slot="description" className="property-picker-description">
+                      {message(`properties.typeHint.${valueType}`)}
+                    </Text>
+                  )}
+                </span>
+                <ChevronRightIcon className="property-picker-chevron" data-icon aria-hidden />
+              </ListBoxItem>
+            ))}
+          </ListBox>
+        </div>
       )}
 
       {stage.kind === "value" && (
@@ -584,9 +832,12 @@ export function PropertyPicker({
               ))}
             </div>
           )}
-          {!taskMoment && selectedCardinality === "single" && selectedValues[0] && (
-            <p className="property-current-value">{describeValue(selectedValues[0])}</p>
-          )}
+          {!taskMoment &&
+            selectedCardinality === "single" &&
+            selectedValues[0] &&
+            (stage.valueType === "page" || stage.valueType === "document") && (
+              <p className="property-current-value">{describeValue(selectedValues[0])}</p>
+            )}
           {!taskMoment && selectedField && selectedValues.length === 0 && (
             <p className="property-current-value">{message("properties.noValue")}</p>
           )}
@@ -609,9 +860,11 @@ export function PropertyPicker({
             />
           ) : (
             <ValueInput
+              key={`${stage.key}:${stage.valueType}`}
               entryKey={stage.key}
               type={stage.valueType}
               value={stage.draft}
+              currentValue={selectedValues[0]}
               allowed={choices}
               readonly={writeDisabled || committing}
               onChange={(draft) => {
@@ -645,7 +898,7 @@ export function PropertyPicker({
             <div className="property-picker-actions">
               {!selectedField && (
                 <Button
-                  variant="secondary"
+                  variant="ghost"
                   onClick={() => void ensureEmpty()}
                   disabled={writeDisabled || committing}
                 >
@@ -654,7 +907,7 @@ export function PropertyPicker({
               )}
               {selectedField && selectedValues.length > 0 && stage.valueType !== "document" && (
                 <Button
-                  variant="secondary"
+                  variant="ghost"
                   onClick={() => void clearValues()}
                   disabled={writeDisabled || committing}
                 >
@@ -663,7 +916,8 @@ export function PropertyPicker({
               )}
               {selectedField && (
                 <Button
-                  variant="destructive"
+                  variant="ghost"
+                  className="property-picker-remove"
                   onClick={() => void removeField()}
                   disabled={writeDisabled || committing}
                 >
@@ -673,6 +927,8 @@ export function PropertyPicker({
               )}
               {stage.valueType !== "page" &&
                 stage.valueType !== "date" &&
+                stage.valueType !== "checkbox" &&
+                stage.valueType !== "document" &&
                 stage.key !== TASK_REPEAT_KEY &&
                 choices.length === 0 && (
                   <Button
@@ -714,6 +970,7 @@ function ValueInput({
   entryKey,
   type,
   value,
+  currentValue,
   allowed,
   readonly,
   onChange,
@@ -724,6 +981,7 @@ function ValueInput({
   entryKey: string;
   type: PropertyValueType;
   value: PropertyValue;
+  currentValue: PropertyValue | undefined;
   allowed: string[];
   readonly: boolean;
   onChange: (value: PropertyValue) => void;
@@ -770,7 +1028,7 @@ function ValueInput({
             id={option}
             textValue={labelFor(option)}
             key={option}
-            aria-selected={value.type === "string" && value.value === option}
+            aria-selected={currentValue?.type === "string" && currentValue.value === option}
             className="property-picker-option"
             isDisabled={readonly}
             onAction={() => onCommit({ type: "string", value: option })}
@@ -779,7 +1037,7 @@ function ValueInput({
             <span className="property-picker-candidate">
               <span>{labelFor(option)}</span>
             </span>
-            {value.type === "string" && value.value === option && (
+            {currentValue?.type === "string" && currentValue.value === option && (
               <CheckIcon data-icon aria-hidden />
             )}
           </ListBoxItem>
@@ -795,12 +1053,22 @@ function ValueInput({
             id={String(checked)}
             textValue={checked ? message("properties.checked") : message("properties.unchecked")}
             key={String(checked)}
-            aria-selected={value.type === "checkbox" && value.value === checked}
+            aria-selected={currentValue?.type === "checkbox" && currentValue.value === checked}
             className="property-picker-option"
             isDisabled={readonly}
             onAction={() => onCommit({ type: "checkbox", value: checked })}
           >
-            {checked ? message("properties.checked") : message("properties.unchecked")}
+            {checked ? (
+              <SquareCheckIcon data-type-glyph aria-hidden />
+            ) : (
+              <SquareIcon data-type-glyph aria-hidden />
+            )}
+            <span className="property-picker-candidate">
+              {checked ? message("properties.checked") : message("properties.unchecked")}
+            </span>
+            {currentValue?.type === "checkbox" && currentValue.value === checked && (
+              <CheckIcon data-icon aria-hidden />
+            )}
           </ListBoxItem>
         ))}
       </ListBox>

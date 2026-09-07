@@ -39,7 +39,14 @@ async function createCustomProperty(
   const picker = await openPagePicker(user);
   await user.type(within(picker).getByLabelText("Property key"), name);
   await user.click(within(picker).getByRole("option", { name: `Create property “${name}”` }));
-  await user.click(within(picker).getByRole("option", { name: type }));
+  const typeLabel = {
+    string: "Text",
+    number: "Number",
+    checkbox: "Checkbox",
+    date: "Date",
+    page: "Page link",
+  }[type];
+  await user.click(within(picker).getByRole("option", { name: typeLabel, exact: true }));
   if (type === "checkbox") {
     await user.click(
       within(picker).getByRole("option", { name: value === "yes" ? "Checked" : "Unchecked" }),
@@ -66,6 +73,113 @@ describe("the page's own menu", () => {
 });
 
 describe("property picker", () => {
+  it("keeps every existing property reachable alongside properties that can be added", async () => {
+    const { session } = await mountPage();
+    const owner = { kind: "page", id: "home" } as const;
+    await session.execute({
+      type: "batch",
+      commands: Array.from({ length: 14 }, (_, index) => ({
+        type: "set_property" as const,
+        owner,
+        key: `user.field-${String(index + 1).padStart(2, "0")}`,
+        value: { type: "string" as const, value: `Value ${index + 1}` },
+      })),
+    });
+    const user = userEvent.setup();
+    const picker = await openPagePicker(user);
+    const existing = within(picker).getByRole("group", { name: "On this page" });
+    const available = within(picker).getByRole("group", { name: "Add property" });
+
+    expect(within(existing).getAllByRole("option")).toHaveLength(14);
+    expect(within(available).getByRole("option", { name: "Status", exact: true })).toBeVisible();
+    expect(within(picker).getByLabelText("Property key")).toHaveValue("");
+    await user.click(within(existing).getByRole("option", { name: /^field-14/ }));
+    expect(within(picker).getByLabelText("field-14 value")).toHaveValue("Value 14");
+  });
+
+  it("moves through property groups from the search field without focusing headings", async () => {
+    const { session, port } = await mountPage();
+    await session.execute({
+      type: "set_property",
+      owner: { kind: "page", id: "home" },
+      key: "user.note",
+      value: { type: "string", value: "Existing" },
+    });
+    const writes = vi.fn();
+    port.beforeExecute = writes;
+    const user = userEvent.setup();
+    const picker = await openPagePicker(user);
+    const search = within(picker).getByLabelText("Property key");
+    const existing = within(within(picker).getByRole("group", { name: "On this page" })).getByRole(
+      "option",
+      { name: /^note/ },
+    );
+    const firstAvailable = within(
+      within(picker).getByRole("group", { name: "Add property" }),
+    ).getAllByRole("option")[0]!;
+
+    await waitFor(() => expect(search).toHaveFocus());
+    await user.keyboard("{ArrowDown}");
+    expect(search).toHaveAttribute("aria-activedescendant", existing.id);
+    await user.keyboard("{ArrowDown}");
+    expect(search).toHaveFocus();
+    expect(search).toHaveAttribute("aria-activedescendant", firstAvailable.id);
+    await user.keyboard("{ArrowUp}{Enter}");
+    expect(within(picker).queryByLabelText("Property key")).not.toBeInTheDocument();
+    expect(within(picker).getByLabelText("note value")).toHaveValue("Existing");
+    expect(writes).not.toHaveBeenCalled();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(within(picker).getByLabelText("Property key")).toHaveFocus());
+  });
+
+  it("lets a new property's name and type be revised before writing anything", async () => {
+    const { session, port } = await mountPage();
+    const writes = vi.fn();
+    port.beforeExecute = writes;
+    const user = userEvent.setup();
+    const picker = await openPagePicker(user);
+    await user.type(within(picker).getByLabelText("Property key"), "metric");
+    await user.click(within(picker).getByRole("button", { name: "New property", exact: true }));
+    let name = within(picker).getByLabelText("Property name");
+    await user.clear(name);
+    await user.type(name, "effrot");
+    await user.click(within(picker).getByRole("option", { name: "Number", exact: true }));
+    await user.clear(within(picker).getByLabelText("effrot value"));
+    await user.type(within(picker).getByLabelText("effrot value"), "42");
+
+    await user.keyboard("{Escape}");
+    name = within(picker).getByLabelText("Property name");
+    expect(name).toHaveValue("effrot");
+    await user.clear(name);
+    await user.type(name, "effort");
+    await user.click(within(picker).getByRole("option", { name: "Text", exact: true }));
+    expect(within(picker).getByLabelText("effort value")).toHaveAttribute("type", "text");
+    await user.type(within(picker).getByLabelText("effort value"), "draft");
+    await user.keyboard("{Escape}");
+    await user.click(within(picker).getByRole("option", { name: "Text", exact: true }));
+    expect(within(picker).getByLabelText("effort value")).toHaveValue("draft");
+    await user.keyboard("{Escape}{Escape}");
+    expect(within(picker).getByLabelText("Property key")).toHaveValue("metric");
+    expect(writes).not.toHaveBeenCalled();
+    expect(
+      session
+        .getState()
+        .snapshot.pages[0]?.properties.filter((field) => field.key.startsWith("user.")),
+    ).toEqual([]);
+
+    await user.click(within(picker).getByRole("button", { name: "New property", exact: true }));
+    name = within(picker).getByLabelText("Property name");
+    await user.clear(name);
+    await user.type(name, "effort");
+    await user.click(within(picker).getByRole("option", { name: "Text", exact: true }));
+    await user.type(within(picker).getByLabelText("effort value"), "medium{Enter}");
+    await waitFor(() => expect(screen.queryByTestId("property-picker")).not.toBeInTheDocument());
+    expect(writes).toHaveBeenCalledTimes(1);
+    expect(stringValue(session.getState().snapshot.pages[0]!.properties, "user.effort")).toBe(
+      "medium",
+    );
+  });
+
   it("returns to the page title after a palette command with no focused control", async () => {
     let openPalette!: () => void;
     function PageWithPalette() {
@@ -271,7 +385,12 @@ describe("property picker", () => {
     expect(within(picker).getByLabelText("Pick a date")).toHaveValue("2026-08-03");
     await user.keyboard("{Escape}");
     picker = await screen.findByTestId("property-picker");
-    await user.click(within(picker).getByRole("option", { name: /link/ }));
+    await user.clear(within(picker).getByLabelText("Property key"));
+    // Replacing the catalog with a reference editor also opens its nested
+    // collection. Await that focus-and-collection transition as one interaction.
+    await act(() => {
+      fireEvent.click(within(picker).getByRole("option", { name: /link/ }));
+    });
     expect(picker.querySelector(".property-current-value")).toHaveTextContent("Home");
   });
 
@@ -310,7 +429,7 @@ describe("property picker", () => {
     let picker = await openPagePicker(user);
     await user.type(within(picker).getByLabelText("Property key"), "estimate");
     await user.click(within(picker).getByRole("option", { name: "Create property “estimate”" }));
-    await user.click(within(picker).getByRole("option", { name: "number" }));
+    await user.click(within(picker).getByRole("option", { name: "Number", exact: true }));
     await user.click(within(picker).getByRole("button", { name: "Add without a value" }));
 
     const row = await screen.findByTestId("prop-user.estimate");

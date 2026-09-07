@@ -122,32 +122,35 @@ later focus change.
 `features/properties/PropertyPicker.tsx` owns three transient stages:
 
 ```text
-property search -> optional custom type -> value edit
+property search -> optional custom-property draft -> value edit
 ```
 
 An existing row starts at value edit. A known registry key carries its declared
-type and cardinality. A valid unknown `user.*` key requires an explicit value
-type and is single-valued under current client rules. Unknown `builtin.*` keys
-remain visible for forward compatibility but are read-only. Moving between
-stages writes nothing.
+type and cardinality. Creating a custom property opens one editable name-and-type
+draft, optionally seeded from the search text. A valid unknown `user.*` key
+requires an explicit value type and is single-valued under current client rules.
+Returning from its value editor preserves that draft for amendment. Unknown
+`builtin.*` keys remain visible for forward compatibility but are read-only.
+Moving between stages writes nothing.
 
 The picker resolves three target kinds: a page, a block, or a tag default. A
 tag-default target uses the same `PropertyOwner` and command family as other
 targets; candidates remain bounded by the `tag_default` placement. The routed
 tags view is the surface that opens this target.
 
-Property candidates are bounded to:
-
-1. generic-visible keys already present on the target;
-2. registry definitions that are user-writable on the resolved target; and
-3. one validated custom-key creation result for the current query.
+Property candidates are bounded to generic-visible keys already present on the
+target and registry definitions that are user-writable on the resolved target.
+The collection separates existing keys under a target-specific heading from
+available properties. A persistent creation action opens the custom-property
+draft independently of whether the search matches an existing key.
 
 Feature-owned values stay outside the generic value controls. `builtin.query`
 appears only as a creation action on eligible targets without a query; selecting
 it creates the default plan and closes the picker.
 
-Existing keys sort first. The picker does not scan the graph document or any
-adapter-owned state.
+Existing keys appear first with current-value previews; available properties use
+short descriptions. Search filters both groups without an arbitrary result cap.
+The picker does not scan the graph document or any adapter-owned state.
 
 Value controls are selected from the property type and definition:
 
@@ -314,7 +317,8 @@ retry, and save-state behavior remain owned by `GraphSession` and its adapter.
 
 ## Accessibility and Localization
 
-- Property search is a combobox with an active-descendant listbox.
+- Property search is a combobox with a grouped active-descendant listbox; group
+  headings distinguish values on the current target from properties available to add.
 - Type and fixed-value choices expose listbox/option semantics.
 - The picker has a localized dialog name, inputs have key-specific labels, and
   destructive clear/remove actions have explicit accessible names.

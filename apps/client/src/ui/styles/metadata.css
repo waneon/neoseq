@@ -20,39 +20,84 @@
 /* Height and placement belong to the anchored primitives: they hand every
    summoned panel a `max-height` equal to the room actually left on the side they
    chose, so the panel scrolls inside itself instead of off-screen. */
+/* The catalog has fixed navigation and creation controls around one scrollport.
+   Value editors own their own scrollable body; the moment editor keeps its
+   existing calendar/time composition. */
 .property-picker {
   display: flex;
+  min-height: 0;
   flex-direction: column;
-  gap: var(--sp-2);
+  padding: 0;
   overflow: hidden;
 }
 
 .property-picker-head {
   display: flex;
-  min-height: var(--sp-6);
+  flex: none;
+  min-height: 52px;
   align-items: center;
-  gap: var(--sp-1);
-}
-
-.property-picker-head > div {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  align-items: baseline;
   gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--line);
 }
 
 .property-picker-head strong {
+  min-width: 0;
+  flex: 1;
   overflow: hidden;
   font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
   line-height: var(--lh-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.property-picker-head span {
+.property-picker-heading-glyph {
+  display: flex;
+  color: var(--ink-2);
+}
+
+.property-picker-heading-glyph svg {
+  width: 16px;
+  height: 16px;
+}
+
+.property-picker-type-label,
+.property-picker-readonly {
   color: var(--ink-3);
   font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.property-picker-browser {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-top: 64px;
+}
+
+.property-picker-search {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  flex: none;
+  padding: var(--sp-3) var(--sp-3) var(--sp-2);
+  background: var(--overlay);
+}
+
+.property-picker-search > svg {
+  position: absolute;
+  z-index: 1;
+  top: 30px;
+  width: 16px;
+  height: 16px;
+  inset-inline-start: var(--sp-5);
+  color: var(--ink-3);
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 
 .property-picker-list {
@@ -64,17 +109,42 @@
   padding: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scroll-padding-block: var(--sp-2);
+}
+
+.property-picker-catalog {
+  flex: none;
+  padding: 0 var(--sp-2) var(--sp-2);
+  overflow: visible;
+}
+
+.property-picker-section {
+  flex: none;
+}
+
+.property-picker-section + .property-picker-section {
+  margin-top: var(--sp-2);
+  padding-top: var(--sp-1);
+  border-top: 1px solid var(--line);
+}
+
+.property-picker-section-title {
+  padding: var(--sp-2);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  line-height: var(--lh-xs);
 }
 
 .property-picker-option {
   position: relative;
   display: flex;
   width: 100%;
-  min-height: var(--sp-6);
+  min-height: 36px;
+  flex: none;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-2);
-  padding: var(--sp-1) var(--sp-2);
+  gap: var(--sp-3);
+  padding: var(--sp-2);
   border: 0;
   border-radius: var(--r-2);
   background: transparent;
@@ -86,15 +156,21 @@
   cursor: pointer;
 }
 
-/* One highlight for every option list in the product — the palette's row
-   language: the rounded `--surface-2` wash (designs/interaction.md § Selection and Indicators). Pointer
-   hover, a keyboard's active index, and roving focus all land on this same
-   state, so "where am I" never has two answers. The *chosen* value is not a
-   position: it says so with its check mark, never a second wash. */
+/* Chosen values use a check. Roving focus and pointer hover use the same wash. */
 .property-picker-option[data-active="true"],
 .property-picker-option[data-focused],
+.property-picker-option[data-hovered],
 .property-picker-option:focus {
   background: var(--surface-2);
+}
+
+.property-picker-option[data-disabled] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.property-picker-property {
+  padding-block: var(--sp-1);
 }
 
 .property-picker-option svg {
@@ -102,10 +178,6 @@
   color: var(--accent);
 }
 
-/* Type and value glyphs are metadata marks, not actions: they rest at the
-   glyph ink, never the accent (that stays with the existing-value check) —
-   unless the row *is* a state, in which case the state's own tone is the point
-   of the row and arrives through `--glyph-tone`. */
 .property-picker-option svg[data-type-glyph],
 .property-picker-option svg[data-status-glyph],
 .property-picker-option svg[data-priority-glyph] {
@@ -114,11 +186,35 @@
   color: var(--glyph-tone, var(--ink-2));
 }
 
+.property-picker-option .property-picker-chevron {
+  width: 14px;
+  height: 14px;
+  color: var(--ink-3);
+  opacity: 0;
+}
+
+.property-picker-option:is([data-focused], [data-hovered], :focus) .property-picker-chevron {
+  opacity: 1;
+}
+
+.property-picker-option:is([data-focused], [data-hovered], :focus) .property-picker-description {
+  color: var(--ink-2);
+}
+
+.property-picker-property[data-create] {
+  color: var(--accent);
+}
+
+.property-picker-property[data-create] svg[data-type-glyph] {
+  color: inherit;
+}
+
 .property-picker-candidate {
   display: flex;
   min-width: 0;
   flex: 1;
   flex-direction: column;
+  gap: var(--sp-0);
 }
 
 .property-picker-candidate > span,
@@ -128,22 +224,127 @@
   white-space: nowrap;
 }
 
-.property-picker-candidate > small {
+.property-picker-candidate > small,
+.property-picker-description,
+.property-picker-preview {
   color: var(--ink-3);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
 }
 
-/* A value editor owns layout, not focus paint. Generic editors may scroll here;
-   the composed task-moment editor owns its one scrollport below so its footer
-   remains fixed. Neither path creates focus-specific padding or negative
-   margins: fields carry a complete inset focus edge themselves. */
+.property-picker-preview {
+  max-width: 46%;
+  overflow: hidden;
+  color: var(--ink-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.property-picker-create-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-2);
+  border-top: 1px solid var(--line);
+}
+
+.property-picker-create.btn {
+  justify-content: flex-start;
+  gap: var(--sp-3);
+  color: var(--accent);
+}
+
+.property-picker-keyboard {
+  display: flex;
+  flex: none;
+  gap: var(--sp-4);
+  padding: var(--sp-2) var(--sp-4);
+  border-top: 1px solid var(--line);
+  background: var(--surface-1);
+  color: var(--ink-2);
+  font-size: 11px;
+  line-height: var(--lh-xs);
+}
+
+.property-picker-keyboard > span {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.property-picker-keyboard > span:last-child {
+  margin-inline-start: auto;
+}
+
+.property-picker-keyboard kbd {
+  display: inline-flex;
+  min-width: 16px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  background: var(--overlay);
+  font: inherit;
+}
+
+.property-picker-keyboard svg {
+  width: 11px;
+  height: 11px;
+}
+
+.property-picker-new {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  padding: var(--sp-3);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.property-picker-name {
+  display: grid;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+}
+
+.property-picker-name label {
+  font-size: var(--text-sm);
+}
+
+.property-picker-name p {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+.property-picker-types {
+  flex: none;
+  overflow: visible;
+}
+
+.property-picker-empty {
+  margin: var(--sp-4) var(--sp-2);
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.property-picker > .field-error {
+  flex: none;
+  margin: var(--sp-2) var(--sp-3);
+}
+
 .property-picker-value {
   display: flex;
   min-height: 0;
   flex: 1;
   flex-direction: column;
-  gap: var(--sp-2);
+  gap: var(--sp-3);
+  padding: var(--sp-3);
 }
 
 .property-picker-value:not(:has(.moment-picker)) {
@@ -152,12 +353,13 @@
 }
 
 .property-picker-value:has(.moment-picker) {
+  gap: var(--sp-2);
+  padding: var(--sp-2);
   overflow: hidden;
 }
 
 .property-current-value {
   margin: 0;
-  padding: 0 var(--sp-2);
   overflow: hidden;
   color: var(--ink-2);
   font-size: var(--text-sm);
@@ -193,12 +395,31 @@
 
 .property-picker-actions {
   display: flex;
-  justify-content: flex-end;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
   gap: var(--sp-1);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--line);
 }
 
-.property-picker-actions > :first-child:not(:last-child) {
-  margin-inline-end: auto;
+.property-picker-actions > [data-testid="property-set"] {
+  margin-inline-start: auto;
+}
+
+.property-picker-remove.btn {
+  margin-inline-start: auto;
+  color: var(--ink-3);
+}
+
+.property-picker-remove.btn:is(:hover, :focus-visible) {
+  color: var(--danger);
+}
+
+@media (pointer: coarse) {
+  .property-picker-keyboard {
+    display: none;
+  }
 }
 
 /* The date editor: one field that reads words, the day it resolved to as a
@@ -1471,6 +1692,14 @@ button.tag-mark:focus-visible {
     max-height: 70dvh;
     padding-bottom: max(var(--sp-3), env(safe-area-inset-bottom));
     border-radius: var(--r-4) var(--r-4) 0 0;
+  }
+
+  .property-picker {
+    max-height: 80dvh !important;
+  }
+
+  .property-picker-keyboard {
+    display: none;
   }
 
   .property-picker-option,

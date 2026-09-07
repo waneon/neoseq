@@ -26,6 +26,16 @@ platform picker as a precision route. System-owned keys appear as information,
 not editable generic fields. Query creation is also available here; it opens the
 same complete query as the slash command, then hands editing to the builder.
 
+The property selector is a compact, searchable inventory. Existing properties
+appear together under the current block, page, or tag, with their values aligned
+for scanning. Available properties form a separate group with short descriptions
+that explain their purpose. The entire matching collection remains reachable by
+scrolling and keyboard navigation; the footer makes the keyboard controls visible.
+A persistent New property action opens an editable name and explicit type choice.
+Type descriptions explain the data each choice holds. Creation remains one local
+draft through value editing, and going back allows the name and type to change
+without losing the draft or writing a partial property.
+
 Reference pickers keep keyboard focus in the search field and select only from
 an open list. A pending choice runs once; rejection preserves its label for
 retry. A property editor keeps ownership of a submitted change until it settles,

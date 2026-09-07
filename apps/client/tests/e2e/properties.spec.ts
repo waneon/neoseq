@@ -24,7 +24,14 @@ async function addCustom(
   const picker = page.getByTestId("property-picker");
   await picker.getByLabel("Property key").fill(name);
   await picker.getByRole("option", { name: `Create property “${name}”` }).click();
-  await picker.getByRole("option", { name: type, exact: true }).click();
+  const typeLabel = {
+    string: "Text",
+    number: "Number",
+    checkbox: "Checkbox",
+    date: "Date",
+    page: "Page link",
+  }[type];
+  await picker.getByRole("option", { name: typeLabel, exact: true }).click();
   if (type === "checkbox") {
     await mutateAndAwaitSaved(page, () =>
       picker
@@ -73,13 +80,13 @@ test("edits every value type plus unknown keys in the contextual picker", async 
   // not promise insertion order. Verify persisted values through the canonical
   // picker, which lists every existing property first.
   await picker.getByRole("option", { name: /count/ }).click();
-  await expect(picker).toContainText("42");
+  await expect(picker.getByLabel("count value")).toHaveValue("42");
   await page.keyboard.press("Escape");
   await picker.getByRole("option", { name: /done/ }).click();
   await expect(picker).toContainText("Checked");
   await page.keyboard.press("Escape");
   await picker.getByRole("option", { name: /when/ }).click();
-  await expect(picker).toContainText("2026-08-03");
+  await expect(picker.getByLabel("Pick a date")).toHaveValue("2026-08-03");
   await page.keyboard.press("Escape");
   await picker.getByRole("option", { name: /ref/ }).click();
   await expect(picker).toContainText("Everything");
