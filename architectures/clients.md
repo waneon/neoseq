@@ -310,6 +310,9 @@ dialog whose section is represented by a query parameter, so browser Back closes
 it without losing editor context.
 Journal navigation resolves the user's configured timezone to a `LocalDate` and
 asks the core to ensure that deterministic journal.
+The journal, relative query bindings, and task dates share one local clock,
+including timezone changes and resuming a suspended tab. Today's journal follows
+the new day at midnight; an explicitly selected historical date stays selected.
 
 `features/history/` is the single client coordinator for undo/redo and for
 opening anything the graph names by ID — including a tag, which has a place

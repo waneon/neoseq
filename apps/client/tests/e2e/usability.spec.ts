@@ -1,6 +1,40 @@
 import AxeBuilder from "@axe-core/playwright";
 import { test, expect } from "../support/fixtures";
 
+test("touch scrolling across block text keeps the outline unselected", async ({
+  app,
+  page,
+  context,
+  isMobile,
+}) => {
+  test.skip(!isMobile, "Native touch scrolling is a phone interaction.");
+  await app.createGraph("Touch scrolling");
+  await app.startBlock(Array.from({ length: 60 }, (_, index) => `Line ${index}`).join("\n"));
+  const scroller = page.locator(".page-scroll");
+  await scroller.evaluate((node) => {
+    node.scrollTop = 0;
+  });
+  const box = await app.editors.first().boundingBox();
+  expect(box).not.toBeNull();
+  const x = box!.x + 40;
+  const y = box!.y + 150;
+  const touch = await context.newCDPSession(page);
+  await touch.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [{ x, y }],
+  });
+  for (const distance of [10, 30, 60, 100]) {
+    await touch.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [{ x, y: y - distance }],
+    });
+  }
+  await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await expect.poll(() => scroller.evaluate((node) => node.scrollTop)).toBeGreaterThan(20);
+  await expect(page.locator('[data-testid="outline-row"][data-selected="true"]')).toHaveCount(0);
+  await expect(page.locator('[data-testid="outline-row"][data-focused="true"]')).toHaveCount(0);
+});
+
 test("the compact navigation drawer owns focus until its last layer closes", async ({
   app,
   page,

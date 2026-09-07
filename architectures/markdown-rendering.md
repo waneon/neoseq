@@ -33,6 +33,11 @@ destinations as _not_ leaving — elsewhere inside the same row, and any floatin
 overlay, both of which hand the caret straight back. Without this, focus leaving the
 outline entirely left the block on its raw source until the next reload.
 
+An in-flight pointer gesture temporarily retains its outgoing source projection.
+Focus may already belong to another row, but changing the old row's height before
+the browser resolves the click would move its destination. The hold ends after
+click hit testing, or when the gesture is cancelled.
+
 Activation carries a caret offset. The projection derives it from the pressed
 point by walking the rendered text and the source together, so the boundary needs
 no stored source positions and the parse stays disposable. The projection is also
@@ -93,6 +98,8 @@ Parsing occurs only for mounted reading projections and is memoized by the sourc
 string. The active editor does not parse on each keystroke. A bounded client-only
 cache may be added only after measurement shows that memoization and windowing are
 insufficient.
+Rendered link identities survive unrelated focus and presentation updates, so a
+press can complete navigation without its target being replaced mid-gesture.
 
 ## Verification
 

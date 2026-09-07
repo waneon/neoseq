@@ -41,8 +41,7 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
 import { Button } from "@/ui/shadcn/button";
-import { todayLocalDate } from "../../entities/journal";
-import { useTaskClock } from "../tasks/use-task-clock";
+import { useLocalClock, useToday } from "../time/use-local-clock";
 import { newQueryDocument } from "../../entities/query-document";
 import { isSettledStatus, isTaskDateKey, TASK_STATUS_KEY } from "../../entities/tasks";
 import { taskMomentDue } from "../tasks/moment-presentation";
@@ -260,7 +259,7 @@ function QueryPanelSurface({
     setLocalTableSorts([]);
     setLocalListSorts([]);
   }, [incomingPlanRef, session.graphId, viewExecutionKey]);
-  const today = useMemo(() => todayLocalDate(), [state.snapshot.graph_id]);
+  const today = useToday();
   // A built query runs from the plan in hand, so a result follows an edit
   // without waiting for the write that persists it. Without a plan there is only
   // the stored source, which still runs.
@@ -424,7 +423,7 @@ function QueryPanelSurface({
    *
    * A shared clock refreshes the presentation at minute and calendar boundaries.
    */
-  const taskClock = useTaskClock(
+  const taskClock = useLocalClock(
     columns.some(
       (column) => column.source?.kind === "property" && isTaskDateKey(column.source.key),
     ),

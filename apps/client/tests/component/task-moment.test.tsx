@@ -5,7 +5,7 @@ import { setConfiguredTimezone } from "../../src/entities/journal";
 import { TASK_DEADLINE_KEY, TASK_SCHEDULED_KEY, type TaskDateKey } from "../../src/entities/tasks";
 import { createLocaleRuntime, type SupportedLocale } from "../../src/i18n";
 import { presentTaskMoment, taskMomentDue } from "../../src/features/tasks/moment-presentation";
-import { useTaskClock } from "../../src/features/tasks/use-task-clock";
+import { useLocalClock, useToday } from "../../src/features/time/use-local-clock";
 
 function presentation(
   locale: SupportedLocale,
@@ -92,7 +92,7 @@ describe("relative task moments", () => {
   });
 });
 
-describe("live task clock", () => {
+describe("shared local clock", () => {
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
@@ -105,8 +105,8 @@ describe("live task clock", () => {
     vi.setSystemTime(new Date("2026-09-06T14:59:30Z"));
     setConfiguredTimezone("Asia/Seoul");
     vi.advanceTimersByTime(0);
-    const first = renderHook(() => useTaskClock(true));
-    const second = renderHook(() => useTaskClock(true));
+    const first = renderHook(() => useLocalClock(true));
+    const second = renderHook(() => useLocalClock(true));
     expect(vi.getTimerCount()).toBe(1);
     expect(first.result.current).toEqual({ today: "2026-09-06", now: "23:59" });
     act(() => vi.advanceTimersByTime(30_000));
@@ -128,13 +128,38 @@ describe("live task clock", () => {
 
   it("does not start a clock for an inactive surface", () => {
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
-    const { rerender } = renderHook(({ active }) => useTaskClock(active), {
+    const { rerender } = renderHook(({ active }) => useLocalClock(active), {
       initialProps: { active: false },
     });
     expect(vi.getTimerCount()).toBe(0);
     rerender({ active: true });
     expect(vi.getTimerCount()).toBe(1);
     rerender({ active: false });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("shares its timer with journals and renders date consumers only when the day changes", () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    vi.setSystemTime(new Date("2026-09-06T14:58:30Z"));
+    setConfiguredTimezone("Asia/Seoul");
+    vi.advanceTimersByTime(0);
+    const clock = renderHook(() => useLocalClock(true));
+    const renderToday = vi.fn(useToday);
+    const today = renderHook(renderToday);
+    const initialRenders = renderToday.mock.calls.length;
+    expect(vi.getTimerCount()).toBe(1);
+    expect(today.result.current).toBe("2026-09-06");
+    act(() => vi.advanceTimersByTime(30_000));
+    expect(renderToday).toHaveBeenCalledTimes(initialRenders);
+    act(() => vi.advanceTimersByTime(60_000));
+    expect(today.result.current).toBe("2026-09-07");
+    act(() => {
+      setConfiguredTimezone("UTC");
+      vi.advanceTimersByTime(0);
+    });
+    expect(today.result.current).toBe("2026-09-06");
+    clock.unmount();
+    today.unmount();
     expect(vi.getTimerCount()).toBe(0);
   });
 });

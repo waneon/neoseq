@@ -255,7 +255,7 @@ export function CellValue({
     );
   }
   return terms.map((term, index) => (
-    <span key={index}>
+    <span key={index} className="query-value">
       {index > 0 && ", "}
       <TermValue term={term} column={column} context={context} subject={subject} row={row} />
     </span>

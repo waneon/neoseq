@@ -46,7 +46,7 @@ import {
   newDefaultQueryDocument,
   type DefaultQuery,
 } from "../../entities/default-queries";
-import { todayLocalDate } from "../../entities/journal";
+import { useToday } from "../time/use-local-clock";
 import { QUERY_LANGUAGE } from "../../entities/query-document";
 import {
   columnSourceKey,
@@ -192,7 +192,7 @@ function DefaultQueryRow({
     [storedPlan],
   );
   const unsupportedPlan = storedPlan != null && plan === null;
-  const today = useMemo(() => todayLocalDate(), [state.snapshot.graph_id]);
+  const today = useToday();
   // The same request the journal will make, so the two share one execution: the
   // count here is the count there rather than a second opinion about it.
   const request = useMemo<AuthoredQueryRequest | null>(

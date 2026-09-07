@@ -280,8 +280,7 @@ function PageTitle({ page }: { page: PageSnapshot }) {
   const { message, formatJournalDate } = useI18n();
 
   if (isJournal) {
-    // A journal page carries no title — the core stores its day as a property —
-    // so `pageTitle` would fall back to the page id. Reached through /journal the
+    // A journal page's shared title is its ISO day. Reached through /journal the
     // view supplies the heading itself; reached by id, as a reference resolves it,
     // this is the only thing that would render, and it must be the same date in
     // the same format the user chose.

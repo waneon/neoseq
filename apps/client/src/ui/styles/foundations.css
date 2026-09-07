@@ -145,7 +145,7 @@
   --row-h: 32px;
   --control-h: 34px;
   --control-compact-h: 28px;
-  --nav-row-h: 36px;
+  --nav-row-h: 32px;
 
   --indent: 30px;
   --slot: 20px;
@@ -154,6 +154,7 @@
 
   --icon: 14px;
   --icon-lg: 16px;
+  --icon-stroke: 1.5px;
   --mark-slot: 16px;
   --mark-gap: 8px;
 
@@ -346,6 +347,17 @@ body {
   font-feature-settings: "lnum", "locl", "cv11";
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+/* Lucide uses a 24-unit drawing grid. Keep its stroke at one screen-space
+   weight when hosts choose smaller boxes; fractional rescaling otherwise
+   makes the same mark look faint and uneven between adjacent controls. */
+.lucide {
+  stroke-width: var(--icon-stroke);
+}
+
+.lucide > * {
+  vector-effect: non-scaling-stroke;
 }
 
 a {

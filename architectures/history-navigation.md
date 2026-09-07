@@ -95,7 +95,10 @@ and the virtualizer. For an accepted block request it:
 1. verifies the block exists in the full authoritative owner tree;
 2. expands every collapsed ancestor;
 3. waits until the block enters the visible flattened rows;
-4. scrolls the virtualizer to its row;
+4. uses the same one-shot visibility policy as keyboard block navigation: leave
+   visible targets stationary, otherwise reveal the nearest edge with smooth
+   scrolling (immediate with reduced motion), letting the virtualizer own an
+   unmounted target's arrival;
 5. briefly pulses an accent highlight on the destination, or keeps it stationary
    when reduced motion is preferred;
 6. focuses the editor only for history invoked inside the outline.

@@ -23,6 +23,8 @@ title therefore changes only the directory; mounted references immediately
 materialize the new title without mutating their blocks.
 Journals use their ISO local date as this shared, locale-independent title;
 presentation surfaces may format the separate directory date for other UI.
+Snapshot title resolution follows the same date rule, including property page
+pickers and previews, so live journals never fall back to their internal IDs.
 
 Editor projection maps browser UTF-16 offsets to canonical logical offsets.
 Unicode scalar values and reference atoms each occupy one logical position.

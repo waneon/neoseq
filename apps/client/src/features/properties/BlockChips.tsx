@@ -32,7 +32,7 @@ import { useSessionSelector } from "../shell/session-context";
 import { useDueTiers } from "../settings/preferences";
 import { repeatLabel } from "../tasks/labels";
 import { TaskMoment } from "../tasks/TaskMoment";
-import { useTaskClock } from "../tasks/use-task-clock";
+import { useLocalClock } from "../time/use-local-clock";
 import { presentTaskMoment, taskMomentDue } from "../tasks/moment-presentation";
 import { propertyDisplayName, propertyGlyph } from "./property-display";
 
@@ -53,7 +53,7 @@ export function BlockChips({
   const scheduled = dateValue(block.properties, TASK_SCHEDULED_KEY);
   const deadline = dateValue(block.properties, TASK_DEADLINE_KEY);
   const settled = status !== undefined && isSettledStatus(status);
-  const { today, now } = useTaskClock(
+  const { today, now } = useLocalClock(
     !settled && (scheduled !== undefined || deadline !== undefined),
   );
   // An interval that does not parse is still the user's own string: it stays on

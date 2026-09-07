@@ -42,9 +42,8 @@
 }
 
 .document-eyebrow svg {
-  width: 15px;
-  height: 15px;
-  stroke-width: 1.7;
+  width: var(--icon-lg);
+  height: var(--icon-lg);
 }
 
 .title-row {

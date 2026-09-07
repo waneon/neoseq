@@ -379,7 +379,9 @@ export class GraphSession {
       await this.publishChanges(response.changes, save, result.command_id);
       // Application and durability are independent outcomes. Structural hosts
       // must acknowledge created identities even while exact bytes await retry.
-      if (status.status === "saved_locally") await this.syncAgent?.wake();
+      // The editor adopts canonical identities at local completion. Transport
+      // work must not leave its pending projection beside the published tree.
+      if (status.status === "saved_locally") this.syncAgent?.wake();
       return result;
     } catch (error) {
       if (error instanceof CorePortFailure && error.applied) throw error;
@@ -425,7 +427,7 @@ export class GraphSession {
       const receipt = await this.port.retryPending(this.handle);
       saved = { kind: "saved", sequence: receipt.local_sequence };
       await this.reconcile(saved);
-      await this.syncAgent?.wake();
+      this.syncAgent?.wake();
     } catch (error) {
       const detail = toPortError(error);
       // A later read or transport failure cannot revoke a durable receipt.

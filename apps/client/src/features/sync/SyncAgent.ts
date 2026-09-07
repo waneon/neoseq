@@ -73,6 +73,7 @@ export class SyncAgent {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private inFlight: string | null = null;
   private incoming: Promise<void> = Promise.resolve();
+  private outgoing: Promise<void> = Promise.resolve();
   private transportSessionId = "";
   private presence = new Map<string, PeerPresence>();
   private presenceTimer: ReturnType<typeof setInterval> | null = null;
@@ -134,9 +135,27 @@ export class SyncAgent {
     this.socket = null;
   }
 
-  async wake(): Promise<void> {
-    await this.refreshPending();
-    await this.flush();
+  /** Local durability only signals the transport; it never waits for it. */
+  wake(): void {
+    if (this.stopped) return;
+    void this.updateOutbox().catch((error: unknown) => {
+      if (this.stopped || this.current.sync.kind === "paused") return;
+      this.abandonSocket("outbox unavailable");
+      this.patch({ sync: { kind: "error", message: String(error) } });
+      this.scheduleReconnect();
+    });
+  }
+
+  private updateOutbox(): Promise<void> {
+    // Local wakes and server acknowledgements share one outgoing sequence,
+    // independent of the canonical command queue and incoming remote imports.
+    const run = this.outgoing.then(async () => {
+      if (this.stopped) return;
+      await this.refreshPending();
+      await this.flush();
+    });
+    this.outgoing = run.catch(() => undefined);
+    return run;
   }
 
   async publishPresence(
@@ -230,8 +249,7 @@ export class SyncAgent {
       this.welcomed = true;
       this.retry = 0;
       this.patch({ live: "live" });
-      await this.refreshPending();
-      await this.flush();
+      await this.updateOutbox();
       return;
     }
     if ("Ack" in message) {
@@ -239,8 +257,7 @@ export class SyncAgent {
       const messageId = ack.message_id;
       await this.port.acknowledgeOutbox(this.graphHandle, messageId);
       if (this.inFlight === messageId) this.inFlight = null;
-      await this.refreshPending();
-      await this.flush();
+      await this.updateOutbox();
       return;
     }
     if ("Update" in message) {
@@ -278,6 +295,16 @@ export class SyncAgent {
     const socket = this.socket;
     if (!socket || socket.readyState !== WebSocket.OPEN || !this.welcomed || this.inFlight) return;
     const next = await this.port.nextSyncFrame(this.graphHandle);
+    // A reconnect can replace the transport during the Worker read. Only the
+    // current live transport may claim the next outbox frame.
+    if (
+      this.stopped ||
+      socket !== this.socket ||
+      socket.readyState !== WebSocket.OPEN ||
+      !this.welcomed ||
+      this.inFlight
+    )
+      return;
     if (!next) {
       this.patch({ sync: { kind: "synced" } });
       return;
@@ -288,7 +315,7 @@ export class SyncAgent {
 
   private async refreshPending(): Promise<void> {
     const state = await this.port.syncState(this.graphHandle);
-    if (this.current.sync.kind === "paused") return;
+    if (this.stopped || this.current.sync.kind === "paused") return;
     this.patch({
       sync: state.pending > 0 ? { kind: "pending", count: state.pending } : { kind: "synced" },
     });

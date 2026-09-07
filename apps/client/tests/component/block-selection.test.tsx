@@ -46,6 +46,35 @@ function selectedTexts(): string[] {
 }
 
 describe("block selection", () => {
+  it.each(["outline-row", "row-grip", "block-bullet"])(
+    "leaves touch swipes on %s to the browser without selecting blocks",
+    async (surface) => {
+      await mountRows(["one", "two"]);
+      const target = screen.getAllByTestId(surface)[0];
+      const press = new PointerEvent("pointerdown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        pointerType: "touch",
+        pointerId: 7,
+        clientX: 100,
+        clientY: 50,
+      });
+      fireEvent(target, press);
+      expect(press.defaultPrevented).toBe(false);
+      fireEvent.pointerMove(window, {
+        pointerType: "touch",
+        pointerId: 7,
+        clientX: 100,
+        clientY: 10,
+      });
+      expect(selectedTexts()).toEqual([]);
+      expect(screen.getByRole("tree")).not.toHaveFocus();
+      fireEvent.pointerCancel(window, { pointerType: "touch", pointerId: 7 });
+      expect(selectedTexts()).toEqual([]);
+    },
+  );
+
   it("extends from the last touched bullet with shift, and toggles one with the modifier", async () => {
     await mountRows(["one", "two", "three", "four"]);
 

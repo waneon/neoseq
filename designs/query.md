@@ -125,7 +125,9 @@ structure, unlike outline hierarchy, depends on full-width tracks.
 Every table value inhabits the same cell frame. The table owns that frame's row
 height, padding, typography, clipping, and interaction state; semantic
 renderers own their meaning-bearing weight, tracking, numeric shape, ink, and
-inline decoration. A surface may change scale, density, or affordance, but the
+inline decoration. Each value groups its glyph and writing around that frame's
+center; a nested reference inherits the value's line height instead of imposing
+another control height. A surface may change scale, density, or affordance, but the
 same value must not appear to change typeface when projected into a cell.
 Compact density changes one row-height token rather than selecting alternate
 renderer rules. Secondary actions overlay the frame without changing the

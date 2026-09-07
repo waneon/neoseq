@@ -380,7 +380,6 @@
   height: 26px;
   margin-bottom: var(--sp-4);
   color: var(--ink-3);
-  stroke-width: 1.5;
 }
 
 .tags-empty-state h2 {

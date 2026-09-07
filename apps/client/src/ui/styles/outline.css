@@ -405,7 +405,7 @@
   display: flex;
   flex: 1;
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: center;
   min-width: 0;
   position: relative;
   column-gap: var(--sp-2);
@@ -801,11 +801,13 @@
   display: flex;
   flex: 0 1 auto;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
   gap: var(--sp-2);
   min-width: 0;
+  min-height: var(--block-first-line-height);
   margin-inline-start: auto;
-  padding: 3px var(--sp-1) 3px 0;
+  padding-inline-end: var(--sp-1);
 }
 
 /* The first writing action and subsequent append target share the block text axis. */

@@ -74,7 +74,7 @@
 .task-marks {
   position: absolute;
   inset-inline-start: 0;
-  top: 1px;
+  top: calc((var(--block-first-line-height) - var(--target)) / 2);
   display: flex;
   align-items: center;
 }

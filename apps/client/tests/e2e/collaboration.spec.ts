@@ -9,6 +9,51 @@ import {
   test,
 } from "../support/remote";
 
+test("splitting a remote block keeps one visible row per block through local completion", async ({
+  app: owner,
+  remote,
+}) => {
+  await createRemote(owner, remote, "Split project");
+  await owner.createPage("Split notes");
+  await owner.startBlock("headtail");
+  await expectSynced(owner.page);
+  const input = owner.editors.first();
+  await input.click();
+  await input.press("Home");
+  await input.press("ArrowRight");
+  await input.press("ArrowRight");
+  await input.press("ArrowRight");
+  await input.press("ArrowRight");
+  await owner.page.evaluate(() => {
+    const capture = { counts: [] as number[], frame: 0 };
+    Object.assign(window, { splitCapture: capture });
+    const sample = () => {
+      capture.counts.push(document.querySelectorAll('[data-testid="outline-row"]').length);
+      capture.frame = requestAnimationFrame(sample);
+    };
+    sample();
+  });
+  await owner.saved(() => input.press("Enter"));
+  await owner.expectOutline(["head", "tail"]);
+  await expect(owner.editors.last()).toBeFocused();
+  await expect(owner.page.locator('[data-block-id^="pending-"]')).toHaveCount(0);
+  await expectSynced(owner.page);
+  const counts = await owner.page.evaluate(() => {
+    const capture = (window as unknown as { splitCapture: { counts: number[]; frame: number } })
+      .splitCapture;
+    cancelAnimationFrame(capture.frame);
+    return capture.counts;
+  });
+  expect(counts.length).toBeGreaterThan(1);
+  expect(counts.every((count) => count === 1 || count === 2)).toBe(true);
+
+  await owner.editBlock(1, "tail continues");
+  await expectSynced(owner.page);
+  const fresh = await remote.newProfile();
+  await openRemote(fresh, remote, remote.owner, "Split project", "Split notes");
+  await fresh.expectOutline(["head", "tail continues"]);
+});
+
 test("independent browser profiles exchange edits and a fresh replica reads the exact result", async ({
   app: owner,
   remote,

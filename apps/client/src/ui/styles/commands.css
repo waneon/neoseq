@@ -46,7 +46,6 @@
   width: 20px;
   height: 20px;
   color: var(--ink-3);
-  stroke-width: 1.6;
 }
 
 .cmdk-input {
@@ -123,7 +122,6 @@
 .cmdk-row-icon svg {
   width: var(--icon-lg);
   height: var(--icon-lg);
-  stroke-width: 1.6;
 }
 
 .cmdk-row-copy {

@@ -1222,10 +1222,17 @@ impl GraphIndex {
                     fallback = normalize_text(needle.value());
                     &fallback
                 };
-                let matches = normalized_text.get(content.value()).map_or_else(
-                    || normalize_text(content.value()).contains(normalized_needle),
-                    |normalized| normalized.contains(normalized_needle),
-                );
+                // A symbol-only query has no analyzed words. Match its literal
+                // spelling instead of treating the empty analysis as a wildcard.
+                let matches = if normalized_needle.is_empty() {
+                    let literal = needle.value().trim();
+                    !literal.is_empty() && content.value().contains(literal)
+                } else {
+                    normalized_text.get(content.value()).map_or_else(
+                        || normalize_text(content.value()).contains(normalized_needle),
+                        |normalized| normalized.contains(normalized_needle),
+                    )
+                };
                 Some(Literal::from(matches).into())
             })
             .for_query(query);
@@ -3302,6 +3309,46 @@ mod tests {
                 ),
                 "{source}"
             );
+        }
+    }
+
+    #[test]
+    fn matches_text_keeps_symbol_only_needles_literal() {
+        let mut graph = snapshot();
+        let block = &mut graph.pages[0].blocks[0];
+        block.markdown = "Ship / docs # 🎉".into();
+        block.content = vec![domain::InlineContent::Markdown {
+            value: block.markdown.clone(),
+        }];
+        let index = GraphIndex::new(&graph).unwrap();
+        for (needle, expected) in [
+            ("/", 1),
+            (" # ", 1),
+            ("🎉", 1),
+            ("!!!", 0),
+            ("", 0),
+            ("   ", 0),
+            ("SHIP docs", 1),
+        ] {
+            let mut query = request(
+                "PREFIX neo: <urn:neoseq:vocab:v1:>\n\
+                 SELECT ?entity WHERE {\n\
+                   ?entity neo:content ?content .\n\
+                   FILTER(neo:matchesText(?content, ?needle))\n\
+                 } ORDER BY ?entity LIMIT 20",
+            );
+            query.bindings.insert(
+                "needle".into(),
+                RdfTerm::Literal {
+                    value: needle.into(),
+                    datatype: xsd::STRING.as_str().into(),
+                    language: None,
+                },
+            );
+            let QueryResult::Select { rows, .. } = index.execute(query).unwrap() else {
+                panic!("expected SELECT result");
+            };
+            assert_eq!(rows.len(), expected, "needle: {needle:?}");
         }
     }
 

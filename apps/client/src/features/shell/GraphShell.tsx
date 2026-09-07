@@ -64,7 +64,7 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
 import { setTheme, storedTheme, subscribeTheme, type Theme } from "../../ui/theme";
-import { todayLocalDate } from "../../entities/journal";
+import { useToday } from "../time/use-local-clock";
 import { canonicalEntityName, nextAvailableEntityName } from "../../entities/names";
 import {
   CommandContext,
@@ -557,7 +557,7 @@ function ShellBody({
     });
   }, [message, notify, openSettings, state.recovery]);
 
-  const today = todayLocalDate();
+  const today = useToday();
   const journalMatch = /\/journal(?:\/(\d{4}-\d{2}-\d{2}))?$/.exec(location.pathname);
   const currentDate = journalMatch ? (journalMatch[1] ?? today) : null;
   const currentTag = /\/t\/([^/]+)$/.exec(location.pathname)?.[1];

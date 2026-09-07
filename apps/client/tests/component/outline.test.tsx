@@ -571,6 +571,28 @@ describe("outliner keyboard commands", () => {
     }
   });
 
+  it.each(["next line", "**next line**"])(
+    "keeps an outgoing source visible until a press on %s completes",
+    async (next) => {
+      await mountOutline([`[foo](${"long".repeat(80)})`, next]);
+      const user = userEvent.setup();
+      const [source, destination] = screen.getAllByLabelText("Block text");
+      await user.click(screen.getAllByTestId("block-markdown")[0]);
+      expect(source).toHaveFocus();
+
+      const target = next.startsWith("**") ? screen.getByTestId("block-markdown") : destination;
+      fireEvent.pointerDown(target, { button: 0, clientX: 50, clientY: 100 });
+      act(() => target.focus());
+      // A slow press permits blur's deferred check to run before pointerup.
+      await settleFrame();
+      expect(source).not.toHaveAttribute("hidden");
+      fireEvent.pointerUp(target, { button: 0, clientX: 50, clientY: 100 });
+      fireEvent.click(target, { button: 0, clientX: 50, clientY: 100 });
+      await waitFor(() => expect(destination).toHaveFocus());
+      expect(source).toHaveAttribute("hidden");
+    },
+  );
+
   it("shows Markdown at rest and restores the source editor on activation", async () => {
     await mountOutline(["Read **bold** text", "plain"]);
     const user = userEvent.setup();

@@ -151,6 +151,8 @@ Normalized content search uses the sole v1 extension function
 literal parameter. The core validates this shape before planning so postings
 cannot change its meaning. Its normalization and matching rules are part of the
 analyzer-version fixture. All other expressions follow SPARQL 1.1 semantics.
+Symbol-only needles match their literal spelling; an empty or whitespace-only
+needle matches nothing. Analysis must never turn punctuation into a wildcard.
 
 CorePort v5 makes authorship explicit rather than accepting two fields that can
 disagree:

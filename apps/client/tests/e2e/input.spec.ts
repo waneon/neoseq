@@ -1,5 +1,43 @@
 import { test, expect } from "../support/fixtures";
 
+test("wrapped Markdown source keeps the next row under a completed click", async ({
+  app,
+  page,
+}) => {
+  await app.createGraph("Wrapped source");
+  const source = `[foo](${"long".repeat(160)})`;
+  await app.startBlock(source);
+  await app.appendBlock("**next block**");
+  await app.appendBlock("last block");
+
+  for (const destination of [1, 2]) {
+    await app.block(0).getByTestId("block-markdown").click();
+    await expect(app.editors.first()).toBeFocused();
+    const target =
+      destination === 1 ? app.block(1).getByTestId("block-markdown") : app.editors.nth(2);
+    await target.scrollIntoViewIfNeeded();
+    const box = await target.boundingBox();
+    expect(box).not.toBeNull();
+    const x = box!.x + 30;
+    const y = box!.y + 12;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    // Permit blur reconciliation and virtual measurements while the press is
+    // still held; both must preserve the geometry used to resolve its click.
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    const pressedBox = await target.boundingBox();
+    expect(pressedBox!.y).toBeCloseTo(box!.y, 0);
+    await page.mouse.up();
+    await expect(app.editors.nth(destination)).toBeFocused();
+    await expect(app.editors.first()).toBeHidden();
+  }
+});
+
 test("Markdown preserves source while unsafe links and remote images stay inert", async ({
   app,
   page,

@@ -1071,6 +1071,22 @@ button.query-disclosure:hover {
   min-width: 0;
 }
 
+/* Inline SVGs expose their bottom edge as a baseline. A semantic value is a
+   centered group, so it must not add an anonymous descender beneath its glyph. */
+.query-table .query-value {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.query-table .query-link {
+  min-height: var(--lh-sm);
+}
+
+.query-table td[data-numeric="true"] .query-cell-control {
+  justify-content: flex-end;
+}
+
 .query-table .query-cell-frame[data-has-action] > .query-cell-control {
   padding-inline-end: var(--sp-6);
 }

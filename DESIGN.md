@@ -100,6 +100,9 @@ material owns the page edge; outline text owns an inset edge whose margin holds
 bullets and branches. This distinction makes a page the root of its outline
 rather than an oversized first block.
 
+Shared row frames own the alignment of writing, metadata, and icons. Nested value
+renderers inherit that geometry so their semantics cannot shift the row's center.
+
 The workspace rail keeps search and a labeled New page action above its scrolling
 directory, with settings and keyboard help anchored below. A persistent breadcrumb
 and Undo and Redo orient the document without competing with its title. The

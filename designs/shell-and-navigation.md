@@ -29,6 +29,10 @@ and keyboard-help footer. The desktop collapse control is always visible. The cu
 uses the accent because the rail is scanned for location rather than read as
 content. Journal remains the current place on every dated journal route.
 
+Directory labels use the shared small-text role and content ink. Section labels
+use the secondary ink role; compact section spacing establishes grouping without
+large empty bands. Desktop rows stay dense, while touch rows retain full targets.
+
 Favourites form one list across pages and tags: the organizing idea is return,
 not entity type. Each item retains its own mark, and all labels share one mark
 column. The list is absent when empty. Favourite membership and order belong to

@@ -1,6 +1,7 @@
 import {
   memo,
   useId,
+  useMemo,
   useRef,
   type FocusEvent,
   type MouseEvent,
@@ -257,14 +258,19 @@ function BlockMarkdownView({
 
   const Root = compact ? "span" : "div";
   const renderedMarkdown = projectPageReferences(markdown, pageReferences, pageReferencePrefix);
-  const components: Components = {
-    ...(compact ? compactComponents : blockComponents),
-    a: ({ href, children }) => (
-      <SafeLink href={href} graphId={graphId} pageReferencePrefix={pageReferencePrefix}>
-        {children}
-      </SafeLink>
-    ),
-  };
+  // Renderer functions are React component types. Recreating them during an
+  // unrelated focus update replaces links between pointerdown and click.
+  const components = useMemo<Components>(
+    () => ({
+      ...(compact ? compactComponents : blockComponents),
+      a: ({ href, children }) => (
+        <SafeLink href={href} graphId={graphId} pageReferencePrefix={pageReferencePrefix}>
+          {children}
+        </SafeLink>
+      ),
+    }),
+    [compact, graphId, pageReferencePrefix],
+  );
 
   return (
     <Root

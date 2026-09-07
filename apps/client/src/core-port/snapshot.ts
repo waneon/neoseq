@@ -214,7 +214,8 @@ export function dateValue(bag: PropertyField[], key: string): string | undefined
 }
 
 export function pageTitle(page: PageSnapshot): string {
-  return page.title || page.id;
+  // Journals are named by their semantic date, just like page-directory entries.
+  return journalDate(page) ?? (page.title || page.id);
 }
 
 export function pageKind(page: PageSnapshot): "regular" | "journal" {

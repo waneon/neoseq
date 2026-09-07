@@ -1,13 +1,86 @@
 // Journal ensure + navigation + tombstones for deleted/missing pages.
 
-import { screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { findJournalPage } from "../../src/core-port/snapshot";
-import { todayLocalDate } from "../../src/entities/journal";
+import { setConfiguredTimezone, todayLocalDate } from "../../src/entities/journal";
 import { GRAPH_ID, mountAt } from "./harness";
 
 describe("journal and navigation", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it.each(["journal", "journal/2026-09-06"])(
+    "follows the new local day from %s after a suspended tab resumes",
+    async (route) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date("2026-09-06T14:59:30Z"));
+      setConfiguredTimezone("Asia/Seoul");
+      const { session, router, settle } = await mountAt(`/g/${GRAPH_ID}/${route}`);
+      expect(screen.getByTestId("journal-calendar-trigger")).toHaveAttribute(
+        "data-date",
+        "2026-09-06",
+      );
+      vi.setSystemTime(new Date("2026-09-06T15:00:00Z"));
+      await settle(() => fireEvent.focus(window));
+      await waitFor(() => {
+        expect(screen.getByTestId("journal-calendar-trigger")).toHaveAttribute(
+          "data-date",
+          "2026-09-07",
+        );
+        expect(findJournalPage(session.getState().snapshot, "2026-09-07")).toBeDefined();
+      });
+      expect(router.state.location.pathname).toBe(`/g/${GRAPH_ID}/journal`);
+    },
+  );
+
+  it("keeps an explicitly selected historical day while today changes", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-06T14:59:30Z"));
+    setConfiguredTimezone("Asia/Seoul");
+    const { session } = await mountAt(`/g/${GRAPH_ID}/journal/2026-09-01`);
+    vi.setSystemTime(new Date("2026-09-06T15:00:00Z"));
+    act(() => fireEvent.focus(window));
+    expect(screen.getByTestId("journal-calendar-trigger")).toHaveAttribute(
+      "data-date",
+      "2026-09-01",
+    );
+    expect(findJournalPage(session.getState().snapshot, "2026-09-07")).toBeUndefined();
+  });
+
+  it("saves the final debounced edit to the previous journal when midnight changes the page", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-06T14:59:30Z"));
+    setConfiguredTimezone("Asia/Seoul");
+    const { session, settle } = await mountAt(`/g/${GRAPH_ID}/journal`);
+    const previous = findJournalPage(session.getState().snapshot, "2026-09-06")!;
+    await settle(() =>
+      session.execute({
+        type: "insert_block",
+        owner: { kind: "page", id: previous.id },
+        parent: null,
+        index: 0,
+        markdown: "Before midnight",
+      }),
+    );
+    const input = screen.getByLabelText("Block text");
+    fireEvent.change(input, { target: { value: "Before midnight, saved" } });
+    expect(findJournalPage(session.getState().snapshot, "2026-09-06")!.blocks[0].markdown).toBe(
+      "Before midnight",
+    );
+    vi.setSystemTime(new Date("2026-09-06T15:00:00Z"));
+    await settle(() => fireEvent.focus(window));
+    await waitFor(() => {
+      expect(findJournalPage(session.getState().snapshot, "2026-09-06")!.blocks[0].markdown).toBe(
+        "Before midnight, saved",
+      );
+      expect(screen.getByTestId("journal-calendar-trigger")).toHaveAttribute(
+        "data-date",
+        "2026-09-07",
+      );
+    });
+  });
+
   it("ensures today's journal exactly once and renders it", async () => {
     const { session } = await mountAt(`/g/${GRAPH_ID}/journal`);
     const today = todayLocalDate();

@@ -425,6 +425,7 @@ export function Outliner({
     0,
   );
   const [focusedId, setFocusedId, focusedRef] = useImmediateState<string | null>(null);
+  const [pressedSourceId, setPressedSourceId] = useState<string | null>(null);
   const revealSequence = useRef(0);
   const [navigationReveal, setNavigationReveal] = useState<NavigationRevealRequest | null>(null);
   const revealNavigationTarget = useCallback((id: string | null) => {
@@ -1576,6 +1577,65 @@ export function Outliner({
   // from: a virtualized row can be recycled out of the DOM mid-drag, and pointer
   // capture on a removed element takes the rest of the gesture with it.
 
+  // Focus can leave a source editor at pointerdown, before the browser resolves
+  // the eventual click. Keep that source's geometry until the gesture finishes:
+  // collapsing a wrapped Markdown URL into its label otherwise moves the target
+  // row out from under the pointer between down and up.
+  useEffect(() => {
+    let releaseFrame: number | null = null;
+    let pointerId: number | null = null;
+    const release = () => {
+      if (releaseFrame !== null) cancelAnimationFrame(releaseFrame);
+      releaseFrame = null;
+      if (pointerId === null) return;
+      pointerId = null;
+      setPressedSourceId(null);
+    };
+    const press = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      if (releaseFrame !== null) cancelAnimationFrame(releaseFrame);
+      releaseFrame = null;
+      const id = focusedRef.current;
+      const source = id
+        ? viewportRef.current?.querySelector<HTMLTextAreaElement>(
+            `[data-block-id="${cssEscape(id)}"] .outline-input`,
+          )
+        : null;
+      const semanticInline = rowsRef.current.some(
+        (row) => row.block.id === id && row.block.page_references.length > 0,
+      );
+      // Plain-text rows have no presentation handoff to hold. Avoid creating a
+      // gesture (and deferred React work) for unrelated controls and swipes.
+      if (!source || !hasMarkdownSyntax(source.value, semanticInline)) {
+        release();
+        return;
+      }
+      pointerId = event.pointerId;
+      setPressedSourceId(id);
+    };
+    const finish = (event: PointerEvent) => {
+      if (event.pointerId !== pointerId) return;
+      // Release after click handlers consume native state. Capture-phase React
+      // updates can reset a controlled checkbox before its onChange reads it.
+      // A cancelled or dragged gesture may produce no click, so the next frame
+      // also releases its hold.
+      releaseFrame = requestAnimationFrame(release);
+    };
+    document.addEventListener("pointerdown", press, true);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", release);
+    window.addEventListener("click", release);
+    window.addEventListener("blur", release);
+    return () => {
+      if (releaseFrame !== null) cancelAnimationFrame(releaseFrame);
+      document.removeEventListener("pointerdown", press, true);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", release);
+      window.removeEventListener("click", release);
+      window.removeEventListener("blur", release);
+    };
+  }, [focusedRef]);
+
   const stopAutoScroll = useCallback(() => {
     if (!autoScroll.current) return;
     cancelAnimationFrame(autoScroll.current.frame);
@@ -1727,7 +1787,7 @@ export function Outliner({
 
   const onGripPointerDown = useCallback(
     (row: OutlineRow, event: ReactPointerEvent) => {
-      if (event.button !== 0) return;
+      if (event.button !== 0 || event.pointerType === "touch") return;
       beginRangeSelection(rowIndexOf(rowsRef.current, row.block.id), event, true);
     },
     [beginRangeSelection],
@@ -1735,7 +1795,9 @@ export function Outliner({
 
   const onSurfacePointerDown = useCallback(
     (row: OutlineRow, event: ReactPointerEvent) => {
-      if (event.button !== 0) return;
+      // Touch movement belongs to native scrolling and text selection. Desktop
+      // range selection must never take over an ordinary swipe.
+      if (event.button !== 0 || event.pointerType === "touch") return;
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
       if (
@@ -1767,7 +1829,12 @@ export function Outliner({
   useEffect(() => {
     if (!scrollElement) return;
     const onPointerDown = (event: PointerEvent) => {
-      if (event.button !== 0 || !(event.target instanceof HTMLElement)) return;
+      if (
+        event.button !== 0 ||
+        event.pointerType === "touch" ||
+        !(event.target instanceof HTMLElement)
+      )
+        return;
       if (event.target.closest(".page-body")) return;
       const viewport = viewportRef.current;
       if (!viewport || rowsRef.current.length === 0) return;
@@ -1801,7 +1868,7 @@ export function Outliner({
   /** The bullet is the block's handle: press, move, and the subtree travels. */
   const onBulletPointerDown = useCallback(
     (row: OutlineRow, event: ReactPointerEvent) => {
-      if (event.button !== 0) return;
+      if (event.button !== 0 || event.pointerType === "touch") return;
       if (isPendingId(row.block.id)) {
         // Nothing to drag or act on yet, and the press must not reach Radix's
         // own trigger handling and open a menu with no content.
@@ -2848,12 +2915,13 @@ export function Outliner({
     if (!request) return;
     const index = rowIndexOf(rows, request.blockId);
     if (index < 0) return;
-    virtualizer.scrollToIndex(index, { align: "start" });
     if (request.focus && focusedRef.current !== request.blockId) {
       activateBlock(request.blockId, undefined, "programmatic");
+    } else {
+      revealNavigationTarget(request.blockId);
     }
     pendingHistoryReveal.current = null;
-  }, [activateBlock, historyRevealRevision, rows, virtualizer]);
+  }, [activateBlock, historyRevealRevision, revealNavigationTarget, rows]);
 
   // A navigation arrival asks to be revealed exactly once. Focus itself is a
   // durable editing state and must not imply durable scroll ownership: after a
@@ -2874,6 +2942,9 @@ export function Outliner({
       );
     const index = rowIndexOf(rows, navigationReveal.id);
     if (index < 0) return;
+    const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? "auto"
+      : "smooth";
     const element = viewportRef.current?.querySelector(
       `[data-block-id="${cssEscape(navigationReveal.id)}"]`,
     );
@@ -2888,23 +2959,21 @@ export function Outliner({
         consume();
         return;
       }
-      // A mounted row already has exact geometry. Native nearest-edge scrolling
-      // completes synchronously and owns no later reconciliation pass, so an
-      // old keyboard arrival cannot pull the page back after focus leaves and
-      // the reader scrolls elsewhere. The virtualizer is reserved for a row
-      // that does not exist in the DOM yet.
+      // A mounted row already has exact geometry. Reveal only the nearest edge,
+      // once; focus and later row measurements do not own another scroll.
       if (typeof element.scrollIntoView === "function") {
-        element.scrollIntoView({ block: "nearest", inline: "nearest" });
+        element.scrollIntoView({ block: "nearest", inline: "nearest", behavior });
         consume();
         return;
       }
     }
-    // Keep the request until the virtual row mounts; the next pass consumes it
-    // after exact geometry has either confirmed or completed the reveal.
+    // The virtualizer owns the whole journey to an unmounted destination,
+    // including measurements as it arrives. Do not start a second native scroll.
     // The page owns material below the outline (including its append target).
     // An end alignment to the virtualizer's last item uses the entire page's
     // maximum scroll offset and can push that item's caret above the viewport.
-    virtualizer.scrollToIndex(index, { align: "start" });
+    virtualizer.scrollToIndex(index, { align: "start", behavior });
+    consume();
   }, [navigationReveal, rows, scrollElement, virtualizer]);
 
   // Mod+P means "properties of what is in front of me". While a block is focused
@@ -3138,6 +3207,7 @@ export function Outliner({
                 <MemoBlockRow
                   row={row}
                   actions={editorRef}
+                  retainSource={pressedSourceId === row.block.id}
                   {...blockRowProps(editor, row)}
                   content={contentSessionsFor(session).target(owner, row.block.id)}
                   directory={editorDirectory.current}
@@ -4006,6 +4076,7 @@ interface BlockRowProps {
   ancestor: boolean;
   autoClosers: readonly AutoCloserMarker[];
   focused: boolean;
+  retainSource: boolean;
   selected: boolean;
   revealed: boolean;
   highlightToken?: string;
@@ -4024,7 +4095,7 @@ function blockRowProps(
   row: OutlineRow,
 ): Omit<
   BlockRowProps,
-  "row" | "actions" | "lit" | "ancestor" | "content" | "directory" | "projection"
+  "row" | "actions" | "lit" | "ancestor" | "content" | "directory" | "projection" | "retainSource"
 > {
   const focused = editor.focusedId === row.block.id;
   const slash = editor.slashRequest?.blockId === row.block.id;
@@ -4089,7 +4160,10 @@ function BlockRow({
   const tags = row.block.tags;
   const selected = view.selected;
   const previewMarkdown =
-    !isFocused && !pending && hasMarkdownSyntax(value, pageReferences.length > 0);
+    !isFocused &&
+    !view.retainSource &&
+    !pending &&
+    hasMarkdownSyntax(value, pageReferences.length > 0);
   // A pending row has no id a property command can name yet, so it carries no
   // task marks either.
   const marks = pending ? 0 : Number(taskStatus !== undefined) + Number(taskPriority !== undefined);
@@ -4109,15 +4183,17 @@ function BlockRow({
     // exactly what designs/outliner.md § Virtualization and Stability forbids;
     // whether it fired at all depended on the row's height against the
     // viewport's, so it was a bug that came and went with the type metrics.
-    textarea.focus({ preventScroll: true });
-    const caret = actions.current.pendingCaret.current;
-    if (caret !== null) {
-      const offset = Math.min(caret, textarea.value.length);
-      textarea.setSelectionRange(offset, offset);
-      actions.current.pendingCaret.current = null;
-    } else {
-      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
-    }
+    keepingPageStill(textarea, () => {
+      textarea.focus({ preventScroll: true });
+      const caret = actions.current.pendingCaret.current;
+      if (caret !== null) {
+        const offset = Math.min(caret, textarea.value.length);
+        textarea.setSelectionRange(offset, offset);
+        actions.current.pendingCaret.current = null;
+      } else {
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      }
+    });
   }, [isFocused, actions.current.pendingCaret]);
 
   return (
@@ -4176,6 +4252,14 @@ function BlockRow({
             tabIndex={-1}
             aria-label={message("outline.blockActions")}
             onPointerDown={(event) => actions.current.onBulletPointerDown(row, event)}
+            onClick={(event) => {
+              if (
+                event.detail === 0 ||
+                ("pointerType" in event.nativeEvent && event.nativeEvent.pointerType === "touch")
+              ) {
+                actions.current.activateBlock(row.block.id, undefined, "pointer");
+              }
+            }}
             onContextMenu={(event) => actions.current.onRowContextMenu(row, event)}
           />
         </>

@@ -8,7 +8,6 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
-  useState,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -16,7 +15,7 @@ import { useNavigate, useParams } from "react-router";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { Button } from "@/ui/shadcn/button";
 import { findJournalPage, outlineOwnerKey } from "../../core-port/snapshot";
-import { todayLocalDate } from "../../entities/journal";
+import { useToday } from "../time/use-local-clock";
 import { addDays } from "../../entities/calendar";
 import { useI18n } from "../../i18n";
 import { isValidLocalDate } from "../../entities/calendar";
@@ -42,8 +41,9 @@ export function JournalView() {
   );
   const notify = useNotify();
   const { message, formatJournalDate } = useI18n();
-  const [today] = useState(todayLocalDate);
+  const today = useToday();
   const date = routeDate ?? today;
+  const previousToday = useRef(today);
   const ensured = useRef<string | null>(null);
   const calendarTrigger = useRef<HTMLButtonElement>(null);
   const previousTrigger = useRef<HTMLButtonElement>(null);
@@ -55,6 +55,16 @@ export function JournalView() {
 
   const valid = isValidLocalDate(date);
   const page = valid ? findJournalPage(state.snapshot, date) : undefined;
+
+  useEffect(() => {
+    const previous = previousToday.current;
+    previousToday.current = today;
+    // Explicit links to today's page also follow midnight. Browsing an older
+    // journal remains an intentional date selection.
+    if (today !== previous && routeDate === previous) {
+      navigate(graphPath(session.repositoryId, graphId, "journal"), { replace: true });
+    }
+  }, [graphId, navigate, routeDate, session.repositoryId, today]);
 
   // Without a report this failure parks the view on "Preparing this journal
   // day…" forever, with no way to tell a slow open from a dead one.
@@ -112,7 +122,9 @@ export function JournalView() {
 
   const go = (target: string, control = calendarTrigger) => {
     if (target !== date) navigationFocus.current = { date: target, control };
-    navigate(graphPath(session.repositoryId, graphId, `journal/${target}`));
+    navigate(
+      graphPath(session.repositoryId, graphId, target === today ? "journal" : `journal/${target}`),
+    );
   };
 
   // Standing questions belong to the day they are standing in: their relative

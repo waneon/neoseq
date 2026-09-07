@@ -115,6 +115,11 @@ whole measure to the date or page name at every width. Whole-pixel geometry prot
 dimensions, sibling rows that claim shared columns use shared tracks, and one
 global scrollbar language serves every scrolling surface.
 
+An alignment frame owns the center of its values. Inline glyphs and nested
+controls must not introduce competing baselines, target heights, or local
+vertical offsets. Interface icon strokes retain one visible weight across icon
+box sizes; hosts choose the box, while the foundation owns the stroke.
+
 ## Motion
 
 Motion explains entry, disclosure, size change, or off-canvas travel. A new

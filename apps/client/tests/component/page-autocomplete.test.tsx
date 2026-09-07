@@ -2,6 +2,7 @@ import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { PageAutocomplete } from "../../src/features/properties/PageAutocomplete";
+import { findJournalPage, pageTitle } from "../../src/core-port/snapshot";
 import { GRAPH_ID, mountAt } from "./harness";
 
 async function mountAutocomplete(onPick = vi.fn<(id: string) => void | Promise<void>>()) {
@@ -18,6 +19,19 @@ async function mountAutocomplete(onPick = vi.fn<(id: string) => void | Promise<v
 }
 
 describe("page autocomplete", () => {
+  it("offers and selects journals by their semantic date instead of their internal ID", async () => {
+    const user = userEvent.setup();
+    const { session, input, onPick } = await mountAutocomplete();
+    await session.execute({ type: "ensure_journal", date: "2026-09-07" });
+    const journal = findJournalPage(session.getState().snapshot, "2026-09-07")!;
+    expect(pageTitle(journal)).toBe("2026-09-07");
+    await user.type(input, "2026-09-07");
+    const option = await screen.findByRole("option", { name: "2026-09-07" });
+    expect(option).not.toHaveTextContent(journal.id);
+    await user.click(option);
+    expect(onPick).toHaveBeenCalledWith(journal.id);
+  });
+
   it("opens at the first option and never selects a hidden option", async () => {
     const user = userEvent.setup();
     const { input, onPick } = await mountAutocomplete();

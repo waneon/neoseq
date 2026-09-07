@@ -28,6 +28,11 @@ than its resting mark, supporting focus, contextual actions, and structural drag
 Bullets, fold controls, and branches align with the first rendered line, including
 wrapped Markdown headings. A collapsed block retains a quiet halo.
 
+Writing and tags share the vertical center of their content row, including when
+the writing wraps. Tags derive their minimum frame from the writing line metric;
+task marks follow the first-line center. Metadata beneath writing owns a separate
+strip rather than changing either alignment reference.
+
 Indentation is expressed with faint neutral guides. A thinner accent branch traces
 the path from ancestors to the caret and ends at its row. Only live path arrivals
 get an elbow; unrelated columns remain quiet. This treatment survives
@@ -39,6 +44,8 @@ range; descendants traveling with an ancestor are passengers, not extra selected
 roots. Copy produces portable Markdown, and structural operations remain one
 undoable intent. Drag shows a destination seam before committing; keyboard
 movement follows the same ordering rules.
+Touch swipes retain native scrolling and text selection; structural range and
+bullet dragging belong to mouse or pen gestures.
 
 ## Beginning and Continuing
 
@@ -66,7 +73,10 @@ through refreshes and virtualization. Native editors remeasure wrapping without
 replacing their input node or selection. Only focus arrival may request a
 visibility scroll; later measurements cannot pull the reader back. Ordinary rows
 are fully revealed, while rows taller than the viewport retain their visible
-reading position.
+reading position. History uses this same visibility policy. Offscreen arrivals
+scroll smoothly unless reduced motion is requested. A pointer press retains the
+outgoing source's layout until its click is resolved, so wrapping cannot move the
+destination out from under the pointer.
 
 Shared semantics follow [Accessibility](accessibility.md), and control behavior
 follows [Interaction](interaction.md).

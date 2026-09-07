@@ -374,11 +374,11 @@
 }
 
 .color-swatch svg {
+  --icon-stroke: 2px;
   width: 14px;
   height: 14px;
   color: var(--on-tone);
   opacity: 0;
-  stroke-width: 3;
 }
 
 .color-swatch[aria-pressed="true"] svg {

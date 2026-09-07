@@ -1,5 +1,47 @@
 import { test, expect } from "../support/fixtures";
 
+for (const keymap of ["standard", "vim"]) {
+  test(`${keymap} undo leaves an already visible editor at its reading position`, async ({
+    app,
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await app.createGraph("History position");
+    await app.startBlock("");
+    await page.evaluate(() =>
+      navigator.clipboard.writeText(
+        Array.from({ length: 40 }, (_, index) => `- Note ${index}`).join("\n"),
+      ),
+    );
+    await app.saved(() => app.editors.first().press("ControlOrMeta+v"));
+    const editor = page.locator("textarea.outline-input:focus");
+    await expect(editor).toHaveValue("Note 39");
+    await expect(editor).toBeInViewport();
+    await app.saved(async () => {
+      await editor.fill("Last note changed");
+      await editor.press("Tab");
+    });
+    // Undo the last structural action while its target is already visible.
+    const scroller = page.locator(".page-scroll");
+    if (keymap === "vim") {
+      await app.settings("keyboard");
+      await page
+        .getByTestId("settings-editor-keymap")
+        .getByRole("button", { name: "Vim", exact: true })
+        .click();
+      await page.keyboard.press("Escape");
+      await app.editors.last().click();
+      await page.keyboard.press("Escape");
+    }
+    const before = await scroller.evaluate((node) => node.scrollTop);
+    await app.saved(() => editor.press(keymap === "vim" ? "u" : "ControlOrMeta+z"));
+    await expect(editor).toHaveValue("Last note changed");
+    await expect.poll(() => scroller.evaluate((node) => node.scrollTop)).toBeCloseTo(before, 0);
+    await expect(editor).toBeFocused();
+  });
+}
+
 test("keyboard structure, subtree movement, collapse and history survive reload", async ({
   app,
   page,

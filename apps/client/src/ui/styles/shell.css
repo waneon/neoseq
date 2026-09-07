@@ -15,7 +15,7 @@
   min-width: 0;
   min-height: 0;
   height: 100dvh;
-  padding: 20px 16px 12px;
+  padding: var(--sp-4) var(--sp-3) var(--sp-2);
   background: var(--rail);
   border-inline-end: 1px solid var(--rail-edge);
   overflow: hidden;
@@ -24,13 +24,13 @@
 
 .rail-head {
   flex: none;
-  margin-bottom: 8px;
+  margin-bottom: var(--sp-1);
 }
 .rail-masthead {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 20px;
+  margin-bottom: var(--sp-3);
 }
 .rail-brand {
   display: flex;
@@ -39,7 +39,7 @@
   padding-inline: 8px;
 }
 .rail-brand .brand-lockup {
-  --brand-size: 22px;
+  --brand-size: 24px;
 }
 .rail-collapse {
   color: var(--ink-3);
@@ -51,10 +51,10 @@
 .rail-switcher {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--sp-2);
   width: 100%;
-  min-height: 58px;
-  padding: 10px;
+  min-height: 52px;
+  padding: var(--sp-2);
   border: 1px solid var(--line);
   border-radius: var(--r-3);
   background: var(--canvas);
@@ -104,9 +104,9 @@
   font-weight: var(--weight-strong);
 }
 .rail-workspace-kind {
-  color: var(--ink-3);
-  font-size: 11px;
-  line-height: 16px;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
 }
 .rail-switcher > svg {
   flex: none;
@@ -127,8 +127,8 @@
   border: 1px solid transparent;
   border-radius: var(--r-2);
   font: inherit;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
   text-align: start;
   cursor: pointer;
   transition:
@@ -184,7 +184,7 @@
   min-height: 0;
   overflow: hidden auto;
   overscroll-behavior: contain;
-  margin-top: 16px;
+  margin-top: var(--sp-2);
   padding: 2px;
   margin-inline: -2px;
 }
@@ -199,14 +199,14 @@
   gap: 10px;
   width: 100%;
   min-height: var(--nav-row-h);
-  padding: 6px 10px;
+  padding: var(--sp-1) 10px;
   border: none;
   border-radius: var(--r-2);
   background: transparent;
-  color: var(--ink-2);
+  color: var(--ink);
   font: inherit;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
   text-align: start;
   cursor: pointer;
   transition:
@@ -232,8 +232,7 @@
   flex: none;
   width: 16px;
   height: 16px;
-  color: var(--ink-3);
-  stroke-width: 1.65;
+  color: var(--ink-2);
 }
 .shell-nav-item[aria-current] svg {
   color: var(--accent-quiet);
@@ -277,21 +276,22 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 30px;
-  margin: 24px 0 6px;
+  min-height: var(--target);
+  margin: var(--sp-3) 0 var(--sp-1);
   padding-inline: 10px;
 }
 .rail-group h2 {
   flex: 1;
   min-width: 0;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  letter-spacing: var(--track-xs);
+  color: var(--ink-2);
   font-weight: var(--weight-medium);
 }
 .rail-count {
-  color: var(--ink-3);
-  font-size: 11px;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
 .rail-note {
@@ -303,21 +303,16 @@
 }
 .rail-more {
   justify-content: center;
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 .rail-footer {
   display: flex;
   flex: none;
   flex-direction: column;
   gap: 2px;
-  padding-top: 12px;
+  padding-top: var(--sp-2);
   border-top: 1px solid var(--line);
 }
-.rail-footer .shell-nav-item {
-  font-size: 12px;
-  min-height: 32px;
-}
-
 .shell-main {
   display: flex;
   flex-direction: column;
@@ -458,7 +453,7 @@
   }
   .rail-search,
   .rail-create,
-  .rail-footer .shell-nav-item {
+  .shell-nav-item {
     min-height: 44px;
   }
 }

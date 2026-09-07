@@ -218,6 +218,9 @@ IndexedDB transaction. `SyncAgent` sends outbox entries in sequence, removes
 them only after a durable server acknowledgement, and imports validated remote
 bytes through the same Worker/core projection path. Network availability never
 changes the local save contract.
+Local command completion includes canonical publication, then signals the
+transport without waiting for outbox or network work. Transport delays and
+failures cannot defer editor identity adoption or reject a locally saved edit.
 
 Remote archive import is a prepare/commit/install flow. The Worker validates and
 clones the archive without publishing it; authenticated HTTP creation validates
