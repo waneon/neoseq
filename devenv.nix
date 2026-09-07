@@ -185,6 +185,16 @@ in
     ];
   };
 
+  scripts.publish-docker = {
+    description = "Build and push the amd64 appliance to waneon/neoseq with version and latest tags";
+    exec = ./scripts/publish-docker.sh;
+    packages = [
+      pkgs.docker-client
+      pkgs.gnutar
+      pkgs.jq
+    ];
+  };
+
   tasks = {
     "devenv:treefmt:run".before = lib.mkForce [ ];
 

@@ -113,6 +113,13 @@ metadata cannot drift unexecuted. It also verifies the default and custom
 application identities, ownership migration, and initialization of a fresh
 cluster with custom ownership.
 
+The `publish-docker` devenv script realizes that same image for `x86_64-linux`
+and publishes it to `waneon/neoseq`. Its version is owned by the Cargo workspace
+and carried by the artifact's OCI label. The script verifies the loaded platform
+and publishes one image ID under its version before advancing `latest`.
+Publication is an explicit developer action, separate from builds and checks;
+Docker provides registry authentication.
+
 `devenv --profile browser test` extends the portable gate with browser
 verification against two separately built artifacts. Product journeys use the
 normal client build and its production Worker. Adapter contracts and injected

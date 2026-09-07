@@ -111,6 +111,20 @@ After changing frontend code, rebuild the preview artifacts with
 See [browser verification](architectures/browser-testing.md) for the coverage
 matrix, production/contract boundaries, and failure reports.
 
+### Publish the Docker image
+
+With an `x86_64-linux` Nix builder available, a running Docker daemon, and Docker
+Hub credentials authorized to push `waneon/neoseq`, run:
+
+```sh
+devenv shell -- publish-docker
+```
+
+This builds the amd64 appliance and pushes `waneon/neoseq:<version>`, then
+`waneon/neoseq:latest`. The version comes from the built image's label, which is
+derived from `workspace.package.version` in `Cargo.toml`. Both tags reference the
+same image; a failed build or version push stops publication before `latest`.
+
 ## Performance benchmarks
 
 The dedicated benchmark workspace member has deterministic Criterion suites for
