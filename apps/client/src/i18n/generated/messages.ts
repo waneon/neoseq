@@ -633,6 +633,7 @@ export interface MessageArgumentMap {
   "shell.favourites": undefined;
   "shell.graphNavigation": undefined;
   "shell.journal": undefined;
+  "shell.localGraph": undefined;
   "shell.moreActions": undefined;
   "shell.newPage": undefined;
   "shell.noPages": undefined;
@@ -651,6 +652,7 @@ export interface MessageArgumentMap {
   "shell.recoveryTitle": undefined;
   "shell.search": undefined;
   "shell.settings": undefined;
+  "shell.sharedGraph": undefined;
   "shell.showMorePages": { readonly "count": string | number };
   "shell.showSidebar": undefined;
   "shell.skipContent": undefined;

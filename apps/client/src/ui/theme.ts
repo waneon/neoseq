@@ -1,19 +1,7 @@
-// Appearance preferences that belong to the browser rather than to a graph: the
-// mode, and the hue the accent is built from.
-//
-// Mode resolution is CSS-only: `app.css` declares the dark tokens under
-// `@media (prefers-color-scheme: dark) :root:not([data-theme="light"])` and under
-// `:root[data-theme="dark"]`, so an explicit choice wins over the OS in both
-// directions and a runtime without `matchMedia` still renders correctly. This
-// module only records the choice; it never asks the browser what mode it is in.
-//
-// The accent is the same deal one step further in. What is stored is a *hue* and
-// nothing else — never a colour. `app.css` owns the lightness and the chroma of
-// the accent in each mode, so every hue a reader can reach lands on the measured
-// row of the contrast table (designs/foundations.md § Semantic Color): the widest miss
-// across the whole circle is 4.81:1 against the canvas in light mode, where the
-// committed iris measures 5.56:1 and the bar is 4.5:1. A preference that cannot
-// leave a contrast guarantee is a preference that needs no warning next to it.
+// Browser-local appearance preferences: resolved mode and a reader-selected hue.
+// CSS owns lightness, chroma and both complete palettes, including pre-paint OS
+// resolution. The hue changes appearance without changing semantic color roles;
+// every offered hue keeps normal text above the 4.5:1 contrast threshold.
 
 export type Theme = "system" | "light" | "dark";
 

@@ -12,6 +12,8 @@ actions behave equivalently across surfaces.
 Every control defines rest, hover, focus, pressed, disabled, and—where
 applicable—open or selected state. Those states use the shared foundation roles:
 
+- icon actions rest on the surrounding surface without individual boxes; hover,
+  open state, and keyboard focus reveal their bounds;
 - hover changes the surface without replacing the focused edge;
 - focus strengthens the resting edge without changing geometry; an outset halo
   is allowed only where no clipping or scrolling ancestor can crop it;
@@ -88,6 +90,10 @@ appropriate layer; Escape always belongs to the topmost open surface.
 The command palette participates in that modal lifecycle, including handoff from
 a closing menu. Its result list retains active descendants while native Tab
 cycles through the search field and close action.
+The palette keeps a stable search header and result frame near the top of the
+desktop viewport. Primary labels receive the available measure; supplementary
+context sits below them and shortcuts form a separate trailing column. On touch
+screens, generous rows and a persistent close action replace keyboard hints.
 
 Anchored surfaces prefer the available vertical side and constrain themselves to
 the room there. Point-like anchors open toward the viewport center; field-like

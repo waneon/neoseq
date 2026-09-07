@@ -843,5 +843,7 @@
   "references.next": "다음",
   "shortcuts.historyRoute": "상단 → 실행 취소 / 다시 실행",
   "references.openBlock": "블록 열기",
-  "references.emptyBlock": "빈 블록"
+  "references.emptyBlock": "빈 블록",
+  "shell.localGraph": "로컬 작업 공간",
+  "shell.sharedGraph": "공유 작업 공간"
 }

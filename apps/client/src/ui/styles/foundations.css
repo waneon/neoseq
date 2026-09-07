@@ -1,69 +1,33 @@
-/* ─────────────────────────── 1. tokens ─────────────────────────── */
+/* Shared semantic roles: paper, stone, graphite and a reader-selected accent.
+   Light and dark expose the same roles; feature styles only consume them. */
 
 :root {
   color-scheme: light;
 
-  /* ── Light. Paper, then graphite. ──
-     Hue 264 at almost no chroma: a neutral that is cool rather than beige, so
-     the greys read as material and the one warm thing on screen is whatever the
-     reader wrote. Every figure below is measured — see designs/foundations.md § Modes and Contrast. */
-  --canvas: oklch(1 0 0);
-  --surface-1: oklch(0.981 0.003 264);
-  --surface-2: oklch(0.958 0.005 264);
-  --surface-3: oklch(0.931 0.007 264);
-  --rail: oklch(0.974 0.004 264);
+  --canvas: #fdfcf9;
+  --surface-1: #f5f4f0;
+  --surface-2: #eeede8;
+  --surface-3: #e6e5df;
+  --rail: #f3f2ee;
   --overlay: oklch(1 0 0);
-  /* The fill of a control that is *raised out of* something — a button on a
-     panel, the chosen key of a segmented track. It cannot be `--canvas`: the
-     canvas is the lightest surface in light mode and the darkest in dark mode,
-     because panels lift above it there, so a button painted `--canvas` lifted in
-     one mode and sank in the other. `--raised` is defined as "lighter than any
-     ground a control sits on" in both. */
+
   --raised: oklch(1 0 0);
   --raised-hover: oklch(0.981 0.003 264);
 
   --brand-ink: #4f44c5;
-  --ink: oklch(0.235 0.014 264);
-  --ink-2: oklch(0.462 0.014 264);
-  --ink-3: oklch(0.548 0.013 264);
+  --ink: #292a2e;
+  --ink-2: #595b61;
+  --ink-3: #696a67;
 
-  /* ── Iris, and the one colour the reader owns ──
-     One structural chroma, at enough saturation to read as a decision rather
-     than as a default link blue. It is declared as *lightness and chroma plus a
-     hue*, and the hue is the single preference in the product that names a colour
-     instead of naming a step: `--accent-h` is written on `:root` by
-     `ui/theme.ts`, pre-paint, and defaults to iris.
-
-     Fixing L and C is what makes that preference safe. Contrast is a property of
-     lightness, so holding the accent's lightness still holds its whole row of the
-     contrast table however far the hue travels: measured across all 360 degrees,
-     with the browser's own gamut mapping applied, the accent's worst case on
-     `--canvas` is 4.81:1 in light mode and 6.21:1 in dark, `--on-accent` on the
-     accent is 4.81:1 and 6.66:1, and `--on-tint` on its own tint is 6.10:1 and
-     6.21:1 — every one of them over the 4.5:1 bar, at every hue. Nothing else
-     about the accent is the reader's, and nothing else needs to be: everything
-     the accent touches is already expressed in terms of it.
-
-     `--accent-l` and `--accent-c` are declared rather than inlined because the
-     hue strip in Settings paints the colours actually on offer, which means it
-     has to be built from the same two numbers the accent is. */
   --accent-h: 277;
-  --accent-l: 0.535;
-  --accent-c: 0.208;
+  --accent-l: 0.52;
+  --accent-c: 0.14;
   --accent: oklch(var(--accent-l) var(--accent-c) var(--accent-h));
-  --accent-hover: oklch(0.472 0.203 var(--accent-h));
+  --accent-hover: oklch(0.46 0.14 var(--accent-h));
   --accent-soft: color-mix(in oklab, var(--accent) 12%, transparent);
   --accent-tint: color-mix(in oklab, var(--accent) 7%, transparent);
   --on-accent: oklch(1 0 0);
-  /* ── The accent, spoken quietly ──
-     The accent's own lightness and chroma are tuned for a *mark*: a caret, a
-     filled button, a 2px branch. On a run of words inside a line of writing it
-     was too much colour — the tag shouted where the sentence around it spoke.
-     This is the same hue at the reader's own choice, pulled down in chroma and
-     one step darker in light mode (lighter in dark), so a tag reads as ink that
-     happens to be a reference rather than as a highlight. It is *more* legible
-     than the accent, not less: 5.66–6.40 on `canvas` across the whole hue circle
-     in light mode and 7.81–8.51 in dark, against the accent's 5.6 and 6.3. */
+
   --quiet-l: 0.5;
   --quiet-c: 0.115;
   --accent-quiet: oklch(var(--quiet-l) var(--quiet-c) var(--accent-h));
@@ -71,34 +35,17 @@
   --danger: oklch(0.516 0.187 26);
   --danger-soft: color-mix(in oklab, var(--danger) 11%, transparent);
   --ok: oklch(0.508 0.128 152);
-  /* The fourth state tone, and the reason the tone palette no longer contains
-     `accent`: "how soon" is not "where you are". A due tier that named the accent
-     moved every time the reader chose a different one, and a step in a closed
-     ordered scale cannot afford to be whatever colour the interface's actions
-     happen to be this week. Blue is the step that used to borrow the accent, now
-     declared on its own — 5.24 on `canvas` light, 7.18 dark. */
+
   --info: oklch(0.535 0.17 255);
-  /* Two warm steps keep "today" and "soon" distinct without borrowing success
-     green. Attention is a saturated orange; caution moves far enough around the
-     hue circle to read as gold even in the chips' quiet tints. Both are held to
-     the 3:1 non-text bar and never carry text neat. */
+
   --attention: oklch(0.56 0.17 45);
   --caution: oklch(0.57 0.135 100);
-  /* Hue and chroma may be reader-owned for due colours; lightness may not. */
+
   --custom-tone-l: 0.54;
 
-  /* The scrim is a wash *and* a defocus: a dialog over an outline has a hundred
-     hairlines behind it, and dimming alone leaves every one of them legible
-     enough to compete with the panel that is asking for the answer. */
   --scrim: oklch(0.235 0.014 264 / 0.32);
   --scrim-blur: 3px;
 
-  /* ── Lines ──
-     Ink-relative, so one declaration serves both modes. `--line` closes a
-     floating surface and separates a table's cells; `--line-strong` is the ring
-     on a control that stands in for a field; `--thread` is the hairline inside a
-     panel. A hairline is never the *only* thing separating two surfaces — it is
-     what makes a luminance step read as an edge instead of a gradient. */
   --line: color-mix(in oklab, var(--ink) 11.5%, transparent);
   --line-strong: color-mix(in oklab, var(--ink) 19%, transparent);
   --thread: color-mix(in oklab, var(--ink) 8%, transparent);
@@ -106,7 +53,6 @@
   --collapsed-halo: color-mix(in oklab, var(--ink) 10%, transparent);
   --rail-edge: color-mix(in oklab, var(--ink) 8%, transparent);
 
-  /* Resting controls have an edge. Menus and dialogs alone carry distance. */
   --shadow-hue: 264;
   --e1: inset 0 0 0 1px var(--line);
   --e1-chip: inset 0 0 0 1px var(--line-strong);
@@ -117,14 +63,9 @@
   --e3:
     0 0 0 1px var(--line), 0 2px 4px -2px oklch(0.235 0.014 264 / 0.08),
     0 12px 24px -8px oklch(0.235 0.014 264 / 0.12), 0 40px 80px -24px oklch(0.235 0.014 264 / 0.24);
-  /* The highlight along the top of a filled control, so an accent button has a
-     lit edge rather than reading as a flat rectangle of colour. In dark mode it
-     is the same idea one notch stronger, because there is more room above it. */
+
   --lit-edge: inset 0 1px 0 oklch(1 0 0 / 0.16);
 
-  /* Focus geometry and focus colour are separate roles. An inset edge is the
-     safe default inside scrollports; the outset form is reserved for controls
-     whose ancestors leave its complete reach visible. */
   --focus-ring-size: 3px;
   --focus-ring: 0 0 0 var(--focus-ring-size) var(--accent-soft);
   --focus-tone: color-mix(in oklab, var(--accent) 42%, var(--surface-1));
@@ -132,24 +73,8 @@
   --focus-mark-inset: inset 0 0 0 1px var(--ink-2);
   --focus-inset-on-accent: inset 0 0 0 2px var(--on-accent);
 
-  /* ── The tone map ──
-     The six safe named presets. A surface carries `data-palette="…"` and reads
-     `var(--tone)`; a custom due tone instead supplies bounded OKLCH hue/chroma
-     through the same variable while this sheet retains mode-specific lightness.
-
-     `--tone` is declared here as well as in each map rule, because a token that
-     is only ever set by an attribute renders nothing at all on the elements that
-     lack it. */
   --tone: var(--ink-2);
 
-  /* The state palette. Task status and priority are closed enumerations, so each
-     step can name a tone — and because these are aliases over tones already
-     declared per mode, one declaration serves both.
-
-     `todo` declines a tone outright and takes the ink around it, so an unstarted
-     task keeps answering hover and focus the way every other glyph does. `low` is
-     the same claim one step along: the metadata ink, because "this one least" is a
-     fact about ranking rather than an alarm. */
   --status-todo: currentColor;
   --status-doing: var(--attention);
   --status-done: var(--ok);
@@ -158,20 +83,13 @@
   --priority-medium: var(--attention);
   --priority-high: var(--danger);
 
-  /* What is drawn *on* a tone: the tick cut out of a completed task's filled
-     disc, the label on a tinted chip. It is `--on-accent`, which is white in
-     light mode — the mark a checked box has always carried — and near-black in
-     dark mode, where every tone in this palette is the light half of the pair
-     and a white mark on one would be the least legible thing on the screen. */
   --on-tone: var(--on-accent);
-  /* A tone behind small text is pulled toward ink so a 12px label on a 12–20%
-     tint still clears AA in both modes (designs/foundations.md § Modes and Contrast). */
+
   --on-tint: color-mix(in oklab, var(--tone) 70%, var(--ink));
 
   --scroll-thumb: color-mix(in oklab, var(--ink) 22%, transparent);
   --scroll-thumb-hover: color-mix(in oklab, var(--ink) 38%, transparent);
 
-  /* type — self-hosted Pretendard first, system faces as resilient fallbacks */
   --font-sans:
     "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto,
     "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic",
@@ -186,21 +104,16 @@
   --lh-sm: 20px;
   --track-sm: -0.006em;
   --text-md: 16px;
-  --lh-md: 26px;
+  --lh-md: 28px;
   --text-lg: 18px;
   --lh-lg: 26px;
   --track-lg: -0.014em;
   --text-xl: 28px;
   --lh-xl: 36px;
   --track-xl: -0.018em;
-  --text-title: 32px;
-  --lh-title: 42px;
+  --text-title: 40px;
+  --lh-title: 50px;
 
-  /* Headings *inside a block*. Four steps rather than the three this scale used
-     to spend: the top one stays under the page title, so an `#` heading
-     reads as the largest thing in the writing and still never ties with the name
-     of the page it is written on, and the bottom one is the body size exactly, so
-     `####` is a bold line rather than a size nobody asked for. */
   --head-1: 25px;
   --head-1-lh: 34px;
   --head-2: 21px;
@@ -208,11 +121,6 @@
   --head-3: 18px;
   --head-3-lh: 27px;
 
-  /* ── Weight ──
-     The scale used to start at 500, which is why every label, every row and
-     every heading arrived at nearly the same weight and the interface read as
-     one undifferentiated block of type. Body and chrome rest at 400 so that
-     rising to 500 means something and 600 is genuinely a heading. */
   --weight-normal: 400;
   --weight-medium: 500;
   --weight-strong: 600;
@@ -227,98 +135,58 @@
   --sp-7: 48px;
   --sp-8: 64px;
 
-  /* Outlines reserve width for nesting while keeping long text readable. */
   --measure: 800px;
   --gutter: var(--sp-5);
-  --rail-w: 240px;
+  --rail-w: 260px;
   --drawer-w: min(308px, 84vw);
-  --topbar-h: 48px;
-  /* A title row has a floor; longer names grow naturally. */
+  --topbar-h: 56px;
+
   --title-row-h: 40px;
   --row-h: 32px;
-  --control-h: 32px;
+  --control-h: 34px;
   --control-compact-h: 28px;
-  --nav-row-h: 32px;
-  /* One indent used to be 24px, which is where an outliner's depth stops being
-     legible: at three levels the difference between two siblings and a parent and
-     its child was six pixels of text offset and one hairline. 30px is a clear
-     step at every depth the measure still allows, so a block five levels deep
-     has 698px left to write in. See designs/outliner.md § Page and Outline
-     Hierarchy. */
+  --nav-row-h: 36px;
+
   --indent: 30px;
   --slot: 20px;
   --target: 24px;
   --append-h: min(40vh, 320px);
 
-  /* ── Glyphs ──
-     Both sizes are even, and every box that centres one is even too, because a
-     15px icon in a 24px button lands on a half pixel and a half-pixel glyph is
-     a blurred glyph at every zoom level a reader is likely to use. `--icon` is
-     dense chrome (an icon button, a chip, a column heading); `--icon-lg` is a
-     row someone reads (the rail, the palette, a menu).
-
-     `--mark-slot` is the rail's one glyph column and `--mark-gap` the distance
-     from it to the label, so the wordmark, the graph, search and every nav row
-     put their text at exactly one x. A mark wider than the slot — the graph's
-     initial tile — is centred on it with negative margins rather than given a
-     column of its own. */
   --icon: 14px;
   --icon-lg: 16px;
   --mark-slot: 16px;
   --mark-gap: 8px;
 
   --r-1: 4px;
-  --r-2: 6px;
-  --r-3: 8px;
-  --r-4: 12px;
+  --r-2: 7px;
+  --r-3: 10px;
+  --r-4: 14px;
   --r-full: 9999px;
 
-  /* ── Motion ──
-     Five durations and three curves. `--ease-out` is the interface's voice: it
-     leaves fast and lands slowly, which is what makes a 120ms state change feel
-     resolved instead of clipped. `--ease-entrance` is the same idea taken far
-     enough to read as arrival, and is reserved for a surface that was not on
-     screen a frame ago. `--ease-exit` is linear-ish and short, because leaving
-     should not be performed. */
   --dur-press: 80ms;
   --dur-view: 120ms;
   --dur-overlay: 170ms;
   --dur-disclose: 200ms;
-  /* A box resizing under content the pointer is already travelling toward. It is
-     the slowest duration in the system because it is the only one carrying a
-     distance rather than a state change. */
+
   --dur-size: 260ms;
   --ease-out: cubic-bezier(0.32, 0.72, 0, 1);
   --ease-entrance: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-exit: cubic-bezier(0.4, 0, 0.9, 0.6);
-  /* Decelerating, for a size change that should settle rather than stop. */
+
   --ease-size: cubic-bezier(0.2, 0, 0, 1);
-  /* How far a floating surface travels on the way in. One unit, declared once,
-     so every overlay in the product arrives from the same distance. */
+
   --rise: 4px;
 
   --z-scrim: 25;
   --z-drawer: 30;
   --z-dialog: 50;
-  /* A popover sits under the one dropdown, not over it. The two only ever coexist
-     one way round: a menu opened *from* a popover — the interval editor's unit
-     list inside the property picker — because every other route closes the menu
-     before the popover appears. With `--z-menu` below `--z-popover` that list
-     rendered behind the panel that summoned it and could not be pressed. */
+
   --z-popover: 55;
   --z-menu: 60;
   --z-palette: 65;
   --z-toast: 70;
 }
 
-/* The tone map itself. Six rules, one per safe preset, and every named surface —
-   a due chip or a preset swatch — resolves through exactly these.
-
-   `accent` is deliberately not one of them. A tone names a step in a closed,
-   ordered scale — how soon a date is, how urgent a task is — and the accent names
-   where the reader is and what they can act on. While `accent` was offered, the
-   default `upcoming` tier moved every time somebody chose a different accent, and
-   two unrelated meanings shared a colour. `info` is the blue that step wanted. */
 [data-palette="neutral"] {
   --tone: var(--ink-2);
 }
@@ -343,23 +211,14 @@
   --tone: var(--danger);
 }
 
-/* ── Dark ──
-   Graphite, not black and not brown. The rail sinks below the canvas and every
-   panel lifts above it, so the same "chrome recedes, content is the surface"
-   reading survives the inversion. An explicit [data-theme] wins over the OS in
-   both directions, and resolution stays CSS-only so a harness whose matchMedia
-   always reports false still renders the correct theme.
-
-   One declaration, two selectors: `@media` for the OS preference, the attribute
-   for an explicit choice. They must stay identical — see designs/foundations.md § Semantic Color. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --canvas: oklch(0.207 0.007 264);
+    --canvas: #202123;
     --surface-1: oklch(0.242 0.008 264);
     --surface-2: oklch(0.278 0.009 264);
     --surface-3: oklch(0.318 0.011 264);
-    --rail: oklch(0.178 0.007 264);
+    --rail: #191a1c;
     --overlay: oklch(0.253 0.009 264);
     --raised: oklch(0.3 0.01 264);
     --raised-hover: oklch(0.34 0.011 264);
@@ -369,12 +228,9 @@
     --ink-2: oklch(0.762 0.011 264);
     --ink-3: oklch(0.632 0.013 264);
 
-    /* The hue is inherited from `:root` — one preference, both modes. Only the
-       lightness and the chroma invert, which is the whole reason the reader's
-       choice cannot break either mode's contrast. */
-    --accent-l: 0.705;
-    --accent-c: 0.185;
-    --accent-hover: oklch(0.775 0.155 var(--accent-h));
+    --accent-l: 0.735;
+    --accent-c: 0.13;
+    --accent-hover: oklch(0.79 0.13 var(--accent-h));
     --accent-soft: color-mix(in oklab, var(--accent) 20%, transparent);
     --accent-tint: color-mix(in oklab, var(--accent) 11%, transparent);
     --on-accent: oklch(0.17 0.008 264);
@@ -397,7 +253,7 @@
     --thread: color-mix(in oklab, var(--ink) 11%, transparent);
     --thread-active: color-mix(in oklab, var(--ink) 30%, transparent);
     --collapsed-halo: color-mix(in oklab, var(--ink) 14%, transparent);
-    /* the luminance step separates the rail; a line would read as a drawn box */
+
     --rail-edge: transparent;
 
     --e2:
@@ -415,11 +271,11 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --canvas: oklch(0.207 0.007 264);
+  --canvas: #202123;
   --surface-1: oklch(0.242 0.008 264);
   --surface-2: oklch(0.278 0.009 264);
   --surface-3: oklch(0.318 0.011 264);
-  --rail: oklch(0.178 0.007 264);
+  --rail: #191a1c;
   --overlay: oklch(0.253 0.009 264);
   --raised: oklch(0.3 0.01 264);
   --raised-hover: oklch(0.34 0.011 264);
@@ -429,9 +285,9 @@
   --ink-2: oklch(0.762 0.011 264);
   --ink-3: oklch(0.632 0.013 264);
 
-  --accent-l: 0.705;
-  --accent-c: 0.185;
-  --accent-hover: oklch(0.775 0.155 var(--accent-h));
+  --accent-l: 0.735;
+  --accent-c: 0.13;
+  --accent-hover: oklch(0.79 0.13 var(--accent-h));
   --accent-soft: color-mix(in oklab, var(--accent) 20%, transparent);
   --accent-tint: color-mix(in oklab, var(--accent) 11%, transparent);
   --on-accent: oklch(0.17 0.008 264);
@@ -467,8 +323,6 @@
   --scroll-thumb: color-mix(in oklab, var(--ink) 20%, transparent);
   --scroll-thumb-hover: color-mix(in oklab, var(--ink) 34%, transparent);
 }
-
-/* ──────────────────────────── 2. base ──────────────────────────── */
 
 * {
   box-sizing: border-box;
@@ -507,30 +361,10 @@ a:hover {
   background: color-mix(in oklab, var(--accent) 22%, transparent);
 }
 
-/* Dates, counts, durations and identifiers line up where the object declares
-   that it is numeric. Inputs and controls keep that stable editing voice, while
-   table cells opt in through their semantic renderer: applying tabular figures
-   to every `td` also changed dates, identifiers and ordinary prose merely for
-   having been projected through a query. */
 :where(input, button, time, .kbd, .mono, .tnum) {
   font-variant-numeric: tabular-nums;
 }
 
-/* ── The one scrollbar ──
-   A scroll container is a surface with more to say, not a widget: the platform
-   scrollbar arrived as a grey chrome bar with a filled track and a square thumb,
-   and it was the last piece of foreign UI left in an interface that draws
-   nothing else it did not choose. So the product declares one — here, once,
-   globally — and no component ever declares another. It is the same in the
-   outline, in a menu, in a dialog and on the page itself.
-
-   Thin, no track, an ink-relative thumb that darkens under the pointer. Both
-   modes come free: the thumb is a percentage of `--ink`, so it inverts with it.
-
-   Two declarations, one appearance. The standard properties are what engines
-   that have them use — and Chromium ignores the `::-webkit-scrollbar` rules
-   below whenever they are set — while the pseudo-elements serve the engines
-   that do not, and pay for their extra fidelity with a rounded, inset thumb. */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--scroll-thumb) transparent;
@@ -547,8 +381,6 @@ a:hover {
   background: transparent;
 }
 
-/* The transparent border plus `padding-box` clipping is what floats the thumb
-   inside the gutter instead of filling it edge to edge. */
 ::-webkit-scrollbar-thumb {
   border: 4px solid transparent;
   border-radius: var(--r-full);
@@ -560,15 +392,10 @@ a:hover {
   background-color: var(--scroll-thumb-hover);
 }
 
-/* The stepper arrows are a scroll affordance no pointer or key needs. */
 ::-webkit-scrollbar-button {
   display: none;
 }
 
-/* Everything pressable invites the press. Tailwind's preflight leaves buttons
-   at the platform `default` cursor, which is how individual controls kept
-   shipping without a pointer; declared once here, low-specificity so a control
-   with a *reason* to differ (a drag handle, a text surface) can still say so. */
 :where(
   button,
   [role="button"],
@@ -586,26 +413,11 @@ a:hover {
   cursor: pointer;
 }
 
-/* Components own their deliberate focus appearance. A new control that has not
-   acquired one yet keeps a safe inset fallback: it remains visible and cannot
-   be cropped by an ancestor scrollport. Component selectors below have greater
-   specificity and suppress this only when they provide an equivalent mark. */
 :where(:focus-visible) {
   outline: 2px solid var(--focus-tone);
   outline-offset: -2px;
 }
 
-/* Fields answer focus in two different ways on purpose:
-   a control that *looks* like a field (an input, a select's stand-in, a code area)
-   takes the accent as its inset edge, declared where its resting `--e1` edge is
-   declared; a borderless typing surface that looks like text (a page title, a
-   block's line, the palette's query) already carries the `--accent` caret, and
-   gets a `--surface-2` wash where the field would otherwise be invisible. Both are
-   visible focus indicators; neither draws a box around running text.
-
-   Focus *containers* are not controls at all. A dialog, a menu, a toast and the outline
-   viewport take focus so their contents have somewhere to send keys; what has
-   focus is the thing inside, which says so itself. */
 [data-slot="dialog-content"]:focus,
 [data-slot="dialog-content"]:focus-visible,
 [data-slot="dropdown-menu-content"]:focus,
@@ -663,7 +475,6 @@ h2 {
   font-variant-numeric: tabular-nums;
 }
 
-/* Compact typography, gutter, and depth are one responsive foundation. */
 @media (max-width: 600px) {
   :root {
     --text-xl: 24px;
@@ -671,8 +482,7 @@ h2 {
     --title-row-h: 36px;
     --track-xl: -0.016em;
     --gutter: var(--sp-4);
-    /* Depth still has to read, but on a 360px screen every indent is spent out
-       of the measure rather than out of a margin, so it gives back four pixels. */
+
     --indent: 26px;
   }
 }

@@ -15,7 +15,9 @@ or animation vocabularies.
 
 The palette has three independent responsibilities:
 
-- Neutral canvas, surface, rail, overlay, and ink roles establish hierarchy.
+- A warm paper canvas and stone rail establish the light workspace; graphite
+  surfaces express the same hierarchy in dark mode. Overlay and ink roles stay
+  semantic in both modes.
 - The accent identifies action, reference, focus, selection, and current place.
 - Semantic tones identify information, success, caution, attention, and danger.
 
@@ -96,7 +98,9 @@ Depth combines:
 2. a hairline that closes a bounded or interactive object; and
 3. a cast that communicates distance from the page.
 
-Fields and buttons have a bounded surface. A selected key separates from its
+Fields and primary buttons have a bounded surface. Secondary icon actions are
+unboxed at rest, acquiring a neutral surface on interaction and an explicit
+keyboard focus indicator. A selected key separates from its
 track through ground and edge. Cast shadows belong to floating menus and dialogs,
 where distance explains an actual layer. Text links and compact metadata need no
 resting box.
@@ -106,8 +110,8 @@ tokens. Fields and controls inside scrollports draw focus inside their own edge;
 feature layout never reserves or recovers space with focus-specific margins.
 
 Controls share role-specific heights; page titles and block text retain distinct
-line metrics. Narrow journal navigation takes its own row, leaving the whole
-measure to the date. Whole-pixel geometry protects icon and rule clarity. Icon boxes use compatible
+line metrics. Document context and navigation share a toolbar above the title, leaving the
+whole measure to the date or page name at every width. Whole-pixel geometry protects icon and rule clarity. Icon boxes use compatible
 dimensions, sibling rows that claim shared columns use shared tracks, and one
 global scrollbar language serves every scrolling surface.
 

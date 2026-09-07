@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
 import {
+  CalendarDaysIcon,
+  FileTextIcon,
   InfoIcon,
   MoreHorizontalIcon,
   Settings2Icon,
@@ -19,6 +21,7 @@ import {
   stringValue,
 } from "../../core-port/snapshot";
 import { FAVOURITE_KEY, isFavourite } from "../../entities/favourites";
+import { isGenericProperty } from "../../entities/properties";
 import { Outliner } from "../outline/Outliner";
 import { PageProperties } from "../properties/PageProperties";
 import { AutoHeight } from "../../ui/auto-height";
@@ -132,9 +135,7 @@ export function PageBody({
 }: {
   page: PageSnapshot;
   /**
-   * The journal supplies its own title row. It receives the already-wired page
-   * menu and the handler that summons it, so the page's verbs have the same
-   * pointer route on both surfaces without either view reaching for shell state.
+   * The journal shares page actions and supplies its own date navigation.
    */
   header?: (menu: ReactNode, onContextMenu: (event: React.MouseEvent) => void) => ReactNode;
   /**
@@ -144,9 +145,16 @@ export function PageBody({
    */
   foot?: ReactNode;
 }) {
+  const { message } = useI18n();
   const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null);
-  const [propsOpen, setPropsOpen] = useState(false);
+  const [propertyPicker, setPropertyPicker] = useState<{ trigger: HTMLElement | null } | null>(
+    null,
+  );
   const [menuOpen, setMenuOpen] = useState(false);
+  const propsOpen = propertyPicker !== null;
+  const setPropsOpen = useCallback((open: boolean) => {
+    setPropertyPicker(open ? { trigger: null } : null);
+  }, []);
 
   const openMenu = (event: React.MouseEvent) => {
     event.preventDefault();
@@ -154,38 +162,51 @@ export function PageBody({
   };
 
   const menu = (
-    <PageMenu
-      page={page}
-      open={menuOpen}
-      onOpenChange={setMenuOpen}
-      onOpenProperties={() => setPropsOpen(true)}
-    />
+    <>
+      {!page.properties.some((property) => isGenericProperty(property.key)) && (
+        <Button
+          variant="ghost"
+          className="document-properties-action"
+          aria-label={message("page.properties")}
+          title={message("page.properties")}
+          aria-expanded={propsOpen}
+          data-testid="page-properties-trigger"
+          onClick={(event) => setPropertyPicker({ trigger: event.currentTarget })}
+        >
+          <Settings2Icon aria-hidden />
+          <span>{message("properties.title")}</span>
+        </Button>
+      )}
+      <PageMenu
+        page={page}
+        open={menuOpen}
+        onOpenChange={setMenuOpen}
+        onOpenProperties={() => setPropsOpen(true)}
+      />
+    </>
   );
 
   return (
     <div className="page-scroll" ref={setScrollElement}>
-      {/* Keyed by page, and faded, so navigating between pages says that one
-          document replaced another. Without it the title and the whole outline
-          swap in one frame with nothing to attribute the change to, which reads
-          less like arriving somewhere than like the page glitching. `--dur-view`
-          is 120ms: enough to be seen, over before anything is read. */}
       <article className="page-body enter-fade-view" key={page.id}>
         {header ? (
           header(menu, openMenu)
         ) : (
-          // The same page menu serves its visible trigger and title context click.
-          <div className="title-row" onContextMenu={openMenu}>
+          <DocumentHeader
+            kind={pageKind(page) === "journal" ? "journal" : "page"}
+            actions={menu}
+            onContextMenu={openMenu}
+          >
             <PageTitle page={page} />
-            {menu}
-          </div>
+          </DocumentHeader>
         )}
-        {/* Properties sit between the title and the writing, collapsed, so the
-            region below the outline stays free of chrome. Opening the disclosure
-            pushes the whole outline down, so the push is animated: the writing
-            slides out of the way rather than teleporting, which is the difference
-            between "a panel opened above this" and "the page reflowed". */}
         <AutoHeight>
-          <PageProperties page={page} open={propsOpen} onOpenChange={setPropsOpen} />
+          <PageProperties
+            page={page}
+            open={propsOpen}
+            trigger={propertyPicker?.trigger}
+            onOpenChange={setPropsOpen}
+          />
         </AutoHeight>
         <PageQuery page={page} />
         <Outliner
@@ -197,6 +218,34 @@ export function PageBody({
         <LinkedReferences key={page.id} owner={{ kind: "page", id: page.id }} />
       </article>
     </div>
+  );
+}
+
+/** A document's identity and navigation sit above the writing's own text axis. */
+export function DocumentHeader({
+  kind,
+  actions,
+  children,
+  onContextMenu,
+}: {
+  kind: "page" | "journal";
+  actions: ReactNode;
+  children: ReactNode;
+  onContextMenu: (event: React.MouseEvent) => void;
+}) {
+  const { message } = useI18n();
+  const Icon = kind === "journal" ? CalendarDaysIcon : FileTextIcon;
+  return (
+    <header className={`document-header ${kind}-header`} onContextMenu={onContextMenu}>
+      <div className="document-toolbar">
+        <span className="document-eyebrow">
+          <Icon aria-hidden />
+          {message(kind === "journal" ? "shell.journal" : "common.page")}
+        </span>
+        <div className="title-actions">{actions}</div>
+      </div>
+      <div className="title-row">{children}</div>
+    </header>
   );
 }
 

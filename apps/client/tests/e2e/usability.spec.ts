@@ -1,6 +1,89 @@
 import AxeBuilder from "@axe-core/playwright";
 import { test, expect } from "../support/fixtures";
 
+test("the compact navigation drawer owns focus until its last layer closes", async ({
+  app,
+  page,
+  isMobile,
+}) => {
+  test.skip(!isMobile, "The navigation drawer is the compact viewport interaction.");
+  await app.createGraph("Keyboard navigation");
+  const open = page.getByRole("button", { name: "Open menu", exact: true });
+  const navigation = page.getByRole("navigation", { name: "Graph navigation" });
+  const close = navigation.getByRole("button", { name: "Close menu", exact: true });
+  const settings = navigation.getByRole("button", { name: "Settings", exact: true });
+
+  await open.press("Enter");
+  await expect(close).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(settings).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(close).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("settings-dialog")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("settings-dialog")).toHaveCount(0);
+  await expect(settings).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(navigation).toBeHidden();
+  await expect(open).toBeFocused();
+
+  await open.press("Enter");
+  const switcher = navigation.getByTestId("graph-switcher");
+  await switcher.press("Enter");
+  await expect(page.getByRole("menu")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await expect(switcher).toBeFocused();
+  await expect(navigation).toBeVisible();
+
+  const search = navigation.getByTestId("open-palette");
+  await search.press("Enter");
+  await expect(page.getByTestId("command-input")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("command-palette")).toHaveCount(0);
+  await expect(search).toBeFocused();
+  await expect(navigation).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(open).toBeFocused();
+
+  // Selecting the current destination still completes the navigation gesture.
+  const journal = page.url();
+  await open.press("Enter");
+  await navigation.getByRole("link", { name: "Journal", exact: true }).click();
+  await expect(navigation).toBeHidden();
+  await expect(page).toHaveURL(journal);
+  await app.startBlock("Navigation keeps writing available");
+  await app.expectOutline(["Navigation keeps writing available"]);
+});
+
+test("desktop sidebar controls preserve the current document and remembered preference", async ({
+  app,
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Desktop navigation can remain hidden while writing.");
+  await app.createGraph("Focused writing");
+  await app.startBlock("Keep this thought in view");
+  const journal = page.url();
+  const navigation = page.getByRole("navigation", { name: "Graph navigation" });
+  const show = page.getByRole("button", { name: "Show sidebar", exact: true });
+  await navigation.getByRole("button", { name: "Hide sidebar", exact: true }).click();
+  await expect(navigation).toBeHidden();
+  await expect(show).toBeVisible();
+  await expect(page).toHaveURL(journal);
+  await app.expectOutline(["Keep this thought in view"]);
+  await page.reload();
+  await expect(show).toBeVisible();
+  await expect(navigation).toBeHidden();
+  await app.expectOutline(["Keep this thought in view"]);
+  await show.click();
+  await expect(navigation).toBeVisible();
+  await expect(navigation.getByTestId("new-page")).toBeEnabled();
+  await expect(page).toHaveURL(journal);
+});
+
 test("creation and navigation have usable keyboard and pointer dismissal routes", async ({
   app,
   page,
@@ -16,6 +99,12 @@ test("creation and navigation have usable keyboard and pointer dismissal routes"
   await expect(page.getByTestId("picker-empty")).toBeVisible();
 
   await app.createGraph("Accessible notebook");
+  const properties = page.getByTestId("page-properties-trigger");
+  await properties.click();
+  await expect(page.getByTestId("property-picker")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("property-picker")).toHaveCount(0);
+  await expect(properties).toBeFocused();
   await app.startBlock("My writing");
   await app.sidebar();
   await page.getByTestId("open-palette").click();

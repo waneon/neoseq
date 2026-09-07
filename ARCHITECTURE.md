@@ -85,6 +85,9 @@ persistence test boundary, not a shipped application shell.
   parity and recovery verification.
 - `apps/client` owns interaction, navigation, browser-local preferences,
   localization, error presentation, responsive UI, and the query-builder UI.
+  Its workspace shell owns navigation and temporary drawer focus; a shared
+  document header composes page identity and tools above the existing outline
+  editor. Presentation changes do not duplicate editor or persistence state.
   The typed plan compiler and executable query semantics live in Rust.
 - `apps/dashboard` is a separately built operational Web app for server account and
   session administration. It does not load the graph core or graph data.

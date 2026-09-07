@@ -22,7 +22,10 @@ outline inset, and floating layers.
 ## Navigation Rail
 
 The rail is quieter than the writing canvas. Its head identifies the product and
-current graph; search has the visual shape of the field it opens. The current row
+current graph; search has the visual shape of the field it opens. A labeled New
+page action sits beside search in the stable head and is disabled for read-only
+graphs. The directory scrolls independently between this head and the settings
+and keyboard-help footer. The desktop collapse control is always visible. The current row
 uses the accent because the rail is scanned for location rather than read as
 content. Journal remains the current place on every dated journal route.
 
@@ -31,20 +34,21 @@ not entity type. Each item retains its own mark, and all labels share one mark
 column. The list is absent when empty. Favourite membership and order belong to
 the graph, and reordering has equivalent drag and keyboard routes.
 
-Page and tag directories remain distinct below favourites because they describe
-the graph's structure rather than a personal shortcut set. Their creation
-actions remain visible before hover.
+Journal and Tags are primary destinations. The page directory follows favourites
+and shows its size without displacing its labels. Page creation remains available
+above the directory at every scroll position.
 
 ## Top Bar
 
-At rest the top bar is page margin for controls that belong to the window rather
-than the page. It gains an opaque ground, edge, and the departed page title only
-when content scrolls beneath it. Its geometry remains stable during that change.
+The top bar is a persistent, fine-edged orientation strip. A breadcrumb names the
+workspace and current document even before scrolling. On narrow screens it keeps
+the current place and omits the workspace prefix. Registry-backed Undo and Redo
+remain available beside exceptional save or collaboration state. Search also
+appears here whenever the rail is collapsed or becomes a drawer.
 
-The top bar exposes place and registry-backed Undo and Redo icon controls. The
-command palette and object menus expose the remaining actions. Surface-specific primary controls, such
-as journal date navigation or a query's view switcher, may remain visible because
-they define how that surface is used.
+The page header owns the document's context, title, and surface-specific controls,
+including journal date navigation. Context and actions share a compact row above
+the full-width title, so long names never compete with controls for width.
 
 ## Disclosure and Commands
 
@@ -129,7 +133,8 @@ and appearance choices remain available from the masthead before opening a graph
 
 Responsive changes preserve capability and hierarchy:
 
-- the rail becomes a drawer rather than disappearing;
+- the rail becomes a drawer with a visible close action, Escape dismissal, focus
+  containment, and focus return; the writing surface is inert while it is open;
 - settings panes stack without mixing their scopes;
 - touch targets grow and hover-revealed controls become explicit;
 - long-press reaches the same contextual actions as a pointer context menu; and

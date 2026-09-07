@@ -73,7 +73,8 @@ contrast, keyboard reachability, focus clarity, or localized readability.
 - **Structure is the ornament.** The outline's quiet guides show indentation; a
   stronger branch shows the path to the caret. Structural marks appear only
   where they explain a real relationship.
-- **Graphite and one accent.** Cool neutral surfaces and inks carry hierarchy.
+- **Paper, stone, and one accent.** A warm paper canvas, a stone navigation
+  rail, and graphite inks carry hierarchy.
   One accent identifies action, reference, focus, selection, and current place.
   Semantic status tones never become a second accent.
   Product identity keeps its own violet symbol and neutral wordmark, independent
@@ -81,8 +82,9 @@ contrast, keyboard reachability, focus clarity, or localized readability.
 - **The writing is the typographic top.** Product chrome is smaller and quieter
   than authored content. Weight and color are reserved for hierarchy and state.
 - **Depth is compositional.** Luminance establishes ground, a hairline closes a
-  bounded object, and shadow expresses distance. Resting controls use a
-  bounded surface; shadow is reserved for floating layers.
+  bounded object, and shadow expresses distance. Fields and primary actions use a
+  bounded surface; icon actions remain unboxed until interaction. Shadow is
+  reserved for floating layers.
 - **Both modes are one system.** Tokens are semantic and complete in light and
   dark modes. User-selectable color is limited to choices whose contrast can be
   guaranteed.
@@ -98,14 +100,17 @@ material owns the page edge; outline text owns an inset edge whose margin holds
 bullets and branches. This distinction makes a page the root of its outline
 rather than an oversized first block.
 
-Permanent chrome is limited to navigation, place, Undo and Redo, primary surface controls, and
-exceptional state. Contextual verbs are revealed near their object or summoned
+The workspace rail keeps search and a labeled New page action above its scrolling
+directory, with settings and keyboard help anchored below. A persistent breadcrumb
+and Undo and Redo orient the document without competing with its title. The
+document header separates context and tools from the full-width title. Contextual verbs are revealed near their object or summoned
 through the command layer. The region below the last outline block remains a
 writing target; additional bodies such as standing query answers begin only
 after that target has retained its full reach.
 
 Responsive layouts preserve these relationships rather than merely shrinking
-them. The navigation rail becomes a drawer, settings panes stack, touch targets
+them. The navigation rail becomes a dismissible drawer that contains keyboard focus
+and temporarily makes the content inert, settings panes stack, touch targets
 grow, and hover-only affordances become visible or gain an explicit touch route.
 
 See [Shell and Navigation](designs/shell-and-navigation.md) and

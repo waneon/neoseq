@@ -1,308 +1,263 @@
-/* ─────────────────────────── 4. shell ─────────────────────────── */
-
-/* The rail's width is a grid track, and the track is what animates on `⌘\`.
-   Collapsing it used to be a single frame from 240px to 0 — the entire writing
-   surface jumped a quarter of the window sideways with nothing to attribute the
-   jump to, which is the largest uncushioned movement the interface had. A track
-   width is not a transform: nothing inside the rail moves relative to the rail,
-   the content column simply has more room a moment later. */
+/* A quiet workspace rail frames a continuous writing canvas. */
 .shell {
   display: grid;
   grid-template-columns: var(--rail-w) minmax(0, 1fr);
   height: 100dvh;
   overflow: hidden;
+  background: var(--rail);
   transition: grid-template-columns var(--dur-disclose) var(--ease-size);
-}
-
-/* Desktop rail preference and compact drawer state are independent. */
-@media (min-width: 841px) {
-  .shell[data-rail="collapsed"] {
-    grid-template-columns: 0 minmax(0, 1fr);
-  }
-
-  .shell[data-rail="collapsed"] .shell-sidebar {
-    visibility: hidden;
-    transition: visibility 0s linear var(--dur-disclose);
-  }
 }
 
 .shell-sidebar {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-1);
-  height: 100dvh;
+  gap: 6px;
   min-width: 0;
   min-height: 0;
-  padding: var(--sp-2) 10px;
+  height: 100dvh;
+  padding: 20px 16px 12px;
   background: var(--rail);
   border-inline-end: 1px solid var(--rail-edge);
-  /* The x axis is clipped so the rail's own content cannot spill out of a track
-     that is on its way to zero. */
-  overflow: hidden auto;
-  overscroll-behavior: contain;
+  overflow: hidden;
   visibility: visible;
-  transition: visibility 0s linear 0s;
 }
 
-/* ── The rail's head ──
-   Two rows read as one object: the product's mark and name, small and quiet
-   above, and the graph — which is the thing the reader actually switches — as
-   the large row with an initial tile beside it. The wordmark used to be the
-   biggest, heaviest text in the rail, which put the one element that is neither
-   navigation nor state at the top of the visual hierarchy. */
 .rail-head {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-0);
-  padding-bottom: var(--sp-2);
+  flex: none;
+  margin-bottom: 8px;
 }
-
+.rail-masthead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
 .rail-brand {
   display: flex;
   align-items: center;
-  height: 24px;
-  padding: 0 var(--sp-2);
   margin: 0;
+  padding-inline: 8px;
 }
-
 .rail-brand .brand-lockup {
-  --brand-size: 18px;
+  --brand-size: 22px;
+}
+.rail-collapse {
+  color: var(--ink-3);
+}
+.drawer-close {
+  display: none;
 }
 
 .rail-switcher {
   display: flex;
   align-items: center;
-  gap: var(--mark-gap);
+  gap: 12px;
   width: 100%;
-  height: 38px;
-  padding: 0 var(--sp-1) 0 var(--sp-2);
-  border: none;
-  border-radius: var(--r-2);
-  background: none;
+  min-height: 58px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-3);
+  background: var(--canvas);
   color: var(--ink);
   font: inherit;
-  font-size: var(--text-sm);
-  letter-spacing: var(--track-sm);
-  font-weight: var(--weight-medium);
   text-align: start;
   cursor: pointer;
-  transition: background-color var(--dur-press) var(--ease-out);
+  transition:
+    border-color var(--dur-press),
+    background-color var(--dur-press);
 }
-
 .rail-switcher:hover,
 .rail-switcher[data-state="open"] {
-  background: var(--surface-2);
+  border-color: var(--line-strong);
+  background: var(--raised-hover);
 }
-
-/* The one control in the rail that said nothing at all when the keyboard reached
-   it. Same halo as the search field beneath it. */
 .rail-switcher:focus-visible {
   outline: none;
-  background: var(--surface-2);
-  box-shadow: 0 0 0 2px var(--accent-soft);
+  box-shadow: var(--focus-inset);
 }
-
-/* The graph's initial, in the accent at a tint. It is the one place in the
-   interface where a piece of the user's own data becomes a mark, and it is what
-   makes two open graphs distinguishable at a glance rather than by reading. */
 .rail-avatar {
   display: grid;
   place-items: center;
   flex: none;
-  /* Wider than the mark column and centred on it: the tile reads as the biggest
-     thing in the rail's head without pushing the graph's name off the one x
-     every other label in the rail starts at. */
-  width: 24px;
-  height: 24px;
-  margin: 0 calc((var(--mark-slot) - 24px) / 2);
+  width: 32px;
+  height: 32px;
   border-radius: var(--r-2);
   background: var(--accent-soft);
-  color: var(--accent);
-  font-size: var(--text-xs);
-  line-height: 1;
+  color: var(--accent-quiet);
+  font-size: 15px;
   font-weight: var(--weight-strong);
   text-transform: uppercase;
 }
-
-.rail-switcher .name {
+.rail-workspace {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
+}
+.rail-switcher .name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--text-sm);
+  line-height: 20px;
+  font-weight: var(--weight-strong);
 }
-
-.rail-switcher svg {
+.rail-workspace-kind {
+  color: var(--ink-3);
+  font-size: 11px;
+  line-height: 16px;
+}
+.rail-switcher > svg {
   flex: none;
   width: 14px;
   height: 14px;
   color: var(--ink-3);
 }
 
-/* ── Search looks like the field it stands for ──
-   It is a button that opens the palette, and it used to be styled as one more
-   nav row — so the affordance that pays for how bare the rest of the interface
-   is looked exactly like "Journal". A field's shape plus a permanent key badge
-   is what teaches ⌘K without a tour. */
-.rail-search {
+.rail-search,
+.rail-create {
   display: flex;
   align-items: center;
-  gap: var(--mark-gap);
+  gap: 10px;
+  flex: none;
   width: 100%;
-  height: 32px;
-  margin-bottom: var(--sp-2);
-  padding: 0 var(--sp-1) 0 var(--sp-2);
-  border: none;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid transparent;
   border-radius: var(--r-2);
-  background: var(--canvas);
-  box-shadow: var(--e1);
-  color: var(--ink-3);
   font: inherit;
-  font-size: var(--text-sm);
-  line-height: var(--lh-sm);
-  letter-spacing: var(--track-sm);
+  font-size: 13px;
+  line-height: 20px;
   text-align: start;
   cursor: pointer;
   transition:
-    box-shadow var(--dur-press) var(--ease-out),
-    color var(--dur-press) var(--ease-out);
+    background-color var(--dur-press),
+    border-color var(--dur-press);
 }
-
-.rail-search:hover,
-.rail-search:focus-visible {
-  box-shadow: inset 0 0 0 1px var(--line-strong);
+.rail-search {
+  background: transparent;
+  border-color: var(--line);
   color: var(--ink-2);
 }
-
-.rail-search:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-inset);
+.rail-search:hover {
+  background: var(--canvas);
+  border-color: var(--line-strong);
 }
-
-.rail-search svg {
-  flex: none;
-  width: var(--icon-lg);
-  height: var(--icon-lg);
-  color: var(--ink-3);
-}
-
 .rail-search .nav-label {
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.rail-search .kbd {
+  font-size: 10px;
+}
+.rail-create {
+  background: var(--ink);
+  color: var(--canvas);
+  font-weight: var(--weight-medium);
+}
+.rail-create:hover:not(:disabled) {
+  background: var(--ink-2);
+}
+.rail-create:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.rail-search > svg,
+.rail-create > svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+.rail-search:focus-visible,
+.rail-create:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
-/* A key badge on a device with no modifier key teaches nothing. */
-@media (hover: none) {
-  .rail-search .kbd {
-    display: none;
-  }
+/* Only the directory scrolls: creation, search and help remain within reach. */
+.rail-navigation {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden auto;
+  overscroll-behavior: contain;
+  margin-top: 16px;
+  padding: 2px;
+  margin-inline: -2px;
 }
-
 .shell-nav {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
 }
-
 .shell-nav-item {
   display: flex;
   align-items: center;
-  gap: var(--mark-gap);
+  gap: 10px;
   width: 100%;
   min-height: var(--nav-row-h);
-  padding: 0 var(--sp-2);
+  padding: 6px 10px;
   border: none;
   border-radius: var(--r-2);
-  background: none;
+  background: transparent;
   color: var(--ink-2);
   font: inherit;
-  font-size: var(--text-sm);
-  line-height: var(--lh-sm);
-  letter-spacing: var(--track-sm);
+  font-size: 13px;
+  line-height: 20px;
   text-align: start;
   cursor: pointer;
   transition:
-    background-color var(--dur-press) var(--ease-out),
-    color var(--dur-press) var(--ease-out);
+    background-color var(--dur-press),
+    color var(--dur-press);
 }
-
 .shell-nav-item:hover {
   background: var(--surface-2);
   color: var(--ink);
   text-decoration: none;
 }
-
 .shell-nav-item:focus-visible {
   outline: none;
-  background: var(--surface-2);
-  color: var(--ink);
-  box-shadow: 0 0 0 2px var(--accent-soft);
+  box-shadow: var(--focus-inset);
 }
-
-/* The current place. A tint of the accent rather than a step of grey: the rail
-   is the one surface a reader scans for "where am I" without reading it, and a
-   third grey among three greys is not an answer. The glyph takes the accent with
-   it, so the row is one signal — a fill — with its own colour, not a fill plus a
-   rule plus a weight. */
 .shell-nav-item[aria-current="page"],
 .shell-nav-item[aria-current="true"] {
   background: var(--accent-soft);
-  color: var(--ink);
+  color: var(--accent-quiet);
   font-weight: var(--weight-medium);
 }
-
 .shell-nav-item svg {
   flex: none;
-  width: var(--mark-slot);
-  height: var(--mark-slot);
+  width: 16px;
+  height: 16px;
   color: var(--ink-3);
-  transition: color var(--dur-press) var(--ease-out);
+  stroke-width: 1.65;
 }
-
-.shell-nav-item:hover svg {
-  color: var(--ink-2);
+.shell-nav-item[aria-current] svg {
+  color: var(--accent-quiet);
 }
-
-.shell-nav-item[aria-current="page"] svg,
-.shell-nav-item[aria-current="true"] svg {
-  color: var(--accent);
-}
-
 .shell-nav-item .nav-label {
   flex: 1;
   min-width: 0;
-  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-/* ── The starred list is dragged ──
-   Its order is the reader's, so a row is a thing they can pick up. The row being
-   carried takes the same fade a dragged tag row does, so what is in the hand
-   looks the same wherever the hand is (designs/interaction.md § Direct Manipulation).
-
-   The landing place is one 2px accent rule in the gap the row is about to
-   occupy, on a pseudo-element that straddles it — so it occupies no space, no
-   row moves when it appears, and nothing reflows while the pointer travels. It
-   is instant: a hint about where the pointer is *now* is late the moment it
-   animates.
-
-   The cursor stays the link's. A `grab` here would trade the row's first
-   meaning — press it to go there — for its second, and the drag is discovered by
-   starting one, which is how every rail in the reader's other applications
-   behaves. */
+.shell-nav-item .nav-kbd {
+  flex: none;
+  opacity: 0;
+}
+.shell-nav-item:is(:hover, :focus-visible) .nav-kbd {
+  opacity: 1;
+}
 .shell-nav-item[data-dragging] {
   opacity: 0.45;
 }
-
 .shell-nav-item[data-seam] {
   position: relative;
 }
-
 .shell-nav-item[data-seam]::after {
   content: "";
   position: absolute;
@@ -312,63 +267,55 @@
   background: var(--accent);
   pointer-events: none;
 }
-
-/* The rows are 1px apart, so the rule is drawn centred on that hairline rather
-   than pushed clear of it: half of a single pixel either way is where a reader
-   would draw the line themselves. */
 .shell-nav-item[data-seam="before"]::after {
   top: -1px;
 }
-
 .shell-nav-item[data-seam="after"]::after {
   bottom: -1px;
 }
-
 .rail-group {
   display: flex;
   align-items: center;
-  gap: var(--sp-1);
-  height: 28px;
-  margin-top: var(--sp-4);
-  padding-inline-start: var(--sp-2);
+  gap: 8px;
+  min-height: 30px;
+  margin: 24px 0 6px;
+  padding-inline: 10px;
 }
-
-/* Typography comes from designs/foundations.md § Typography; only the layout is local. */
 .rail-group h2 {
   flex: 1;
   min-width: 0;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+  font-weight: var(--weight-medium);
 }
-
-/* Creating a page is a primary action, visible before hover. */
-.rail-group .icon-btn {
-  color: var(--ink-2);
+.rail-count {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
-
 .rail-note {
   margin: 0;
-  padding: var(--sp-1) var(--sp-2);
+  padding: 8px 10px;
   color: var(--ink-3);
   font-size: var(--text-xs);
-  line-height: var(--lh-xs);
+  line-height: 20px;
 }
-
 .rail-more {
   justify-content: center;
   color: var(--ink-3);
 }
-
-.rail-spacer {
-  flex: 1;
-  min-height: var(--sp-4);
-}
-
 .rail-footer {
   display: flex;
+  flex: none;
   flex-direction: column;
-  gap: 1px;
-  margin-top: var(--sp-1);
-  padding-top: var(--sp-2);
-  border-top: 1px solid var(--thread);
+  gap: 2px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.rail-footer .shell-nav-item {
+  font-size: 12px;
+  min-height: 32px;
 }
 
 .shell-main {
@@ -378,94 +325,141 @@
   min-height: 0;
   background: var(--canvas);
 }
-
-/* ── The top bar is a bar only once there is something above the fold ──
-   At rest this band held one overflow button at the far right of 1200 empty
-   pixels, and an empty 44px band with a drawn edge does not read as calm — it
-   reads as a component that failed to load. So at rest it draws nothing at all:
-   it is page margin that happens to contain the two or three controls that
-   belong to the window rather than to the page. The moment the writing scrolls
-   under it, it becomes a real bar — frosted, edged, and carrying the title of
-   whatever has just left the top of the screen.
-
-   `position: sticky` inside its flex column keeps it above the scroller without
-   taking the scroller's own layout, so the page beneath it never reflows. */
 .shell-topbar {
   display: flex;
   align-items: center;
-  flex-wrap: nowrap;
-  gap: var(--sp-1);
+  gap: 10px;
   flex: none;
   position: relative;
   z-index: 2;
   height: var(--topbar-h);
-  padding: 0 var(--sp-4);
-  background: transparent;
-  box-shadow: none;
-  transition:
-    background-color var(--dur-overlay) var(--ease-out),
-    box-shadow var(--dur-overlay) var(--ease-out);
-}
-
-/* Opaque, not frosted. A translucent bar with a `backdrop-filter` over the
-   writing was the nicer of the two and it is not worth what it costs: the filter
-   promotes the whole scroller to a composited layer that re-rasterises every
-   frame, which shows up as sub-pixel jitter in the rect of every element on the
-   page — enough that a control could not be pressed reliably, and enough that
-   automation waiting for a stable box waits forever. A bar over a document is
-   opaque, edged, and cheap. */
-.shell-topbar[data-scrolled="true"] {
+  padding: 0 24px;
   background: var(--canvas);
-  box-shadow: inset 0 -1px 0 var(--line);
+  border-bottom: 1px solid var(--thread);
 }
-
+.topbar-location {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 20px;
+}
+.topbar-workspace {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-3);
+}
+.topbar-location > svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--ink-3);
+}
 .topbar-title {
   min-width: 0;
-  padding-inline-start: var(--sp-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--ink-2);
-  font-size: var(--text-sm);
-  line-height: var(--lh-sm);
-  letter-spacing: var(--track-sm);
-  font-weight: var(--weight-medium);
-  opacity: 0;
 }
-
-.shell-topbar[data-scrolled="true"] .topbar-title {
-  opacity: 1;
-}
-
-/* Slots that render nothing stay invisible, so this wider gap only ever appears
-   between deviations that are actually showing — without it, two 12px reports
-   sit four pixels apart and read as one run-on sentence. */
 .topbar-right {
   display: flex;
+  flex: none;
   align-items: center;
-  gap: var(--sp-3);
+  gap: 8px;
   margin-inline-start: auto;
 }
-
-/* A nav row's own shortcut badge, for the rows that have one. It reveals
-   instantly — hover-revealed chrome never fades (designs/foundations.md § Motion). The search
-   field's badge is the exception and is permanent: it is on the always-visible
-   list, because it is the whole reason the rest of the interface can be bare. */
-.shell-nav-item .nav-kbd {
-  flex: none;
-  opacity: 0;
+.topbar-history {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.topbar-search {
+  display: none;
+}
+.shell-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.shell-toggle,
+.rail-toggle {
+  display: none;
 }
 
-.shell-sidebar:hover .shell-nav-item .nav-kbd,
-.shell-nav-item:focus-visible .nav-kbd {
-  opacity: 1;
+@media (min-width: 841px) {
+  .shell[data-rail="collapsed"] {
+    grid-template-columns: 0 minmax(0, 1fr);
+  }
+  .shell[data-rail="collapsed"] .shell-sidebar {
+    visibility: hidden;
+  }
+  .shell[data-rail="collapsed"] :is(.rail-toggle, .topbar-search) {
+    display: inline-flex;
+  }
 }
-
-/* A shortcut badge on a device with no modifier key teaches nothing, so it is
-   deleted there rather than pinned like the controls around it. */
-@media (hover: none) {
+@media (max-width: 840px) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .shell-sidebar {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: var(--drawer-w);
+    z-index: var(--z-drawer);
+    box-shadow: var(--e3);
+    transform: translateX(-105%);
+    visibility: hidden;
+    transition:
+      transform var(--dur-disclose) var(--ease-out),
+      visibility 0s linear var(--dur-disclose);
+  }
+  .shell-sidebar[data-open="true"] {
+    transform: translateX(0);
+    visibility: visible;
+    transition: transform var(--dur-disclose) var(--ease-out);
+  }
+  .rail-collapse {
+    display: none;
+  }
+  .drawer-close,
+  .shell-toggle,
+  .topbar-search {
+    display: inline-flex;
+  }
+  .shell-topbar {
+    padding-inline: 12px;
+    gap: 8px;
+  }
+  .topbar-workspace,
+  .topbar-separator {
+    display: none;
+  }
+  .shell-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-scrim);
+    border: none;
+    padding: 0;
+    background: var(--scrim);
+    animation: ns-fade-in var(--dur-overlay) var(--ease-out) both;
+  }
+}
+@media (hover: none), (pointer: coarse) {
+  .rail-search .kbd,
   .shell-nav-item .nav-kbd {
     display: none;
+  }
+  .rail-search,
+  .rail-create,
+  .rail-footer .shell-nav-item {
+    min-height: 44px;
   }
 }
 
@@ -541,69 +535,4 @@
 .readonly-label svg {
   width: 12px;
   height: 12px;
-}
-
-.shell-content {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-}
-
-.shell-toggle,
-.rail-toggle {
-  display: none;
-}
-
-@media (min-width: 841px) {
-  .shell[data-rail="collapsed"] .rail-toggle {
-    display: inline-flex;
-  }
-}
-
-@media (max-width: 840px) {
-  .shell {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  /* The closed drawer is `visibility: hidden`, not merely translated off-screen,
-     so it leaves the tab order and the accessibility audit instead of sitting
-     just out of frame with every link still focusable. Visibility flips after
-     the slide out and before the slide in, so neither transition is skipped. */
-  .shell-sidebar {
-    display: flex;
-    position: fixed;
-    inset-block: 0;
-    inset-inline-start: 0;
-    width: var(--drawer-w);
-    z-index: var(--z-drawer);
-    box-shadow: var(--e3);
-    transform: translateX(-105%);
-    visibility: hidden;
-    transition:
-      transform var(--dur-disclose) var(--ease-out),
-      visibility 0s linear var(--dur-disclose);
-  }
-
-  .shell-sidebar[data-open="true"] {
-    transform: translateX(0);
-    visibility: visible;
-    transition:
-      transform var(--dur-disclose) var(--ease-out),
-      visibility 0s linear 0s;
-  }
-
-  .shell-toggle {
-    display: inline-flex;
-  }
-
-  .shell-scrim {
-    position: fixed;
-    inset: 0;
-    z-index: var(--z-scrim);
-    border: none;
-    padding: 0;
-    background: var(--scrim);
-    animation: ns-fade-in var(--dur-overlay) var(--ease-out) both;
-  }
 }

@@ -1,110 +1,72 @@
 # Outliner Design Architecture
 
-## Boundary
+## Document and Writing Hierarchy
 
-The outliner is Neoseq's primary writing and structural reading surface. It owns
-the relationship between page material, block text, bullets, indentation,
-branches, selection, Markdown projection, and the append target. Properties and
-queries may appear within it but retain their own design boundaries.
+The outliner is the primary writing surface. A document header establishes the
+place with a small Page or Journal label, persistent actions, and a large title.
+A fine divider separates document identity from its content. Titles wrap across
+the full measure; journal navigation lives above the date so controls never
+compete with it for writing space. Compact titles use a smaller scale and preserve
+word boundaries. An empty metadata strip exposes a quiet Properties action in the
+toolbar; existing properties provide their own direct editing controls below.
 
-## Page and Outline Hierarchy
+The document is a comfortable reading column with enough width for nested work.
+Page metadata and managed queries use the page edge; block text sits inside a
+hanging bullet gutter. The title remains larger than every Markdown heading.
+Body writing uses the shared 16px type and 28px line rhythm.
 
-A page is the root of its outline, not its first block. Page-owned material uses
-the page edge; block writing uses an inset text edge, with bullets and branches
-hanging between them. The page title, notes, and page properties therefore read
-as context for the tree rather than unmarked outline rows.
-Page and tag titles are larger than the first Markdown heading level.
-An explicitly added page query sits between page metadata and the outline,
-using the same managed answer surface as a tag query.
+Journal navigation provides previous day, calendar, next day, and a visible Today
+cue. On another date, Today returns to the current journal. Calendar text is a
+draft until submitted; selecting a day navigates directly. Cancellation preserves
+the current day. Navigation restores the initiating control after its destination
+arrives, including newly created journal pages.
 
-The content measure is wider than a prose column because each nested level spends
-part of it on indentation. Page names wrap and remain fully readable; they are
-not constrained to a single-line field. On compact journals the date owns the
-full measure and navigation sits beneath it, avoiding fragments beside controls.
-Journal date selection opens a visible field and the shared day calendar. Typing
-a date is a draft until submitted; selecting a calendar day navigates directly.
-Cancellation leaves the current day unchanged. Day navigation restores its
-invoking control after the destination arrives, including newly created days.
+## Editing and Structure
 
-## Blocks and Editing
+The native text editor owns each row's tab stop. Its bullet is a larger hit target
+than its resting mark, supporting focus, contextual actions, and structural drag.
+Bullets, fold controls, and branches align with the first rendered line, including
+wrapped Markdown headings. A collapsed block retains a quiet halo.
 
-The bullet is the block's handle: it focuses, exposes contextual actions, and
-starts structural drag. Its hit area is larger than its resting mark and becomes
-visible under intent. The native text editor is the row's single tab stop.
-Bullets, collapse controls, and branch joins align with the first rendered line,
-including headings that wrap or precede additional content.
+Indentation is expressed with faint neutral guides. A thinner accent branch traces
+the path from ancestors to the caret and ends at its row. Only live path arrivals
+get an elbow; unrelated columns remain quiet. This treatment survives
+virtualization without structural DOM that would change tree semantics.
 
-Editing, structural selection, and the caret have separate state. A focused row
-does not receive a decorative fill; the caret and branch already identify the
-active writing position. Empty lines remain visible through a quiet bullet.
+Caret position, editing, and structural selection are separate states. Focus does
+not add a row fill. Block selection forms a continuous ribbon over the visible
+range; descendants traveling with an ancestor are passengers, not extra selected
+roots. Copy produces portable Markdown, and structural operations remain one
+undoable intent. Drag shows a destination seam before committing; keyboard
+movement follows the same ordering rules.
 
-The region below the last block is an active append surface. No form or status
-chrome may occupy it. Before the first block, a localized writing action is
-visible on the same text axis as the block it creates. A quiet hint introduces
-commands and page links, and disappears with that action when writing starts.
-A second content body may follow only after the append surface has retained
-enough reach to invite continued writing.
+## Beginning and Continuing
 
-Incoming links appear in a collapsible Linked references section after the
-writing and any standing queries. Each reference identifies its source place
-and opens the source block or page. Empty reference sets add no chrome.
+An empty document offers a visible writing action and a small command and page
+link hint on the same text axis as the first block. Both disappear when writing
+begins. The region below the final block remains a generous, clickable append
+surface with a bullet revealed by pointer or keyboard intent.
 
-## Structural Thread
+Standing queries follow that append reach on today's journal. Linked references
+follow the writing and queries as a collapsible section with source navigation.
+Empty references add no chrome. A scroll reserve lets the last content sit at a
+comfortable reading height and limits jumps when trailing sections collapse.
 
-Quiet guides show indentation columns a row passes. A stronger accent branch
-shows the path from the page root to the caret: it descends through ancestors,
-turns toward each next block, and ends at the active row.
+## Markdown and Stable Interaction
 
-The branch appears only on rows and segments that participate in the live path.
-Drawing an elbow beside every bullet or relighting completed columns would turn a
-location signal into wallpaper. Bullets and collapse controls touched by the live
-path inherit its emphasis; unrelated structure stays quiet.
+Markdown is a reading projection of its source, never a second editable object.
+Pressing prose restores the corresponding source position; links have an explicit
+navigation action. The projection holds the row's tab stop until editing begins.
+Headings use type hierarchy, code uses a quiet inset surface, and wide tables scroll
+inside their block. Raw HTML and remote images do not render. Query cells retain
+phrasing-only content within their own edit or open control.
 
-The visual thread must survive row virtualization without adding structural DOM
-that changes tree semantics. Collapsed blocks retain a distinct mark without
-leaving a misleading descending line.
+Stable block identity preserves focus, selection, contextual targets, and branches
+through refreshes and virtualization. Native editors remeasure wrapping without
+replacing their input node or selection. Only focus arrival may request a
+visibility scroll; later measurements cannot pull the reader back. Ordinary rows
+are fully revealed, while rows taller than the viewport retain their visible
+reading position.
 
-## Markdown Projection
-
-Rendered Markdown is a projection of the block, never a second editable object.
-Pressing prose returns to the corresponding source position; following a link is
-an explicit link action. The projection owns the row's tab stop while visible and
-hands it back to the editor during editing.
-
-Markdown uses the product's type and depth language. Raw HTML and remote images
-do not render. Headings express hierarchy without full-width rules, and query
-cells use a compact phrasing projection rather than nesting block structures
-inside an interactive cell.
-
-## Selection and Structural Operations
-
-Caret selection and block-range selection do not coexist. A block selection is a
-continuous ribbon over visible row ranges; descendants moved with a selected
-ancestor are passengers rather than independently selected roots.
-
-Bulk operations resolve against the visible outline, preserve structural
-invariants, and become one undoable intent. Copy produces portable Markdown.
-Drag previews the destination with a seam and keeps the list fixed until commit;
-keyboard movement offers the same reordering semantics.
-
-## Virtualization and Stability
-
-Virtualization is an implementation detail that must not change the perceived
-tree. Focus, selection, branch continuity, and contextual targets are keyed by
-stable block identity. Authoritative refreshes preserve the caret and scroll a
-focused row only when it is no longer visible.
-An ordinary writing row is fully revealed; a block taller than the viewport
-retains its visible reading position. Navigation to an unmounted row uses the
-outline's position, because the page may contain an append area or other material
-after the tree.
-
-Dynamic Markdown, property content, and available editor width may change row
-height. Native inputs remeasure wrapping on width changes without replacing the
-input node or its selection. Measurement may
-update after render, but it must not align an already visible caret to a new
-viewport position merely because its row grew. A visibility scroll belongs to
-the focus arrival that requested it and cannot reassert itself after focus
-leaves or the reader scrolls elsewhere.
-
-Input and semantic requirements follow [Accessibility](accessibility.md), and
-shared drag and control behavior follows [Interaction](interaction.md).
+Shared semantics follow [Accessibility](accessibility.md), and control behavior
+follows [Interaction](interaction.md).

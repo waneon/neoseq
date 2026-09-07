@@ -240,11 +240,13 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
                 {message("commands.palette")}
               </DialogPrimitive.Title>
               <div className="cmdk-input-row">
-                <SearchIcon aria-hidden />
+                <SearchIcon className="cmdk-search-icon" aria-hidden />
                 <input
                   ref={inputRef}
                   className="cmdk-input"
                   type="text"
+                  autoComplete="off"
+                  spellCheck={false}
                   role="combobox"
                   aria-expanded={flat.length > 0}
                   aria-controls="cmdk-results"
@@ -259,6 +261,7 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
                 <DialogPrimitive.Close asChild>
                   <Button
                     size="icon"
+                    className="cmdk-close"
                     aria-label={message("common.close")}
                     data-testid="command-close"
                   >
@@ -308,10 +311,16 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
                                 runRow({ command, score: 0 });
                               }}
                             >
-                              {command.icon}
-                              <span className="label">{command.label}</span>
-                              <span className="hint">
-                                {command.disabledReason ?? command.hint ?? ""}
+                              <span className="cmdk-row-icon" aria-hidden>
+                                {command.icon}
+                              </span>
+                              <span className="cmdk-row-copy">
+                                <span className="label">{command.label}</span>
+                                {(command.disabledReason || command.hint) && (
+                                  <span className="hint">
+                                    {command.disabledReason ?? command.hint}
+                                  </span>
+                                )}
                               </span>
                               {command.binding && <Kbd parts={command.binding} />}
                             </div>

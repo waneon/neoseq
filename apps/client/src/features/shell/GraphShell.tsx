@@ -18,14 +18,17 @@ import {
 } from "react-router";
 import {
   CalendarDaysIcon,
+  ChevronRightIcon,
   ChevronsUpDownIcon,
   FileTextIcon,
   HashIcon,
+  KeyboardIcon,
   Loader2Icon,
   PanelLeftIcon,
   PlusIcon,
   SearchIcon,
   SettingsIcon,
+  XIcon,
 } from "lucide-react";
 import { clearTestHook, createCoreWorker, injectStorageFault } from "virtual:neoseq-worker-factory";
 import { GraphSession, type ReadonlyReason } from "../../core-port/session";
@@ -135,6 +138,16 @@ export function GraphShell() {
   const location = useLocation();
   const [createdSession, setCreatedSession] = useState<GraphSession | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 841px)");
+    const closeOnDesktop = () => {
+      if (desktop.matches) closeSidebar();
+    };
+    desktop.addEventListener("change", closeOnDesktop);
+    return () => desktop.removeEventListener("change", closeOnDesktop);
+  }, [closeSidebar]);
 
   useEffect(() => {
     if (!findRepository(repositoryId)) {
@@ -200,7 +213,7 @@ export function GraphShell() {
           graphId={graphId}
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((open) => !open)}
-          onCloseSidebar={() => setSidebarOpen(false)}
+          onCloseSidebar={closeSidebar}
           onExit={() => navigate("/")}
         />
       </HistoryProvider>
@@ -257,7 +270,7 @@ function ShellBody({
       return false;
     }
   });
-  const [scrolled, setScrolled] = useState(false);
+  const sidebarRef = useRef<HTMLElement>(null);
   const [, refreshCommandContext] = useReducer((revision: number) => revision + 1, 0);
   const blockProperties = useRef(createContextualHandlerRegistry<(key?: string) => void>());
   const pageProperties = useRef<((key?: string) => void) | null>(null);
@@ -268,6 +281,49 @@ function ShellBody({
   const readonly = state.mode === "readonly";
   const readonlyReason = state.readonlyReason;
   const remote = graphConnection(repositoryId, graphId);
+
+  // A compact drawer is a temporary navigation layer, with one focus owner.
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const previous = document.activeElement;
+    const drawer = sidebarRef.current;
+    if (!drawer) return;
+    const focusable = () =>
+      [...drawer.querySelectorAll<HTMLElement>("a[href], button:not(:disabled), input")].filter(
+        (element) => element.getClientRects().length > 0,
+      );
+    focusable()[0]?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      // A dismissed Radix layer can unmount before this event reaches document.
+      if (
+        event.defaultPrevented ||
+        (event.target instanceof Element &&
+          event.target.closest('[role="dialog"], [role="menu"]')) ||
+        document.querySelector('[role="dialog"], [role="menu"]')
+      )
+        return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseSidebar();
+      } else if (event.key === "Tab") {
+        const targets = focusable();
+        const first = targets[0];
+        const last = targets.at(-1);
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
+  }, [sidebarOpen, onCloseSidebar]);
 
   // The open settings section lives in the URL, so the browser's own Back closes
   // the dialog and a link can point straight at one section.
@@ -313,6 +369,7 @@ function ShellBody({
 
   const createPage = useCallback(
     async (title?: string) => {
+      if (readonly) return;
       const pageId = `p-${randomUUID()}`;
       const pageName =
         title ?? nextAvailableEntityName(message("page.untitled"), pages.map(pageTitle));
@@ -324,7 +381,7 @@ function ShellBody({
       }
       navigate(graphPath(repositoryId, graphId, `p/${pageId}`));
     },
-    [graphId, message, navigate, notify, pages, repositoryId, session],
+    [graphId, message, navigate, notify, pages, readonly, repositoryId, session],
   );
 
   const toggleRail = useCallback(() => {
@@ -500,26 +557,6 @@ function ShellBody({
     });
   }, [message, notify, openSettings, state.recovery]);
 
-  // The top bar earns its bottom edge and its condensed title only once the
-  // content beneath has actually moved. `scroll` does not bubble, but it still
-  // reaches a capture-phase listener, so this needs no reference to the scroll
-  // container the routed view owns — and no assumption about when it mounts.
-  useEffect(() => {
-    const read = (event: Event) => {
-      const target = event.target;
-      if (!(target instanceof HTMLElement) || !target.classList.contains("page-scroll")) {
-        return;
-      }
-      setScrolled(target.scrollTop > 56);
-    };
-    window.addEventListener("scroll", read, true);
-    return () => window.removeEventListener("scroll", read, true);
-  }, []);
-
-  useEffect(() => {
-    setScrolled(false);
-  }, [location.pathname]);
-
   const today = todayLocalDate();
   const journalMatch = /\/journal(?:\/(\d{4}-\d{2}-\d{2}))?$/.exec(location.pathname);
   const currentDate = journalMatch ? (journalMatch[1] ?? today) : null;
@@ -688,6 +725,7 @@ SELECT ?entity ?content WHERE {
         )}
         <nav
           className="shell-sidebar"
+          ref={sidebarRef}
           data-open={sidebarOpen}
           aria-label={message("shell.graphNavigation")}
           data-testid="sidebar"
@@ -708,13 +746,29 @@ SELECT ?entity ?content WHERE {
             onCloseSidebar();
           }}
         >
-          {/* The mark and the graph read as one head: the product's name small
-              and quiet above, the graph — the thing a reader actually switches —
-              as the row with weight and an initial beside it. */}
           <div className="rail-head">
-            <p className="rail-brand" data-testid="brand">
-              <Wordmark name={message("app.title")} />
-            </p>
+            <div className="rail-masthead">
+              <p className="rail-brand" data-testid="brand">
+                <Wordmark name={message("app.title")} />
+              </p>
+              <Button
+                size="icon"
+                className="rail-collapse"
+                aria-label={message("commands.label.hideSidebar")}
+                aria-keyshortcuts={formatBinding(bindings.sidebar)}
+                onClick={toggleRail}
+              >
+                <PanelLeftIcon aria-hidden />
+              </Button>
+              <Button
+                size="icon"
+                className="drawer-close"
+                aria-label={message("shell.closeMenu")}
+                onClick={onCloseSidebar}
+              >
+                <XIcon aria-hidden />
+              </Button>
+            </div>
             <GraphSwitcher
               repositoryId={repositoryId}
               graphId={graphId}
@@ -725,10 +779,6 @@ SELECT ?entity ?content WHERE {
               onExit={onExit}
             />
           </div>
-          {/* Search is the affordance that licenses how bare the rest of the
-              interface is, so it stays permanent — and it wears the shape of the
-              field it stands in for, with its key badge always showing, rather
-              than passing for one more place you can go. */}
           <button
             className="rail-search"
             onClick={() => setOverlay("palette")}
@@ -740,88 +790,90 @@ SELECT ?entity ?content WHERE {
             <span className="nav-label">{message("shell.search")}</span>
             <Shortcut binding={bindings.palette} />
           </button>
-          <div className="shell-nav">
-            <NavLink className="shell-nav-item" to={graphPath(repositoryId, graphId, "journal")}>
-              <CalendarDaysIcon aria-hidden />
-              <span className="nav-label">{message("shell.journal")}</span>
-            </NavLink>
-            <NavLink
-              className="shell-nav-item"
-              to={graphPath(repositoryId, graphId, "tags")}
-              end
-              data-testid="nav-tags"
-            >
-              <HashIcon aria-hidden />
-              <span className="nav-label">{message("shell.tags")}</span>
-            </NavLink>
-          </div>
-          {/* Nothing when nothing is starred: an empty heading is a promise the
+          <button
+            className="rail-create"
+            disabled={readonly}
+            onClick={() => void createPage()}
+            data-testid="new-page"
+          >
+            <PlusIcon aria-hidden />
+            <span>{message("shell.newPage")}</span>
+          </button>
+          <div className="rail-navigation">
+            <div className="shell-nav">
+              <NavLink className="shell-nav-item" to={graphPath(repositoryId, graphId, "journal")}>
+                <CalendarDaysIcon aria-hidden />
+                <span className="nav-label">{message("shell.journal")}</span>
+              </NavLink>
+              <NavLink
+                className="shell-nav-item"
+                to={graphPath(repositoryId, graphId, "tags")}
+                end
+                data-testid="nav-tags"
+              >
+                <HashIcon aria-hidden />
+                <span className="nav-label">{message("shell.tags")}</span>
+              </NavLink>
+            </div>
+            {/* Nothing when nothing is starred: an empty heading is a promise the
               rail has not been asked to keep
               (designs/interaction.md § Feedback and System State). */}
-          {starred.length > 0 && (
-            <>
-              <div className="rail-group">
-                <h2>{message("shell.favourites")}</h2>
-              </div>
-              <FavouriteRail
-                repositoryId={repositoryId}
-                graphId={graphId}
-                starred={starred}
-                readonly={readonly}
-                session={session}
-                notify={notify}
-                message={message}
-              />
-            </>
-          )}
-          <div className="rail-group">
-            <h2>{message("shell.pages")}</h2>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="icon"
-                  aria-label={message("shell.newPage")}
-                  onClick={() => void createPage()}
-                  data-testid="new-page"
-                >
-                  <PlusIcon aria-hidden />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{message("shell.newPage")}</TooltipContent>
-            </Tooltip>
-          </div>
-          <div className="shell-nav" data-testid="page-list">
-            {pages.length === 0 && <p className="rail-note">{message("shell.noPages")}</p>}
-            {pageWindow.items.map((page) => (
-              // The rail is 248px wide and a page name is as long as somebody
-              // made it, so the label ellipsises — and an ellipsis with no way to
-              // read the rest is a name the reader cannot check.
-              <NavLink
-                key={page.id}
-                className="shell-nav-item"
-                to={graphPath(repositoryId, graphId, `p/${page.id}`)}
-                title={pageTitle(page)}
-              >
-                <FileTextIcon aria-hidden />
-                <span className="nav-label">{pageTitle(page)}</span>
-              </NavLink>
-            ))}
-            {pageWindow.remaining > 0 && (
-              <button
-                type="button"
-                className="shell-nav-item rail-more"
-                onClick={pageWindow.showMore}
-              >
-                {message("shell.showMorePages", {
-                  count: Math.min(pageWindow.remaining, 100),
-                })}
-              </button>
+            {starred.length > 0 && (
+              <>
+                <div className="rail-group">
+                  <h2>{message("shell.favourites")}</h2>
+                </div>
+                <FavouriteRail
+                  repositoryId={repositoryId}
+                  graphId={graphId}
+                  starred={starred}
+                  readonly={readonly}
+                  session={session}
+                  notify={notify}
+                  message={message}
+                />
+              </>
             )}
+            <div className="rail-group">
+              <h2>{message("shell.pages")}</h2>
+              <span className="rail-count" aria-hidden>
+                {pages.length}
+              </span>
+            </div>
+            <div className="shell-nav" data-testid="page-list">
+              {pages.length === 0 && <p className="rail-note">{message("shell.noPages")}</p>}
+              {pageWindow.items.map((page) => (
+                // The rail is 248px wide and a page name is as long as somebody
+                // made it, so the label ellipsises — and an ellipsis with no way to
+                // read the rest is a name the reader cannot check.
+                <NavLink
+                  key={page.id}
+                  className="shell-nav-item"
+                  to={graphPath(repositoryId, graphId, `p/${page.id}`)}
+                  title={pageTitle(page)}
+                >
+                  <FileTextIcon aria-hidden />
+                  <span className="nav-label">{pageTitle(page)}</span>
+                </NavLink>
+              ))}
+              {pageWindow.remaining > 0 && (
+                <button
+                  type="button"
+                  className="shell-nav-item rail-more"
+                  onClick={pageWindow.showMore}
+                >
+                  {message("shell.showMorePages", {
+                    count: Math.min(pageWindow.remaining, 100),
+                  })}
+                </button>
+              )}
+            </div>
           </div>
-          <div className="rail-spacer" />
           <div className="rail-footer">
-            {/* One footer row. "All graphs" used to sit here as well, saying the
-                same thing as the graph switcher's own last item. */}
+            <button className="shell-nav-item" onClick={() => setOverlay("shortcuts")}>
+              <KeyboardIcon aria-hidden />
+              <span className="nav-label">{message("commands.label.keyboardShortcuts")}</span>
+            </button>
             <button
               className="shell-nav-item"
               onClick={() => openSettings()}
@@ -833,8 +885,8 @@ SELECT ?entity ?content WHERE {
             </button>
           </div>
         </nav>
-        <main className="shell-main">
-          <header className="shell-topbar" data-scrolled={scrolled}>
+        <main className="shell-main" inert={sidebarOpen || undefined}>
+          <header className="shell-topbar">
             <Button
               size="icon"
               className="shell-toggle"
@@ -860,9 +912,18 @@ SELECT ?entity ?content WHERE {
                 {message("shell.showSidebar")} · {formatBinding(bindings.sidebar)}
               </TooltipContent>
             </Tooltip>
-            <span className="topbar-title" aria-hidden>
-              {contextTitle}
-            </span>
+            <div className="topbar-location">
+              <span className="topbar-workspace">{name}</span>
+              <ChevronRightIcon className="topbar-separator" aria-hidden />
+              {currentDate ? (
+                <CalendarDaysIcon aria-hidden />
+              ) : currentTag || location.pathname.endsWith("/tags") ? (
+                <HashIcon aria-hidden />
+              ) : (
+                <FileTextIcon aria-hidden />
+              )}
+              <span className="topbar-title">{contextTitle}</span>
+            </div>
             <div className="topbar-right">
               <SessionSaveStatus />
               <SessionCollaborationStatus />
@@ -871,7 +932,17 @@ SELECT ?entity ?content WHERE {
                   {message(READONLY_COPY[readonlyReason].label)}
                 </span>
               )}
-              <HistoryControls commands={commands} />
+              <div className="topbar-history">
+                <HistoryControls commands={commands} />
+              </div>
+              <Button
+                size="icon"
+                className="topbar-search"
+                aria-label={message("commands.searchLabel")}
+                onClick={() => setOverlay("palette")}
+              >
+                <SearchIcon aria-hidden />
+              </Button>
             </div>
           </header>
           <div className="shell-content" id="page-content">
@@ -1176,7 +1247,12 @@ function GraphSwitcher({
           <span className="rail-avatar" aria-hidden>
             {[...name.trim()][0] ?? "·"}
           </span>
-          <span className="name">{name}</span>
+          <span className="rail-workspace">
+            <span className="name">{name}</span>
+            <span className="rail-workspace-kind">
+              {message(remote ? "shell.sharedGraph" : "shell.localGraph")}
+            </span>
+          </span>
           <ChevronsUpDownIcon aria-hidden />
         </button>
       </DropdownMenuTrigger>

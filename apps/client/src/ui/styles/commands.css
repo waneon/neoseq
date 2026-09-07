@@ -1,7 +1,4 @@
-/* ─────────────── 8. command palette + shortcut sheet ─────────────── */
-
-/* Backdrop and panel are siblings: opacity on an ancestor would fade the panel's
-   text along with the dim. The backdrop fades; the panel arrives at full opacity. */
+/* Search stays in a stable frame while its result list changes. */
 .cmdk-backdrop {
   position: fixed;
   inset: 0;
@@ -11,19 +8,14 @@
   animation: ns-fade-in 100ms var(--ease-out) both;
 }
 
-/* Centred on the window, not hung from its top: the panel caps its own height at
-   `76vh`, so there is always room for the `--sp-4` gutter and centring can never
-   clip its head — the failure mode that makes a flex-centred overlay unsafe. The
-   query lands on the reader's eye line, which is where they are already looking
-   when they press the key. */
 .cmdk-scrim {
   position: fixed;
   inset: 0;
   z-index: var(--z-palette);
   display: flex;
   justify-content: center;
-  align-items: center;
-  padding: var(--sp-4);
+  align-items: flex-start;
+  padding: min(16vh, 128px) var(--sp-5) var(--sp-5);
   pointer-events: none;
 }
 
@@ -31,20 +23,8 @@
   pointer-events: auto;
   display: flex;
   flex-direction: column;
-  width: min(620px, 100%);
-  /* **One size, whatever is typed into it.** It was a `max-height`, so the panel
-     grew and shrank on every keystroke: the row a pointer was travelling toward
-     was somewhere else on arrival, and the foot that states the three keys the
-     panel answers to walked up and down the screen while the reader read it. The
-     list scrolls inside instead — the same call designs/shell-and-navigation.md
-     § Settings makes for its dialog, for the same reason. A fixed box's white
-     space is the price of a box that stays where it was put.
-
-     The pixel side wins at every ordinary window height, so the panel is exactly
-     520px tall and its bottom edge is a hairline rather than a half-pixel smear.
-     The `vh` term is the guard for a short window, where the panel is scrolling
-     anyway and a fractional height is the least of it. */
-  height: min(520px, 76vh);
+  width: min(640px, 100%);
+  height: min(560px, 76dvh);
   border-radius: var(--r-4);
   background: var(--overlay);
   box-shadow: var(--e3);
@@ -54,29 +34,33 @@
 .cmdk-input-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
   flex: none;
-  height: 50px;
-  /* `--sp-4` here equals the list's `--sp-1` plus a row's `--sp-3`. */
-  padding: 0 var(--sp-4);
+  min-height: 68px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
 }
 
-.cmdk-input-row svg {
+.cmdk-search-icon {
   flex: none;
-  width: var(--icon-lg);
-  height: var(--icon-lg);
+  width: 20px;
+  height: 20px;
   color: var(--ink-3);
+  stroke-width: 1.6;
 }
 
 .cmdk-input {
   flex: 1;
   min-width: 0;
+  height: 100%;
+  padding: 0;
   border: none;
-  background: none;
+  background: transparent;
   color: var(--ink);
+  caret-color: var(--accent);
   font: inherit;
   font-size: var(--text-md);
-  line-height: var(--lh-sm);
+  line-height: var(--lh-md);
 }
 
 .cmdk-input:focus {
@@ -87,38 +71,38 @@
   color: var(--ink-3);
 }
 
+.cmdk-close {
+  width: 30px;
+  height: 30px;
+  margin-inline-end: -4px;
+}
+
 .cmdk-results {
   flex: 1;
   min-height: 0;
   margin: 0;
-  padding: var(--sp-1) var(--sp-1) var(--sp-2);
-  border-top: 1px solid var(--line);
+  padding: 8px;
   list-style: none;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
-/* Aligned with the rows' own glyph column, so a group's name starts where the
-   icons under it start. */
 .cmdk-group-title {
-  padding: 10px var(--sp-3) var(--sp-1);
+  padding: 18px 12px 8px;
 }
 
 .cmdk-results > li:first-child > .cmdk-group-title {
-  padding-top: var(--sp-1);
+  padding-top: 8px;
 }
 
-/* `--sp-3` inside the list's own `--sp-1` of padding puts a row's glyph at 16px
-   from the panel's edge — exactly where the search field's glyph is, so the
-   query and every answer it produces start on one x. At `--sp-2` the results sat
-   four pixels left of the thing that produced them. */
 .cmdk-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   position: relative;
-  height: 38px;
-  padding: 0 var(--sp-3);
+  min-height: 48px;
+  padding: 8px 12px;
   border-radius: var(--r-2);
   color: var(--ink);
   font-size: var(--text-sm);
@@ -127,18 +111,53 @@
   cursor: pointer;
 }
 
-.cmdk-row svg {
+.cmdk-row-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex: none;
+  width: 20px;
+  color: var(--ink-3);
+}
+
+.cmdk-row-icon svg {
   width: var(--icon-lg);
   height: var(--icon-lg);
+  stroke-width: 1.6;
+}
+
+.cmdk-row-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.cmdk-row .label,
+.cmdk-row .hint {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmdk-row .hint {
   color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+.cmdk-row > .kbd {
+  flex: none;
+  margin-inline-start: 12px;
 }
 
 .cmdk-row[data-active="true"] {
   background: var(--surface-2);
 }
 
-.cmdk-row[data-active="true"] svg {
+.cmdk-row[data-active="true"] .cmdk-row-icon,
+.cmdk-row[data-active="true"] .hint {
   color: var(--ink-2);
 }
 
@@ -147,46 +166,25 @@
   cursor: default;
 }
 
-.cmdk-row .label {
-  flex: none;
-  max-width: 60%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cmdk-row .hint {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--ink-2);
-  font-size: var(--text-xs);
-}
-
-.cmdk-row[data-active="true"] .hint {
-  color: var(--ink-2);
-}
-
 .cmdk-empty {
-  padding: var(--sp-3) var(--sp-2);
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  padding: 32px;
   color: var(--ink-3);
   font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  text-align: center;
+  overflow-wrap: anywhere;
 }
 
-/* ── The palette's foot ──
-   The keys it answers to, stated once, in the smallest voice the type scale has.
-   It also closes the panel: the result list used to run straight into the
-   overlay's rounded bottom edge, so the last row was always half a row — an
-   interface that looks clipped rather than scrollable. */
 .cmdk-footer {
   display: flex;
   align-items: center;
-  gap: var(--sp-4);
+  gap: 20px;
   flex: none;
-  height: 34px;
-  padding: 0 var(--sp-4);
+  min-height: 42px;
+  padding: 8px 20px;
   border-top: 1px solid var(--line);
   background: var(--surface-1);
   color: var(--ink-3);
@@ -197,7 +195,15 @@
 .cmdk-hint {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
+}
+
+.cmdk-hint:last-child {
+  margin-inline-start: auto;
+}
+
+.cmdk-footer .kbd {
+  background: var(--overlay);
 }
 
 @media (max-width: 600px) {
@@ -207,12 +213,51 @@
 
   .cmdk {
     width: 100%;
-    max-height: 100dvh;
     height: 100dvh;
     border-radius: 0;
   }
 
-  /* No modifier keys to teach, and the panel is the whole screen. */
+  .cmdk-input-row {
+    min-height: 72px;
+    padding: env(safe-area-inset-top) 16px 0;
+    gap: 12px;
+  }
+
+  .cmdk-input {
+    font-size: 16px;
+  }
+
+  .cmdk-close {
+    width: 44px;
+    height: 44px;
+    margin-inline-end: -8px;
+  }
+
+  .cmdk-results {
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+
+  .cmdk-row {
+    min-height: 52px;
+  }
+
+  .cmdk-row > .kbd,
+  .cmdk-footer {
+    display: none;
+  }
+}
+
+@media (hover: none) {
+  .cmdk-close {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .cmdk-row {
+    min-height: 52px;
+  }
+
+  .cmdk-row > .kbd,
   .cmdk-footer {
     display: none;
   }
@@ -238,18 +283,19 @@
   margin: 0;
 }
 
-.shortcuts dt {
-  min-height: 28px;
+.shortcuts dt,
+.shortcuts dd {
   display: flex;
   align-items: center;
+  min-height: 34px;
+}
+
+.shortcuts dt {
   color: var(--ink);
   font-size: var(--text-sm);
 }
 
 .shortcuts dd {
-  min-height: 28px;
-  display: flex;
-  align-items: center;
   justify-content: flex-end;
   gap: var(--sp-1);
   margin: 0;

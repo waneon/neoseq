@@ -17,10 +17,13 @@ const STRIP_LIMIT = 4;
 export function PageProperties({
   page,
   open,
+  trigger,
   onOpenChange,
 }: {
   page: PageSnapshot;
   open: boolean;
+  /** An explicit toolbar invocation owns its own geometry and focus return. */
+  trigger?: HTMLElement | null;
   onOpenChange: (open: boolean) => void;
 }) {
   const commands = useCommands();
@@ -44,7 +47,7 @@ export function PageProperties({
 
   const pageAnchor = useCallback((): Anchor => {
     const owner = pageControl();
-    // An empty strip has no useful target. The persistent title/action control
+    // An empty strip has no useful target. The persistent document control
     // supplies both geometry and a keyboard return route, including journals.
     const geometry = elementAnchor(
       anchorRef.current?.firstElementChild ? anchorRef.current : owner,
@@ -85,7 +88,9 @@ export function PageProperties({
     return () => commands.setPageProperties(null);
   }, [commands, show]);
 
-  const activeAnchor = pickerAnchor.current ?? pageAnchor();
+  const activeAnchor = trigger?.isConnected
+    ? elementAnchor(trigger)
+    : (pickerAnchor.current ?? pageAnchor());
 
   return (
     <div className="page-inline-properties" ref={anchorRef}>

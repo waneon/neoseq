@@ -21,7 +21,7 @@ import { addDays } from "../../entities/calendar";
 import { useI18n } from "../../i18n";
 import { isValidLocalDate } from "../../entities/calendar";
 import { useNotify } from "../notify/context";
-import { PageBody, Tombstone } from "../page/PageView";
+import { DocumentHeader, PageBody, Tombstone } from "../page/PageView";
 import { JournalCalendar } from "./JournalCalendar";
 import { JournalQueries } from "./JournalQueries";
 import { useSession, useSessionSelector } from "../shell/session-context";
@@ -123,43 +123,49 @@ export function JournalView() {
 
   // Date navigation stays visible; its popup owns date entry and focus return.
   const header = (menu: ReactNode, onContextMenu: (event: React.MouseEvent) => void) => (
-    <div className="title-row journal-header" onContextMenu={onContextMenu}>
-      <h1 data-testid="journal-title">{formatJournalDate(date)}</h1>
-      <div className="title-actions">
-        {date !== today && (
-          <button className="today-pill" onClick={() => go(today)}>
-            {message("journal.today")}
-          </button>
-        )}
-        {/* Moving through the days is what a journal *is*, so the stepper is
-            permanent and reads as one control with three keys rather than as
-            three glyphs that appear when the pointer happens to pass. It was
-            hover-gated, which meant the primary verb of the primary surface was
-            invisible until you already knew it was there. */}
-        <div className="date-stepper">
-          <Button
-            size="icon"
-            disabled={date === "0001-01-01"}
-            ref={previousTrigger}
-            aria-label={message("journal.previousDay")}
-            onClick={() => go(addDays(date, -1), previousTrigger)}
-          >
-            <ChevronLeftIcon aria-hidden />
-          </Button>
-          <JournalCalendar date={date} today={today} onSelect={go} trigger={calendarTrigger} />
-          <Button
-            size="icon"
-            disabled={date === "9999-12-31"}
-            ref={nextTrigger}
-            aria-label={message("journal.nextDay")}
-            onClick={() => go(addDays(date, 1), nextTrigger)}
-          >
-            <ChevronRightIcon aria-hidden />
-          </Button>
-        </div>
-        {menu}
-      </div>
-    </div>
+    <DocumentHeader
+      kind="journal"
+      onContextMenu={onContextMenu}
+      actions={
+        <>
+          {date === today ? (
+            <span className="today-pill" data-current="true">
+              {message("journal.today")}
+            </span>
+          ) : (
+            <button className="today-pill" onClick={() => go(today)}>
+              {message("journal.today")}
+            </button>
+          )}
+          <div className="date-stepper" role="group" aria-label={message("shell.journal")}>
+            <Button
+              size="icon"
+              disabled={date === "0001-01-01"}
+              ref={previousTrigger}
+              aria-label={message("journal.previousDay")}
+              onClick={() => go(addDays(date, -1), previousTrigger)}
+            >
+              <ChevronLeftIcon aria-hidden />
+            </Button>
+            <JournalCalendar date={date} today={today} onSelect={go} trigger={calendarTrigger} />
+            <Button
+              size="icon"
+              disabled={date === "9999-12-31"}
+              ref={nextTrigger}
+              aria-label={message("journal.nextDay")}
+              onClick={() => go(addDays(date, 1), nextTrigger)}
+            >
+              <ChevronRightIcon aria-hidden />
+            </Button>
+          </div>
+          {menu}
+        </>
+      }
+    >
+      <h1 data-testid="journal-title">
+        <time dateTime={date}>{formatJournalDate(date)}</time>
+      </h1>
+    </DocumentHeader>
   );
 
   if (!page) {

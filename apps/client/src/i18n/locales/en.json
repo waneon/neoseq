@@ -843,5 +843,7 @@
   "references.next": "Next",
   "shortcuts.historyRoute": "Top bar → Undo / Redo",
   "references.openBlock": "Open block",
-  "references.emptyBlock": "Empty block"
+  "references.emptyBlock": "Empty block",
+  "shell.localGraph": "Local workspace",
+  "shell.sharedGraph": "Shared workspace"
 }
