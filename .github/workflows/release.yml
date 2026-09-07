@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Validate release version
+        id: release
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: python
+        run: |
+          import json
+          import os
+          import re
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          tag = os.environ["RELEASE_TAG"]
+          if not re.fullmatch(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", tag):
+              print(f"Skipping Docker publication for non-release tag: {tag}")
+              sys.exit(0)
+
+          version = tag[1:]
+          versions = {
+              "Cargo.toml": tomllib.loads(Path("Cargo.toml").read_text())["workspace"]["package"]["version"],
+              **{
+                  path: json.loads(Path(path).read_text())["version"]
+                  for path in ("apps/client/package.json", "apps/dashboard/package.json")
+              },
+          }
+          for path, actual in versions.items():
+              if actual != version:
+                  sys.exit(f"Release tag {tag} requires {path} version {version}, found {actual}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write("publish=true\n")
+
+      - name: Install nix
+        uses: cachix/install-nix-action@v31
+
+      - name: Cache nix store
+        uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('devenv.lock', 'devenv.yaml', '**/*.nix') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+
+      - name: Install devenv
+        run: |
+          devenv_installable="$(jq -r '.nodes.nixpkgs.locked | "github:\(.owner)/\(.repo)/\(.rev)#devenv"' devenv.lock)"
+          nix profile add "$devenv_installable"
+
+      - name: Log in to Docker Hub
+        if: steps.release.outputs.publish == 'true'
+        uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Publish Docker image
+        if: steps.release.outputs.publish == 'true'
+        run: devenv shell -- publish-docker

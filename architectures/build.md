@@ -105,8 +105,10 @@ set in CI mode and rejects drift.
 `devenv build outputs.neoseq-dashboard`, and
 `devenv -s <linux-system> build outputs.neoseq-docker` realize the production
 artifacts. Keeping artifact construction separate from tasks makes it
-reproducible and cacheable. Linux CI realizes and loads the all-in-one image
-after the portable gate. A container smoke test verifies both public
+reproducible and cacheable. Commit verification and image publication have separate
+workflows: branch pushes and pull requests run the portable gate, while version
+tag pushes build and publish the all-in-one image without repeating that gate.
+The standalone container smoke test verifies both public
 applications, readiness, bounded stop, logical backup, offline restore, and
 restart against the same persistent volume, so filesystem layers and OCI
 metadata cannot drift unexecuted. It also verifies the default and custom
@@ -117,8 +119,12 @@ The `publish-docker` devenv script realizes that same image for `x86_64-linux`
 and publishes it to `waneon/neoseq`. Its version is owned by the Cargo workspace
 and carried by the artifact's OCI label. The script verifies the loaded platform
 and publishes one image ID under its version before advancing `latest`.
-Publication is an explicit developer action, separate from builds and checks;
-Docker provides registry authentication.
+Publication is an explicit developer command or a stable `vMAJOR.MINOR.PATCH`
+tag push. The release workflow requires the tag to match the Cargo workspace
+and both Web app versions before registry login or publication. Other tags and
+ordinary branch or pull-request checks cannot publish. Tag runs share a
+concurrency group so publications do not overlap. Docker Hub credentials belong
+to GitHub Actions configuration, never the repository or Nix build inputs.
 
 `devenv --profile browser test` extends the portable gate with browser
 verification against two separately built artifacts. Product journeys use the
@@ -131,9 +137,9 @@ boundaries, isolation, and evidence expected from each suite.
 All browser artifacts finish building before process startup; readiness deadlines
 cover service startup, never compilation. The profile invokes Playwright in
 devenv's post-startup test hook, after port reservations are released and all
-services are ready. Each preview owns one strict, allocated port. CI uses the
-same lifecycle on a fixed Ubuntu release and retains the HTML report on every
-run, with traces and screenshots for failures.
+services are ready. Each preview owns one strict, allocated port. The browser
+profile produces an HTML report, with traces and screenshots for failures;
+the default CI workflow runs only the portable gate.
 
 ## Asynchronous verification
 

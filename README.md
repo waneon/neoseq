@@ -125,6 +125,13 @@ This builds the amd64 appliance and pushes `waneon/neoseq:<version>`, then
 derived from `workspace.package.version` in `Cargo.toml`. Both tags reference the
 same image; a failed build or version push stops publication before `latest`.
 
+CI runs verification on every branch push and pull request. A separate release
+workflow publishes on stable version tag pushes such as `v0.3.0`. The tag must
+match the Cargo workspace, client, and dashboard versions.
+Prerelease tags do not publish. Configure the GitHub Actions variable
+`DOCKERHUB_USERNAME` and secret `DOCKERHUB_TOKEN` with a Docker Hub username and
+an access token authorized to push `waneon/neoseq`.
+
 ## Performance benchmarks
 
 The dedicated benchmark workspace member has deterministic Criterion suites for
