@@ -1,40 +1,11 @@
-// The graph's tags, and the one screen for keeping them in order.
-//
-// A grid of identical cards is a fine way to show four tags and a terrible way to
-// manage forty: nothing is grouped, nothing is told apart, and the only thing a
-// card can say about a tag is its name. This is a **directory** instead — the
-// shape the rail already uses for pages, one step richer:
-//
-//   - **Groups are the structure.** A group is a name a tag carries, so a group
-//     exists because a tag is in it and vanishes when its last member leaves.
-//     There is no group to create, delete, or keep in sync — only tags to file.
-//     Everything unfiled gathers under one heading at the end rather than being
-//     scattered under a made-up one.
-//   - **A row says what a tag is.** Its mark in its own colour, its name, what it
-//     copies onto a block, and how many things carry it — that last one from the
-//     derived index, in one grouped count for the whole screen, because "which of
-//     these is actually in use" is the question a tag list is opened to answer.
-//   - **The order is the reader's.** A tag is dragged within its group or into
-//     another; a whole group is dragged past its neighbours. The same three moves
-//     are menu rows, which is the route that works from a keyboard, on a phone,
-//     and for a group that does not exist yet.
-//
-// **A drag says where it will land, not merely that it is happening.** A wash
-// over the group under the pointer answers "which group" and nothing else, which
-// is the wrong question once a list has an order. The answer is a **seam**: one
-// accent rule drawn exactly between the two rows the tag is about to sit between,
-// or between the two groups a group is about to sit between. Nothing reflows
-// while the pointer travels — rows sliding out from under a drag is the interface
-// guessing, and the guess is wrong on every frame the reader changes their mind.
-//
-// The row is not a link wrapping controls — that is a control inside a control.
-// The name is the link, the mark and the `⋯` are its siblings, and the row's
-// hover wash is what makes the three read as one thing.
-
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { elementAnchor } from "@/ui/anchored";
 import {
+  FolderIcon,
+  HashIcon,
+  SearchIcon,
+  XIcon,
   ChevronDownIcon,
   ChevronUpIcon,
   MoreHorizontalIcon,
@@ -57,6 +28,7 @@ import {
   nextTagOrder,
   orderWrites,
   tagGroup,
+  tagColor,
 } from "../../entities/tag-identity";
 import type { Placement } from "../../entities/ordering";
 import {
@@ -67,7 +39,7 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
 import { Input } from "@/ui/shadcn/input";
-import { ConfirmDialog } from "../../ui/components";
+import { ConfirmDialog, Dialog } from "../../ui/components";
 import { Button } from "@/ui/shadcn/button";
 import { useI18n } from "../../i18n";
 import { graphPath } from "../graphs/routing";
@@ -82,15 +54,9 @@ import {
   queryExecutionStore,
   useQueryExecution,
 } from "../query/execution";
-import { TagIdentityPicker, TagMark } from "./TagIdentity";
+import { TagGroupField, TagIdentityPicker, TagMark } from "./TagIdentity";
 import { randomUUID } from "@/lib/crypto";
 
-/**
- * How many things carry each tag, in one query for the whole screen. It is the
- * fact a tag list exists to surface and the one thing a snapshot cannot answer:
- * membership lives on every block of every page, and only the derived index has
- * all of them resident.
- */
 const USAGE_SOURCE = `PREFIX neo: <urn:neoseq:vocab:v1:>
 
 SELECT ?tag (COUNT(DISTINCT ?node) AS ?uses) WHERE {
@@ -100,7 +66,6 @@ GROUP BY ?tag`;
 const USAGE_OWNER = "tags:usage";
 const LANGUAGE = "sparql-1.1/neoseq-v1" as const;
 
-/** What is in the reader's hand. */
 type Dragged = { kind: "tag"; tag: TagSnapshot } | { kind: "group"; name: string };
 
 type TagDrop = { group: string | null; beforeId: string | null };
@@ -110,11 +75,6 @@ type Drag =
   | { kind: "group"; name: string; drop: GroupDrop | null }
   | null;
 
-/**
- * Where it would land. A tag lands *before* a named row, or at the end of its
- * group when nothing follows; a group lands at an index among the groups. Either
- * way the seam is drawn at exactly that place.
- */
 type Drop =
   | { kind: "tag"; group: string | null; beforeId: string | null }
   | { kind: "group"; index: number };
@@ -128,12 +88,40 @@ export function TagsView() {
   const notify = useNotify();
   const { message, compare } = useI18n();
   const readonly = state.mode === "readonly";
-  const [creatingIn, setCreatingIn] = useState<{ group: string | null } | null>(null);
+  const [creatingIn, setCreatingIn] = useState<{ group: string | null; name?: string } | null>(
+    null,
+  );
+  const [search, setSearch] = useState("");
+  const [selectedGroup, setSelectedGroup] = useState<string | null | undefined>(undefined);
+  const createRef = useRef<HTMLButtonElement>(null);
   const [drag, setDrag] = useState<Drag>(null);
 
   const tags = state.snapshot.tags;
   const groups = useMemo(() => groupedTags(tags, compare), [tags, compare]);
   const uses = useTagUsage();
+  // A group has no independent lifetime. Removing its last tag returns to all tags.
+  const activeGroup = groups.some((group) => group.name === selectedGroup)
+    ? selectedGroup
+    : undefined;
+  const term = canonicalEntityName(search);
+  const filtering = term.length > 0 || activeGroup !== undefined;
+  const visibleGroups = groups
+    .filter((group) => activeGroup === undefined || group.name === activeGroup)
+    .map((group) => ({
+      ...group,
+      tags: group.tags.filter(
+        (tag) =>
+          !term ||
+          canonicalEntityName(tag.name).includes(term) ||
+          canonicalEntityName(group.name ?? "").includes(term),
+      ),
+    }))
+    .filter((group) => group.tags.length > 0);
+  const visibleCount = visibleGroups.reduce((count, group) => count + group.tags.length, 0);
+  const clearFilters = () => {
+    setSearch("");
+    setSelectedGroup(undefined);
+  };
 
   const run = (commands: Command[], failure: string) => {
     if (commands.length === 0) return;
@@ -152,7 +140,6 @@ export function TagsView() {
       value: { type: "number", value: write.order },
     }));
 
-  /** File a tag: into a group, into a place inside one, or both at once. */
   const placeTag = (tag: TagSnapshot, group: string | null, beforeId: string | null) => {
     const members = (groups.find((item) => item.name === group)?.tags ?? []).filter(
       (item) => item.id !== tag.id,
@@ -178,7 +165,6 @@ export function TagsView() {
     run(commands, message("failure.fileTag", { name: tag.name }));
   };
 
-  /** Move a whole group's run past its neighbours. */
   const placeGroup = (name: string, index: number) => {
     const real = groups.filter((group) => group.name !== null);
     const from = real.findIndex((group) => group.name === name);
@@ -220,86 +206,188 @@ export function TagsView() {
     endDrag();
   };
 
-  // A tag can only be dragged *out* of every group if there is somewhere outside
-  // to drop it, and a brand new tag needs a row to be typed into. The ungrouped
-  // section is both, and it appears for the length of the gesture that needs it
-  // rather than standing there empty forever.
-  const wantsUngrouped = drag?.kind === "tag" || creatingIn?.group === null;
   const sections =
-    wantsUngrouped && !groups.some((group) => group.name === null)
-      ? [...groups, { name: null, tags: [] }]
-      : groups;
-  const realGroups = sections.filter((group) => group.name !== null).length;
+    drag?.kind === "tag" && !visibleGroups.some((group) => group.name === null)
+      ? [...visibleGroups, { name: null, tags: [] }]
+      : visibleGroups;
+  const realGroups = groups.filter((group) => group.name !== null);
 
-  if (tags.length === 0 && readonly) {
-    return (
-      <div className="page-scroll">
-        <article className="page-body enter-fade-view">
-          <div className="title-row">
-            <h1>{message("tags.title")}</h1>
-          </div>
-          <p className="tags-empty" data-testid="tags-empty">
-            {message("tags.empty")}
-          </p>
-        </article>
-      </div>
-    );
-  }
-
-  let groupIndex = -1;
   return (
     <div className="page-scroll">
       <article
-        className="page-body enter-fade-view"
+        className="page-body tags-directory enter-fade-view"
         onDragLeave={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
             setDrag((current) => (current ? { ...current, drop: null } : null));
           }
         }}
       >
-        <div className="title-row">
-          <h1>{message("tags.title")}</h1>
-          {!readonly && (
-            <div className="title-actions">
-              <Button data-testid="new-tag" onClick={() => setCreatingIn({ group: null })}>
+        <header className="tags-header">
+          <div className="tags-heading">
+            <div className="title-row">
+              <h1>{message("tags.title")}</h1>
+              <span className="tags-total">{tags.length}</span>
+            </div>
+            {!readonly && (
+              <Button
+                ref={createRef}
+                data-testid="new-tag"
+                onClick={() => setCreatingIn({ group: activeGroup ?? null })}
+              >
                 <PlusIcon aria-hidden />
                 {message("tags.new")}
               </Button>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+          <p className="tags-description">{message("tags.directoryHint")}</p>
+        </header>
 
-        <div className="tag-groups" data-testid="tag-list">
-          {sections.map((group) => {
-            if (group.name !== null) groupIndex += 1;
-            const index = group.name === null ? -1 : groupIndex;
-            return (
-              <TagGroupSection
-                key={group.name ?? " ungrouped"}
-                name={group.name}
-                // A heading that names the only group there is says nothing, so a
-                // graph whose tags are all unfiled is one plain list.
-                headed={group.name !== null || sections.length > 1}
-                index={index}
-                last={index === realGroups - 1}
-                tags={group.tags}
-                uses={uses}
-                readonly={readonly}
-                drag={drag}
-                creating={creatingIn?.group === group.name}
-                onCreateHere={() => setCreatingIn({ group: group.name })}
-                onCreated={() => setCreatingIn(null)}
-                onDragStart={startDrag}
-                onDragEnd={endDrag}
-                onDropAt={setDrop}
-                onCommit={commitDrop}
-                onPlaceTag={placeTag}
-                onPlaceGroup={placeGroup}
+        {tags.length > 0 && (
+          <div className="tags-browser-tools">
+            <div className="tags-search">
+              <SearchIcon aria-hidden />
+              <Input
+                type="search"
+                className="h-[42px] bg-[var(--surface-1)] px-10"
+                data-testid="tag-search"
+                aria-label={message("tags.findTag")}
+                placeholder={message("tags.findTag")}
+                value={search}
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                  endDrag();
+                }}
               />
-            );
-          })}
-        </div>
+              {search && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={message("tags.clearSearch")}
+                  onClick={() => {
+                    setSearch("");
+                    window.document
+                      .querySelector<HTMLInputElement>('[data-testid="tag-search"]')
+                      ?.focus();
+                  }}
+                >
+                  <XIcon aria-hidden />
+                </Button>
+              )}
+            </div>
+            {groups.some((group) => group.name !== null) && (
+              <div className="tags-filters" role="group" aria-label={message("tags.filterGroup")}>
+                <button
+                  type="button"
+                  aria-pressed={activeGroup === undefined}
+                  onClick={() => {
+                    setSelectedGroup(undefined);
+                    endDrag();
+                  }}
+                >
+                  {message("tags.all")}
+                  <span>{tags.length}</span>
+                </button>
+                {groups.map((group) => (
+                  <button
+                    type="button"
+                    key={group.name ?? " ungrouped"}
+                    aria-pressed={activeGroup === group.name}
+                    title={group.name ?? message("tags.ungrouped")}
+                    onClick={() => {
+                      setSelectedGroup(group.name);
+                      endDrag();
+                    }}
+                  >
+                    <span className="tags-filter-label">
+                      {group.name ?? message("tags.ungrouped")}
+                    </span>
+                    <span>{group.tags.length}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {tags.length === 0 ? (
+          <div className="tags-empty-state" data-testid="tags-empty">
+            <HashIcon aria-hidden />
+            <h2>{message("tags.empty")}</h2>
+            <p>{message("tags.emptyHint")}</p>
+            {!readonly && (
+              <Button variant="secondary" onClick={() => setCreatingIn({ group: null })}>
+                <PlusIcon aria-hidden />
+                {message("tags.createFirst")}
+              </Button>
+            )}
+          </div>
+        ) : visibleCount === 0 ? (
+          <div className="tags-empty-state" data-testid="tags-no-results">
+            <SearchIcon aria-hidden />
+            <h2>{message("tags.noResults")}</h2>
+            <p>{message("tags.noResultsHint")}</p>
+            <div className="tags-empty-actions">
+              <Button variant="secondary" onClick={clearFilters}>
+                {message("tags.clearFilters")}
+              </Button>
+              {!readonly && term && (
+                <Button
+                  onClick={() => setCreatingIn({ group: activeGroup ?? null, name: search.trim() })}
+                >
+                  <PlusIcon aria-hidden />
+                  {message("tags.new")}
+                </Button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="tags-list-caption">
+              <span role="status">{message("tags.listCount", { count: visibleCount })}</span>
+              <span>{message("tags.usage")}</span>
+            </div>
+            <div className="tag-groups" data-testid="tag-list">
+              {sections.map((group) => {
+                const index = realGroups.findIndex((item) => item.name === group.name);
+                return (
+                  <TagGroupSection
+                    key={group.name ?? " ungrouped"}
+                    name={group.name}
+                    headed={group.name !== null || sections.length > 1}
+                    index={index}
+                    last={index === realGroups.length - 1}
+                    tags={group.tags}
+                    uses={uses}
+                    readonly={readonly}
+                    reorderable={!filtering}
+                    drag={drag}
+                    onCreateHere={() => setCreatingIn({ group: group.name })}
+                    onDragStart={startDrag}
+                    onDragEnd={endDrag}
+                    onDropAt={setDrop}
+                    onCommit={commitDrop}
+                    onPlaceTag={placeTag}
+                    onPlaceGroup={placeGroup}
+                  />
+                );
+              })}
+            </div>
+          </>
+        )}
       </article>
+      {creatingIn && (
+        <NewTagDialog
+          group={creatingIn.group}
+          initialName={creatingIn.name ?? ""}
+          existing={tags}
+          returnFocus={() => createRef.current}
+          onCancel={() => setCreatingIn(null)}
+          onCreated={() => {
+            clearFilters();
+            setCreatingIn(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -313,9 +401,8 @@ function TagGroupSection({
   uses,
   readonly,
   drag,
-  creating,
+  reorderable,
   onCreateHere,
-  onCreated,
   onDragStart,
   onDragEnd,
   onDropAt,
@@ -325,16 +412,14 @@ function TagGroupSection({
 }: {
   name: string | null;
   headed: boolean;
-  /** Position among the real groups; `-1` for the ungrouped section. */
   index: number;
   last: boolean;
   tags: TagSnapshot[];
   uses: Map<string, number>;
   readonly: boolean;
   drag: Drag;
-  creating: boolean;
+  reorderable: boolean;
   onCreateHere: () => void;
-  onCreated: () => void;
   onDragStart: (drag: Dragged) => void;
   onDragEnd: () => void;
   onDropAt: (drop: Drop) => void;
@@ -362,7 +447,9 @@ function TagGroupSection({
   };
 
   const fileAll = (group: string | null) => {
-    const commands = tags.map((tag) => fileCommand(tag, group));
+    const commands = allTags
+      .filter((tag) => tagGroup(tag) === name)
+      .map((tag) => fileCommand(tag, group));
     if (commands.length === 0) return;
     void session
       .execute(commands.length === 1 ? commands[0] : { type: "batch", commands })
@@ -371,7 +458,6 @@ function TagGroupSection({
       });
   };
 
-  /** Renaming a group is rewriting its members: there is nothing else to rename. */
   const renameGroup = (next: string) => {
     setRenaming(false);
     const trimmed = next.trim();
@@ -418,7 +504,7 @@ function TagGroupSection({
       {headed && (
         <div
           className="tag-group-head"
-          draggable={!readonly && name !== null && !renaming}
+          draggable={!readonly && reorderable && name !== null && !renaming}
           onDragStart={(event) => {
             if (name === null) return;
             event.dataTransfer.setData("text/plain", name);
@@ -442,7 +528,10 @@ function TagGroupSection({
               onCancel={() => setRenaming(false)}
             />
           ) : (
-            <h2 data-testid="tag-group-name">{name ?? message("tags.ungrouped")}</h2>
+            <h2 data-testid="tag-group-name">
+              <FolderIcon aria-hidden />
+              {name ?? message("tags.ungrouped")}
+            </h2>
           )}
           <span className="tag-group-count">{tags.length}</span>
           {!readonly && (
@@ -467,9 +556,8 @@ function TagGroupSection({
                 {name !== null && (
                   <>
                     <DropdownMenuSeparator />
-                    {/* The keyboard's half of the drag, and the touch screen's. */}
                     <DropdownMenuItem
-                      disabled={index <= 0}
+                      disabled={!reorderable || index <= 0}
                       data-testid="tag-group-up"
                       onSelect={() => onPlaceGroup(name, index - 1)}
                     >
@@ -477,7 +565,7 @@ function TagGroupSection({
                       {message("common.moveUp")}
                     </DropdownMenuItem>
                     <DropdownMenuItem
-                      disabled={last}
+                      disabled={!reorderable || last}
                       data-testid="tag-group-down"
                       onSelect={() => onPlaceGroup(name, index + 2)}
                     >
@@ -520,6 +608,7 @@ function TagGroupSection({
             tag={tag}
             uses={uses.get(tag.id)}
             readonly={readonly}
+            reorderable={reorderable}
             dragging={drag?.kind === "tag" && drag.tag.id === tag.id}
             seam={
               tagDrop?.group === name
@@ -540,8 +629,8 @@ function TagGroupSection({
                 beforeId: before ? tag.id : (tags[position + 1]?.id ?? null),
               })
             }
-            canMoveUp={position > 0}
-            canMoveDown={position < tags.length - 1}
+            canMoveUp={reorderable && position > 0}
+            canMoveDown={reorderable && position < tags.length - 1}
             onMove={(delta) => {
               const target = position + delta;
               if (target < 0 || target >= tags.length) return;
@@ -558,10 +647,7 @@ function TagGroupSection({
             </button>
           </li>
         )}
-        {creating && (
-          <NewTagRow group={name} existing={allTags} onDone={onCreated} onCancel={onCreated} />
-        )}
-        {tags.length === 0 && !creating && (
+        {tags.length === 0 && (
           <li
             className="tag-group-drop"
             data-seam={tagDrop?.group === name ? "into" : undefined}
@@ -585,6 +671,7 @@ function TagRow({
   tag,
   uses,
   readonly,
+  reorderable,
   dragging,
   seam,
   takesTag,
@@ -598,8 +685,8 @@ function TagRow({
   tag: TagSnapshot;
   uses: number | undefined;
   readonly: boolean;
+  reorderable: boolean;
   dragging: boolean;
-  /** Which side of this row the seam is drawn on, if any. */
   seam: "before" | "after" | undefined;
   takesTag: boolean;
   onDragStart: () => void;
@@ -628,7 +715,8 @@ function TagRow({
       data-testid="tag-row"
       data-dragging={dragging || undefined}
       data-seam={seam}
-      draggable={!readonly}
+      data-hue={tagColor(tag) ?? undefined}
+      draggable={!readonly && reorderable}
       onDragStart={(event) => {
         // A payload is what makes the drag real to the browser; the row being
         // moved is held in React state, where a drop can actually read it.
@@ -654,30 +742,30 @@ function TagRow({
       >
         <TagMark tag={tag} onOpen={readonly ? undefined : (anchor) => setIdentityAt(anchor)} />
       </span>
-      {/* The name is the link; the row is not. A link wrapping the mark and the
-          menu would be a control inside a control. */}
-      <Link
-        className="tag-row-name"
-        to={graphPath(repositoryId, graphId, `t/${tag.id}`)}
-        draggable={false}
-        // A name is as long as somebody made it, and an ellipsis with no way to
-        // read the rest is a name the reader cannot check.
-        title={tag.name}
-        data-testid="tag-row-link"
-      >
-        {tag.name}
-      </Link>
-      {summary && (
-        <span className="tag-row-defaults" title={summary}>
-          {summary}
-        </span>
-      )}
+      <div className="tag-row-content">
+        <Link
+          className="tag-row-name"
+          to={graphPath(repositoryId, graphId, `t/${tag.id}`)}
+          draggable={false}
+          title={tag.name}
+          data-testid="tag-row-link"
+        >
+          <span>{tag.name}</span>
+          {starred && <StarIcon aria-hidden />}
+        </Link>
+        {summary && (
+          <span className="tag-row-defaults" title={summary}>
+            {summary}
+          </span>
+        )}
+      </div>
       <span
         className="tag-row-uses"
         data-empty={uses ? undefined : "true"}
-        aria-label={message("tags.usesLabel", { count: uses ?? 0 })}
+        title={message("tags.usesLabel", { count: uses ?? 0 })}
       >
-        {uses ?? 0}
+        <span aria-hidden>{uses ?? 0}</span>
+        <span className="sr-only">{message("tags.usesLabel", { count: uses ?? 0 })}</span>
       </span>
       {!readonly && (
         <DropdownMenu>
@@ -730,7 +818,6 @@ function TagRow({
               {message("tags.addDefault")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            {/* The keyboard's half of the drag, and the touch screen's. */}
             <DropdownMenuItem
               disabled={!canMoveUp}
               data-testid="tag-row-up"
@@ -796,104 +883,143 @@ function TagRow({
   );
 }
 
-/**
- * The one place a tag comes into existence. It is created *in* the group it was
- * opened from and at the end of it, so filing a new tag is not a second step and
- * creating one never reshuffles what is already filed. The field stays open for
- * the next name — naming ten tags is one gesture repeated, not ten.
- */
-function NewTagRow({
+function NewTagDialog({
   group,
+  initialName,
   existing,
-  onDone,
+  onCreated,
   onCancel,
+  returnFocus,
 }: {
   group: string | null;
+  initialName: string;
   existing: TagSnapshot[];
-  onDone: () => void;
+  onCreated: () => void;
   onCancel: () => void;
+  returnFocus: () => HTMLElement | null;
 }) {
   const session = useSession();
-  const notify = useNotify();
   const { message } = useI18n();
-  const [draft, setDraft] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+  const [draft, setDraft] = useState(initialName);
+  const [groupDraft, setGroupDraft] = useState(group ?? "");
+  const [pending, setPending] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const pendingRef = useRef(false);
+  const nameId = useId();
+  const groupId = useId();
+  const name = draft.trim();
+  const duplicate =
+    name && existing.some((tag) => canonicalEntityName(tag.name) === canonicalEntityName(name));
 
   const create = async () => {
-    const name = draft.trim();
-    if (!name) return;
-    const canonical = canonicalEntityName(name);
-    if (existing.some((tag) => canonicalEntityName(tag.name) === canonical)) {
-      notify.show({
-        tone: "info",
-        key: "tag-duplicate",
-        title: message("tags.duplicate", { name }),
-      });
-      return;
-    }
+    if (!name || duplicate || pendingRef.current) return;
+    pendingRef.current = true;
+    setPending(true);
+    setFailure(null);
     const tagId = `t-${randomUUID()}`;
     const owner = { kind: "tag", tag_id: tagId } as const;
-    const siblings = existing.filter((tag) => tagGroup(tag) === group);
-    try {
-      const commands: Command[] = [{ type: "ensure_tag", tag_id: tagId, name }];
-      if (group !== null) {
-        commands.push({
-          type: "set_property",
-          owner,
-          key: TAG_GROUP_KEY,
-          value: { type: "string", value: group },
-        });
-      }
-      // Seeded on creation, so an ordinary move only ever writes the tag it moved.
+    const nextGroup = groupDraft.trim() || null;
+    const siblings = existing.filter((tag) => tagGroup(tag) === nextGroup);
+    const commands: Command[] = [{ type: "ensure_tag", tag_id: tagId, name }];
+    if (nextGroup !== null)
       commands.push({
         type: "set_property",
         owner,
-        key: TAG_ORDER_KEY,
-        value: { type: "number", value: nextTagOrder(siblings) },
+        key: TAG_GROUP_KEY,
+        value: { type: "string", value: nextGroup },
       });
+    commands.push({
+      type: "set_property",
+      owner,
+      key: TAG_ORDER_KEY,
+      value: { type: "number", value: nextTagOrder(siblings) },
+    });
+    try {
       await session.execute({ type: "batch", commands });
-      setDraft("");
-      inputRef.current?.focus();
-    } catch (error) {
-      notify.failure(message("failure.createEntity", { name }), error);
+      onCreated();
+    } catch {
+      setFailure(message("failure.createEntity", { name }));
+      pendingRef.current = false;
+      setPending(false);
     }
   };
 
   return (
-    <li className="tag-row tag-row-new">
-      <span className="tag-row-mark">
-        <span className="tag-mark" aria-hidden>
-          <span className="hash">#</span>
-        </span>
-      </span>
-      <Input
-        ref={inputRef}
-        aria-label={message("tags.new")}
-        placeholder={message("tags.namePlaceholder")}
-        data-testid="new-tag-name"
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={() => (draft.trim() ? undefined : onCancel())}
-        onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing) return;
-          if (event.key === "Enter") {
-            event.preventDefault();
-            void create();
-          } else if (event.key === "Escape") {
-            event.preventDefault();
-            onDone();
-          }
+    <Dialog
+      title={message("tags.new")}
+      onClose={onCancel}
+      dismissible={!pending}
+      returnFocus={returnFocus}
+    >
+      <form
+        className="tag-create-form"
+        aria-busy={pending || undefined}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void create();
         }}
-      />
-    </li>
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing && event.key === "Enter") event.preventDefault();
+        }}
+      >
+        <p>{message("tags.createHint")}</p>
+        <div className="tag-create-field">
+          <label htmlFor={nameId}>{message("tags.name")}</label>
+          <Input
+            id={nameId}
+            autoFocus
+            data-testid="new-tag-name"
+            placeholder={message("tags.namePlaceholder")}
+            value={draft}
+            disabled={pending}
+            aria-invalid={!!duplicate}
+            aria-describedby={duplicate ? `${nameId}-error` : undefined}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              setFailure(null);
+            }}
+          />
+          {duplicate && (
+            <p className="field-error" id={`${nameId}-error`} role="status">
+              {message("tags.duplicate", { name })}
+            </p>
+          )}
+        </div>
+        <div className="tag-create-field">
+          <label htmlFor={groupId}>
+            {message("tags.group")}
+            <span>{message("tags.optional")}</span>
+          </label>
+          <TagGroupField
+            id={groupId}
+            testId="new-tag-group"
+            value={groupDraft || null}
+            disabled={pending}
+            onChange={(value) => setGroupDraft(value ?? "")}
+          />
+        </div>
+        {failure && (
+          <p className="field-error" role="alert">
+            {failure}
+          </p>
+        )}
+        <div className="dialog-actions">
+          <Button variant="secondary" disabled={pending} onClick={onCancel}>
+            {message("common.cancel")}
+          </Button>
+          <Button
+            type="submit"
+            data-testid="new-tag-submit"
+            disabled={!name || !!duplicate || pending}
+          >
+            {message("tags.new")}
+          </Button>
+        </div>
+      </form>
+    </Dialog>
   );
 }
 
-/** A group is renamed where it is read, like every other name in the product. */
 function GroupNameField({
   initial,
   onCommit,
@@ -914,7 +1040,7 @@ function GroupNameField({
   return (
     <input
       ref={inputRef}
-      className="tag-group-field"
+      className="tag-group-rename-input"
       value={draft}
       aria-label={message("tags.renameGroup")}
       data-testid="tag-group-rename-field"
@@ -935,12 +1061,6 @@ function GroupNameField({
   );
 }
 
-/**
- * One grouped count for every tag in the graph, answered by the derived index.
- * It re-runs on each canonical revision; the execution store deduplicates the
- * work and keeps the last answer on screen while the next one is built, so the
- * column never blinks back to zero between edits.
- */
 function useTagUsage(): Map<string, number> {
   const session = useSession();
   const canonicalRevision = useSessionSelector((state) => state.canonicalRevision);

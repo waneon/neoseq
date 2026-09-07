@@ -103,7 +103,9 @@ rather than an oversized first block.
 The workspace rail keeps search and a labeled New page action above its scrolling
 directory, with settings and keyboard help anchored below. A persistent breadcrumb
 and Undo and Redo orient the document without competing with its title. The
-document header separates context and tools from the full-width title. Contextual verbs are revealed near their object or summoned
+document header separates context and tools from the full-width title. Tags use the same document hierarchy, with a searchable library as their directory
+and a compact defaults disclosure above each tag’s connected content.
+Contextual verbs are revealed near their object or summoned
 through the command layer. The region below the last outline block remains a
 writing target; additional bodies such as standing query answers begin only
 after that target has retained its full reach.

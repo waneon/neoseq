@@ -19,6 +19,8 @@ export interface OverlayAnchor {
 export type Anchor = OverlayAnchor | null;
 
 export interface AnchoredOptions {
+  /** Preferred vertical side; collision handling still keeps the panel in view. */
+  side?: "top" | "bottom";
   width?: number;
   minWidth?: number;
   maxWidth?: number;

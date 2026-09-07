@@ -1,22 +1,5 @@
-// What a tag copies onto whatever it is added to.
-//
-// This used to be a row of chips wedged under the tag's name, which is the one
-// shape that cannot say the thing that matters here: a default is a **key and a
-// value**, and a chip puts them side by side in one run of small text where
-// neither has a column. Six of them wrapped into a paragraph of grey.
-//
-// So it is a named section of rows now — the design in designs/metadata.md § Tag
-// Directory and Tag Page. A glyph column, a key column, a value column: three
-// tags' defaults read *down* as three lists rather than across as one blur. The
-// heading says what the rows are and the note says what they do, because
-// "default" on its own says neither.
-//
-// Editing still goes through the one contextual `PropertyPicker` every other
-// owner uses, opened on the row it belongs to. Removal lives inside it, where the
-// reader who came to change a value can also clear it — a second `×` on the row
-// would be a second pointer route to one capability.
-
-import { PlusIcon } from "lucide-react";
+import { useId, useState } from "react";
+import { ChevronDownIcon, PlusIcon } from "lucide-react";
 import type { PropertyField, PropertyValue, TagSnapshot } from "../../core-port/snapshot";
 import { findPage, isDeleted, pageTitle } from "../../core-port/snapshot";
 import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
@@ -30,69 +13,87 @@ export function TagDefaults({
   onEdit,
 }: {
   tag: TagSnapshot;
-  /** Absent means this is a reading of the defaults, not the place they are set. */
   onEdit?: (key: string | undefined, anchor: HTMLElement) => void;
 }) {
   const { message } = useI18n();
   const describeField = useDefaultDescription();
+  const [expanded, setExpanded] = useState(false);
+  const contentId = useId();
 
   return (
-    <section className="tag-defaults" data-testid="tag-defaults">
+    <section
+      className="tag-defaults"
+      data-testid="tag-defaults"
+      aria-label={message("tags.defaultsFor", { name: tag.name })}
+    >
       <div className="tag-section-head">
-        <h2>{message("tags.defaults")}</h2>
+        <h2>
+          <button
+            type="button"
+            className="tag-defaults-toggle"
+            data-testid="tag-defaults-toggle"
+            aria-expanded={expanded}
+            aria-controls={contentId}
+            onClick={() => setExpanded((current) => !current)}
+          >
+            <ChevronDownIcon aria-hidden />
+            <span>{message("tags.defaults")}</span>
+            <span className="tag-defaults-count">
+              {message("tags.defaultsCount", { count: tag.defaults.length })}
+            </span>
+          </button>
+        </h2>
         {onEdit && (
           <button
             type="button"
             className="tag-section-action"
             data-testid="tag-add-default"
-            onClick={(event) => onEdit(undefined, event.currentTarget)}
+            aria-haspopup="dialog"
+            onClick={(event) => {
+              setExpanded(true);
+              onEdit(undefined, event.currentTarget);
+            }}
           >
             <PlusIcon aria-hidden />
             {message("tags.addDefault")}
           </button>
         )}
       </div>
-      {/* The note *is* the empty state. It says what a default is, which is the
-          question a section with nothing in it raises and a section with three
-          rows in it has already answered — and saying "nothing yet" beside it
-          would be the same fact twice on one screen. */}
-      {tag.defaults.length === 0 ? (
-        <p className="tag-section-note">{message("tags.defaultsNote")}</p>
-      ) : (
-        <ul className="tag-default-rows">
-          {tag.defaults.map((field) => {
-            const value = describeField(field);
-            const name = propertyDisplayName(field.key, message);
-            return (
-              <li key={field.key}>
-                <button
-                  type="button"
-                  className="tag-default-row"
-                  disabled={!onEdit}
-                  data-testid={`tag-default-${field.key}`}
-                  aria-label={`${name}: ${value}`}
-                  onClick={(event) => onEdit?.(field.key, event.currentTarget)}
-                >
-                  <span className="tag-default-glyph" aria-hidden>
-                    {propertyGlyph(field.key, field.value_type)}
-                  </span>
-                  <span className="tag-default-key">{name}</span>
-                  <span className="tag-default-value">{value}</span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      <div className="tag-defaults-content" id={contentId} hidden={!expanded}>
+        {tag.defaults.length === 0 ? (
+          <p className="tag-section-note">{message("tags.defaultsNote")}</p>
+        ) : (
+          <ul className="tag-default-rows">
+            {tag.defaults.map((field) => {
+              const value = describeField(field);
+              const name = propertyDisplayName(field.key, message);
+              return (
+                <li key={field.key}>
+                  <button
+                    type="button"
+                    className="tag-default-row"
+                    disabled={!onEdit}
+                    aria-haspopup={onEdit ? "dialog" : undefined}
+                    data-testid={`tag-default-${field.key}`}
+                    aria-label={`${name}: ${value}`}
+                    onClick={(event) => onEdit?.(field.key, event.currentTarget)}
+                  >
+                    <span className="tag-default-glyph" aria-hidden>
+                      {propertyGlyph(field.key, field.value_type)}
+                    </span>
+                    <span className="tag-default-key">{name}</span>
+                    <span className="tag-default-value">{value}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
     </section>
   );
 }
 
-/**
- * A default's value in the words the rest of the product uses for it: a status is
- * its own name, a page reference is that page's title, a date is the reader's own
- * journal format. Never a raw stored value.
- */
 function useDefaultDescription(): (field: PropertyField) => string {
   const state = useSessionSelector(
     (current) => current,

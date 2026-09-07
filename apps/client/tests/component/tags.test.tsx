@@ -3,6 +3,7 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import type { Command } from "../../src/core-port/commands";
 import {
   chooseFromMenu,
   GRAPH_ID,
@@ -39,6 +40,47 @@ async function mountTagged() {
 }
 
 describe("first-class tags and tag defaults", () => {
+  it("creates and attaches a new tag in one action that can be undone together", async () => {
+    const { session, port, blockId, settle } = await mountTagged();
+    const user = userEvent.setup();
+    await openBlockMenu();
+    await settle(() => fireEvent.click(screen.getByTestId("menu-tags")));
+    const picker = await screen.findByTestId("tag-picker");
+    const input = within(picker).getByTestId("tag-autocomplete");
+    await user.type(input, "Research");
+    const create = await screen.findByRole("option", {
+      name: "Create tag “Research”",
+      exact: true,
+    });
+    const commands: Command[] = [];
+    port.beforeExecute = async (command) => {
+      commands.push(command);
+    };
+    await settle(() => fireEvent.click(create));
+
+    expect(within(picker).getByTestId("tag-chip")).toHaveTextContent("#Research");
+    expect(input).toHaveValue("");
+    const created = session.getState().snapshot.tags.find((tag) => tag.name === "Research");
+    expect(created).toBeDefined();
+    expect(commands).toEqual([
+      {
+        type: "batch",
+        commands: [
+          { type: "ensure_tag", tag_id: created!.id, name: "Research" },
+          {
+            type: "add_tag",
+            entity: { kind: "block", owner: { kind: "page", id: "home" }, id: blockId },
+            tag_id: created!.id,
+          },
+        ],
+      },
+    ]);
+
+    await settle(() => session.execute({ type: "undo" }));
+    expect(within(picker).queryByTestId("tag-chip")).not.toBeInTheDocument();
+    expect(session.getState().snapshot.tags.map((tag) => tag.name)).toEqual(["Project"]);
+  });
+
   it("keeps a rejected tag choice in the field so it can be retried", async () => {
     const { port, settle } = await mountTagged();
     const user = userEvent.setup();
@@ -302,6 +344,28 @@ const rowNames = () => screen.getAllByTestId("tag-row-link").map((link) => link.
 const groupNames = () =>
   screen.getAllByTestId("tag-group-name").map((heading) => heading.textContent);
 
+async function mountDirectory() {
+  const harness = await mountAt(`/g/${GRAPH_ID}/tags`);
+  await harness.settle(async () => {
+    for (const [id, name, group] of [
+      ["design", "Design", "Areas"],
+      ["research", "Research", "Areas"],
+      ["reading", "Reading", "Library"],
+      ["inbox", "Inbox", null],
+    ] as const) {
+      await harness.session.execute({ type: "ensure_tag", tag_id: id, name });
+      if (group)
+        await harness.session.execute({
+          type: "set_property",
+          owner: { kind: "tag", tag_id: id },
+          key: "builtin.tag-group",
+          value: { type: "string", value: group },
+        });
+    }
+  });
+  return harness;
+}
+
 describe("the tags screen", () => {
   it("offers only the create action when the graph has no tags", async () => {
     await mountAt(`/g/${GRAPH_ID}/tags`);
@@ -309,18 +373,69 @@ describe("the tags screen", () => {
     expect(screen.queryByTestId("tag-row")).not.toBeInTheDocument();
   });
 
-  it("creates a tag, and keeps the field open for the next name", async () => {
+  it("creates a tag through the form and returns to the directory", async () => {
     const { session, settle } = await mountAt(`/g/${GRAPH_ID}/tags`);
     const user = userEvent.setup();
     await user.click(await screen.findByTestId("new-tag"));
     const input = await screen.findByTestId("new-tag-name");
     await user.type(input, "Research");
-    await settle(() => fireEvent.keyDown(input, { key: "Enter" }));
+    await settle(() => fireEvent.submit(input.closest("form")!));
     expect(await screen.findByTestId("tag-row")).toHaveTextContent("#Research");
-    expect(screen.getByTestId("new-tag-name")).toHaveValue("");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
     await settle(() => session.execute({ type: "undo" }));
     await waitFor(() => expect(screen.queryByTestId("tag-row")).not.toBeInTheDocument());
+  });
+
+  it("cancels a creation draft without creating a tag and restores the launcher", async () => {
+    const { session } = await mountAt(`/g/${GRAPH_ID}/tags`);
+    const user = userEvent.setup();
+    const launcher = await screen.findByTestId("new-tag");
+    await user.click(launcher);
+    const dialog = await screen.findByRole("dialog");
+    const name = within(dialog).getByTestId("new-tag-name");
+    expect(name).toHaveFocus();
+    await user.type(name, "Abandoned draft");
+    await user.click(within(dialog).getByRole("button", { name: "Cancel", exact: true }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(session.getState().snapshot.tags).toHaveLength(0);
+    expect(launcher).toHaveFocus();
+  });
+
+  it("preserves a rejected creation draft and prevents duplicate pending submissions", async () => {
+    const { session, port, settle } = await mountAt(`/g/${GRAPH_ID}/tags`);
+    const user = userEvent.setup();
+    await user.click(await screen.findByTestId("new-tag"));
+    const name = await screen.findByTestId("new-tag-name");
+    await user.type(name, "Research");
+    port.beforeExecute = async (command) => {
+      if (command.type === "batch") throw new Error("Rejected tag creation");
+    };
+    await settle(() => fireEvent.click(screen.getByTestId("new-tag-submit")));
+    expect(name).toHaveValue("Research");
+    expect(screen.getByRole("dialog")).toBeVisible();
+    expect(session.getState().snapshot.tags).toHaveLength(0);
+
+    let release = () => {};
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let attempts = 0;
+    port.beforeExecute = async (command) => {
+      if (command.type !== "batch") return;
+      attempts += 1;
+      await pending;
+    };
+    const submit = screen.getByTestId("new-tag-submit");
+    await user.click(submit);
+    expect(submit).toBeDisabled();
+    await user.click(submit);
+    expect(attempts).toBe(1);
+
+    await settle(() => release());
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(session.getState().snapshot.tags.map((tag) => tag.name)).toEqual(["Research"]);
   });
 
   it("refuses a duplicate name without creating anything", async () => {
@@ -331,6 +446,82 @@ describe("the tags screen", () => {
     await user.type(screen.getByTestId("new-tag-name"), "  PROJECT {enter}");
     expect(await screen.findByText("Tag “PROJECT” already exists")).toBeVisible();
     expect(screen.getAllByTestId("tag-row")).toHaveLength(1);
+  });
+
+  it("finds tags by name or group and combines the query with a group filter", async () => {
+    const { port } = await mountDirectory();
+    const user = userEvent.setup();
+    let writes = 0;
+    port.beforeExecute = async () => {
+      writes += 1;
+    };
+    const search = screen.getByTestId("tag-search");
+    await user.type(search, "  aReAs  ");
+    expect(rowNames()).toEqual(["Design", "Research"]);
+    await user.clear(search);
+    await user.type(search, "  rEaD  ");
+    expect(rowNames()).toEqual(["Reading"]);
+
+    await user.click(screen.getByRole("button", { name: /^Areas\s*2$/ }));
+    expect(screen.getByRole("button", { name: /^Areas\s*2$/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("tags-no-results")).toBeVisible();
+    expect(screen.queryByTestId("tag-row")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Clear filters", exact: true }));
+    expect(search).toHaveValue("");
+    expect(screen.getByRole("button", { name: /^All tags\s*4$/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getAllByTestId("tag-row")).toHaveLength(4);
+    expect(writes).toBe(0);
+  });
+
+  it("disables partial-list ordering while searching, then restores it on clear", async () => {
+    const { settle } = await mountDirectory();
+    const user = userEvent.setup();
+    const search = screen.getByTestId("tag-search");
+    await user.type(search, "Research");
+    expect(screen.getByTestId("tag-row")).toHaveAttribute("draggable", "false");
+    await settle(() =>
+      fireEvent.pointerDown(screen.getByTestId("tag-row-menu"), {
+        button: 0,
+        ctrlKey: false,
+        pointerType: "mouse",
+      }),
+    );
+    expect(await screen.findByTestId("tag-row-up")).toHaveAttribute("data-disabled");
+    expect(screen.getByTestId("tag-row-down")).toHaveAttribute("data-disabled");
+    await settle(() => fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" }));
+    await settle(() =>
+      fireEvent.click(screen.getByRole("button", { name: "Clear search", exact: true })),
+    );
+    expect(search).toHaveFocus();
+    expect(screen.getAllByTestId("tag-row")[0]).toHaveAttribute("draggable", "true");
+  });
+
+  it("creates from an empty search with the name and selected group already filled", async () => {
+    const { session, settle } = await mountDirectory();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^Areas\s*2$/ }));
+    await user.type(screen.getByTestId("tag-search"), "Planning");
+    const empty = screen.getByTestId("tags-no-results");
+    await user.click(within(empty).getByRole("button", { name: "New tag", exact: true }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByTestId("new-tag-name")).toHaveValue("Planning");
+    expect(within(dialog).getByTestId("new-tag-group")).toHaveValue("Areas");
+    await settle(() => fireEvent.click(within(dialog).getByTestId("new-tag-submit")));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByTestId("tag-search")).toHaveValue("");
+    expect(screen.getAllByTestId("tag-row")).toHaveLength(5);
+    const created = session.getState().snapshot.tags.find((tag) => tag.name === "Planning");
+    expect(created?.properties.find((field) => field.key === "builtin.tag-group")?.values).toEqual([
+      { type: "string", value: "Areas" },
+    ]);
+    await settle(() => session.execute({ type: "undo" }));
+    expect(session.getState().snapshot.tags).toHaveLength(4);
   });
 
   it("says what each tag does and leads to it", async () => {
@@ -480,25 +671,49 @@ describe("the tags screen", () => {
     await waitFor(() => expect(groupNames()).toEqual(["Home", "Areas"]));
   });
 
-  it("customizes a tag's mark and colour from the one panel its mark opens", async () => {
+  it("saves a tag's mark, colour, and group together from the customization panel", async () => {
     const { session, settle } = await mountAt(`/g/${GRAPH_ID}/tags`);
     const user = userEvent.setup();
     await session.execute({ type: "ensure_tag", tag_id: "reading", name: "Reading" });
     await screen.findByTestId("tag-row");
-
     await settle(() => fireEvent.click(screen.getByTestId("tag-mark")));
     const panel = await screen.findByTestId("tag-identity");
     await user.click(within(panel).getByTestId("tag-colour-teal"));
-    await waitFor(() => expect(screen.getByTestId("tag-mark")).toHaveAttribute("data-hue", "teal"));
-
     await user.click(within(panel).getByRole("button", { name: "📚" }));
-    await waitFor(() => expect(screen.getByTestId("tag-mark")).toHaveTextContent("📚"));
-
-    // The group field in the same panel is the route that needs no pointer.
     const group = within(panel).getByTestId("tag-group-field");
     await user.type(group, "Areas");
     await user.tab();
+    expect(screen.getByTestId("tag-mark")).not.toHaveAttribute("data-hue");
+    expect(screen.getByTestId("tag-mark")).toHaveTextContent("#");
+    await settle(() => fireEvent.click(within(panel).getByTestId("tag-identity-done")));
+    await waitFor(() => expect(screen.queryByTestId("tag-identity")).not.toBeInTheDocument());
+    expect(screen.getByTestId("tag-mark")).toHaveAttribute("data-hue", "teal");
+    expect(screen.getByTestId("tag-mark")).toHaveTextContent("📚");
     await waitFor(() => expect(screen.getByTestId("tag-group-name")).toHaveTextContent("Areas"));
+
+    await settle(() => session.execute({ type: "undo" }));
+    expect(screen.getByTestId("tag-mark")).not.toHaveAttribute("data-hue");
+    expect(screen.getByTestId("tag-mark")).toHaveTextContent("#");
+    expect(screen.queryByTestId("tag-group-name")).not.toBeInTheDocument();
+  });
+
+  it("discards customization choices on Cancel", async () => {
+    const { session, settle } = await mountAt(`/g/${GRAPH_ID}/tags`);
+    const user = userEvent.setup();
+    await session.execute({ type: "ensure_tag", tag_id: "reading", name: "Reading" });
+    await screen.findByTestId("tag-row");
+    const original = session.getState().snapshot.tags[0].properties;
+    await settle(() => fireEvent.click(screen.getByTestId("tag-mark")));
+    const panel = await screen.findByTestId("tag-identity");
+    await user.click(within(panel).getByTestId("tag-colour-teal"));
+    await user.click(within(panel).getByRole("button", { name: "📚" }));
+    await user.type(within(panel).getByTestId("tag-group-field"), "Areas");
+    await user.click(within(panel).getByRole("button", { name: "Cancel", exact: true }));
+
+    expect(screen.queryByTestId("tag-identity")).not.toBeInTheDocument();
+    expect(screen.getByTestId("tag-mark")).not.toHaveAttribute("data-hue");
+    expect(screen.getByTestId("tag-mark")).toHaveTextContent("#");
+    expect(session.getState().snapshot.tags[0].properties).toEqual(original);
   });
 });
 
@@ -535,6 +750,49 @@ function tagQuery(session: Awaited<ReturnType<typeof mountTagPage>>["session"]) 
 }
 
 describe("a tag's own page", () => {
+  it("keeps defaults tucked away until requested, without writing the tag", async () => {
+    const { session, port, settle } = await mountTagPage();
+    const user = userEvent.setup();
+    await settle(() =>
+      session.execute({
+        type: "set_property",
+        owner: { kind: "tag_default", tag_id: "project" },
+        key: "builtin.task-priority",
+        value: { type: "string", value: "high" },
+      }),
+    );
+    let writes = 0;
+    port.beforeExecute = async () => {
+      writes += 1;
+    };
+    const disclosure = screen.getByTestId("tag-defaults-toggle");
+    const field = screen.getByTestId("tag-default-builtin.task-priority");
+    expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    expect(field).not.toBeVisible();
+    expect(screen.getByTestId("tag-add-default")).toBeVisible();
+
+    await user.click(disclosure);
+    expect(disclosure).toHaveAttribute("aria-expanded", "true");
+    expect(field).toBeVisible();
+    await user.click(disclosure);
+    expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    expect(field).not.toBeVisible();
+    expect(writes).toBe(0);
+  });
+
+  it("opens the tag actions from a visible keyboard-accessible header button", async () => {
+    await mountTagPage();
+    const user = userEvent.setup();
+    const trigger = screen.getByTestId("tag-actions-trigger");
+    expect(trigger).toBeVisible();
+    act(() => trigger.focus());
+    await user.keyboard("{Enter}");
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getByTestId("tag-delete")).toBeVisible();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
   it("places its outline below the query view", async () => {
     await mountTagPage();
 
@@ -589,6 +847,7 @@ describe("a tag's own page", () => {
 
   it("keeps an empty default visible and materializes its empty field", async () => {
     const { session, blockId } = await mountTagPage();
+    const user = userEvent.setup();
     await session.execute({
       type: "ensure_property",
       owner: { kind: "tag_default", tag_id: "project" },
@@ -597,9 +856,11 @@ describe("a tag's own page", () => {
       cardinality: "single",
     });
 
+    await user.click(screen.getByTestId("tag-defaults-toggle"));
     expect(await screen.findByTestId("tag-default-builtin.task-priority")).toHaveTextContent(
       "No value",
     );
+    expect(screen.getByTestId("tag-default-builtin.task-priority")).toBeVisible();
 
     await session.execute({
       type: "add_tag",
@@ -624,11 +885,10 @@ describe("a tag's own page", () => {
       key: "builtin.task-priority",
       value: { type: "string", value: "high" },
     });
-    expect(await screen.findByTestId("tag-default-builtin.task-priority")).toHaveTextContent(
-      "High",
-    );
-
     await user.click(screen.getByTestId("tag-add-default"));
+    expect(screen.getByTestId("tag-defaults-toggle")).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("tag-default-builtin.task-priority")).toBeVisible();
+    expect(screen.getByTestId("tag-default-builtin.task-priority")).toHaveTextContent("High");
     const picker = await screen.findByTestId("property-picker");
     await user.click(within(picker).getByRole("option", { name: "Status" }));
     await settle(() => fireEvent.click(within(picker).getByRole("option", { name: "To-do" })));
@@ -642,6 +902,7 @@ describe("a tag's own page", () => {
     await waitFor(() =>
       expect(screen.queryByTestId("tag-default-builtin.task-priority")).not.toBeInTheDocument(),
     );
+    await waitFor(() => expect(screen.getByTestId("tag-defaults-toggle")).toHaveFocus());
   });
 
   it("renames the tag from its own title", async () => {

@@ -96,7 +96,8 @@ context sits below them and shortcuts form a separate trailing column. On touch
 screens, generous rows and a persistent close action replace keyboard hints.
 
 Anchored surfaces prefer the available vertical side and constrain themselves to
-the room there. Point-like anchors open toward the viewport center; field-like
+the room there. A field may prefer the upper side to keep its editor’s submit actions
+reachable. Point-like anchors open toward the viewport center; field-like
 anchors preserve the field edge because the popup stands in for that field.
 Contextual editing surfaces dismiss when content outside them scrolls; scrolling
 the surface's own list, or a nested choice it opened, keeps the interaction open.

@@ -114,11 +114,18 @@ test("tag defaults copy missing properties once and detaching a tag keeps those 
   await page.getByTestId("new-tag").click();
   const name = page.getByTestId("new-tag-name");
   await name.fill("Project");
-  await app.saved(() => name.press("Enter"));
-  await page.keyboard.press("Escape");
+  const group = page.getByTestId("new-tag-group");
+  await group.fill("Delivery");
+  await expect(group).toBeFocused();
+  await expect(page.getByRole("listbox", { name: "Group", exact: true })).toBeVisible();
+  // Submit directly while suggestions are open: collapsing them on pointer-down
+  // must not move the button away before the same click reaches pointer-up.
+  await app.saved(() => page.getByTestId("new-tag-submit").click());
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByTestId("tag-row-link")).toHaveText("Project");
   await page.getByTestId("tag-row-link").click();
   await expect(page.getByTestId("tag-title")).toHaveValue("Project");
+  await expect(page.getByTestId("tag-page-group")).toHaveText("Delivery");
   await page.getByTestId("tag-add-default").click();
   await properties.getByRole("option", { name: "Status", exact: true }).click();
   await app.saved(() => properties.getByRole("option", { name: "To-do", exact: true }).click());
@@ -144,6 +151,7 @@ test("tag defaults copy missing properties once and detaching a tag keeps those 
   await expect(query).toContainText("Inherit the default");
   await expect(query).toContainText("Keep my own status");
   await expect(query).not.toContainText("Untagged note");
+  await page.getByTestId("tag-defaults-toggle").click();
   await page.getByTestId("tag-default-builtin.task-status").click();
   await app.saved(() => properties.getByRole("option", { name: "Doing", exact: true }).click());
   await query.getByRole("button", { name: "Open “Inherit the default”", exact: true }).click();
@@ -166,6 +174,7 @@ test("tag defaults copy missing properties once and detaching a tag keeps those 
   await expect(query).not.toContainText("Inherit the default");
   await page.reload();
   await expect(query.getByTestId("query-row")).toHaveCount(1);
+  await page.getByTestId("tag-defaults-toggle").click();
   await expect(page.getByTestId("tag-default-builtin.task-status")).toHaveAccessibleName(
     "Status: Doing",
   );

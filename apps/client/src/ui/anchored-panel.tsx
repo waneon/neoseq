@@ -183,7 +183,7 @@ export function AnchoredPanel({
           role={role}
           aria-label={label}
           align={align}
-          side="bottom"
+          side={options.side ?? "bottom"}
           sideOffset={options.gap ?? 4}
           collisionPadding={VIEWPORT_INSET}
           sticky="always"

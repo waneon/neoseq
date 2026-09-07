@@ -45,44 +45,57 @@ persistent title/action control.
 
 ## Tag References and Identity
 
-A tag beneath a block is a reference. It uses the quiet accent and link behavior,
-and pressing it navigates to the tag. A separate adjacent remove control detaches
-membership without changing the tag itself. Both controls remain independently
-named and keyboard reachable; read-only surfaces retain only navigation.
+A tag beneath a block is a reference. Its name navigates to the tag; an adjacent,
+independently named remove control detaches membership. Read-only surfaces retain
+navigation. A missing tag becomes a tombstone rather than promising navigation.
+The membership picker shows applied tags and a searchable list of available tags
+with their marks and groups. Adding a tag leaves the picker ready for another;
+creating a tag and applying it is one command intent.
 
-A deleted tag becomes a tombstone: it gives up link styling, states its missing
-condition, and no longer promises navigation.
+Every live tag has a mark, safe hue, optional group, and position. The mark is the
+familiar tag sign or one user-selected glyph. It stays glyph-like across the rail,
+directory, references, and tag header. Color uses the bounded hue family from the
+[visual foundation](foundations.md).
 
-Every live tag has a mark, color, optional group, and position. The mark is either
-the familiar tag sign or one user-selected glyph, and it is also the disclosure
-for editing tag identity. Color comes from the bounded hue family defined by the
-[visual foundation](foundations.md), so a tag cannot choose an illegible state.
-The mark remains glyph-like; it does not gain a decorative tile that would turn
-every tag row into a field of colored boxes.
+The mark and a labeled Customize action open the same identity editor. A preview
+shows the draft beside the tag name. Mark, color, and group form one draft: Done
+applies them as one undoable change, while dismissal discards them. Group entry
+supports existing choices and a new name in an anchored suggestion list that never
+shifts the surrounding editor. Creating a
+tag uses the same group field and an explicit, validated submission.
 
 ## Groups and Ordering
 
 A group is a name carried by tags, not an independent entity. It exists while at
-least one tag belongs to it, is renamed by updating its members, and has no
-separate lifecycle to synchronize. Ungrouped tags collect at the end under a
-heading only when that heading distinguishes them from named groups.
+least one tag belongs to it and is renamed by updating its members. Ungrouped
+tags collect at the end, with a heading only when named groups make it useful.
 
-Tag order and group order are expressed through member positions. Dragging and
-keyboard/menu movement share one placement model and preview the destination
-with the common insertion seam. The list does not reflow until the move commits.
+Tag and group positions retain one shared placement model. Dragging previews an
+insertion seam without reflow; menu movement supplies keyboard and touch routes.
+Search or a group filter disables reordering so a partial view cannot imply the
+order of hidden items. Group actions always address the full membership of the
+group, including tags outside the current search.
 
 ## Tag Directory and Tag Page
 
-The tags surface is a directory rather than a card grid. Group headings organize
-rows; each row combines a navigable name, its identity mark, contextual actions,
-and a derived usage count. Sibling controls form one row without nesting one
-interactive element inside another.
+The directory is a searchable library. A stable header holds creation, the title,
+and a total. Search and group filters narrow the list together. Rows give the tag
+name the primary reading edge, place default-property context beneath it, and
+align usage counts under a named column. Menus remain visible. Identity, navigation,
+and actions are sibling controls, never nested interactive targets.
 
-A tag's page presents its name, group, defaults, query, and outline as aspects of
-one place. Default properties are key/value rows with shared columns, not chips.
-The tag mark and property marks share one column so the text the tag says begins
-on one edge. Empty guidance explains what defaults mean and disappears once the
-rows explain themselves.
+Empty and unmatched lists have distinct next actions. Creating a tag uses a focused
+dialog with a name, optional group, explicit submit and cancel, and inline duplicate
+or failure feedback. Successful creation returns to the complete directory; failed
+submission preserves the draft.
+
+A tag page shares the document header language: a route back to Tags, visible
+customization and menu actions, then the full-width title and group. Connected
+content is the primary collection. Default properties occupy a compact disclosure
+with a count and a persistent Add action. Expanded defaults use key/value rows and
+explain that applying a tag copies missing values rather than maintaining a live
+inheritance relationship. Notes have their own named outline section, followed by
+references. Disclosure is session state and never changes the graph.
 
 ## Tasks
 

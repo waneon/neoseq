@@ -1,25 +1,15 @@
-// A tag, given a place of its own.
-//
-// A tag was already more than a label — it carries defaults, and every block and
-// page that wears it is an answer to the same question — but it had nowhere to
-// *be*. Everything about one tag lived on a card in a grid, which is a listing,
-// not a place; and the one thing a reader actually wants from a tag — everything
-// carrying it — could only be had by writing the query out by hand somewhere else.
-//
-// So a tag is a page now, in the sense that matters: it has a route, a name you
-// edit in place, its defaults, and its own query — seeded to ask exactly what the
-// tag is for, and editable from there like every other query in the product.
-// **The query's views are the page's tabs**, because a page whose whole body is
-// one answer can afford to say permanently which answer is on screen; the same
-// query inside a bullet cannot.
-//
-// Nothing here is written until it is shaped. Opening a tag runs its seeded query
-// and writes nothing; the first edit — a condition, a column, a second view — is
-// what brings the document into existence.
-
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router";
-import { InfoIcon, Settings2Icon, StarIcon, StarOffIcon, Trash2Icon } from "lucide-react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router";
+import {
+  FolderIcon,
+  InfoIcon,
+  MoreHorizontalIcon,
+  Settings2Icon,
+  StarIcon,
+  StarOffIcon,
+  TagsIcon,
+  Trash2Icon,
+} from "lucide-react";
 import type { TagSnapshot } from "../../core-port/snapshot";
 import { findTag, outlineOwnerKey, queryDocument, stringValue } from "../../core-port/snapshot";
 import { canonicalEntityName } from "../../entities/names";
@@ -33,7 +23,6 @@ import { LOCAL_REPOSITORY_ID } from "../repositories/directory";
 import { ConfirmDialog, Dialog } from "../../ui/components";
 import { Button } from "@/ui/shadcn/button";
 import { elementAnchor } from "@/ui/anchored";
-import { focusOverlayOwner } from "@/ui/overlay-focus";
 import { EditableTitle } from "../../ui/EditableTitle";
 import {
   DropdownMenu,
@@ -52,12 +41,6 @@ import { TagDefaults } from "./TagDefaults";
 import { TagIdentityPicker, TagMark } from "./TagIdentity";
 import { writeClipboardText } from "@/lib/clipboard";
 import { LinkedReferences } from "../references/LinkedReferences";
-
-/** Where a context menu was summoned, in viewport coordinates. */
-interface MenuPoint {
-  x: number;
-  y: number;
-}
 
 export function TagView() {
   const { graphId = "", tagId = "" } = useParams();
@@ -93,9 +76,6 @@ export function TagView() {
   }, [load, state.hydratedOutlines, state.status, tag, tagId]);
 
   if (!tag) {
-    // A deleted tag leaves the snapshot, so a missing one is either deleted or
-    // never existed. Either way the reference resolves to a tombstone; the tag
-    // is offered back rather than silently recreated.
     return (
       <Tombstone
         title={message("tags.missing")}
@@ -124,62 +104,75 @@ export function TagView() {
 }
 
 function TagBody({ tag, graphId }: { tag: TagSnapshot; graphId: string }) {
+  const { repositoryId = LOCAL_REPOSITORY_ID } = useParams();
   const { message } = useI18n();
-  const state = useSessionSelector(
-    (current) => current,
-    (left, right) => left.snapshot === right.snapshot && left.mode === right.mode,
-  );
+  const readonly = useSessionSelector((state) => state.mode === "readonly");
   const [picker, setPicker] = useState<{ key?: string; anchor: HTMLElement | null } | null>(null);
   const [identityAt, setIdentityAt] = useState<HTMLElement | null>(null);
-  const [menuAt, setMenuAt] = useState<MenuPoint | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
-  const markRef = useRef<HTMLElement | null>(null);
-  const readonly = state.mode === "readonly";
+  const notesHeadingId = useId();
   const document = queryDocument(tag.properties);
   const group = tagGroup(tag);
 
   return (
     <div className="page-scroll" ref={setScrollElement}>
-      <article className="page-body enter-fade-view">
-        {/* The tag's own handle: right-clicking the name is where its verbs are,
-            exactly as a page's are on a page's title row. The mark before it is
-            the one control that says what the tag looks like and where it is
-            filed — the object is the disclosure, so nothing is parked beside it. */}
-        <div
-          className="title-row tag-title-row"
+      <article className="page-body tag-body enter-fade-view">
+        <header
+          className="document-header tag-header"
           onContextMenu={(event) => {
             event.preventDefault();
-            setMenuAt({ x: event.clientX, y: event.clientY });
+            setMenuOpen(true);
           }}
         >
-          <span
-            className="tag-title-mark"
-            ref={(node) => {
-              markRef.current = node;
-            }}
-          >
-            <TagMark
-              tag={tag}
-              size="lg"
-              onOpen={readonly ? undefined : (anchor) => setIdentityAt(anchor)}
-            />
-          </span>
-          <TagTitle tag={tag} />
-          <TagMenu
-            tag={tag}
-            graphId={graphId}
-            at={menuAt}
-            onClose={() => setMenuAt(null)}
-            onCustomize={() => setIdentityAt(markRef.current)}
-          />
-        </div>
-        {group && (
-          <p className="tag-page-group" data-testid="tag-page-group">
-            {group}
-          </p>
-        )}
-        {/* What this tag *does*: a named section of rows, not a run of chips —
-            a default is a key and a value, and neither has a column in a chip. */}
+          <div className="document-toolbar">
+            <Link
+              className="document-eyebrow tag-directory-link"
+              to={graphPath(repositoryId, graphId, "tags")}
+            >
+              <TagsIcon aria-hidden />
+              {message("tags.title")}
+            </Link>
+            <div className="title-actions">
+              {!readonly && (
+                <Button
+                  variant="ghost"
+                  className="tag-customize-action"
+                  data-testid="tag-customize-trigger"
+                  aria-label={message("tags.customizeNamed", { name: tag.name })}
+                  aria-haspopup="dialog"
+                  onClick={(event) => setIdentityAt(event.currentTarget)}
+                >
+                  <Settings2Icon aria-hidden />
+                  <span>{message("tags.customize")}</span>
+                </Button>
+              )}
+              <TagMenu
+                tag={tag}
+                graphId={graphId}
+                open={menuOpen}
+                onOpenChange={setMenuOpen}
+                onCustomize={setIdentityAt}
+              />
+            </div>
+          </div>
+          <div className="title-row tag-title-row">
+            <span className="tag-title-mark">
+              <TagMark
+                tag={tag}
+                size="lg"
+                onOpen={readonly ? undefined : (anchor) => setIdentityAt(anchor)}
+              />
+            </span>
+            <TagTitle tag={tag} />
+          </div>
+          {group && (
+            <p className="tag-page-group" data-testid="tag-page-group">
+              <FolderIcon aria-hidden />
+              {group}
+            </p>
+          )}
+        </header>
         <TagDefaults
           tag={tag}
           onEdit={readonly ? undefined : (key, anchor) => setPicker({ key, anchor })}
@@ -194,12 +187,19 @@ function TagBody({ tag, graphId }: { tag: TagSnapshot; graphId: string }) {
           executionKey={JSON.stringify(["tag", tag.id])}
           variant="page"
           label={message("tags.queryFor", { name: tag.name })}
+          title={message("tags.content")}
         />
-        <Outliner
-          owner={{ kind: "tag", id: tag.id }}
-          blocks={tag.blocks}
-          scrollElement={scrollElement}
-        />
+        <section className="tag-notes" data-testid="tag-notes" aria-labelledby={notesHeadingId}>
+          <div className="tag-notes-heading">
+            <h2 id={notesHeadingId}>{message("tags.notes")}</h2>
+            {tag.blocks.length === 0 && <p>{message("tags.notesHint")}</p>}
+          </div>
+          <Outliner
+            owner={{ kind: "tag", id: tag.id }}
+            blocks={tag.blocks}
+            scrollElement={scrollElement}
+          />
+        </section>
         <LinkedReferences owner={{ kind: "tag", id: tag.id }} />
       </article>
       {picker && (
@@ -207,6 +207,12 @@ function TagBody({ tag, graphId }: { tag: TagSnapshot; graphId: string }) {
           target={{ owner: { kind: "tag_default", tag_id: tag.id }, bag: tag.defaults }}
           anchor={elementAnchor(picker.anchor)}
           initialKey={picker.key}
+          returnFocus={() =>
+            picker.anchor?.isConnected
+              ? picker.anchor
+              : (scrollElement?.querySelector<HTMLElement>('[data-testid="tag-defaults-toggle"]') ??
+                null)
+          }
           onClose={() => setPicker(null)}
         />
       )}
@@ -221,12 +227,6 @@ function TagBody({ tag, graphId }: { tag: TagSnapshot; graphId: string }) {
   );
 }
 
-/**
- * The tag's name, edited where it is read. The mark beside it — the reader's own
- * emoji, or the `#` every tag wears by default — is never inside the field: a
- * name is what the reader typed, and the mark is a separate answer with a
- * separate control.
- */
 function TagTitle({ tag }: { tag: TagSnapshot }) {
   const session = useSession();
   const state = useSessionSelector(
@@ -265,64 +265,43 @@ function TagTitle({ tag }: { tag: TagSnapshot }) {
   );
 }
 
-/**
- * The tag's verbs. Like a page's, they have no button of their own: the pointer
- * route is a right-click on the title row.
- */
 function TagMenu({
   tag,
   graphId,
-  at,
-  onClose,
+  open,
+  onOpenChange,
   onCustomize,
 }: {
   tag: TagSnapshot;
   graphId: string;
-  at: MenuPoint | null;
-  onClose: () => void;
-  /** The same panel the mark opens; this is its keyboard route. */
-  onCustomize: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCustomize: (anchor: HTMLElement) => void;
 }) {
   const { repositoryId = LOCAL_REPOSITORY_ID } = useParams();
   const session = useSession();
-  const state = useSessionSelector(
-    (current) => current,
-    (left, right) => left.snapshot === right.snapshot && left.mode === right.mode,
-  );
+  const readonly = useSessionSelector((state) => state.mode === "readonly");
   const navigate = useNavigate();
   const notify = useNotify();
   const { message } = useI18n();
-  const readonly = state.mode === "readonly";
   const starred = isFavourite(tag);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const [dialog, setDialog] = useState<"info" | "delete" | null>(null);
 
   return (
     <>
-      <DropdownMenu
-        modal={false}
-        open={at !== null}
-        onOpenChange={(open) => (open ? undefined : onClose())}
-      >
+      <DropdownMenu modal={false} open={open} onOpenChange={onOpenChange}>
         <DropdownMenuTrigger asChild>
-          <span
-            className="menu-anchor"
-            // Radix points the menu's `aria-labelledby` at its trigger, and that
-            // wins over the menu's own `aria-label` — so the name has to live
-            // here, on the anchor, even though the anchor itself is hidden.
+          <Button
+            ref={triggerRef}
+            size="icon"
             aria-label={message("tags.actions")}
-            aria-hidden
-            style={{ left: at?.x ?? 0, top: at?.y ?? 0 }}
-          />
+            data-testid="tag-actions-trigger"
+          >
+            <MoreHorizontalIcon aria-hidden />
+          </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="start"
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            focusOverlayOwner(
-              window.document.querySelector<HTMLElement>('[data-testid="tag-title"]'),
-            );
-          }}
-        >
+        <DropdownMenuContent align="end">
           {!readonly && (
             <>
               <DropdownMenuItem
@@ -350,7 +329,10 @@ function TagMenu({
               </DropdownMenuItem>
               <DropdownMenuItem
                 data-testid="menu-tag-customize"
-                onSelect={() => requestAnimationFrame(onCustomize)}
+                onSelect={() => {
+                  const trigger = triggerRef.current;
+                  if (trigger) requestAnimationFrame(() => onCustomize(trigger));
+                }}
               >
                 <Settings2Icon aria-hidden />
                 {message("tags.customize")}
@@ -385,7 +367,7 @@ function TagMenu({
           cancelLabel={message("common.cancel")}
           confirmLabel={message("tags.deleteAction")}
           testId="confirm-delete-tag"
-          returnFocus={() => document.querySelector<HTMLElement>('[data-testid="tag-title"]')}
+          returnFocus={() => triggerRef.current}
           onClose={() => setDialog(null)}
           onConfirm={async () => {
             await session.execute({ type: "delete_tag", tag_id: tag.id });
@@ -402,7 +384,6 @@ function TagMenu({
   );
 }
 
-/** Facts *about* the tag rather than data anybody put on it. */
 function TagInfoDialog({
   tag,
   graphId,
@@ -439,8 +420,6 @@ function TagInfoDialog({
             type="button"
             aria-label={message("tags.copyId")}
             onClick={() => {
-              // The label swap is the acknowledgement; only its absence needs
-              // reporting, because a button that does nothing looks broken.
               void writeClipboardText(tag.id).then(
                 () => setCopied(true),
                 (error: unknown) => {
