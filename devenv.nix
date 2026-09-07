@@ -135,7 +135,7 @@ in
     neoseq-dashboard = {
       ports.http.allocate = 4174;
       env.NEOSEQ_SYNC_ORIGIN = "http://127.0.0.1:${toString ports.server}";
-      exec = "exec pnpm --filter @neoseq/dashboard exec vite --port ${toString ports.dashboard}";
+      exec = "exec pnpm --filter @neoseq/dashboard exec vite --port ${toString ports.dashboard} --strictPort";
       ready.http.get = {
         port = ports.dashboard;
         path = "/";
@@ -147,7 +147,7 @@ in
     neoseq-client = {
       ports.http.allocate = 4173;
       env.NEOSEQ_SYNC_ORIGIN = "http://127.0.0.1:${toString ports.server}";
-      exec = "exec pnpm --filter @neoseq/client exec vite --port ${toString ports.client}";
+      exec = "exec pnpm --filter @neoseq/client exec vite --port ${toString ports.client} --strictPort";
       after = [ "wasm:build-dev" ];
       ready.http.get = {
         port = ports.client;

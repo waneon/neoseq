@@ -20,6 +20,8 @@ The devenv configuration is composed around four developer-facing concerns:
 The browser profile adds Playwright and its isolated collaboration processes.
 Database tests use the shared PostgreSQL service but own a temporary database
 per suite.
+Development and verification processes use fixed declared ports. Port conflicts
+fail startup; neither devenv nor the Web servers may silently select another port.
 
 `outputs.neoseq-client`, `outputs.neoseq-server`, and
 `outputs.neoseq-dashboard` own the deployable component artifacts.
@@ -137,7 +139,7 @@ boundaries, isolation, and evidence expected from each suite.
 All browser artifacts finish building before process startup; readiness deadlines
 cover service startup, never compilation. The profile invokes Playwright in
 devenv's post-startup test hook, after port reservations are released and all
-services are ready. Each preview owns one strict, allocated port. The browser
+services are ready. Each preview owns one fixed, strict port. The browser
 profile produces an HTML report, with traces and screenshots for failures;
 the default CI workflow runs only the portable gate.
 

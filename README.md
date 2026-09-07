@@ -72,6 +72,8 @@ treefmt
 Start the development Web client with Hot Module Replacement (HMR), then open
 `http://127.0.0.1:4173`. Frontend changes are applied automatically. After
 changing Rust code, rebuild the development Wasm bindings to trigger HMR.
+Development ports are fixed: client `4173`, dashboard `4174`, and sync server
+`8787`. Startup fails if a configured port is already in use.
 
 ```sh
 # Start the development services and HMR-enabled Web client.
