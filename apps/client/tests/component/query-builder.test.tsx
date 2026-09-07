@@ -445,28 +445,35 @@ describe("the query builder", () => {
   it("switches a column on and off from the table's own columns panel", async () => {
     const harness = await mountPage();
     await createQuery(harness);
-    const user = userEvent.setup();
+    await harness.settle(() => fireEvent.click(screen.getByTestId("query-columns-trigger")));
+    const panel = screen.getByTestId("query-columns-panel");
+    const toggle = within(panel).getByTestId("query-column-toggle-tags");
 
-    await user.click(screen.getByTestId("query-columns-trigger"));
-    const panel = await screen.findByTestId("query-columns-panel");
-    await user.click(within(panel).getByTestId("query-column-toggle-tags"));
-
-    await waitFor(() => {
+    // The switch renders from a draft, then a debounce publishes its plan and
+    // query answer. Own that timer inside the same React completion boundary;
+    // polling only the stored plan can leave the answer publication in flight.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      await harness.settle(() => fireEvent.click(toggle));
+      expect(toggle).toBeChecked();
+      await harness.settle(() => vi.advanceTimersByTimeAsync(600));
       const plan = decodePlan(storedDefinition(harness)!.plan!.payload, QUERY_PLAN_VERSION);
       const tags = plan?.columns.find((column) => column.source.kind === "tags");
       // A repeated field is a value vector, without changing entity grain.
       expect(tags).toBeDefined();
       expect(tags?.aggregate).toBeUndefined();
-    });
-    expect(storedDefinition(harness)?.source.startsWith(DERIVED_SOURCE_PROVENANCE)).toBe(true);
+      expect(storedDefinition(harness)?.source.startsWith(DERIVED_SOURCE_PROVENANCE)).toBe(true);
 
-    // Nothing else asks for it, so switching it off takes it out of the query
-    // rather than merely out of this table.
-    await user.click(within(panel).getByTestId("query-column-toggle-tags"));
-    await waitFor(() => {
-      const plan = decodePlan(storedDefinition(harness)!.plan!.payload, QUERY_PLAN_VERSION);
-      expect(plan?.columns.some((column) => column.source.kind === "tags")).toBe(false);
-    });
+      // Nothing else asks for it, so switching it off takes it out of the query
+      // rather than merely out of this table.
+      await harness.settle(() => fireEvent.click(toggle));
+      expect(toggle).not.toBeChecked();
+      await harness.settle(() => vi.advanceTimersByTimeAsync(600));
+      const withoutTags = decodePlan(storedDefinition(harness)!.plan!.payload, QUERY_PLAN_VERSION);
+      expect(withoutTags?.columns.some((column) => column.source.kind === "tags")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("offers only useful display fields and assigns each its natural value shape", async () => {
@@ -635,9 +642,8 @@ describe("the query builder", () => {
     // A caption, not a control with its affordance rubbed out: no chevron, and
     // nothing to press.
     expect(count).toHaveAttribute("data-static");
-    // It keeps the chevron's slot all the same, so the header does not shift
-    // sideways the moment an answer arrives — which is a fact about the CSS, and
-    // `geometry.spec` is where columns are measured.
+    // The static count keeps the chevron's presentation slot without exposing
+    // a control that has no action.
     expect(screen.getByTestId("query-disclosure").tagName).toBe("SPAN");
   });
 
@@ -1101,18 +1107,22 @@ describe("query result views", () => {
     const harness = await withResult();
     const table = await screen.findByTestId("query-table");
     const open = within(table).getByRole("button", { name: "Open “Ship the builder”" });
-    const user = userEvent.setup();
-    await user.click(open);
-    const row = screen
-      .getAllByTestId("outline-row")
-      .find((element) => element.dataset.blockId === harness.resultBlockId)!;
-    expect(row).toHaveAttribute("data-navigation-highlight", "true");
-    const firstCue = row.querySelector(".outline-navigation-highlight");
-    expect(firstCue).not.toBeNull();
-    await user.click(open);
-    expect(row.querySelector(".outline-navigation-highlight")).not.toBe(firstCue);
-    await harness.settle(() => new Promise((resolve) => setTimeout(resolve, 1150)));
-    expect(row).not.toHaveAttribute("data-navigation-highlight");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      await harness.settle(() => fireEvent.click(open));
+      const row = screen
+        .getAllByTestId("outline-row")
+        .find((element) => element.dataset.blockId === harness.resultBlockId)!;
+      expect(row).toHaveAttribute("data-navigation-highlight", "true");
+      const firstCue = row.querySelector(".outline-navigation-highlight");
+      expect(firstCue).not.toBeNull();
+      await harness.settle(() => fireEvent.click(open));
+      expect(row.querySelector(".outline-navigation-highlight")).not.toBe(firstCue);
+      await harness.settle(() => vi.advanceTimersByTimeAsync(1100));
+      expect(row).not.toHaveAttribute("data-navigation-highlight");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("hides a column into the saved view, so the choice survives a reload", async () => {

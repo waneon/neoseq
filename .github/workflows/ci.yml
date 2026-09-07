@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -41,11 +41,13 @@ jobs:
       - name: Smoke test appliance image
         run: ./scripts/smoke-appliance.sh "${{ steps.appliance.outputs.archive }}"
 
-      - name: Upload playwright failure artifacts
-        if: ${{ failure() }}
+      - name: Upload browser verification report
+        if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-failure-${{ github.run_id }}-${{ github.run_attempt }}
-          path: apps/client/test-results
+          name: playwright-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            apps/client/playwright-report
+            apps/client/test-results
           if-no-files-found: ignore
           retention-days: 14

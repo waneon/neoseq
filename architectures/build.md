@@ -113,21 +113,20 @@ metadata cannot drift unexecuted. It also verifies the default and custom
 application identities, ownership migration, and initialization of a fresh
 cluster with custom ownership.
 
-`devenv --profile browser test` extends the portable gate with pinned
-Chromium-based IndexedDB contracts, parallel desktop E2E, focused mobile and
-dark-mode coverage, and a real two-profile collaboration scenario. One managed
-preview process owns the profile-allocated Web port, and one Playwright run
-schedules every browser project against it.
-The gate previews a test-mode artifact built in the same task graph. A direct
-Playwright invocation builds that artifact itself, so neither route may reuse a
-stale checkout-local site.
-The scenario uses a test-only neoseq-server process with an allocated port and an
-isolated database on the managed PostgreSQL service. Both test artifacts finish
-building before process startup; readiness deadlines cover service startup,
-never compilation. The profile runs Playwright in devenv's post-startup test
-hook, after port reservations are released and both services are ready, and
-keeps the browser runtime out of the normal shell. CI runs this same lifecycle
-and uploads checkout-local Playwright failure artifacts.
+`devenv --profile browser test` extends the portable gate with browser
+verification against two separately built artifacts. Product journeys use the
+normal client build and its production Worker. Adapter contracts and injected
+persistence faults use a separate test-mode build on another origin. A real
+collaboration server owns an isolated database on the managed PostgreSQL service.
+The [browser verification architecture](browser-testing.md) defines the coverage
+boundaries, isolation, and evidence expected from each suite.
+
+All browser artifacts finish building before process startup; readiness deadlines
+cover service startup, never compilation. The profile invokes Playwright in
+devenv's post-startup test hook, after port reservations are released and all
+services are ready. Each preview owns one strict, allocated port. CI uses the
+same lifecycle on a fixed Ubuntu release and retains the HTML report on every
+run, with traces and screenshots for failures.
 
 ## Asynchronous verification
 
@@ -176,8 +175,9 @@ processes from preparation tasks while devenv still holds port reservations.
 Component tests finish before Playwright runs, so browser load cannot starve
 component tests.
 
-The Rust, component, IndexedDB, and Web E2E suites cover the remote
-collaboration protocol/client contracts, authorization revocation, multi-tab
-identity, mocked remote Web UX, durable outbox, and headless convergence
-behavior. The collaboration stage additionally verifies a real two-profile
-online/offline/reconnect/revocation journey through the assembled system.
+Rust and browser adapter contracts cover synchronization, authorization,
+multi-tab identity, the durable outbox, and convergence. Component tests use
+controlled remote responses to exercise individual client states. Product
+browser journeys use the real service for account sessions, repository catalogs,
+archive import, deletion, offline recovery, and independent-replica convergence
+and revocation.

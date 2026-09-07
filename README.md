@@ -90,6 +90,27 @@ devenv test                    # portable verification gate
 devenv --profile browser test  # portable gate plus browser-backed tests
 ```
 
+For focused browser work, start the isolated services and built previews, then
+select a project or scenario. `--repeat-each` repeats fresh tests without retries;
+`--workers` controls parallelism.
+
+```sh
+devenv --profile browser processes up -d \
+  e2e-neoseq-server e2e-neoseq-client e2e-neoseq-contracts
+devenv --profile browser shell -- env NEOSEQ_E2E_MANAGED_PREVIEW=1 \
+  pnpm --filter @neoseq/client exec playwright test \
+  --project desktop --grep "long pasted outline" --repeat-each 3 --workers 4
+
+# Stop the test server while PostgreSQL can still remove its temporary database.
+devenv --profile browser processes stop e2e-neoseq-server
+devenv --profile browser processes down
+```
+
+After changing frontend code, rebuild the preview artifacts with
+`devenv --profile browser tasks run neoseq-client:build-test neoseq-client:build-contracts`.
+See [browser verification](architectures/browser-testing.md) for the coverage
+matrix, production/contract boundaries, and failure reports.
+
 ## Performance benchmarks
 
 The dedicated benchmark workspace member has deterministic Criterion suites for

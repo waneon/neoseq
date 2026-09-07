@@ -116,6 +116,7 @@ Detailed contracts:
 - [Property command picker](architectures/property-command-picker.md)
 - [Internationalization](architectures/i18n.md)
 - [Build and verification](architectures/build.md)
+- [Browser verification](architectures/browser-testing.md)
 - [Synchronization server](architectures/server.md)
 - [All-in-one appliance](architectures/appliance.md)
 

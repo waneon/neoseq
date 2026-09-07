@@ -5,6 +5,8 @@ import {
   useRepositoryCatalogs,
 } from "../../src/features/graphs/useRepositoryCatalogs";
 import type { Repository } from "../../src/features/repositories/directory";
+import type { GraphSummary } from "../../src/core-port/directory";
+import type { RemoteGraphListing } from "../../src/features/sync/api";
 
 const mocks = vi.hoisted(() => ({
   listGraphs: vi.fn(),
@@ -37,7 +39,7 @@ const remote: Repository = {
 
 describe("repository catalog switching", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     mocks.listGraphs.mockResolvedValue([]);
     mocks.readAuthSession.mockReturnValue(null);
   });
@@ -62,16 +64,56 @@ describe("repository catalog switching", () => {
     expect(states.every((status) => status === "auth")).toBe(true);
   });
 
-  it("finishes an in-flight catalog after switching away and preserves it on return", async () => {
+  it("keeps populated catalogs during refresh and applies late responses only to their repository", async () => {
+    const localGraph: GraphSummary = {
+      id: "g-local",
+      repository_id: local.id,
+      name: "Local notebook",
+      created_at: "2026-01-01",
+      kind: "local",
+      cached: true,
+    };
+    const listing: RemoteGraphListing = {
+      graph_id: "g-remote",
+      display_name: "Shared notebook",
+      created_at: "2026-01-02",
+      updated_at: "2026-01-02",
+      role: "owner",
+      status: "active",
+      membership_version: 1,
+    };
+    const cached: GraphSummary = {
+      id: listing.graph_id,
+      repository_id: remote.id,
+      name: listing.display_name,
+      created_at: listing.created_at,
+      kind: "remote",
+      cached: true,
+      role: "owner",
+      status: "active",
+    };
     mocks.readAuthSession.mockReturnValue({ token: "session" });
-    let complete!: (value: { graphs: [] }) => void;
-    mocks.listRemoteGraphs.mockReturnValue(
-      new Promise((resolve) => {
-        complete = resolve;
-      }),
+    mocks.listGraphs.mockImplementation(async (repositoryId: string) =>
+      repositoryId === local.id ? [localGraph] : [cached],
     );
+    let completeInitial!: (value: { graphs: RemoteGraphListing[] }) => void;
+    let completeRefresh!: (value: { graphs: RemoteGraphListing[] }) => void;
+    const initial = new Promise((resolve) => {
+      completeInitial = resolve;
+    });
+    const refresh = new Promise((resolve) => {
+      completeRefresh = resolve;
+    });
+    const renamed = { ...listing, display_name: "Renamed shared notebook" };
+    mocks.listRemoteGraphs
+      .mockReturnValueOnce(initial)
+      .mockReturnValueOnce(refresh)
+      .mockResolvedValue({ graphs: [renamed] });
     const { result, rerender } = renderHook(
-      ({ selected }: { selected: Repository }) => useRepositoryCatalogs(selected),
+      ({ selected }: { selected: Repository }) => {
+        const catalogs = useRepositoryCatalogs(selected);
+        return { ...catalogs, selectedCatalog: repositoryCatalog(catalogs.catalogs, selected.id) };
+      },
       { initialProps: { selected: remote } },
     );
     await waitFor(() => expect(mocks.listRemoteGraphs).toHaveBeenCalledTimes(1));
@@ -82,11 +124,34 @@ describe("repository catalog switching", () => {
     expect(signal.aborted).toBe(false);
     expect(mocks.listRemoteGraphs).toHaveBeenCalledTimes(1);
     rerender({ selected: local });
-    await act(async () => complete({ graphs: [] }));
-    expect(result.current.catalogs.remote.status).toBe("ready");
-    mocks.listRemoteGraphs.mockReturnValue(new Promise(() => {}));
+    await act(async () => completeInitial({ graphs: [listing] }));
+    expect(result.current.catalogs.remote.graphs).toEqual([cached]);
+    expect(result.current.selectedCatalog.graphs).toEqual([localGraph]);
+    expect(mocks.registerRemoteCatalog).toHaveBeenCalledWith(remote.id, [cached]);
+
     rerender({ selected: remote });
-    expect(result.current.catalogs.remote.status).toBe("ready");
-    expect(result.current.catalogs.remote.refreshing).toBe(true);
+    await waitFor(() => expect(mocks.listRemoteGraphs).toHaveBeenCalledTimes(2));
+    expect(result.current.selectedCatalog).toEqual({
+      status: "ready",
+      graphs: [cached],
+      stale: false,
+      refreshing: true,
+    });
+    rerender({ selected: local });
+    await act(async () => completeRefresh({ graphs: [renamed] }));
+    const updated = { ...cached, name: "Renamed shared notebook" };
+    expect(result.current.catalogs.remote).toEqual({
+      status: "ready",
+      graphs: [updated],
+      stale: false,
+      refreshing: false,
+    });
+    expect(result.current.selectedCatalog.graphs).toEqual([localGraph]);
+    expect(result.current.catalogs.local.graphs).toEqual([localGraph]);
+
+    rerender({ selected: remote });
+    expect(result.current.selectedCatalog.graphs).toEqual([updated]);
+    await waitFor(() => expect(result.current.selectedCatalog.refreshing).toBe(false));
+    expect(result.current.selectedCatalog.graphs).toEqual([updated]);
   });
 });

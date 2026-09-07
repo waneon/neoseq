@@ -45,17 +45,25 @@ describe("linked references", () => {
     expect(references).toHaveTextContent("See [[Target]]");
     expect(references).not.toHaveTextContent("Unresolved");
     const openBlock = within(references).getByRole("button", { name: "Open block" });
+    const user = userEvent.setup();
     await settle(() => openBlock.focus());
-    await userEvent.setup().tab();
+    await settle(() => user.tab());
     expect(router.state.location.pathname).toBe(`/g/${GRAPH_ID}/p/target`);
     expect(within(references).getByTestId("block-markdown")).not.toHaveAttribute("tabindex");
-    await settle(() =>
-      userEvent.setup().click(within(references).getByRole("button", { name: "Open block" })),
-    );
-    await waitFor(() => expect(router.state.location.pathname).toBe(`/g/${GRAPH_ID}/p/source`));
-    await waitFor(() =>
-      expect(screen.getAllByRole("treeitem")[0]).toHaveAttribute("data-revealed", "true"),
-    );
+    // The reveal lasts 220 ms. Loading the destination must not spend that
+    // interval merely because other tests are competing for CPU time.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      await settle(() => fireEvent.click(openBlock));
+      expect(router.state.location.pathname).toBe(`/g/${GRAPH_ID}/p/source`);
+      const targetBlock = screen.getByDisplayValue("See [[Target]]").closest('[role="treeitem"]');
+      expect(targetBlock).toHaveAttribute("data-block-id", inserted.created_block!);
+      expect(targetBlock).toHaveAttribute("data-revealed", "true");
+      await settle(() => vi.runOnlyPendingTimersAsync());
+      expect(targetBlock).not.toHaveAttribute("data-revealed");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("lists page properties and tag-owned block links and refreshes after removal", async () => {

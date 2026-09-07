@@ -1,446 +1,181 @@
-import { expect, test, type Page } from "@playwright/test";
-import {
-  createGraph,
-  createPage,
-  mutateAndAwaitSaved,
-  openBlockProperties,
-  openBlockTags,
-  openPageMenu,
-  openPageProperties,
-  openSidebar,
-  startOutline,
-  typeInFocusedBlock,
-} from "./helpers";
+import { expect } from "@playwright/test";
+import { test } from "../support/fixtures";
+import type { NeoseqApp } from "../support/app";
 
-async function addCustom(
-  page: Page,
-  key: string,
-  type: "string" | "number" | "checkbox" | "date" | "page",
-  value: string,
-): Promise<void> {
-  // A user property is typed and read by its bare name; user. is storage routing.
-  const name = key.replace(/^user\./u, "");
-  await openPageProperties(page);
-  const picker = page.getByTestId("property-picker");
-  await picker.getByLabel("Property key").fill(name);
-  await picker.getByRole("option", { name: `Create property “${name}”` }).click();
-  const typeLabel = {
-    string: "Text",
-    number: "Number",
-    checkbox: "Checkbox",
-    date: "Date",
-    page: "Page link",
-  }[type];
-  await picker.getByRole("option", { name: typeLabel, exact: true }).click();
-  if (type === "checkbox") {
-    await mutateAndAwaitSaved(page, () =>
-      picker
-        .getByRole("option", {
-          name: value === "yes" ? "Checked" : "Unchecked",
-          exact: true,
-        })
-        .click(),
-    );
-  } else if (type === "page") {
-    await picker.getByTestId("page-autocomplete").fill(value);
-    await mutateAndAwaitSaved(page, () =>
-      page.getByRole("option", { name: "Everything", exact: true }).click(),
-    );
-  } else if (type === "date") {
-    // The platform's own date input commits the moment it holds a full date.
-    await mutateAndAwaitSaved(page, () => picker.getByLabel("Pick a date").fill(value));
-  } else {
-    await picker.getByLabel(`${name} value`).fill(value);
-    await mutateAndAwaitSaved(page, () => picker.getByTestId("property-set").click());
-  }
+async function openProperties(app: NeoseqApp, index: number): Promise<void> {
+  await app.block(index).getByTestId("block-bullet").click({ button: "right" });
+  await app.page.getByTestId("menu-properties").click();
+  await expect(app.page.getByTestId("property-picker")).toBeVisible();
+}
+
+async function numberDraft(app: NeoseqApp, index: number): Promise<void> {
+  await openProperties(app, index);
+  const picker = app.page.getByTestId("property-picker");
+  await picker.getByLabel("Property key").fill("estimate");
+  await picker.getByRole("option", { name: "Create property “estimate”", exact: true }).click();
+  await picker.getByRole("option", { name: "Number", exact: true }).click();
+}
+
+async function tagPicker(app: NeoseqApp, index: number): Promise<void> {
+  await app.block(index).getByTestId("block-bullet").click({ button: "right" });
+  await app.page.getByTestId("menu-tags").click();
+  await expect(app.page.getByTestId("tag-picker")).toBeVisible();
+}
+
+async function attachTag(app: NeoseqApp, index: number): Promise<void> {
+  await tagPicker(app, index);
+  const picker = app.page.getByTestId("tag-picker");
+  await picker.getByTestId("tag-autocomplete").fill("Project");
+  await app.saved(() => app.page.getByRole("option", { name: "Project", exact: true }).click());
+  await expect(picker.getByTestId("tag-chip")).toHaveText("#Project");
+  await app.page.keyboard.press("Escape");
   await expect(picker).toHaveCount(0);
 }
 
-test("edits every value type plus unknown keys in the contextual picker", async ({ page }) => {
-  test.slow();
-  await createGraph(page, "Props Graph");
-  await createPage(page, "Everything");
+async function tagDirectory(app: NeoseqApp): Promise<void> {
+  await app.sidebar();
+  await app.page.getByTestId("sidebar").getByRole("link", { name: "Tags", exact: true }).click();
+  await expect(app.page.getByTestId("new-tag")).toBeVisible();
+}
 
-  await addCustom(page, "user.text", "string", "hello");
-  await addCustom(page, "user.count", "number", "42");
-  await addCustom(page, "user.done", "checkbox", "yes");
-  await addCustom(page, "user.when", "date", "2026-08-03");
-  await addCustom(page, "user.ref", "page", "Every");
-
-  await page.getByTestId("prop-user.text").click();
-  let picker = page.getByTestId("property-picker");
-  await picker.getByLabel("text value").fill("updated");
-  await mutateAndAwaitSaved(page, () => picker.getByTestId("property-set").click());
-  await page.reload();
-  await expect(page.getByTestId("prop-user.text")).toContainText("updated");
-  await page.getByRole("button", { name: "+1 more" }).click();
-  picker = page.getByTestId("property-picker");
-
-  // The compact strip deliberately exposes only four entries and storage does
-  // not promise insertion order. Verify persisted values through the canonical
-  // picker, which lists every existing property first.
-  await picker.getByRole("option", { name: /count/ }).click();
-  await expect(picker.getByLabel("count value")).toHaveValue("42");
-  await page.keyboard.press("Escape");
-  await picker.getByRole("option", { name: /done/ }).click();
-  await expect(picker).toContainText("Checked");
-  await page.keyboard.press("Escape");
-  await picker.getByRole("option", { name: /when/ }).click();
-  await expect(picker.getByLabel("Pick a date")).toHaveValue("2026-08-03");
-  await page.keyboard.press("Escape");
-  await picker.getByRole("option", { name: /ref/ }).click();
-  await expect(picker).toContainText("Everything");
-  // The page field has its own suggestion layer. Escape closes the deepest
-  // visible surface first; the next one returns to the property list.
-  await page.keyboard.press("Escape");
-  await page.keyboard.press("Escape");
-  await picker.getByRole("option", { name: /count/ }).click();
-  await picker.getByRole("button", { name: "Remove property" }).click();
-  await openPageProperties(page);
-  await page.getByTestId("property-picker").getByLabel("Property key").fill("user.count");
-  await expect(page.getByRole("option", { name: "Create property “count”" })).toBeVisible();
-});
-
-test("rejects property keys outside the owned namespaces with a visible validation error", async ({
+test("a numeric property can be emptied, restored, and removed without changing another block", async ({
+  app,
   page,
 }) => {
-  await createGraph(page, "Validation Graph");
-  await createPage(page, "Rules");
-  await openPageProperties(page);
+  await app.createGraph("Typed properties");
+  await app.startBlock("Release estimate");
+  await app.appendBlock("Independent estimate");
+  const first = app.block(0).getByTestId("prop-user.estimate");
+  const second = app.block(1).getByTestId("prop-user.estimate");
   const picker = page.getByTestId("property-picker");
-  // A bare name would become user.tag; only a malformed dotted key is a dead end.
-  await picker.getByLabel("Property key").fill("user.Bad!");
-  await expect(picker.getByTestId("props-error")).toContainText("must use builtin.* or user.*");
+
+  await numberDraft(app, 1);
+  await picker.getByLabel("estimate value").fill("7");
+  await app.saved(() => picker.getByTestId("property-set").click());
+  await expect(second).toContainText("7");
+  await expect(first).toHaveCount(0);
+
+  await numberDraft(app, 0);
+  await app.saved(() =>
+    picker.getByRole("button", { name: "Add without a value", exact: true }).click(),
+  );
+  await expect(first).toContainText("No value");
+  await page.reload();
+  await expect(first).toContainText("No value");
+  await expect(second).toContainText("7");
+
+  await first.click();
+  const input = picker.getByLabel("estimate value");
+  await expect(input).toHaveAttribute("type", "number");
+  await input.fill("3.5");
+  await app.saved(() => picker.getByTestId("property-set").click());
+  await expect(first).toContainText("3.5");
+  await first.click();
+  await expect(input).toHaveValue("3.5");
+  await app.saved(() => picker.getByRole("button", { name: "Clear value", exact: true }).click());
+  await expect(first).toContainText("No value");
+  await page.reload();
+  await expect(first).toContainText("No value");
+  await expect(second).toContainText("7");
+
+  await first.click();
+  await input.fill("0");
+  await app.saved(() => picker.getByTestId("property-set").click());
+  await expect(first).toContainText("0");
+  await first.click();
+  await expect(input).toHaveValue("0");
+  await app.saved(() =>
+    picker.getByRole("button", { name: "Remove property", exact: true }).click(),
+  );
+  await expect(first).toHaveCount(0);
+  await page.reload();
+  await app.expectOutline(["Release estimate", "Independent estimate"]);
+  await expect(first).toHaveCount(0);
+  await expect(second).toContainText("7");
+  await second.click();
+  await expect(input).toHaveValue("7");
 });
 
-test("slash, block properties, and tags share the same focused target", async ({ page }) => {
-  await createGraph(page, "Tag Graph");
-  await openSidebar(page);
-  await page.getByTestId("sidebar").getByRole("link", { name: "Tags" }).click();
-  await page.getByTestId("new-tag").click();
-  await page.getByTestId("new-tag-name").fill("Project");
-  await page.getByTestId("new-tag-name").press("Enter");
-  await expect(page.getByTestId("tag-row")).toContainText("#Project");
-  await openSidebar(page);
-  await page.getByTestId("sidebar").getByRole("link", { name: "Journal" }).click();
-  await startOutline(page);
-  await page.getByLabel("Block text").pressSequentially("/pro");
-  await expect(page.getByTestId("slash-menu")).toBeVisible();
-  await page.keyboard.press("Enter");
-
-  let picker = page.getByTestId("property-picker");
-  await expect(picker.getByLabel("Property key")).toBeFocused();
-  await picker.getByRole("option", { name: "Status", exact: true }).click();
-  await picker.getByRole("option", { name: "Doing", exact: true }).click();
-  await expect(page.getByTestId("task-status-toggle")).toHaveAccessibleName("Task status: Doing");
-  await expect(page.getByLabel("Block text")).toHaveValue("");
-
-  await openBlockTags(page);
-  let tags = page.getByTestId("tag-picker");
-  await expect(tags.getByTestId("tag-autocomplete")).toBeFocused();
-  await tags.getByTestId("tag-autocomplete").fill("Project");
-  await page.getByRole("option", { name: "Project", exact: true }).click();
-  await expect(tags.getByTestId("tag-chip")).toContainText("#Project");
-  await page.keyboard.press("Escape");
-  await expect(tags).toHaveCount(0);
-
-  const text = page.getByLabel("Block text").first();
-  await text.click();
-  await text.press("End");
-  await text.press("Enter");
-  await typeInFocusedBlock(page, "fresh block");
-  await openBlockTags(page, 1);
-  tags = page.getByTestId("tag-picker");
-  await expect(tags.getByTestId("tag-autocomplete")).toBeFocused();
-  await tags.getByTestId("tag-autocomplete").fill("Proj");
-  await page.getByRole("option", { name: "Project", exact: true }).click();
-  await expect(tags.getByTestId("tag-chip")).toContainText("#Project");
-  await tags.getByRole("button", { name: "Remove tag Project" }).click();
-  await expect(tags.getByTestId("tag-chip")).toHaveCount(0);
-
-  await page.keyboard.press("Escape");
-  await expect(tags).toHaveCount(0);
-  await openBlockProperties(page, 1);
-  picker = page.getByTestId("property-picker");
-  await expect(picker.getByLabel("Property key")).toBeFocused();
-  await page.keyboard.press("Escape");
-  await expect(picker).toHaveCount(0);
-});
-
-test("a tag under a block is an accent reference that leads to the tag, never a delete", async ({
+test("tag defaults copy missing properties once and detaching a tag keeps those values", async ({
+  app,
   page,
 }) => {
-  await createGraph(page, "Tag Reference Graph");
-  await openSidebar(page);
-  await page.getByTestId("sidebar").getByRole("link", { name: "Tags" }).click();
+  await app.createGraph("Tag defaults");
+  await app.createPage("Work");
+  await app.startBlock("Inherit the default");
+  await app.appendBlock("Keep my own status");
+  await app.appendBlock("Untagged note");
+  await openProperties(app, 1);
+  const properties = page.getByTestId("property-picker");
+  await properties.getByRole("option", { name: "Status", exact: true }).click();
+  await app.saved(() => properties.getByRole("option", { name: "Done", exact: true }).click());
+
+  await tagDirectory(app);
   await page.getByTestId("new-tag").click();
-  await page.getByTestId("new-tag-name").fill("Design");
-  await page.getByTestId("new-tag-name").press("Enter");
-  await openSidebar(page);
-  await page.getByTestId("sidebar").getByRole("link", { name: "Journal" }).click();
-  await startOutline(page);
-  await typeInFocusedBlock(page, "the tag is a reference");
-  await openBlockTags(page);
-  await page.getByTestId("tag-picker").getByTestId("tag-autocomplete").fill("Design");
-  await mutateAndAwaitSaved(page, () =>
-    page.getByRole("option", { name: "Design", exact: true }).click(),
+  const name = page.getByTestId("new-tag-name");
+  await name.fill("Project");
+  await app.saved(() => name.press("Enter"));
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("tag-row-link")).toHaveText("Project");
+  await page.getByTestId("tag-row-link").click();
+  await expect(page.getByTestId("tag-title")).toHaveValue("Project");
+  await page.getByTestId("tag-add-default").click();
+  await properties.getByRole("option", { name: "Status", exact: true }).click();
+  await app.saved(() => properties.getByRole("option", { name: "To-do", exact: true }).click());
+  await expect(page.getByTestId("tag-default-builtin.task-status")).toHaveAccessibleName(
+    "Status: To-do",
   );
-  await page.keyboard.press("Escape");
 
-  const chip = page.locator(".outline-tags").getByTestId("tag-chip");
-  await expect(chip).toContainText("#Design");
-  // A tag is the one thing in the writing that leads somewhere, so it carries the
-  // accent's hue — but not the accent's own strength. `--accent` is tuned for a
-  // mark; on a run of words inside a sentence it shouted, so the tag takes the
-  // same hue with the chroma pulled back (designs/foundations.md § Semantic Color).
-  const tones = await chip.evaluate((node) => {
-    const resolve = (value: string) => {
-      const probe = document.createElement("span");
-      probe.style.color = value;
-      document.body.append(probe);
-      const resolved = getComputedStyle(probe).color;
-      probe.remove();
-      return resolved;
-    };
-    return {
-      chip: getComputedStyle(node).color,
-      quiet: resolve("var(--accent-quiet)"),
-      accent: resolve("var(--accent)"),
-    };
-  });
-  expect(tones.chip).toBe(tones.quiet);
-  expect(tones.chip).not.toBe(tones.accent);
+  await app.sidebar();
+  await page.getByTestId("sidebar").getByRole("link", { name: "Work", exact: true }).click();
+  await attachTag(app, 0);
+  await attachTag(app, 1);
+  const inherited = app.block(0).getByTestId("task-status-toggle");
+  const existing = app.block(1).getByTestId("task-status-toggle");
+  await expect(inherited).toHaveAccessibleName("Task status: To-do");
+  await expect(existing).toHaveAccessibleName("Task status: Done");
+  await expect(app.block(2).getByTestId("tag-chip")).toHaveCount(0);
+  await expect(app.block(2).getByTestId("task-status-toggle")).toHaveCount(0);
 
-  // …and pressing it goes to the tag, rather than silently detaching the name the
-  // reader just wrote. The one thing on a line shaped like a link leads somewhere.
-  await chip.click();
-  await expect(page.getByTestId("tag-title")).toHaveValue("Design");
-  await expect(page.getByTestId("query-block")).toHaveAttribute("data-variant", "page");
-
-  // Writing tags keeps its own pointer route on the bullet's menu, where a
-  // destructive verb belongs.
-  await page.goBack();
-  await openBlockTags(page);
-  const picker = page.getByTestId("tag-picker");
-  await expect(picker.getByTestId("tag-chip")).toContainText("#Design");
-  await picker.getByRole("button", { name: "Remove tag Design" }).click();
-  await expect(page.locator(".outline-tags")).toHaveCount(0);
-});
-
-// What a reader keeps to hand: one checkbox on the thing itself, and one list in
-// the rail that shows pages and tags together, because "the things I come back
-// to" is one thought.
-test("a starred page and a starred tag share one list in the rail", async ({ page }) => {
-  await createGraph(page, "Favourites Graph");
-  await openSidebar(page);
-  await page.getByTestId("sidebar").getByRole("link", { name: "Tags" }).click();
-  await page.getByTestId("new-tag").click();
-  await page.getByTestId("new-tag-name").fill("Reading");
-  await page.getByTestId("new-tag-name").press("Enter");
-  await page.keyboard.press("Escape");
-  await createPage(page, "Reading list");
-
-  // Nothing starred, nothing said: an empty heading is a promise the rail has
-  // not been asked to keep.
-  await expect(page.getByTestId("favourite-list")).toHaveCount(0);
-
-  await openPageMenu(page);
-  await mutateAndAwaitSaved(page, () => page.getByTestId("menu-page-favourite").click());
-  await expect(page.getByTestId("favourite-item")).toHaveText(["Reading list"]);
-
-  await page.getByTestId("sidebar").getByRole("link", { name: "Tags" }).click();
-  await page.getByTestId("tag-row-menu").click();
-  await mutateAndAwaitSaved(page, () => page.getByTestId("tag-row-favourite").click());
-  await expect(page.getByTestId("favourite-item")).toHaveText(["#Reading", "Reading list"]);
-
-  // The order is the reader's, not the alphabet's: the page is dragged above the
-  // tag, and the seam says where it will land before it lands.
-  const items = page.getByTestId("favourite-item");
-  // Matched whole, because "Reading list" contains the tag's name.
-  const tag = items.filter({ hasText: /^#Reading$/ });
-  const list = items.filter({ hasText: /^Reading list$/ });
-  await mutateAndAwaitSaved(page, () => list.dragTo(tag, { targetPosition: { x: 20, y: 2 } }));
-  await expect(items).toHaveText(["Reading list", "#Reading"]);
-
-  // …and the same move from a keyboard, because a rail row is a link and a
-  // reorder no keyboard can reach is a reorder half the readers do not have.
-  await list.focus();
-  await mutateAndAwaitSaved(page, () => page.keyboard.press("Alt+ArrowDown"));
-  await expect(items).toHaveText(["#Reading", "Reading list"]);
-
-  // The arrangement is the graph's, not this browser's, so a reload finds it.
-  await page.reload();
-  await openSidebar(page);
-  await expect(items).toHaveText(["#Reading", "Reading list"]);
-
-  // …and the same row takes it back, saying so in its own label.
-  await page.getByTestId("tag-row-menu").click();
-  await expect(page.getByTestId("tag-row-favourite")).toHaveText("Remove from favourites");
-  await mutateAndAwaitSaved(page, () => page.getByTestId("tag-row-favourite").click());
-  await expect(page.getByTestId("favourite-item")).toHaveText(["Reading list"]);
-});
-
-// Groups, marks, and colours: everything the manager exists for, from the one
-// panel a tag's mark opens — and the drag that is the other way to file one.
-test("tags are filed into groups, marked, and coloured from one panel", async ({ page }) => {
-  await createGraph(page, "Tag Manager Graph");
-  await openSidebar(page);
-  await page.getByTestId("sidebar").getByRole("link", { name: "Tags" }).click();
-  for (const name of ["Design", "Reading", "Errands"]) {
-    await page.getByTestId("new-tag").click();
-    await page.getByTestId("new-tag-name").fill(name);
-    await page.getByTestId("new-tag-name").press("Enter");
-  }
-  await page.keyboard.press("Escape");
-  // One heading for the only group there could be says nothing, so there is none.
-  await expect(page.getByTestId("tag-group-name")).toHaveCount(0);
-
-  const design = page.getByTestId("tag-row").filter({ hasText: "Design" });
-  await design.getByTestId("tag-mark").click();
-  const panel = page.getByTestId("tag-identity");
-  await mutateAndAwaitSaved(page, () => panel.getByTestId("tag-colour-teal").click());
-  await mutateAndAwaitSaved(page, () =>
-    panel.getByRole("button", { name: "🎨", exact: true }).click(),
-  );
-  await panel.getByTestId("tag-group-field").fill("Areas");
-  await mutateAndAwaitSaved(page, () => panel.getByTestId("tag-group-field").press("Enter"));
-  await page.keyboard.press("Escape");
-
-  // The mark is the tag's own: its emoji, in its own hue, wherever it appears.
-  await expect(design.getByTestId("tag-mark")).toHaveText("🎨");
-  await expect(design.getByTestId("tag-mark")).toHaveAttribute("data-hue", "teal");
-  await expect(page.getByTestId("tag-group-name")).toHaveText(["Areas", "Ungrouped"]);
-
-  // Filing by drag: the gesture everybody already knows.
-  const reading = page.getByTestId("tag-row").filter({ hasText: "Reading" });
-  await mutateAndAwaitSaved(page, () => reading.dragTo(design));
-  await expect(
-    page.locator(".tag-group").filter({ hasText: "Areas" }).getByTestId("tag-row"),
-  ).toHaveCount(2);
-
-  // The order inside a group is the reader's, and a drag says where it lands
-  // before it lands: one seam, and nothing reflows until the drop.
-  const areas = page.locator(".tag-group").filter({ hasText: "Areas" });
-  await expect(areas.getByTestId("tag-row-link")).toHaveText(["Design", "Reading"]);
-  await mutateAndAwaitSaved(page, () =>
-    reading.dragTo(design, { targetPosition: { x: 20, y: 2 } }),
-  );
-  await expect(areas.getByTestId("tag-row-link")).toHaveText(["Reading", "Design"]);
-
-  await expect(page.getByTestId("tag-group-name")).toHaveText(["Areas", "Ungrouped"]);
-
-  // A group is the name its members carry, so renaming it is rewriting them and
-  // emptying it is the group ceasing to exist.
-  await areas.getByTestId("tag-group-menu").click();
-  await page.getByTestId("tag-group-rename").click();
-  await page.getByTestId("tag-group-rename-field").fill("Practices");
-  await mutateAndAwaitSaved(page, () => page.getByTestId("tag-group-rename-field").press("Enter"));
-  await expect(page.getByTestId("tag-group-name")).toHaveText(["Practices", "Ungrouped"]);
-
-  const practices = page.locator(".tag-group").filter({ hasText: "Practices" });
-  await practices.getByTestId("tag-group-menu").click();
-  await mutateAndAwaitSaved(page, () => page.getByTestId("tag-group-ungroup").click());
-  await expect(page.getByTestId("tag-group-name")).toHaveCount(0);
-  await expect(page.getByTestId("tag-row")).toHaveCount(3);
-});
-
-// A tag is a place now: its name, its defaults, and the query that answers what
-// it is for all live on one route, and that query's saved views are the page's
-// own tabs. Nothing is written until something is shaped.
-test("a tag's page carries its query, and the query's views are its tabs", async ({ page }) => {
-  await createGraph(page, "Tag Page Graph");
-  await openSidebar(page);
-  await page.getByTestId("sidebar").getByRole("link", { name: "Tags" }).click();
-  await page.getByTestId("new-tag").click();
-  await page.getByTestId("new-tag-name").fill("Reading");
-  await page.getByTestId("new-tag-name").press("Enter");
-  await openSidebar(page);
-  await page.getByTestId("sidebar").getByRole("link", { name: "Journal" }).click();
-  await startOutline(page);
-  await typeInFocusedBlock(page, "finish the Loro paper");
-  await openBlockTags(page);
-  await page.getByTestId("tag-picker").getByTestId("tag-autocomplete").fill("Reading");
-  await mutateAndAwaitSaved(page, () =>
-    page.getByRole("option", { name: "Reading", exact: true }).click(),
-  );
-  await page.keyboard.press("Escape");
-
-  await page.locator(".outline-tags").getByTestId("tag-chip").click();
-  await expect(page.getByTestId("tag-title")).toHaveValue("Reading");
-  // The seeded query answers what the tag is for, without anyone writing it.
+  await app.block(0).getByTestId("tag-chip").click();
+  await expect(page.getByTestId("tag-title")).toHaveValue("Project");
   const query = page.getByTestId("query-block");
-  await expect(query.getByTestId("query-conditions-trigger")).toHaveAttribute("title", /#Reading/);
-  await expect(query.getByTestId("query-count")).toContainText("1 result");
-  await expect(query.getByTestId("query-table")).toBeVisible();
+  await expect(query.getByTestId("query-row")).toHaveCount(2);
+  await expect(query).toContainText("Inherit the default");
+  await expect(query).toContainText("Keep my own status");
+  await expect(query).not.toContainText("Untagged note");
+  await page.getByTestId("tag-default-builtin.task-status").click();
+  await app.saved(() => properties.getByRole("option", { name: "Doing", exact: true }).click());
+  await query.getByRole("button", { name: "Open “Inherit the default”", exact: true }).click();
+  await expect(inherited).toHaveAccessibleName("Task status: To-do");
+  await expect(existing).toHaveAccessibleName("Task status: Done");
 
-  // One view, named for what it shows rather than for how it is drawn — and the
-  // chosen tab is raised out of the track rather than told apart by a second
-  // signal (designs/interaction.md § Control States).
-  const tabs = query.getByRole("tab");
-  await expect(tabs).toHaveText(["All"]);
-  await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
-
-  // A view's stored name is authoritative even when it carries the initial
-  // stable ID. Renaming changes the name, not the identity.
-  await tabs.first().click({ button: "right" });
-  await page.getByTestId("query-view-rename").click();
-  await query.getByTestId("query-view-rename-field").fill("Everything");
-  await mutateAndAwaitSaved(page, () =>
-    query.getByTestId("query-view-rename-field").press("Enter"),
+  await tagPicker(app, 0);
+  const tags = page.getByTestId("tag-picker");
+  await app.saved(() =>
+    tags.getByRole("button", { name: "Remove tag Project", exact: true }).click(),
   );
-  await expect(query.getByRole("tab", { name: "Everything" })).toBeVisible();
-
-  // A new view opens on itself, and is renamed where it stands.
-  await query.getByTestId("query-view-add").click();
-  await mutateAndAwaitSaved(page, () =>
-    page.getByRole("menuitem", { name: "List", exact: true }).click(),
-  );
-  await expect(tabs).toHaveCount(2);
-  await expect(tabs.nth(1)).toHaveText("List");
-  await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
-  await expect(query.getByTestId("query-list")).toBeVisible();
-  await tabs.nth(1).click({ button: "right" });
-  await page.getByTestId("query-view-rename").click();
-  const field = query.getByTestId("query-view-rename-field");
-  await field.fill("Unread");
-  await mutateAndAwaitSaved(page, () => field.press("Enter"));
-  await expect(query.getByRole("tab", { name: "Unread" })).toBeVisible();
-
-  // And the order survives a reload, because a view is graph data.
+  await expect(tags.getByTestId("tag-chip")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(tags).toHaveCount(0);
+  await expect(app.block(0).getByTestId("tag-chip")).toHaveCount(0);
+  await expect(inherited).toHaveAccessibleName("Task status: To-do");
+  await app.block(1).getByTestId("tag-chip").click();
+  await expect(query.getByTestId("query-row")).toHaveCount(1);
+  await expect(query).toContainText("Keep my own status");
+  await expect(query).not.toContainText("Inherit the default");
   await page.reload();
-  await expect(query.getByRole("tab", { name: "Unread" })).toHaveAttribute("aria-selected", "true");
-  await expect(query.getByRole("tab", { name: "Everything" })).toBeVisible();
-
-  // Dragging a tab past its neighbour is the same move the menu makes.
-  await mutateAndAwaitSaved(page, () =>
-    query
-      .getByRole("tab", { name: "Unread" })
-      .dragTo(query.getByRole("tab", { name: "Everything" }), { targetPosition: { x: 2, y: 10 } }),
+  await expect(query.getByTestId("query-row")).toHaveCount(1);
+  await expect(page.getByTestId("tag-default-builtin.task-status")).toHaveAccessibleName(
+    "Status: Doing",
   );
-  await expect(query.getByRole("tab")).toHaveText(["Unread", "Everything"]);
-
-  await query.getByRole("tab", { name: "Unread" }).click({ button: "right" });
-  await mutateAndAwaitSaved(page, () => page.getByTestId("query-view-delete").click());
-  await expect(query.getByRole("tab")).toHaveText(["Everything"]);
-});
-
-test("deleted page references resolve to a tombstone, not a new page", async ({ page }) => {
-  await createGraph(page, "Tombstone Graph");
-  await createPage(page, "Ephemeral");
-  await startOutline(page);
-  await typeInFocusedBlock(page, "content to restore");
-
-  await openPageMenu(page);
-  await page.getByTestId("delete-page").click();
-  await page.getByTestId("confirm-delete-page").click();
-  await expect(page.getByTestId("tombstone")).toBeVisible();
-  await expect(page.getByTestId("page-list").getByRole("link", { name: "Ephemeral" })).toHaveCount(
-    0,
-  );
-
-  await page.getByTestId("restore-page").click();
-  await expect(page.getByTestId("page-title")).toHaveValue("Ephemeral");
-  await expect(page.locator('[data-testid="outline-row"] textarea').first()).toHaveValue(
-    "content to restore",
-  );
+  await query.getByRole("button", { name: "Open “Keep my own status”", exact: true }).click();
+  await page.reload();
+  await app.expectOutline(["Inherit the default", "Keep my own status", "Untagged note"]);
+  await expect(inherited).toHaveAccessibleName("Task status: To-do");
+  await expect(existing).toHaveAccessibleName("Task status: Done");
+  await expect(app.block(0).getByTestId("tag-chip")).toHaveCount(0);
+  await expect(app.block(1).getByTestId("tag-chip")).toHaveText("#Project");
+  await expect(app.block(2).getByTestId("tag-chip")).toHaveCount(0);
+  await expect(app.block(2).getByTestId("task-status-toggle")).toHaveCount(0);
 });

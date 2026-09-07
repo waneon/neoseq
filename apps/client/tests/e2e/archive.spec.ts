@@ -1,67 +1,73 @@
-import { expect, test } from "@playwright/test";
+import { test, expect } from "../support/fixtures";
 import { fileURLToPath } from "node:url";
-import { blockTexts, createGraph, startOutline, typeInFocusedBlock } from "./helpers";
 
-test("imports every archive copy under a fresh graph identity", async ({ page }) => {
-  await createGraph(page, "Archive source");
-  await startOutline(page);
-  await typeInFocusedBlock(page, "portable note");
-  const sourceGraphId = graphId(page.url());
-
+test("an exported graph imports as independent copies without changing its source", async ({
+  app,
+  page,
+}, testInfo) => {
+  await app.createGraph("Portable");
+  await app.startBlock("Original note");
+  await app.appendBlock("Nested note");
+  await app.editors.last().click();
+  await app.saved(() => page.keyboard.press("Tab"));
+  const source = page.url();
   await page.goto("/");
-  await page.getByRole("button", { name: "Actions for Archive source" }).click();
-  const downloadStarted = page.waitForEvent("download");
-  await page.getByTestId("export-graph-Archive source").click();
-  const download = await downloadStarted;
-  expect(download.suggestedFilename()).toBe("Archive source.neoseq");
-  const archivePath = await download.path();
-  if (!archivePath) throw new Error("the graph archive download has no local path");
-
-  const firstImport = page.waitForEvent("filechooser");
-  await page.getByTestId("import-graph").click();
-  await (await firstImport).setFiles(archivePath);
-  await expect(page.getByTestId("journal-title")).toBeVisible();
-  const firstImportedGraphId = graphId(page.url());
-  expect(firstImportedGraphId).not.toBe(sourceGraphId);
-  await expect.poll(() => blockTexts(page)).toEqual(["portable note"]);
-
-  await page.goto("/");
-  const secondImport = page.waitForEvent("filechooser");
-  await page.getByTestId("import-graph").click();
-  await (await secondImport).setFiles(archivePath);
-  await expect(page.getByTestId("journal-title")).toBeVisible();
-  const secondImportedGraphId = graphId(page.url());
-  expect(secondImportedGraphId).not.toBe(sourceGraphId);
-  expect(secondImportedGraphId).not.toBe(firstImportedGraphId);
-  await expect.poll(() => blockTexts(page)).toEqual(["portable note"]);
-
-  await page.goto("/");
-  await expect(page.getByTestId("open-graph-Archive source")).toHaveCount(3);
+  await page.getByRole("button", { name: "Actions for Portable" }).click();
+  const downloading = page.waitForEvent("download");
+  await page.getByTestId("export-graph-Portable").click();
+  const download = await downloading;
+  expect(download.suggestedFilename()).toBe("Portable.neoseq");
+  const archive = testInfo.outputPath("portable.neoseq");
+  await download.saveAs(archive);
+  const copies: string[] = [];
+  for (const text of ["First independent copy", "Second independent copy"]) {
+    await page.getByTestId("import-graph-file").setInputFiles(archive);
+    await app.expectOutline(["Original note", "Nested note"]);
+    await expect(app.block(1)).toHaveAttribute("aria-level", "2");
+    copies.push(page.url());
+    await app.editBlock(0, text);
+    await page.reload();
+    await app.expectOutline([text, "Nested note"]);
+    await page.goto("/");
+  }
+  expect(new Set([source, ...copies]).size).toBe(3);
+  await page.goto(source);
+  await app.expectOutline(["Original note", "Nested note"]);
+  await page.goto(copies[0]);
+  await app.expectOutline(["First independent copy", "Nested note"]);
 });
 
-function graphId(url: string): string {
-  const parsed = new URL(url);
-  const route = parsed.hash.startsWith("#/") ? parsed.hash.slice(1) : parsed.pathname;
-  const match = route.match(/^\/g\/([^/]+)/u);
-  if (!match) throw new Error(`expected a graph route, received ${url}`);
-  return decodeURIComponent(match[1]);
-}
-
-test("migrates a schema 6 archive before installing a durable graph copy", async ({ page }) => {
+test("a corrupt archive reports failure without publishing a graph", async ({ page }) => {
   await page.goto("/");
-  const chooseArchive = page.waitForEvent("filechooser");
-  await page.getByTestId("import-graph").click();
-  await (
-    await chooseArchive
-  ).setFiles(
-    fileURLToPath(new URL("../../../../fixtures/graph-archive/schema-6.neoseq", import.meta.url)),
-  );
+  await page.getByTestId("import-graph-file").setInputFiles({
+    name: "broken.neoseq",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("not a graph archive"),
+  });
+  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page.getByTestId("picker-empty")).toBeVisible();
+  await page.reload();
+  await expect(page.getByTestId("picker-empty")).toBeVisible();
+  await expect(page.getByTestId("graph-list")).toHaveCount(0);
+});
+
+test("a supported legacy archive migrates into a durable independent graph", async ({
+  app,
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .getByTestId("import-graph-file")
+    .setInputFiles(
+      fileURLToPath(new URL("../../../../fixtures/graph-archive/schema-6.neoseq", import.meta.url)),
+    );
   await expect(page.getByTestId("journal-title")).toBeVisible();
-  expect(graphId(page.url())).not.toBe("schema-six-fixture");
+  expect(page.url()).not.toContain("schema-six-fixture");
   await page.getByRole("link", { name: "Schema six notes", exact: true }).click();
   await expect(page.getByTestId("page-title")).toHaveValue("Schema six notes");
-  await expect.poll(() => blockTexts(page)).toContain("Nested note");
+  await expect(app.editors.last()).toHaveValue("Nested note");
+  await app.editBlock(1, "Migrated note edited");
   await page.reload();
-  await expect(page.getByTestId("page-title")).toHaveValue("Schema six notes");
-  await expect.poll(() => blockTexts(page)).toContain("Nested note");
+  await expect(app.editors.last()).toHaveValue("Migrated note edited");
+  await expect(app.block(1)).toHaveAttribute("aria-level", "2");
 });

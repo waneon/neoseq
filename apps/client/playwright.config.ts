@@ -1,63 +1,85 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// The browser devenv profile supplies an allocated port. The fallback keeps
-// direct Playwright runs useful outside that boundary while staying clear of
-// Vite's development port.
-const previewPort = Number(process.env.NEOSEQ_PREVIEW_PORT ?? 14173);
-const preview = `pnpm vite preview --host 127.0.0.1 --port ${previewPort}`;
-const managedPreview = process.env.NEOSEQ_E2E_MANAGED_PREVIEW === "1";
+const port = Number(process.env.NEOSEQ_PREVIEW_PORT ?? 14173);
+const contractPort = Number(process.env.NEOSEQ_CONTRACT_PORT ?? 14174);
+const origin = `http://127.0.0.1:${port}`;
+const contractOrigin = `http://127.0.0.1:${contractPort}`;
 
 export default defineConfig({
   testDir: "./tests",
-  testMatch: /.*\.spec\.ts/,
-  fullyParallel: false,
-  // Match the public CI runner's four cores and keep scheduling reproducible.
+  fullyParallel: true,
+  forbidOnly: !!process.env.CI,
   workers: 4,
-  // A retry changes the observed schedule and can hide a race. This gate accepts
-  // one result for one run; repeated stress runs belong in verification.
   retries: 0,
-  reporter: "line",
-  expect: {
-    timeout: 30_000,
-  },
+  repeatEach: process.env.CI ? 2 : 1,
+  timeout: 45_000,
+  expect: { timeout: 10_000 },
+  reporter: [["list"], ["html", { open: "never" }]],
   use: {
-    baseURL: `http://127.0.0.1:${previewPort}`,
+    baseURL: origin,
+    locale: "en-US",
+    timezoneId: "Asia/Seoul",
+    colorScheme: "light",
+    actionTimeout: 10_000,
+    navigationTimeout: 15_000,
     trace: "retain-on-failure",
+    screenshot: "only-on-failure",
   },
   projects: [
     {
-      name: "chromium",
+      name: "desktop",
+      testDir: "./tests/e2e",
+      testIgnore: /(?:collaboration|remote)\.spec\.ts/,
       use: { ...devices["Desktop Chrome"] },
-      testIgnore: /(?:mobile|motion)\.spec\.ts/,
     },
     {
-      name: "mobile-chromium",
+      name: "mobile",
+      testDir: "./tests/e2e",
+      testMatch: "usability.spec.ts",
       use: { ...devices["Pixel 7"] },
-      testMatch: /(?:a11y|calendar|mobile|visual)\.spec\.ts/,
     },
     {
-      // Dark mode ships from the same token declaration, so it needs the same
-      // gate: contrast is a property of the pair, not of the light values.
-      name: "chromium-dark",
+      name: "dark",
+      testDir: "./tests/e2e",
+      testMatch: "usability.spec.ts",
       use: { ...devices["Desktop Chrome"], colorScheme: "dark" },
-      testMatch: /(?:a11y|calendar|visual)\.spec\.ts/,
     },
     {
-      name: "chromium-reduced-motion",
-      use: {
-        ...devices["Desktop Chrome"],
-        contextOptions: { reducedMotion: "reduce" },
-      },
-      testMatch: /motion\.spec\.ts/,
+      name: "reduced-motion",
+      testDir: "./tests/e2e",
+      testMatch: "usability.spec.ts",
+      use: { ...devices["Desktop Chrome"], contextOptions: { reducedMotion: "reduce" } },
+    },
+    {
+      name: "sync",
+      testDir: "./tests/e2e",
+      testMatch: /(?:collaboration|remote)\.spec\.ts/,
+      timeout: 90_000,
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "contracts",
+      testDir: "./tests/contracts",
+      use: { ...devices["Desktop Chrome"], baseURL: contractOrigin },
     },
   ],
-  // The devenv browser gate owns a ready preview process. A direct Playwright
-  // invocation has no such task graph, so it builds and owns a fresh server.
-  webServer: managedPreview
-    ? undefined
-    : {
-        command: `pnpm vite build --mode test && ${preview}`,
-        port: previewPort,
-        reuseExistingServer: false,
-      },
+  // devenv owns ready processes. Direct runs build fresh artifacts and refuse
+  // to borrow an unrelated development server.
+  webServer:
+    process.env.NEOSEQ_E2E_MANAGED_PREVIEW === "1"
+      ? undefined
+      : [
+          {
+            command: `pnpm vite build && pnpm vite preview --host 127.0.0.1 --port ${port} --strictPort`,
+            url: origin,
+            reuseExistingServer: false,
+            timeout: 120_000,
+          },
+          {
+            command: `pnpm vite build --mode test --outDir dist-contracts && pnpm vite preview --outDir dist-contracts --host 127.0.0.1 --port ${contractPort} --strictPort`,
+            url: contractOrigin,
+            reuseExistingServer: false,
+            timeout: 120_000,
+          },
+        ],
 });
