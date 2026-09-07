@@ -32,7 +32,11 @@ function loadLicenseReport() {
   });
 
   if (result.error) throw result.error;
-  if (result.status !== 0) process.exit(result.status ?? 1);
+  if (result.status !== 0) {
+    // pnpm writes structured errors to stdout when --json is enabled.
+    if (result.stdout) process.stderr.write(result.stdout);
+    process.exit(result.status ?? 1);
+  }
 
   return JSON.parse(result.stdout);
 }
