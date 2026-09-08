@@ -338,20 +338,35 @@ button.today-pill:hover {
   background: transparent;
 }
 
-@media (max-width: 600px) {
+@media (max-width: 840px) {
+  .page-scroll {
+    scrollbar-gutter: auto;
+    overscroll-behavior-y: contain;
+    scroll-padding-block: 24px 80px;
+    padding-bottom: 120px;
+  }
+
   .page-body {
-    --text-title: 32px;
-    --lh-title: 42px;
-    padding-top: 28px;
+    --text-title: 30px;
+    --lh-title: 39px;
+    --gutter: 20px;
+    padding-top: 24px;
+  }
+
+  .document-header {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding-bottom: 18px;
+  }
+
+  .document-header > .title-row {
+    order: -1;
   }
 
   .document-toolbar {
     gap: var(--sp-2);
-    margin-bottom: 20px;
-  }
-
-  .document-header {
-    padding-bottom: 22px;
+    margin-bottom: 0;
   }
 
   .document-eyebrow {
@@ -359,17 +374,56 @@ button.today-pill:hover {
   }
 
   .title-actions {
-    gap: 6px;
+    gap: 4px;
+    margin-inline-start: auto;
   }
 
-  .date-stepper,
+  .journal-header .document-eyebrow {
+    display: none;
+  }
+
+  .journal-header .title-actions {
+    width: 100%;
+  }
+
+  .date-stepper {
+    height: 44px;
+    margin-inline-end: auto;
+    border: 0;
+    background: var(--surface-1);
+    border-radius: var(--r-3);
+  }
+
+  .date-stepper .icon-btn {
+    width: 40px;
+  }
+
+  .date-stepper .icon-btn + .icon-btn {
+    border: 0;
+  }
+
+  .date-stepper .icon-btn svg {
+    width: 18px;
+    height: 18px;
+  }
+
   .today-pill {
-    height: 32px;
+    height: 44px;
+    padding-inline: 12px;
+    margin-inline-end: 4px;
+    border-radius: var(--r-3);
   }
 
-  .document-properties-action {
-    width: 32px;
+  .document-properties-action,
+  .document-toolbar [data-testid="page-actions-trigger"] {
+    width: 44px;
+    height: 44px;
     padding: 0;
+  }
+
+  .document-properties-action svg {
+    width: 18px;
+    height: 18px;
   }
 
   .document-properties-action > span {
@@ -378,16 +432,13 @@ button.today-pill:hover {
 }
 
 @media (max-width: 360px) {
-  .journal-header .document-toolbar {
-    flex-wrap: wrap;
-    row-gap: var(--sp-3);
+  .page-body {
+    --gutter: 16px;
   }
-
-  .journal-header .title-actions {
-    width: 100%;
+  .title-actions {
+    gap: 0;
   }
-
-  .journal-header [data-testid="page-actions-trigger"] {
-    margin-inline-start: auto;
+  .today-pill {
+    padding-inline: 8px;
   }
 }

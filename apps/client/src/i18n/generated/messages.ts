@@ -250,6 +250,8 @@ export interface MessageArgumentMap {
   "outline.engineMissingId": undefined;
   "outline.expand": undefined;
   "outline.indent": undefined;
+  "outline.mobileActions": undefined;
+  "outline.mobileToolbar": undefined;
   "outline.moveDown": undefined;
   "outline.moveUp": undefined;
   "outline.newBlocksFailed": { readonly "count": number };
@@ -606,6 +608,16 @@ export interface MessageArgumentMap {
   "settings.languageDescription": undefined;
   "settings.languagePreview": undefined;
   "settings.languageSystemDescription": undefined;
+  "settings.mobileAppearance": undefined;
+  "settings.mobileBack": undefined;
+  "settings.mobileDanger": undefined;
+  "settings.mobileGraph": undefined;
+  "settings.mobileJournal": undefined;
+  "settings.mobileKeyboard": undefined;
+  "settings.mobileLanguage": undefined;
+  "settings.mobileQueries": undefined;
+  "settings.mobileStorage": undefined;
+  "settings.mobileTasks": undefined;
   "settings.persistDeclinedDetail": undefined;
   "settings.persistDeclinedTitle": undefined;
   "settings.persistGranted": undefined;
@@ -657,6 +669,8 @@ export interface MessageArgumentMap {
   "shell.graphNavigation": undefined;
   "shell.journal": undefined;
   "shell.localGraph": undefined;
+  "shell.mobile.library": undefined;
+  "shell.mobile.navigation": undefined;
   "shell.moreActions": undefined;
   "shell.newPage": undefined;
   "shell.noPages": undefined;

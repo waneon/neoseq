@@ -32,6 +32,8 @@ import { DUE_TIERS, type DueTier } from "../../entities/tasks";
 import {
   CalendarIcon,
   CheckIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   CircleCheckIcon,
   CopyIcon,
   DatabaseIcon,
@@ -124,36 +126,42 @@ const SETTINGS_GROUPS = [
         id: "appearance",
         label: "settings.appearance",
         description: "settings.appearanceIntro",
+        mobileDescription: "settings.mobileAppearance",
         icon: PaletteIcon,
       },
       {
         id: "language",
         label: "language.label",
         description: "settings.languageDescription",
+        mobileDescription: "settings.mobileLanguage",
         icon: LanguagesIcon,
       },
       {
         id: "journal",
         label: "settings.journal",
         description: "settings.journalDescription",
+        mobileDescription: "settings.mobileJournal",
         icon: CalendarIcon,
       },
       {
         id: "tasks",
         label: "settings.tasks",
         description: "settings.dueTonesDescription",
+        mobileDescription: "settings.mobileTasks",
         icon: CircleCheckIcon,
       },
       {
         id: "keyboard",
         label: "settings.keyboard",
         description: "settings.keyboardDescription",
+        mobileDescription: "settings.mobileKeyboard",
         icon: KeyboardIcon,
       },
       {
         id: "storage",
         label: "settings.storage",
         description: "settings.storageDescription",
+        mobileDescription: "settings.mobileStorage",
         icon: HardDriveIcon,
       },
     ],
@@ -165,18 +173,21 @@ const SETTINGS_GROUPS = [
         id: "graph",
         label: "settings.graph",
         description: "settings.graphDescription",
+        mobileDescription: "settings.mobileGraph",
         icon: DatabaseIcon,
       },
       {
         id: "queries",
         label: "settings.defaultQueries",
         description: "settings.defaultQueriesDescription",
+        mobileDescription: "settings.mobileQueries",
         icon: ListFilterIcon,
       },
       {
         id: "danger",
         label: "settings.danger",
         description: "settings.dangerDescription",
+        mobileDescription: "settings.mobileDanger",
         icon: Trash2Icon,
       },
     ],
@@ -184,10 +195,22 @@ const SETTINGS_GROUPS = [
 ] as const;
 
 const SETTINGS_SECTIONS = SETTINGS_GROUPS.flatMap((group) => [...group.sections]);
-export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]["id"];
+export type SettingsSection = "index" | (typeof SETTINGS_SECTIONS)[number]["id"];
 
 export function isSettingsSection(value: string | null): value is SettingsSection {
-  return SETTINGS_SECTIONS.some((section) => section.id === value);
+  return value === "index" || SETTINGS_SECTIONS.some((section) => section.id === value);
+}
+
+const COMPACT_SETTINGS = "(max-width: 600px)";
+
+function subscribeCompactSettings(listener: () => void) {
+  const media = window.matchMedia(COMPACT_SETTINGS);
+  media.addEventListener("change", listener);
+  return () => media.removeEventListener("change", listener);
+}
+
+function compactSettingsSnapshot() {
+  return window.matchMedia(COMPACT_SETTINGS).matches;
 }
 
 export function SettingsDialog({
@@ -205,8 +228,23 @@ export function SettingsDialog({
 }) {
   const { message } = useI18n();
   const heading = useId();
+  const compact = useSyncExternalStore(
+    subscribeCompactSettings,
+    compactSettingsSnapshot,
+    () => false,
+  );
+  const showIndex = compact && section === "index";
+  const activeSection = section === "index" ? "appearance" : section;
   const activeTab = useRef<HTMLButtonElement>(null);
-  const active = SETTINGS_SECTIONS.find((entry) => entry.id === section)!;
+  const pageHeading = useRef<HTMLHeadingElement>(null);
+  const returnSection = useRef(activeSection);
+  const navigationSection = compact ? returnSection.current : activeSection;
+  const active = SETTINGS_SECTIONS.find((entry) => entry.id === activeSection)!;
+
+  useEffect(() => {
+    if (section !== "index") returnSection.current = section;
+    if (compact && !showIndex) pageHeading.current?.focus({ preventScroll: true });
+  }, [compact, section, showIndex]);
 
   useEffect(() => {
     const tab = activeTab.current;
@@ -216,65 +254,99 @@ export function SettingsDialog({
     const observer = new ResizeObserver(reveal);
     observer.observe(tab.parentElement);
     return () => observer.disconnect();
-  }, [section]);
+  }, [compact, section]);
 
   return (
     <Dialog title={message("settings.title")} onClose={onClose} size="settings">
-      <div className="settings-shell" data-testid="settings-dialog">
-        <nav className="settings-nav" aria-label={message("settings.sections")}>
-          {SETTINGS_GROUPS.map((group) => (
-            <div className="settings-group" key={group.label}>
-              <h3>{message(group.label)}</h3>
-              <div className="settings-group-links">
-                {group.sections.map((entry) => (
-                  <button
-                    key={entry.id}
-                    type="button"
-                    ref={entry.id === section ? activeTab : undefined}
-                    autoFocus={entry.id === section}
-                    className="settings-tab"
-                    aria-current={entry.id === section ? "page" : undefined}
-                    aria-controls={`${heading}-pane`}
-                    data-testid={`settings-tab-${entry.id}`}
-                    onClick={() => onSection(entry.id)}
-                  >
-                    <entry.icon aria-hidden />
-                    <span>{message(entry.label)}</span>
-                  </button>
-                ))}
+      <div
+        className="settings-shell"
+        data-view={showIndex ? "index" : "section"}
+        data-testid="settings-dialog"
+      >
+        {compact && !showIndex && (
+          <button
+            className="settings-back"
+            type="button"
+            aria-label={message("settings.mobileBack")}
+            data-testid="settings-back"
+            onClick={() => onSection("index")}
+          >
+            <ChevronLeftIcon aria-hidden />
+          </button>
+        )}
+        {(!compact || showIndex) && (
+          <nav className="settings-nav" aria-label={message("settings.sections")}>
+            {SETTINGS_GROUPS.map((group) => (
+              <div className="settings-group" key={group.label}>
+                <h3>{message(group.label)}</h3>
+                <div className="settings-group-links">
+                  {group.sections.map((entry) => (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      ref={entry.id === navigationSection ? activeTab : undefined}
+                      autoFocus={entry.id === navigationSection}
+                      className="settings-tab"
+                      aria-current={!compact && entry.id === activeSection ? "page" : undefined}
+                      aria-controls={!compact ? `${heading}-pane` : undefined}
+                      data-destructive={entry.id === "danger" || undefined}
+                      data-testid={`settings-tab-${entry.id}`}
+                      onClick={() => onSection(entry.id)}
+                    >
+                      <span className="settings-tab-icon">
+                        <entry.icon aria-hidden />
+                      </span>
+                      <span className="settings-tab-copy">
+                        <span>{message(entry.label)}</span>
+                        {compact && (
+                          <span className="settings-tab-description">
+                            {message(entry.mobileDescription)}
+                          </span>
+                        )}
+                      </span>
+                      {compact && <ChevronRightIcon className="settings-tab-chevron" aria-hidden />}
+                    </button>
+                  ))}
+                </div>
               </div>
+            ))}
+            <p className="settings-nav-note">
+              <MonitorIcon aria-hidden />
+              {message("settings.preferencesHint")}
+            </p>
+          </nav>
+        )}
+        {!showIndex && (
+          <div
+            className="settings-pane"
+            id={`${heading}-pane`}
+            key={activeSection}
+            role="region"
+            aria-labelledby={heading}
+          >
+            <header className="settings-page-header">
+              <h2 id={heading} ref={pageHeading} tabIndex={compact ? -1 : undefined}>
+                {message(active.label)}
+              </h2>
+              <p>{message(active.description)}</p>
+            </header>
+            <div className="settings-page-content">
+              {activeSection === "appearance" && <AppearanceSection />}
+              {activeSection === "language" && <LanguageSection />}
+              {activeSection === "journal" && <JournalSection />}
+              {activeSection === "queries" && <DefaultQueriesSection />}
+              {activeSection === "tasks" && <TasksSection />}
+              {activeSection === "keyboard" && <ShortcutEditor />}
+              {activeSection === "storage" && <StorageSection />}
+              {activeSection === "graph" && (
+                <GraphSection repositoryId={repositoryId} graphId={graphId} />
+              )}
+              {activeSection === "danger" && (
+                <DangerSection repositoryId={repositoryId} graphId={graphId} />
+              )}
             </div>
-          ))}
-          <p className="settings-nav-note">
-            <MonitorIcon aria-hidden />
-            {message("settings.preferencesHint")}
-          </p>
-        </nav>
-        <div
-          className="settings-pane"
-          id={`${heading}-pane`}
-          key={section}
-          role="region"
-          aria-labelledby={heading}
-        >
-          <header className="settings-page-header">
-            <h2 id={heading}>{message(active.label)}</h2>
-            <p>{message(active.description)}</p>
-          </header>
-          <div className="settings-page-content">
-            {section === "appearance" && <AppearanceSection />}
-            {section === "language" && <LanguageSection />}
-            {section === "journal" && <JournalSection />}
-            {section === "queries" && <DefaultQueriesSection />}
-            {section === "tasks" && <TasksSection />}
-            {section === "keyboard" && <ShortcutEditor />}
-            {section === "storage" && <StorageSection />}
-            {section === "graph" && <GraphSection repositoryId={repositoryId} graphId={graphId} />}
-            {section === "danger" && (
-              <DangerSection repositoryId={repositoryId} graphId={graphId} />
-            )}
           </div>
-        </div>
+        )}
       </div>
     </Dialog>
   );

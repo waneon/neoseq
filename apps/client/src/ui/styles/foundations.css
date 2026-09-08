@@ -494,6 +494,12 @@ h2 {
   font-variant-numeric: tabular-nums;
 }
 
+@media (max-width: 840px) {
+  :root {
+    --control-h: 44px;
+  }
+}
+
 @media (max-width: 600px) {
   :root {
     --text-xl: 24px;

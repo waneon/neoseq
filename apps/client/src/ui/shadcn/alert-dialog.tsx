@@ -20,11 +20,11 @@ function AlertDialogContent({
         data-slot="alert-dialog-overlay"
         className="fixed inset-0 z-[var(--z-dialog)] bg-[var(--scrim)] backdrop-blur-[var(--scrim-blur)] enter-fade"
       />
-      <div className="pointer-events-none fixed inset-0 z-[var(--z-dialog)] flex items-center justify-center p-4">
+      <div className="dialog-frame">
         <AlertDialogPrimitive.Content
           data-slot="alert-dialog-content"
           className={cn(
-            "enter-rise pointer-events-auto relative grid w-full max-w-[440px] gap-4 rounded-[var(--r-4)] bg-[var(--overlay)] p-6 shadow-[var(--e3)] max-[600px]:p-4",
+            "dialog-surface enter-rise pointer-events-auto relative grid w-full gap-4 bg-[var(--overlay)] shadow-[var(--e3)]",
             className,
           )}
           {...props}

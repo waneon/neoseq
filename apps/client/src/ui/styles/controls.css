@@ -350,6 +350,33 @@ button.chip:focus-visible .chip-glyph .chip-x {
   line-height: var(--lh-xs);
 }
 
+.dialog-frame {
+  position: fixed;
+  z-index: var(--z-dialog);
+  inset-inline: 0;
+  top: var(--visual-viewport-top, 0px);
+  height: var(--visual-viewport-height, 100dvh);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  pointer-events: none;
+}
+
+.dialog-surface {
+  max-width: 440px;
+  max-height: calc(var(--visual-viewport-height, 100dvh) - 32px);
+  border-radius: var(--r-4);
+  padding: 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.dialog-surface > [data-slot="dialog-close"] {
+  inset-inline-end: 12px;
+  top: 12px;
+}
+
 .dialog-actions {
   display: flex;
   flex-wrap: wrap;
@@ -489,5 +516,36 @@ button.chip:focus-visible .chip-glyph .chip-x {
   .tag-chip-remove {
     width: 28px;
     height: 28px;
+  }
+}
+
+@media (max-width: 840px) {
+  .btn,
+  .menu-select {
+    min-height: 44px;
+  }
+
+  [data-slot="dialog-close"] {
+    width: 44px;
+    height: 44px;
+  }
+
+  [data-slot="dropdown-menu-item"],
+  [data-slot="select-item"] {
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 600px) {
+  .dialog-frame {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .dialog-surface:not(.settings-dialog-surface) {
+    max-width: 100%;
+    max-height: calc(var(--visual-viewport-height, 100dvh) - 16px);
+    border-radius: 20px 20px 0 0;
+    padding: 24px 20px max(24px, env(safe-area-inset-bottom));
   }
 }

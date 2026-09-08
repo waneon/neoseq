@@ -23,6 +23,7 @@ import {
   FileTextIcon,
   HashIcon,
   KeyboardIcon,
+  LibraryIcon,
   Loader2Icon,
   PanelLeftIcon,
   PlusIcon,
@@ -48,7 +49,7 @@ import {
   type Favourite,
 } from "../../entities/favourites";
 import { TagMark } from "../tags/TagIdentity";
-import { Wordmark } from "../../ui/brand";
+import { LogoMark, Wordmark } from "../../ui/brand";
 import { Input } from "@/ui/shadcn/input";
 import { Button } from "@/ui/shadcn/button";
 import { Kbd } from "@/ui/kbd";
@@ -331,7 +332,11 @@ function ShellBody({
   const settingsSection = isSettingsSection(settingsParam) ? settingsParam : null;
 
   const openSettings = useCallback(
-    (section: SettingsSection = "appearance") => {
+    (
+      section: SettingsSection = window.matchMedia("(max-width: 600px)").matches
+        ? "index"
+        : "appearance",
+    ) => {
       setOverlay(null);
       const next = new URLSearchParams(searchParams);
       const wasOpen = next.has(SETTINGS_PARAM);
@@ -724,6 +729,7 @@ SELECT ?entity ?content WHERE {
           />
         )}
         <nav
+          id="graph-navigation"
           className="shell-sidebar"
           ref={sidebarRef}
           data-open={sidebarOpen}
@@ -887,15 +893,10 @@ SELECT ?entity ?content WHERE {
         </nav>
         <main className="shell-main" inert={sidebarOpen || undefined}>
           <header className="shell-topbar">
-            <Button
-              size="icon"
-              className="shell-toggle"
-              aria-label={sidebarOpen ? message("shell.closeMenu") : message("shell.openMenu")}
-              aria-expanded={sidebarOpen}
-              onClick={onToggleSidebar}
-            >
-              <PanelLeftIcon />
-            </Button>
+            <div className="mobile-workspace">
+              <LogoMark />
+              <span>{name}</span>
+            </div>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -943,11 +944,55 @@ SELECT ?entity ?content WHERE {
               >
                 <SearchIcon aria-hidden />
               </Button>
+              <Button
+                size="icon"
+                className="mobile-create"
+                aria-label={message("shell.newPage")}
+                disabled={readonly}
+                onClick={() => void createPage()}
+                data-testid="mobile-new-page"
+              >
+                <PlusIcon aria-hidden />
+              </Button>
             </div>
           </header>
           <div className="shell-content" id="page-content">
             <Outlet />
           </div>
+          <nav className="mobile-navigation" aria-label={message("shell.mobile.navigation")}>
+            <NavLink to={graphPath(repositoryId, graphId, "journal")}>
+              <CalendarDaysIcon aria-hidden />
+              <span>{message("shell.journal")}</span>
+            </NavLink>
+            <button
+              type="button"
+              onClick={() => setOverlay("palette")}
+              aria-label={message("commands.searchLabel")}
+              data-testid="mobile-search"
+            >
+              <SearchIcon aria-hidden />
+              <span>{message("shell.search")}</span>
+            </button>
+            <Link
+              to={graphPath(repositoryId, graphId, "tags")}
+              aria-current={currentTag || location.pathname.endsWith("/tags") ? "page" : undefined}
+            >
+              <HashIcon aria-hidden />
+              <span>{message("shell.tags")}</span>
+            </Link>
+            <button
+              type="button"
+              className="shell-toggle"
+              aria-label={sidebarOpen ? message("shell.closeMenu") : message("shell.openMenu")}
+              aria-expanded={sidebarOpen}
+              aria-controls="graph-navigation"
+              data-current={currentPage !== undefined}
+              onClick={onToggleSidebar}
+            >
+              <LibraryIcon aria-hidden />
+              <span>{message("shell.mobile.library")}</span>
+            </button>
+          </nav>
         </main>
       </div>
       {overlay === "palette" && (

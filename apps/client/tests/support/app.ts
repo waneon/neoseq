@@ -47,7 +47,7 @@ export class NeoseqApp {
     await this.sidebar();
     await this.page.getByTestId("open-settings").click();
     await expect(this.page.getByTestId("settings-dialog")).toBeVisible();
-    if (section !== "appearance") await this.page.getByTestId(`settings-tab-${section}`).click();
+    await this.page.getByTestId(`settings-tab-${section}`).click();
   }
 
   /** Only for gestures guaranteed to change data; capture BEFORE the input. */

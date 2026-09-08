@@ -14,6 +14,13 @@ Future Tauri shells reuse this interaction model through the same CorePort.
 focused UI contracts live under [`../designs/`](../designs/), and [`i18n.md`](i18n.md)
 defines presentation-only localization.
 
+The shell owns desktop and mobile navigation over the same routes and graph
+session. Mobile library and settings are temporary navigation surfaces; settings
+index and section selection remain URL state. One visible-viewport observer
+supplies keyboard geometry to the shell, writing accessory, search, and dialogs.
+Mobile structural controls invoke the existing outline actions and preserve the
+native caret rather than introducing a separate editor model.
+
 ## CorePort and Session
 
 The frontend depends on the asynchronous CorePort v5 operations:

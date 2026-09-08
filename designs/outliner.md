@@ -5,8 +5,8 @@
 The outliner is the primary writing surface. A document header establishes the
 place with a small Page or Journal label, persistent actions, and a large title.
 A fine divider separates document identity from its content. Titles wrap across
-the full measure; journal navigation lives above the date so controls never
-compete with it for writing space. Compact titles use a smaller scale and preserve
+the full measure; journal navigation lives above the date on desktop and below it
+on mobile so controls never compete with it for writing space. Compact titles use a smaller scale and preserve
 word boundaries. An empty metadata strip exposes a quiet Properties action in the
 toolbar; existing properties provide their own direct editing controls below.
 
@@ -46,6 +46,13 @@ undoable intent. Drag shows a destination seam before committing; keyboard
 movement follows the same ordering rules.
 Touch swipes retain native scrolling and text selection; structural range and
 bullet dragging belong to mouse or pen gestures.
+
+Compact outlines use one touch target in the gutter: a visible fold control for
+parents and a block-actions mark for leaves. While writing, an accessory above
+the keyboard provides Outdent, Indent, Block actions, and Done. Structural actions
+preserve the native caret; Done saves the draft and returns to reading and global
+navigation. These controls use the same outline actions and editing session as
+keyboard input. Narrower indentation preserves room for nested writing.
 
 ## Beginning and Continuing
 

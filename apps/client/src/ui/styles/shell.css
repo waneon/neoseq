@@ -383,7 +383,10 @@
   min-height: 0;
 }
 .shell-toggle,
-.rail-toggle {
+.rail-toggle,
+.mobile-workspace,
+.mobile-create,
+.mobile-navigation {
   display: none;
 }
 
@@ -401,12 +404,16 @@
 @media (max-width: 840px) {
   .shell {
     grid-template-columns: minmax(0, 1fr);
+    height: var(--visual-viewport-height, 100dvh);
   }
   .shell-sidebar {
     position: fixed;
     inset-block: 0;
     inset-inline-start: 0;
     width: var(--drawer-w);
+    height: var(--visual-viewport-height, 100dvh);
+    padding-top: max(20px, env(safe-area-inset-top));
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
     z-index: var(--z-drawer);
     box-shadow: var(--e3);
     transform: translateX(-105%);
@@ -423,18 +430,112 @@
   .rail-collapse {
     display: none;
   }
+  .rail-search .kbd,
+  .shell-nav-item .nav-kbd {
+    display: none;
+  }
   .drawer-close,
-  .shell-toggle,
-  .topbar-search {
+  .mobile-create {
     display: inline-flex;
+    width: 44px;
+    height: 44px;
   }
   .shell-topbar {
-    padding-inline: 12px;
+    min-height: calc(60px + env(safe-area-inset-top));
+    height: auto;
+    padding: env(safe-area-inset-top) 16px 0;
     gap: 8px;
+    border-bottom: 0;
   }
-  .topbar-workspace,
-  .topbar-separator {
+  .topbar-location {
     display: none;
+  }
+  .mobile-workspace {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    font-size: 14px;
+    font-weight: var(--weight-medium);
+    color: var(--ink-2);
+  }
+  .mobile-workspace .brand-symbol {
+    --brand-size: 23px;
+    flex: none;
+  }
+  .mobile-workspace > span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .topbar-right {
+    gap: 0;
+    flex-wrap: wrap;
+    max-width: 65%;
+    justify-content: flex-end;
+  }
+  .topbar-history .icon-btn {
+    width: 40px;
+    height: 44px;
+  }
+  .mobile-create {
+    margin-inline-start: 8px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-full);
+  }
+  .mobile-navigation {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    flex: none;
+    padding: 6px 12px max(6px, env(safe-area-inset-bottom));
+    border-top: 1px solid var(--line);
+    background: var(--canvas);
+  }
+  .mobile-navigation > :is(a, button) {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-width: 0;
+    min-height: 52px;
+    padding: 4px;
+    border: 0;
+    border-radius: var(--r-3);
+    background: transparent;
+    color: var(--ink-2);
+    font: inherit;
+    font-size: 11px;
+    line-height: 16px;
+    text-decoration: none;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition:
+      background-color var(--dur-press),
+      color var(--dur-press);
+  }
+  .mobile-navigation > :is([aria-current="page"], [data-current="true"]) {
+    color: var(--accent-quiet);
+    background: var(--accent-tint);
+    font-weight: var(--weight-strong);
+  }
+  .mobile-navigation > :is(a, button):active {
+    background: var(--surface-2);
+  }
+  .mobile-navigation > :is(a, button):focus-visible {
+    outline: none;
+    box-shadow: var(--focus-inset);
+  }
+  .mobile-navigation svg {
+    width: 21px;
+    height: 21px;
+    stroke-width: 1.7;
+  }
+  .shell-main:has(.mobile-editor-toolbar) .mobile-navigation {
+    display: none;
+  }
+  .shell-main:has(.mobile-editor-toolbar) .shell-content {
+    padding-bottom: calc(60px + env(safe-area-inset-bottom));
   }
   .shell-scrim {
     position: fixed;
@@ -446,6 +547,72 @@
     animation: ns-fade-in var(--dur-overlay) var(--ease-out) both;
   }
 }
+@media (max-width: 600px) {
+  .shell-sidebar {
+    width: 100%;
+    padding-inline: 20px;
+    background: var(--canvas);
+    border: 0;
+    box-shadow: none;
+  }
+  .rail-masthead {
+    margin-bottom: 20px;
+  }
+  .rail-switcher {
+    min-height: 68px;
+    padding: 12px;
+    background: var(--surface-1);
+  }
+  .rail-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--r-3);
+  }
+  .rail-search,
+  .rail-create {
+    min-height: 48px;
+    padding-inline: 14px;
+    border-radius: var(--r-3);
+  }
+  .rail-head {
+    margin-bottom: 8px;
+  }
+  .rail-navigation .shell-nav-item {
+    min-height: 48px;
+    font-size: 15px;
+    gap: 14px;
+  }
+  .rail-navigation .shell-nav-item svg {
+    width: 20px;
+    height: 20px;
+  }
+  .rail-navigation .shell-nav-item .nav-label {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .rail-footer {
+    flex-direction: row;
+    gap: 8px;
+  }
+  .rail-footer .shell-nav-item {
+    flex: 1;
+    min-height: 48px;
+    font-size: 12px;
+  }
+}
+/* In landscape, the library becomes one scroller so its fixed head cannot
+   consume the space needed by the directory and settings. */
+@media (max-width: 840px) and (max-height: 500px) {
+  .shell-sidebar {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .rail-navigation {
+    flex: 1 0 auto;
+    overflow: visible;
+  }
+}
+
 @media (hover: none), (pointer: coarse) {
   .rail-search .kbd,
   .shell-nav-item .nav-kbd {

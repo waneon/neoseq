@@ -113,10 +113,14 @@ through the command layer. The region below the last outline block remains a
 writing target; additional bodies such as standing query answers begin only
 after that target has retained its full reach.
 
-Responsive layouts preserve these relationships rather than merely shrinking
-them. The navigation rail becomes a dismissible drawer that contains keyboard focus
-and temporarily makes the content inert, settings panes stack, touch targets
-grow, and hover-only affordances become visible or gain an explicit touch route.
+Mobile has a dedicated navigation and writing composition. A bottom bar provides
+Journal, Search, Tags, and Library; the library owns the page directory and graph
+controls as a temporary focus-contained surface. While a block is active, a
+writing accessory replaces navigation with structural actions and an explicit
+Done action. The title leads the document, with context and tools below it.
+Compact settings uses a grouped index and one section at a time. Touch surfaces
+respect the visible viewport, keyboard, and safe areas; hover-only affordances
+gain an explicit touch route.
 
 See [Shell and Navigation](designs/shell-and-navigation.md) and
 [Outliner](designs/outliner.md).

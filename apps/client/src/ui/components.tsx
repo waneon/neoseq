@@ -51,7 +51,6 @@ export function Dialog({
         showCloseButton={dismissible}
         aria-describedby={undefined}
         className={cn(
-          size !== "settings" && "max-h-[calc(100dvh-2rem)] overflow-y-auto",
           size === "wide" && "max-w-[720px]",
           size === "settings" && "settings-dialog-surface max-w-[940px] gap-0 p-0 max-[600px]:p-0",
         )}

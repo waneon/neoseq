@@ -139,6 +139,11 @@ A destructive confirmation is an alert dialog. It names the irreversible
 effect, places initial focus on the safe action, and stays open while completion
 is unresolved or has failed.
 
+On phones, ordinary dialogs and confirmations rise from the bottom as bounded
+sheets; search and settings use the full visible viewport. All share keyboard
+and safe-area geometry. Pinch zoom remains a browser action and does not trigger
+application reflow.
+
 ## Stable Geometry
 
 Controls, dialogs, palettes, and result strips do not resize while a pointer is

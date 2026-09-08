@@ -14,10 +14,14 @@ content region is the primary scroller; the frame itself does not scroll. This
 keeps navigation, overlay positioning, and return-to-caret behavior independent
 from document length.
 
-On wide screens the rail is a stable column that may collapse. On narrow screens
-it becomes an off-canvas drawer and is inert while closed. The content measure
-and gutter adapt to the viewport without changing the hierarchy of page edge,
-outline inset, and floating layers.
+On wide screens the rail is a stable column that may collapse. On narrow screens,
+a bottom bar gives direct access to Journal, Search, Tags, and Library. Library
+opens the shared directory as a temporary drawer on tablets and a full-screen
+surface on phones. Closed navigation cannot receive focus. The content measure
+and gutter preserve the hierarchy of page edge, outline inset, and floating layers.
+During block editing, structural writing controls and Done occupy the bottom
+navigation's place. The visible viewport is shared by the shell and its overlays
+so the software keyboard does not cover the current interaction.
 
 ## Navigation Rail
 
@@ -45,14 +49,16 @@ above the directory at every scroll position.
 ## Top Bar
 
 The top bar is a persistent, fine-edged orientation strip. A breadcrumb names the
-workspace and current document even before scrolling. On narrow screens it keeps
-the current place and omits the workspace prefix. Registry-backed Undo and Redo
+workspace and current document even before scrolling. On narrow screens it names
+the graph alongside Undo, Redo, and page creation; bottom navigation establishes
+the current place. Registry-backed Undo and Redo
 remain available beside exceptional save or collaboration state. Search also
 appears here whenever the rail is collapsed or becomes a drawer.
 
 The page header owns the document's context, title, and surface-specific controls,
 including journal date navigation. Context and actions share a compact row above
-the full-width title, so long names never compete with controls for width.
+the full-width title on desktop. On mobile the title leads, followed by a row of
+touch controls, so long names never compete with controls for width.
 
 ## Disclosure and Commands
 
@@ -97,10 +103,11 @@ device separately from the current graph. Each pane uses a consistent heading
 and description to establish purpose and scope before its controls. The active
 pane owns its scrolling within the remaining frame.
 
-On compact screens the two scope groups become separate, horizontally scrolling
-navigation rows. Their height stays predictable while the content receives the
-remaining viewport space; the dialog and its close action stay within reach in
-short windows. Theme choices use visual preview cards that show the writing
+On phones the dialog fills the visible viewport. A grouped index preserves the
+two scopes and opens one section at a time; a permanent back action returns to
+the selected index row. The index and selected section share the existing URL
+state, including direct links. Larger screens retain simultaneous section
+navigation. Close remains within reach in short windows. Theme choices use visual preview cards that show the writing
 surface and navigation together. Accent choices preview their actual product
 role, with visible swatches and bounded color controls.
 
@@ -141,9 +148,9 @@ and appearance choices remain available from the masthead before opening a graph
 
 Responsive changes preserve capability and hierarchy:
 
-- the rail becomes a drawer with a visible close action, Escape dismissal, focus
+- Library opens with a visible close action, Escape dismissal, focus
   containment, and focus return; the writing surface is inert while it is open;
-- settings panes stack without mixing their scopes;
+- compact settings uses an index and individual panes without mixing their scopes;
 - touch targets grow and hover-revealed controls become explicit;
 - long-press reaches the same contextual actions as a pointer context menu; and
 - overlays remain within the available viewport rather than forcing shell

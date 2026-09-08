@@ -187,6 +187,8 @@ import {
 import { buildSlashItems, filterSlashItems, type SlashItem } from "../blocks/editor/slash-commands";
 import { createQueryCommand } from "../query/commands";
 import { preparePageCompletion } from "../blocks/editor/completion-edit";
+import { MobileEditorToolbar } from "./MobileEditorToolbar";
+import { useCompactLayout } from "@/ui/use-compact-layout";
 
 const FLUSH_DEBOUNCE_MS = 400;
 /** How far a bullet must travel before a click becomes a drag. */
@@ -436,7 +438,9 @@ export function Outliner({
     revealSequence.current += 1;
     setNavigationReveal({ id, sequence: revealSequence.current });
   }, []);
-  const [overlay, dispatchOverlay] = useReducer(overlayReducer, { kind: "none" });
+  const [overlay, dispatchOverlay] = useReducer(overlayReducer, {
+    kind: "none",
+  });
   const propertyRequest = overlay.kind === "property" ? overlay.request : null;
   const tagRequest = overlay.kind === "tag" ? overlay.request : null;
   const slashRequest = overlay.kind === "slash" ? overlay.request : null;
@@ -526,7 +530,10 @@ export function Outliner({
     (action: OutlineDraftAction) => {
       applyDraft(
         action.type === "edit"
-          ? { ...action, contentIfAbsent: findBlock(outlineRef.current, action.id)?.content }
+          ? {
+              ...action,
+              contentIfAbsent: findBlock(outlineRef.current, action.id)?.content,
+            }
           : action,
         editorDirectory.current,
       );
@@ -930,6 +937,7 @@ export function Outliner({
         const active = document.activeElement;
         if (active instanceof Element) {
           if (active.closest(`[data-block-id="${cssEscape(id)}"]`)) return;
+          if (active.closest(`[data-block-toolbar-for="${cssEscape(id)}"]`)) return;
           if (active.closest(FLOATING_OVERLAY_SELECTOR)) return;
         }
         dispatchDraft({ type: "clear-auto-closers", ids: [id] });
@@ -1199,7 +1207,11 @@ export function Outliner({
               void commitDraftWith(
                 realId,
                 typed,
-                createQueryCommand({ kind: "block", owner: ownerRef.current, id: realId }),
+                createQueryCommand({
+                  kind: "block",
+                  owner: ownerRef.current,
+                  id: realId,
+                }),
                 message("failure.createQuery"),
               );
               completionCommitted = true;
@@ -1233,7 +1245,11 @@ export function Outliner({
                 ? null
                 : {
                     type: "add_tag",
-                    entity: { kind: "block", owner: ownerRef.current, id: realId },
+                    entity: {
+                      kind: "block",
+                      owner: ownerRef.current,
+                      id: realId,
+                    },
                     tag_id: intent.option.id,
                   },
               message(intent.option.present ? "failure.lastEdit" : "failure.addTag"),
@@ -1406,7 +1422,11 @@ export function Outliner({
         const empty = new Set<string>();
         setSelected(empty);
         void run(
-          { type: "delete_blocks", owner, block_ids: roots.map((entry) => entry.block.id) },
+          {
+            type: "delete_blocks",
+            owner,
+            block_ids: roots.map((entry) => entry.block.id),
+          },
           message("failure.deleteBlocks", { count: roots.length }),
         ).then(() => activateBlock(fallback?.block.id ?? null, 0, "programmatic"));
         return;
@@ -1714,7 +1734,12 @@ export function Outliner({
   const beginRangeSelection = useCallback(
     (
       start: number,
-      point: { clientX: number; clientY: number; shiftKey: boolean; preventDefault(): void },
+      point: {
+        clientX: number;
+        clientY: number;
+        shiftKey: boolean;
+        preventDefault(): void;
+      },
       immediate: boolean,
       options?: {
         /**
@@ -2242,7 +2267,10 @@ export function Outliner({
           pending?.blockId === row.block.id && pending.action?.kind === "cycle_task"
             ? pending.action.steps + 1
             : 1;
-        pendingProperty.current = { blockId: row.block.id, action: { kind: "cycle_task", steps } };
+        pendingProperty.current = {
+          blockId: row.block.id,
+          action: { kind: "cycle_task", steps },
+        };
         dispatchPending();
         return;
       }
@@ -2602,7 +2630,10 @@ export function Outliner({
           ? projectedReferences
           : (planInlineEdit(row.block.id, projectedSource, projectedReferences, liveSource)
               ?.references ?? projectedReferences);
-      const sourceContent = { markdown: liveSource, pageReferences: liveReferences };
+      const sourceContent = {
+        markdown: liveSource,
+        pageReferences: liveReferences,
+      };
       flushNow(target.block.id);
       flushNow(row.block.id);
       pendingSeq.current += 1;
@@ -2962,7 +2993,11 @@ export function Outliner({
       // A mounted row already has exact geometry. Reveal only the nearest edge,
       // once; focus and later row measurements do not own another scroll.
       if (typeof element.scrollIntoView === "function") {
-        element.scrollIntoView({ block: "nearest", inline: "nearest", behavior });
+        element.scrollIntoView({
+          block: "nearest",
+          inline: "nearest",
+          behavior,
+        });
         consume();
         return;
       }
@@ -3024,6 +3059,9 @@ export function Outliner({
   // outermost first. Each rendered row derives its own count from this, so nothing
   // walks the whole list. See designs/outliner.md § Structural Thread.
   const ancestors = ancestorPath(rows, focusedId);
+  const compactLayout = useCompactLayout();
+  const editingRow =
+    compactLayout && !readonly ? rows.find((row) => row.block.id === focusedId) : undefined;
 
   /** The bare keys a selection answers to. They only reach here while the tree
    * itself holds focus, which is exactly when no text field can lose them. */
@@ -3125,6 +3163,7 @@ export function Outliner({
       ref={sectionRef}
       data-dragging={dragging || undefined}
       data-selecting={marqueeing || undefined}
+      data-mobile-editing={editingRow ? true : undefined}
     >
       {/* The selection has no visible counter — the highlighted rows are the
           count — so this is how it reaches a screen reader. */}
@@ -3207,6 +3246,7 @@ export function Outliner({
                 <MemoBlockRow
                   row={row}
                   actions={editorRef}
+                  compactLayout={compactLayout}
                   retainSource={pressedSourceId === row.block.id}
                   {...blockRowProps(editor, row)}
                   content={contentSessionsFor(session).target(owner, row.block.id)}
@@ -3311,6 +3351,44 @@ export function Outliner({
             const row = rowsRef.current.find((entry) => entry.block.id === pageRequest.blockId);
             if (row) editor.acceptPage(row, option);
           }}
+        />
+      )}
+      {editingRow && (
+        <MobileEditorToolbar
+          blockId={editingRow.block.id}
+          canIndent={editingRow.index > 0}
+          canOutdent={editingRow.depth > 0}
+          canOpenMenu={!isPendingId(editingRow.block.id)}
+          onIndent={() => {
+            if (composing.current) return;
+            if (isPendingId(editingRow.block.id)) {
+              editor.queuePendingStructural(editingRow.block.id, "indent");
+            } else editor.menu.indent(editingRow);
+          }}
+          onOutdent={() => {
+            if (composing.current) return;
+            if (isPendingId(editingRow.block.id)) {
+              editor.queuePendingStructural(editingRow.block.id, "outdent");
+            } else editor.menu.outdent(editingRow);
+          }}
+          onMenu={(trigger) => {
+            if (composing.current) return;
+            const textarea = viewportRef.current?.querySelector<HTMLTextAreaElement>(
+              `#row-${CSS.escape(editingRow.block.id)} textarea`,
+            );
+            editor.openMenu(editingRow.block.id, {
+              geometry: { kind: "element", element: trigger },
+              owner: textarea ?? trigger,
+            });
+          }}
+          onDone={() => {
+            const active = document.activeElement;
+            if (active instanceof HTMLElement) active.blur();
+            editor.flushNow(editingRow.block.id);
+            editor.dismissTransient();
+            editor.activateBlock(null, undefined, "pointer");
+          }}
+          onBlur={() => editor.releaseFocus(editingRow.block.id)}
         />
       )}
     </section>
@@ -3506,7 +3584,11 @@ function keepingPageStill(node: HTMLElement, run: () => void): void {
   const saved: { element: Element; top: number; left: number }[] = [];
   for (let parent = node.parentElement; parent; parent = parent.parentElement) {
     if (parent.scrollHeight > parent.clientHeight || parent.scrollWidth > parent.clientWidth) {
-      saved.push({ element: parent, top: parent.scrollTop, left: parent.scrollLeft });
+      saved.push({
+        element: parent,
+        top: parent.scrollTop,
+        left: parent.scrollLeft,
+      });
     }
   }
   const pageX = window.scrollX;
@@ -3994,7 +4076,10 @@ function projectPendingOperations(
         .filter((row) => !hidden.has(row.block.id))
         .map((row) => {
           if (row.block.id === entry.targetId) {
-            return { ...row, hasChildren: row.hasChildren || source.hasChildren };
+            return {
+              ...row,
+              hasChildren: row.hasChildren || source.hasChildren,
+            };
           }
           if (row.parentId === entry.targetId) {
             return { ...row, siblingCount: mergedChildCount };
@@ -4058,6 +4143,7 @@ type BlockRowActions = Pick<
   | "onKeyDown"
   | "onRowContextMenu"
   | "openProperties"
+  | "openMenu"
   | "pasteFragment"
   | "pasteOutline"
   | "pendingCaret"
@@ -4067,6 +4153,7 @@ type BlockRowActions = Pick<
 >;
 
 interface BlockRowProps {
+  compactLayout: boolean;
   content: BlockContentSession;
   directory: readonly PageDirectoryEntry[];
   projection?: InlineContentProjection;
@@ -4095,7 +4182,15 @@ function blockRowProps(
   row: OutlineRow,
 ): Omit<
   BlockRowProps,
-  "row" | "actions" | "lit" | "ancestor" | "content" | "directory" | "projection" | "retainSource"
+  | "row"
+  | "actions"
+  | "lit"
+  | "ancestor"
+  | "content"
+  | "directory"
+  | "projection"
+  | "retainSource"
+  | "compactLayout"
 > {
   const focused = editor.focusedId === row.block.id;
   const slash = editor.slashRequest?.blockId === row.block.id;
@@ -4138,6 +4233,7 @@ function blockRowProps(
 }
 
 function BlockRow({
+  compactLayout,
   row,
   actions,
   lit,
@@ -4232,36 +4328,68 @@ function BlockRow({
       }
       gutter={
         <>
-          <button
-            className="outline-toggle"
-            aria-label={row.collapsed ? message("outline.expand") : message("outline.collapse")}
-            tabIndex={-1}
-            onClick={() => actions.current.toggleCollapse(row.block.id)}
-          >
-            {/* One glyph, rotated by the row's `data-collapsed` state rather than
+          {!compactLayout && (
+            <>
+              <button
+                className="outline-toggle"
+                aria-label={row.collapsed ? message("outline.expand") : message("outline.collapse")}
+                tabIndex={-1}
+                onClick={() => actions.current.toggleCollapse(row.block.id)}
+              >
+                {/* One glyph, rotated by the row's `data-collapsed` state rather than
               two glyphs swapped on it. A swap changes the mark with no indication
               of which way it went; a turn IS the direction, which is the whole
               content of this control. app.css § .outline-toggle svg. */}
-            <ChevronDownIcon />
-          </button>
-          {/* The bullet is a row handle. One outline-level menu is anchored to the
+                <ChevronDownIcon />
+              </button>
+              {/* The bullet is a row handle. One outline-level menu is anchored to the
             active bullet or pointer, so closed rows carry no menu subtree. */}
-          <button
-            className="outline-bullet"
-            data-testid="block-bullet"
-            tabIndex={-1}
-            aria-label={message("outline.blockActions")}
-            onPointerDown={(event) => actions.current.onBulletPointerDown(row, event)}
-            onClick={(event) => {
-              if (
-                event.detail === 0 ||
-                ("pointerType" in event.nativeEvent && event.nativeEvent.pointerType === "touch")
-              ) {
-                actions.current.activateBlock(row.block.id, undefined, "pointer");
+              <button
+                className="outline-bullet"
+                data-testid="block-bullet"
+                tabIndex={-1}
+                aria-label={message("outline.blockActions")}
+                onPointerDown={(event) => actions.current.onBulletPointerDown(row, event)}
+                onClick={(event) => {
+                  if (
+                    event.detail === 0 ||
+                    ("pointerType" in event.nativeEvent &&
+                      event.nativeEvent.pointerType === "touch")
+                  ) {
+                    actions.current.activateBlock(row.block.id, undefined, "pointer");
+                  }
+                }}
+                onContextMenu={(event) => actions.current.onRowContextMenu(row, event)}
+              />
+            </>
+          )}
+          {compactLayout && (
+            <button
+              className="outline-touch-handle"
+              data-testid="mobile-block-handle"
+              tabIndex={-1}
+              aria-label={
+                row.hasChildren
+                  ? message(row.collapsed ? "outline.expand" : "outline.collapse")
+                  : message("outline.blockActions")
               }
-            }}
-            onContextMenu={(event) => actions.current.onRowContextMenu(row, event)}
-          />
+              aria-expanded={row.hasChildren ? !row.collapsed : undefined}
+              aria-haspopup={row.hasChildren ? undefined : "menu"}
+              disabled={pending}
+              onClick={(event) => {
+                if (row.hasChildren) {
+                  actions.current.toggleCollapse(row.block.id);
+                } else {
+                  actions.current.openMenu(row.block.id, {
+                    geometry: { kind: "element", element: event.currentTarget },
+                    owner: textareaRef.current,
+                  });
+                }
+              }}
+            >
+              {row.hasChildren ? <ChevronDownIcon aria-hidden /> : <span aria-hidden />}
+            </button>
+          )}
         </>
       }
     >

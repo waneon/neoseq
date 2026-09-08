@@ -1,6 +1,82 @@
 import AxeBuilder from "@axe-core/playwright";
 import { test, expect } from "../support/fixtures";
 
+test("phone navigation creates a page and returns to saved writing through search", async ({
+  app,
+  page,
+  isMobile,
+}) => {
+  test.skip(!isMobile, "The bottom navigation is the phone's primary route.");
+  await app.createGraph("Pocket notebook");
+  await app.startBlock("A thought from today");
+  const navigation = page.getByRole("navigation", { name: "Main navigation", exact: true });
+  await expect(navigation).toBeInViewport({ ratio: 1 });
+  for (const control of await navigation.locator("a, button").all()) {
+    const box = await control.boundingBox();
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+    expect(box!.width).toBeGreaterThanOrEqual(44);
+  }
+
+  await page.getByTestId("mobile-new-page").tap();
+  const title = page.getByTestId("page-title");
+  await expect(title).toHaveValue("Untitled");
+  await app.saved(async () => {
+    await title.fill("Pocket ideas");
+    await title.press("Enter");
+  });
+  await app.startBlock("Keep this for later");
+  const writing = page.url();
+  await navigation.getByRole("link", { name: "Journal", exact: true }).tap();
+  await app.expectOutline(["A thought from today"]);
+  await navigation.getByRole("link", { name: "Tags", exact: true }).tap();
+  await expect(page).toHaveURL(/\/tags$/);
+  await page.getByTestId("mobile-search").tap();
+  await page.getByTestId("command-input").fill("Pocket ideas");
+  await page
+    .getByRole("group", { name: "Search", exact: true })
+    .getByRole("option", { name: "Pocket ideas Page", exact: true })
+    .tap();
+  await expect(page).toHaveURL(writing);
+  await app.expectOutline(["Keep this for later"]);
+  await page.reload();
+  await app.expectOutline(["Keep this for later"]);
+  await expect(navigation).toBeInViewport({ ratio: 1 });
+});
+
+test("touch writing tools preserve focus through structure changes and save on Done", async ({
+  app,
+  page,
+  isMobile,
+}) => {
+  test.skip(!isMobile, "Writing tools replace hardware keyboard shortcuts on phones.");
+  await app.createGraph("Touch writing");
+  await app.startBlock("Parent");
+  await app.appendBlock("Child");
+  const editor = app.editors.nth(1);
+  await editor.tap();
+  const toolbar = page.getByTestId("mobile-editor-toolbar");
+  const navigation = page.getByRole("navigation", { name: "Main navigation", exact: true });
+  await expect(toolbar).toBeInViewport({ ratio: 1 });
+  await expect(navigation).toBeHidden();
+  await expect(toolbar.getByRole("button", { name: "Outdent", exact: true })).toBeDisabled();
+  await app.saved(() => toolbar.getByRole("button", { name: "Indent", exact: true }).tap());
+  await expect(app.block(1)).toHaveAttribute("aria-level", "2");
+  await expect(editor).toBeFocused();
+  await app.saved(() => toolbar.getByRole("button", { name: "Outdent", exact: true }).tap());
+  await expect(app.block(1)).toHaveAttribute("aria-level", "1");
+  await expect(editor).toBeFocused();
+  await app.saved(async () => {
+    await editor.fill("Saved with Done");
+    await toolbar.getByRole("button", { name: "Done", exact: true }).tap();
+  });
+  await expect(editor).not.toBeFocused();
+  await expect(toolbar).toHaveCount(0);
+  await expect(navigation).toBeInViewport({ ratio: 1 });
+  await page.reload();
+  await app.expectOutline(["Parent", "Saved with Done"]);
+  await expect(app.block(1)).toHaveAttribute("aria-level", "1");
+});
+
 test("touch scrolling across block text keeps the outline unselected", async ({
   app,
   page,
@@ -90,6 +166,20 @@ test("the compact navigation drawer owns focus until its last layer closes", asy
   await expect(page).toHaveURL(journal);
   await app.startBlock("Navigation keeps writing available");
   await app.expectOutline(["Navigation keeps writing available"]);
+
+  // A short landscape viewport still lets the library reach its footer.
+  await page.setViewportSize({ width: 568, height: 320 });
+  await open.tap();
+  await settings.scrollIntoViewIfNeeded();
+  await expect(settings).toBeInViewport({ ratio: 1 });
+  await settings.tap();
+  const settingsDialog = page.getByRole("dialog", { name: "Settings", exact: true });
+  await expect(settingsDialog).toBeVisible();
+  const closeSettings = settingsDialog.getByRole("button", { name: "Close", exact: true });
+  await expect(closeSettings).toBeInViewport({ ratio: 1 });
+  await closeSettings.tap();
+  await expect(settingsDialog).toHaveCount(0);
+  await expect(settings).toBeFocused();
 });
 
 test("desktop sidebar controls preserve the current document and remembered preference", async ({
@@ -177,6 +267,7 @@ test("creation and navigation have usable keyboard and pointer dismissal routes"
 test("settings keeps a stable frame and reachable navigation while previews update", async ({
   app,
   page,
+  isMobile,
 }) => {
   await app.createGraph("Settings workspace");
   await app.settings("keyboard");
@@ -184,10 +275,19 @@ test("settings keeps a stable frame and reachable navigation while previews upda
   const frame = await dialog.boundingBox();
   expect(frame).not.toBeNull();
   const navigate = async (section: string) => {
+    if (isMobile) {
+      await page.getByTestId("settings-back").click();
+      await expect(dialog.getByRole("navigation", { name: "Settings sections" })).toBeVisible();
+    }
     const tab = page.getByTestId(`settings-tab-${section}`);
     await tab.scrollIntoViewIfNeeded();
     await tab.click();
-    await expect(tab).toHaveAttribute("aria-current", "page");
+    if (isMobile) {
+      await expect(tab).toHaveCount(0);
+      await expect(page.getByTestId("settings-back")).toBeInViewport({ ratio: 1 });
+    } else {
+      await expect(tab).toHaveAttribute("aria-current", "page");
+    }
     await expect.poll(() => dialog.boundingBox()).toEqual(frame);
   };
 
@@ -203,7 +303,11 @@ test("settings keeps a stable frame and reachable navigation while previews upda
   await expect.poll(() => dialog.boundingBox()).toEqual(frame);
   const close = dialog.getByRole("button", { name: "Close", exact: true });
   await expect(close).toBeInViewport({ ratio: 1 });
-  await expect(dialog.getByRole("navigation", { name: "Settings sections" })).toBeInViewport();
+  if (isMobile) {
+    await expect(page.getByTestId("settings-back")).toBeInViewport({ ratio: 1 });
+  } else {
+    await expect(dialog.getByRole("navigation", { name: "Settings sections" })).toBeInViewport();
+  }
   await navigate("appearance");
   await expect(page.getByTestId("settings-appearance")).toBeInViewport();
   await close.focus();

@@ -82,6 +82,17 @@
   height: 16px;
 }
 
+.settings-tab-icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings-tab-copy {
+  min-width: 0;
+}
+
 .settings-tab:hover {
   background: var(--surface-2);
   color: var(--ink);
@@ -594,6 +605,190 @@
   .settings-grid > div {
     grid-template-columns: minmax(80px, 1fr) minmax(0, 2fr);
     gap: 10px;
+  }
+}
+
+/* A phone has one settings destination at a time. The index and its pages
+   share the same full-height frame, with Close always in the same place. */
+@media (max-width: 600px) {
+  .settings-dialog-surface {
+    width: 100%;
+    max-width: none;
+    height: var(--visual-viewport-height, 100dvh);
+    max-height: none;
+    border-radius: 0;
+    background: var(--canvas);
+  }
+
+  .settings-dialog-surface > [data-slot="dialog-header"] {
+    min-height: calc(64px + env(safe-area-inset-top, 0px));
+    padding: calc(16px + env(safe-area-inset-top, 0px)) 64px 16px 20px;
+    background: var(--canvas);
+  }
+
+  .settings-dialog-surface:has(.settings-back) > [data-slot="dialog-header"] {
+    padding-inline-start: 54px;
+  }
+
+  .settings-dialog-surface > [data-slot="dialog-close"] {
+    top: calc(10px + env(safe-area-inset-top, 0px));
+    inset-inline-end: 12px;
+    width: 44px;
+    height: 44px;
+    background: transparent;
+  }
+
+  .settings-back {
+    position: absolute;
+    top: calc(10px + env(safe-area-inset-top, 0px));
+    inset-inline-start: 6px;
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--r-2);
+    background: transparent;
+    color: var(--ink);
+    cursor: pointer;
+  }
+
+  .settings-back svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  .settings-back:hover {
+    background: var(--surface-2);
+  }
+
+  .settings-back:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-inset);
+  }
+
+  .settings-shell {
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .settings-nav {
+    gap: 24px;
+    padding: 24px 20px max(28px, env(safe-area-inset-bottom, 0px));
+    border: 0;
+    background: var(--canvas);
+  }
+
+  .settings-group {
+    display: block;
+  }
+
+  .settings-group h3 {
+    margin: 0 4px 10px;
+    padding: 0;
+    color: var(--ink-2);
+    font-size: 13px;
+    font-weight: var(--weight-medium);
+  }
+
+  .settings-group-links {
+    flex-direction: column;
+    gap: 0;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--thread);
+    border-radius: 16px;
+    background: var(--raised);
+  }
+
+  .settings-tab {
+    gap: 12px;
+    width: 100%;
+    min-height: 68px;
+    padding: 12px;
+    border-radius: 0;
+    color: var(--ink);
+    white-space: normal;
+  }
+
+  .settings-tab + .settings-tab {
+    border-top: 1px solid var(--thread);
+  }
+
+  .settings-tab-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 11px;
+    background: var(--surface-2);
+    color: var(--ink-2);
+  }
+
+  .settings-tab-icon svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .settings-tab[data-destructive] .settings-tab-icon {
+    color: var(--danger);
+  }
+
+  .settings-tab-copy {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 15px;
+    line-height: 1.35;
+  }
+
+  .settings-tab-description {
+    color: var(--ink-2);
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .settings-tab-chevron {
+    color: var(--ink-3);
+  }
+
+  .settings-back:dir(rtl) svg,
+  .settings-tab-chevron:dir(rtl) {
+    transform: scaleX(-1);
+  }
+
+  .settings-nav-note {
+    display: flex;
+    margin: 0 4px;
+    padding: 0;
+  }
+
+  .settings-pane {
+    padding: 26px 20px max(32px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .settings-page-header {
+    margin-bottom: 28px;
+  }
+
+  .settings-page-header h2 {
+    margin-bottom: 10px;
+    font-size: 28px;
+    line-height: 1.2;
+    outline: none;
+  }
+
+  .settings-themes {
+    gap: 12px;
+  }
+
+  .settings-theme-label {
+    min-height: 28px;
+    font-size: 13px;
+  }
+
+  .settings-reading-preview,
+  .settings-danger-action {
+    padding: 20px;
   }
 }
 

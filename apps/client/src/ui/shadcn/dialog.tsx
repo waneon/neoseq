@@ -53,13 +53,11 @@ function DialogContent({
   return (
     <DialogPortal container={container}>
       <DialogOverlay />
-      <div className="pointer-events-none fixed inset-0 z-[var(--z-dialog)] flex items-center justify-center p-4">
+      <div className="dialog-frame">
         <DialogPrimitive.Content
           data-slot="dialog-content"
           className={cn(
-            // 600px is the design system's own compact breakpoint (the gutter
-            // steps down there too) — not Tailwind's 640px `sm`.
-            "enter-rise pointer-events-auto relative grid w-full max-w-[440px] gap-4 rounded-[var(--r-4)] bg-[var(--overlay)] p-6 shadow-[var(--e3)] max-[600px]:p-4",
+            "dialog-surface enter-rise pointer-events-auto relative grid w-full gap-4 bg-[var(--overlay)] shadow-[var(--e3)]",
             className,
           )}
           {...props}
@@ -68,7 +66,7 @@ function DialogContent({
           {showCloseButton && (
             <DialogPrimitive.Close
               data-slot="dialog-close"
-              className={cn(buttonClass("secondary", "icon"), "absolute right-3 top-3")}
+              className={cn(buttonClass("secondary", "icon"), "absolute")}
               aria-label={closeLabel}
             >
               <XIcon className="size-3.5" />
