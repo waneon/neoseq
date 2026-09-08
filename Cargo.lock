@@ -571,7 +571,7 @@ dependencies = [
 
 [[package]]
 name = "domain"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -874,7 +874,7 @@ dependencies = [
 
 [[package]]
 name = "graph-archive"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "domain",
  "serde",
@@ -886,7 +886,7 @@ dependencies = [
 
 [[package]]
 name = "graph-core"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "domain",
  "graph-archive",
@@ -1608,7 +1608,7 @@ dependencies = [
 
 [[package]]
 name = "neoseq-appliance"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "libc",
  "tokio",
@@ -1616,7 +1616,7 @@ dependencies = [
 
 [[package]]
 name = "neoseq-benchmarks"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "criterion",
  "domain",
@@ -1625,7 +1625,7 @@ dependencies = [
 
 [[package]]
 name = "neoseq-server"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "argon2",
  "async-trait",
@@ -2010,7 +2010,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "platform-native"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "domain",
  "graph-core",
@@ -2023,7 +2023,7 @@ dependencies = [
 
 [[package]]
 name = "platform-web"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "domain",
  "graph-archive",
@@ -2114,7 +2114,7 @@ dependencies = [
 
 [[package]]
 name = "query"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "domain",
  "hex",
@@ -2863,7 +2863,7 @@ dependencies = [
 
 [[package]]
 name = "sync-protocol"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "domain",
  "hex",
