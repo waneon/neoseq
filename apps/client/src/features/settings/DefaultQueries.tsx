@@ -114,8 +114,13 @@ export function DefaultQueriesSection() {
 
   return (
     <section className="settings-section">
-      <h2>{message("settings.defaultQueries")}</h2>
-      <p>{message("settings.defaultQueriesDescription")}</p>
+      {queries.length === 0 && (
+        <div className="settings-empty">
+          <ListFilterIcon aria-hidden />
+          <h3>{message("settings.emptyQueries")}</h3>
+          <p>{message("settings.emptyQueriesDescription")}</p>
+        </div>
+      )}
       {queries.length > 0 && (
         <ul className="default-queries" data-testid="settings-default-queries">
           {queries.map((query, index) => (

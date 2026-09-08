@@ -53,7 +53,7 @@ export function Dialog({
         className={cn(
           size !== "settings" && "max-h-[calc(100dvh-2rem)] overflow-y-auto",
           size === "wide" && "max-w-[720px]",
-          size === "settings" && "max-w-[820px]",
+          size === "settings" && "settings-dialog-surface max-w-[940px] gap-0 p-0 max-[600px]:p-0",
         )}
         onEscapeKeyDown={(event) => {
           // Radix arbitrates layers during document capture, before a field's

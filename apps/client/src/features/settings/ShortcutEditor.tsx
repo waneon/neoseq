@@ -112,7 +112,7 @@ export function ShortcutEditor() {
   return (
     <>
       <section className="settings-section">
-        <h2 id={keymapHeading}>{message("settings.editorKeymap")}</h2>
+        <h3 id={keymapHeading}>{message("settings.editorKeymap")}</h3>
         <p>{message("settings.editorKeymapDescription")}</p>
         <div
           className="segmented"
@@ -137,7 +137,7 @@ export function ShortcutEditor() {
         </div>
       </section>
       <section className="settings-section">
-        <h2>{message("settings.globalShortcuts")}</h2>
+        <h3>{message("settings.globalShortcuts")}</h3>
         <p>{message("settings.shortcutsDescription", { mod: MOD })}</p>
         <div className="shortcut-list" data-testid="shortcut-editor">
           {SHORTCUT_IDS.map((id) => {

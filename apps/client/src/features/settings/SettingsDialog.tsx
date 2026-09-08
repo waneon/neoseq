@@ -29,9 +29,25 @@ import {
   type ToneValue,
 } from "../../entities/settings";
 import { DUE_TIERS, type DueTier } from "../../entities/tasks";
-import { CalendarIcon } from "lucide-react";
+import {
+  CalendarIcon,
+  CheckIcon,
+  CircleCheckIcon,
+  CopyIcon,
+  DatabaseIcon,
+  HardDriveIcon,
+  KeyboardIcon,
+  LanguagesIcon,
+  ListFilterIcon,
+  MonitorIcon,
+  MoonIcon,
+  PaletteIcon,
+  SunIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { useConfiguredTimezone, useDueTiers } from "./preferences";
 import { AccentField } from "./AccentField";
+import { ThemePreview } from "./ThemePreview";
 import { DefaultQueriesSection } from "./DefaultQueries";
 import { ToneChoice } from "./ToneChoice";
 import { tonePresentation } from "../tasks/tone-presentation";
@@ -55,12 +71,11 @@ import {
 } from "../../i18n";
 import { writeClipboardText } from "@/lib/clipboard";
 
-const THEMES: Theme[] = ["system", "light", "dark"];
-const THEME_MESSAGE = {
-  system: "settings.themeSystem",
-  light: "settings.themeLight",
-  dark: "settings.themeDark",
-} as const;
+const THEMES = [
+  { value: "light", label: "settings.themeLight", icon: SunIcon },
+  { value: "dark", label: "settings.themeDark", icon: MoonIcon },
+  { value: "system", label: "settings.themeSystem", icon: MonitorIcon },
+] as const;
 
 const DATE_FORMAT_MESSAGE = {
   full: "settings.dateFormatFull",
@@ -100,29 +115,80 @@ const DUE_DAYS_FIELD = {
  */
 export const SETTINGS_PARAM = "settings";
 
-/** The two scopes, in the order the dialog lists them. Sections come from here. */
-const APP_SECTIONS = ["appearance", "language", "journal", "tasks", "keyboard", "storage"] as const;
-const GRAPH_SECTIONS = ["graph", "queries", "danger"] as const;
+/** Navigation, page identity, and scope share one definition. URL ids stay stable. */
+const SETTINGS_GROUPS = [
+  {
+    label: "settings.scopeApp",
+    sections: [
+      {
+        id: "appearance",
+        label: "settings.appearance",
+        description: "settings.appearanceIntro",
+        icon: PaletteIcon,
+      },
+      {
+        id: "language",
+        label: "language.label",
+        description: "settings.languageDescription",
+        icon: LanguagesIcon,
+      },
+      {
+        id: "journal",
+        label: "settings.journal",
+        description: "settings.journalDescription",
+        icon: CalendarIcon,
+      },
+      {
+        id: "tasks",
+        label: "settings.tasks",
+        description: "settings.dueTonesDescription",
+        icon: CircleCheckIcon,
+      },
+      {
+        id: "keyboard",
+        label: "settings.keyboard",
+        description: "settings.keyboardDescription",
+        icon: KeyboardIcon,
+      },
+      {
+        id: "storage",
+        label: "settings.storage",
+        description: "settings.storageDescription",
+        icon: HardDriveIcon,
+      },
+    ],
+  },
+  {
+    label: "settings.scopeGraph",
+    sections: [
+      {
+        id: "graph",
+        label: "settings.graph",
+        description: "settings.graphDescription",
+        icon: DatabaseIcon,
+      },
+      {
+        id: "queries",
+        label: "settings.defaultQueries",
+        description: "settings.defaultQueriesDescription",
+        icon: ListFilterIcon,
+      },
+      {
+        id: "danger",
+        label: "settings.danger",
+        description: "settings.dangerDescription",
+        icon: Trash2Icon,
+      },
+    ],
+  },
+] as const;
 
-const SETTINGS_SECTIONS = [...APP_SECTIONS, ...GRAPH_SECTIONS];
-
-export type SettingsSection = (typeof APP_SECTIONS)[number] | (typeof GRAPH_SECTIONS)[number];
+const SETTINGS_SECTIONS = SETTINGS_GROUPS.flatMap((group) => [...group.sections]);
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]["id"];
 
 export function isSettingsSection(value: string | null): value is SettingsSection {
-  return SETTINGS_SECTIONS.includes(value as SettingsSection);
+  return SETTINGS_SECTIONS.some((section) => section.id === value);
 }
-
-const SECTION_MESSAGE = {
-  appearance: "settings.appearance",
-  language: "language.label",
-  journal: "settings.journal",
-  queries: "settings.defaultQueries",
-  tasks: "settings.tasks",
-  keyboard: "settings.keyboard",
-  storage: "settings.storage",
-  graph: "settings.graph",
-  danger: "settings.danger",
-} as const satisfies Record<SettingsSection, MessageKey>;
 
 export function SettingsDialog({
   repositoryId = "local",
@@ -138,67 +204,79 @@ export function SettingsDialog({
   onClose: () => void;
 }) {
   const { message } = useI18n();
+  const heading = useId();
+  const activeTab = useRef<HTMLButtonElement>(null);
+  const active = SETTINGS_SECTIONS.find((entry) => entry.id === section)!;
+
+  useEffect(() => {
+    const tab = activeTab.current;
+    const reveal = () => tab?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    reveal();
+    if (!tab?.parentElement || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(reveal);
+    observer.observe(tab.parentElement);
+    return () => observer.disconnect();
+  }, [section]);
 
   return (
     <Dialog title={message("settings.title")} onClose={onClose} size="settings">
       <div className="settings-shell" data-testid="settings-dialog">
         <nav className="settings-nav" aria-label={message("settings.sections")}>
-          <div className="settings-group">
-            <h3>{message("settings.scopeApp")}</h3>
-            {APP_SECTIONS.map((entry) => (
-              <SectionTab key={entry} section={entry} current={section} onSelect={onSection} />
-            ))}
-          </div>
-          <div className="settings-group">
-            <h3>{message("settings.scopeGraph")}</h3>
-            {GRAPH_SECTIONS.map((entry) => (
-              <SectionTab key={entry} section={entry} current={section} onSelect={onSection} />
-            ))}
-          </div>
+          {SETTINGS_GROUPS.map((group) => (
+            <div className="settings-group" key={group.label}>
+              <h3>{message(group.label)}</h3>
+              <div className="settings-group-links">
+                {group.sections.map((entry) => (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    ref={entry.id === section ? activeTab : undefined}
+                    autoFocus={entry.id === section}
+                    className="settings-tab"
+                    aria-current={entry.id === section ? "page" : undefined}
+                    aria-controls={`${heading}-pane`}
+                    data-testid={`settings-tab-${entry.id}`}
+                    onClick={() => onSection(entry.id)}
+                  >
+                    <entry.icon aria-hidden />
+                    <span>{message(entry.label)}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+          <p className="settings-nav-note">
+            <MonitorIcon aria-hidden />
+            {message("settings.preferencesHint")}
+          </p>
         </nav>
-        {/* Keyed by section, so switching sections is a mount rather than a
-            re-render and the pane can say that one thing replaced another. A
-            settings section is a small amount of content arriving in a box that
-            is already on screen and already the right size; with nothing to
-            mark the swap, changing sections read as the dialog's contents
-            glitching. `--dur-view` is short enough that the text is fully
-            opaque before it can be read — or audited. */}
-        <div className="settings-pane enter-fade-view" key={section}>
-          {section === "appearance" && <AppearanceSection />}
-          {section === "language" && <LanguageSection />}
-          {section === "journal" && <JournalSection />}
-          {section === "queries" && <DefaultQueriesSection />}
-          {section === "tasks" && <TasksSection />}
-          {section === "keyboard" && <ShortcutEditor />}
-          {section === "storage" && <StorageSection />}
-          {section === "graph" && <GraphSection repositoryId={repositoryId} graphId={graphId} />}
-          {section === "danger" && <DangerSection repositoryId={repositoryId} graphId={graphId} />}
+        <div
+          className="settings-pane"
+          id={`${heading}-pane`}
+          key={section}
+          role="region"
+          aria-labelledby={heading}
+        >
+          <header className="settings-page-header">
+            <h2 id={heading}>{message(active.label)}</h2>
+            <p>{message(active.description)}</p>
+          </header>
+          <div className="settings-page-content">
+            {section === "appearance" && <AppearanceSection />}
+            {section === "language" && <LanguageSection />}
+            {section === "journal" && <JournalSection />}
+            {section === "queries" && <DefaultQueriesSection />}
+            {section === "tasks" && <TasksSection />}
+            {section === "keyboard" && <ShortcutEditor />}
+            {section === "storage" && <StorageSection />}
+            {section === "graph" && <GraphSection repositoryId={repositoryId} graphId={graphId} />}
+            {section === "danger" && (
+              <DangerSection repositoryId={repositoryId} graphId={graphId} />
+            )}
+          </div>
         </div>
       </div>
     </Dialog>
-  );
-}
-
-function SectionTab({
-  section,
-  current,
-  onSelect,
-}: {
-  section: SettingsSection;
-  current: SettingsSection;
-  onSelect: (section: SettingsSection) => void;
-}) {
-  const { message } = useI18n();
-  return (
-    <button
-      type="button"
-      className="settings-tab"
-      aria-current={section === current ? "true" : undefined}
-      data-testid={`settings-tab-${section}`}
-      onClick={() => onSelect(section)}
-    >
-      {message(SECTION_MESSAGE[section])}
-    </button>
   );
 }
 
@@ -207,29 +285,37 @@ function AppearanceSection() {
   const heading = useId();
   const theme = useSyncExternalStore<Theme>(subscribeTheme, storedTheme, storedTheme);
   return (
-    <section className="settings-section">
-      <h2 id={heading}>{message("settings.appearance")}</h2>
-      <p>{message("settings.appearanceDescription")}</p>
-      {/* Named by the heading it sits under rather than by a duplicate of it. */}
-      <div
-        className="segmented"
-        role="group"
-        aria-labelledby={heading}
-        data-testid="settings-appearance"
-      >
-        {THEMES.map((option) => (
-          <button
-            key={option}
-            type="button"
-            aria-pressed={theme === option}
-            onClick={() => setTheme(option)}
-          >
-            {message(THEME_MESSAGE[option])}
-          </button>
-        ))}
-      </div>
+    <>
+      <section className="settings-section">
+        <h3 id={heading}>{message("settings.theme")}</h3>
+        <p>{message("settings.appearanceDescription")}</p>
+        {/* Named by the heading it sits under rather than by a duplicate of it. */}
+        <div
+          className="settings-themes"
+          role="group"
+          aria-labelledby={heading}
+          data-testid="settings-appearance"
+        >
+          {THEMES.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className="settings-theme"
+              aria-pressed={theme === option.value}
+              onClick={() => setTheme(option.value)}
+            >
+              <ThemePreview theme={option.value} />
+              <span className="settings-theme-label">
+                <option.icon aria-hidden />
+                {message(option.label)}
+                <CheckIcon className="settings-theme-check" aria-hidden />
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
       <AccentField />
-    </section>
+    </>
   );
 }
 
@@ -237,7 +323,7 @@ function LanguageSection() {
   const { message, preference, setPreference } = useI18n();
   return (
     <section className="settings-section">
-      <h2>{message("language.label")}</h2>
+      <h3>{message("language.label")}</h3>
       <div className="field">
         <MenuSelect
           label={message("language.label")}
@@ -252,6 +338,14 @@ function LanguageSection() {
           ]}
           onValueChange={(value) => setPreference(value as LocalePreference)}
         />
+      </div>
+      {preference === "system" && <p>{message("settings.languageSystemDescription")}</p>}
+      <div className="settings-reading-preview">
+        <span className="settings-preview-label">
+          <LanguagesIcon aria-hidden />
+          {message("settings.preview")}
+        </span>
+        <p>{message("settings.languagePreview")}</p>
       </div>
     </section>
   );
@@ -275,8 +369,15 @@ function JournalSection() {
 
   return (
     <>
+      <div className="settings-reading-preview">
+        <span className="settings-preview-label">
+          <CalendarIcon aria-hidden />
+          {message("settings.preview")}
+        </span>
+        <p data-testid="settings-journal-preview">{example(journalDateFormat)}</p>
+      </div>
       <section className="settings-section">
-        <h2>{message("settings.dateFormat")}</h2>
+        <h3>{message("settings.dateFormat")}</h3>
         <div className="field">
           <MenuSelect
             label={message("settings.dateFormat")}
@@ -294,7 +395,7 @@ function JournalSection() {
         </div>
       </section>
       <section className="settings-section">
-        <h2>{message("settings.timezone")}</h2>
+        <h3>{message("settings.timezone")}</h3>
         <p>{message("settings.timezoneDescription")}</p>
         <div className="field">
           <MenuSelect
@@ -341,15 +442,46 @@ function TasksSection() {
 
   return (
     <section className="settings-section">
-      <h2>{message("settings.tasks")}</h2>
-      <p>{message("settings.dueTonesDescription")}</p>
+      <h3>{message("settings.dueSchedule")}</h3>
       <div className="due-tiers" data-testid="settings-due-tiers">
+        <div className="due-tiers-heading" aria-hidden>
+          <span>{message("settings.dueRange")}</span>
+          <span>{message("settings.duePreview")}</span>
+          <span>{message("settings.dueColor")}</span>
+        </div>
         {DUE_TIERS.map((tier) => {
           const tone = tiers[DUE_TONE_FIELD[tier]] as ToneValue;
           const daysField = DUE_DAYS_FIELD[tier as keyof typeof DUE_DAYS_FIELD];
           return (
             <div className="due-tier" key={tier}>
-              <span className="due-tier-name">{message(DUE_TIER_MESSAGE[tier])}</span>
+              <div className="due-tier-detail">
+                <span className="due-tier-name">{message(DUE_TIER_MESSAGE[tier])}</span>
+                {!daysField && (
+                  <span className="due-tier-range">
+                    {message(
+                      tier === "overdue"
+                        ? "settings.dueBeforeToday"
+                        : tier === "today"
+                          ? "task.due.today"
+                          : "settings.dueAfterUpcoming",
+                    )}
+                  </span>
+                )}
+                {daysField && (
+                  <label className="due-tier-days">
+                    {message("settings.dueWithinLead")}
+                    <DueDaysInput
+                      label={message("settings.dueWithinDays", {
+                        tier: message(DUE_TIER_MESSAGE[tier]),
+                      })}
+                      testId={`due-days-${tier}`}
+                      value={tiers[daysField]}
+                      onChange={(days) => updateDueTiers({ [daysField]: days })}
+                    />
+                    {message("settings.dueWithinTrail")}
+                  </label>
+                )}
+              </div>
               {/* Not a control — the row's own controls follow it — so it is a
                   span carrying the chip's appearance and nothing of its verbs. */}
               <span
@@ -368,29 +500,7 @@ function TasksSection() {
                   {formatJournalDate(addDays(today, exampleDay[tier]))}
                 </span>
               </span>
-              {daysField && (
-                <label className="due-tier-days">
-                  {/* Two slots rather than one sentence with a hole in it: the
-                      number is a control, and which side of it the unit falls on
-                      is the language's choice, not the layout's. */}
-                  {message("settings.dueWithinLead")}
-                  {/* A number in a sentence, not a field in a form: bespoke
-                      rather than shadcn's `Input`, which *is* the inset field
-                      this one is deliberately not (app.css § A number that reads
-                      as a word). */}
-                  <DueDaysInput
-                    label={message("settings.dueWithinDays", {
-                      tier: message(DUE_TIER_MESSAGE[tier]),
-                    })}
-                    testId={`due-days-${tier}`}
-                    value={tiers[daysField]}
-                    onChange={(days) => updateDueTiers({ [daysField]: days })}
-                  />
-                  {message("settings.dueWithinTrail")}
-                </label>
-              )}
-              {/* The chip two columns left is already this row's preview at full
-                  size, so the swatches need only be the colours themselves. */}
+              {/* The adjacent date previews the tone at its actual product size. */}
               <ToneChoice
                 value={tone}
                 defaultValue={DEFAULT_DUE_TIERS[DUE_TONE_FIELD[tier]] as ToneValue}
@@ -474,9 +584,12 @@ function StorageSection() {
   useEffect(() => {
     let cancelled = false;
     void session.refreshCapabilities().catch(() => undefined);
-    void navigator.storage?.persisted?.().then((value) => {
-      if (!cancelled) setPersisted(value);
-    });
+    void navigator.storage
+      ?.persisted?.()
+      .then((value) => {
+        if (!cancelled) setPersisted(value);
+      })
+      .catch(() => undefined);
     return () => {
       cancelled = true;
     };
@@ -507,35 +620,47 @@ function StorageSection() {
   };
 
   return (
-    <section className="settings-section">
-      <h2>{message("settings.storage")}</h2>
-      <dl className="settings-grid">
-        <dt>{message("settings.persistentStorage")}</dt>
-        <dd data-testid="settings-persisted">
+    <>
+      <section className="settings-section">
+        <h3>{message("settings.persistentStorage")}</h3>
+        <p className="settings-storage-status" data-testid="settings-persisted">
+          {persisted && <CheckIcon aria-hidden />}
           {persisted === null
             ? message("settings.persistUnknown")
             : persisted
               ? message("settings.persistGranted")
               : message("settings.persistNotGranted")}
-        </dd>
-      </dl>
-      {persisted === false && (
-        <Callout>
-          {message("settings.storageEviction")}
-          <Button variant="secondary" onClick={requestPersistence}>
-            {message("settings.requestPersistence")}
-          </Button>
-        </Callout>
-      )}
-      <dl className="settings-grid">
-        <dt>{message("settings.backend")}</dt>
-        <dd>{capabilities?.durable ? "IndexedDB" : message("common.unavailable")}</dd>
-        <dt>{message("settings.usage")}</dt>
-        <dd>{bytes(capabilities?.usage_bytes)}</dd>
-        <dt>{message("settings.quota")}</dt>
-        <dd>{bytes(capabilities?.quota_bytes)}</dd>
-      </dl>
-    </section>
+        </p>
+        {persisted === false && (
+          <Callout>
+            {message("settings.storageEviction")}
+            <Button variant="secondary" onClick={requestPersistence}>
+              {message("settings.requestPersistence")}
+            </Button>
+          </Callout>
+        )}
+      </section>
+      <section className="settings-section">
+        <div className="settings-storage-stats">
+          <div>
+            <span>{message("settings.usage")}</span>
+            <strong>{bytes(capabilities?.usage_bytes)}</strong>
+            <p>{message("settings.storageUsageDescription")}</p>
+          </div>
+          <div>
+            <span>{message("settings.quota")}</span>
+            <strong>{bytes(capabilities?.quota_bytes)}</strong>
+            <p>{message("settings.storageQuotaDescription")}</p>
+          </div>
+        </div>
+        <dl className="settings-grid">
+          <div>
+            <dt>{message("settings.backend")}</dt>
+            <dd>{capabilities?.durable ? "IndexedDB" : message("common.unavailable")}</dd>
+          </div>
+        </dl>
+      </section>
+    </>
   );
 }
 
@@ -543,6 +668,7 @@ function GraphSection({ repositoryId, graphId }: { repositoryId: string; graphId
   const state = useSessionState();
   const notify = useNotify();
   const { message } = useI18n();
+  const nameId = useId();
   const authoritativeName = useSyncExternalStore(
     subscribeGraphDirectory,
     () => graphName(repositoryId, graphId),
@@ -571,9 +697,12 @@ function GraphSection({ repositoryId, graphId }: { repositoryId: string; graphId
 
   return (
     <section className="settings-section">
-      <h2>{message("settings.graph")}</h2>
       <div className="field">
+        <label className="settings-field-label" htmlFor={nameId}>
+          {message("graph.graphName")}
+        </label>
         <Input
+          id={nameId}
           aria-label={message("graph.graphName")}
           value={draftName ?? authoritativeName}
           disabled={repositoryId !== "local"}
@@ -598,21 +727,27 @@ function GraphSection({ repositoryId, graphId }: { repositoryId: string; graphId
           }}
         />
       </div>
+      {repositoryId !== LOCAL_REPOSITORY_ID && <p>{message("settings.graphNameRemote")}</p>}
       <dl className="settings-grid">
-        <dt>{message("settings.saveState")}</dt>
-        <dd data-testid="settings-save-state">
-          {state.save.kind === "saved"
-            ? message("settings.saveStateSaved")
-            : state.save.kind === "saving"
-              ? message("settings.saveStateSaving")
-              : message("settings.saveStateUnsaved")}
-        </dd>
-        <dt>{message("settings.graphId")}</dt>
-        <dd>
-          <button type="button" aria-label={message("settings.graphId")} onClick={copyGraphId}>
-            {copied ? message("common.copied") : graphId}
-          </button>
-        </dd>
+        <div>
+          <dt>{message("settings.saveState")}</dt>
+          <dd data-testid="settings-save-state">
+            {state.save.kind === "saved"
+              ? message("settings.saveStateSaved")
+              : state.save.kind === "saving"
+                ? message("settings.saveStateSaving")
+                : message("settings.saveStateUnsaved")}
+          </dd>
+        </div>
+        <div>
+          <dt>{message("settings.graphId")}</dt>
+          <dd>
+            <button type="button" aria-label={message("settings.graphId")} onClick={copyGraphId}>
+              <span aria-live="polite">{copied ? message("common.copied") : graphId}</span>
+              {copied ? <CheckIcon aria-hidden /> : <CopyIcon aria-hidden />}
+            </button>
+          </dd>
+        </div>
       </dl>
       {state.recovery && state.recovery.quarantined_records.length > 0 && (
         <Callout tone="danger">
@@ -649,28 +784,35 @@ function DangerSection({ repositoryId, graphId }: { repositoryId: string; graphI
 
   return (
     <section className="settings-section settings-danger">
-      <h2>{message("settings.danger")}</h2>
-      {local && <p>{message("settings.deleteDescription")}</p>}
-      <Button
-        ref={deleteButtonRef}
-        variant="destructive"
-        className="self-start"
-        data-testid="settings-delete-graph"
-        onClick={() => setConfirmDelete("device")}
-      >
-        {message(local ? "settings.deleteGraph" : "settings.removeReplica")}
-      </Button>
-      {connection?.role === "owner" && (
+      <div className="settings-danger-action">
+        <Trash2Icon aria-hidden />
+        <h3>{message(local ? "graph.deleteTitle" : "graph.removeReplicaTitle")}</h3>
+        <p>{message(local ? "settings.deleteDescription" : "settings.removeReplicaDescription")}</p>
         <Button
-          ref={serverDeleteButtonRef}
+          ref={deleteButtonRef}
           variant="destructive"
           className="self-start"
-          data-testid="settings-delete-server-graph"
-          disabled={!readAuthSession(repositoryId)}
-          onClick={() => setConfirmDelete("server")}
+          data-testid="settings-delete-graph"
+          onClick={() => setConfirmDelete("device")}
         >
-          {message("graph.deleteServer")}
+          {message(local ? "settings.deleteGraph" : "settings.removeReplica")}
         </Button>
+      </div>
+      {connection?.role === "owner" && (
+        <div className="settings-danger-action">
+          <h3>{message("graph.deleteServerTitle")}</h3>
+          <p>{message("graph.deleteServerConfirm", { name: graphName(repositoryId, graphId) })}</p>
+          <Button
+            ref={serverDeleteButtonRef}
+            variant="destructive"
+            className="self-start"
+            data-testid="settings-delete-server-graph"
+            disabled={!readAuthSession(repositoryId)}
+            onClick={() => setConfirmDelete("server")}
+          >
+            {message("graph.deleteServer")}
+          </Button>
+        </div>
       )}
       {confirmDelete && (
         <ConfirmDialog

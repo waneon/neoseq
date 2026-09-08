@@ -1,212 +1,241 @@
-/* ────────────────────────── 10. settings ────────────────────────── */
-
-/* Settings is a dialog, and a dialog with two scopes in it has to say which
-   scope you are in before it says anything else. The left column is that
-   statement: one group per scope, headed by a real heading. */
-/* Settings keeps a stable frame across sections. The navigation has its own
-   track; the active pane scrolls within the available viewport. */
-.settings-shell {
-  display: grid;
-  grid-template-columns: 172px minmax(0, 1fr);
-  gap: var(--sp-5);
-  height: round(down, min(408px, 100dvh - 128px), 1px);
-  min-height: 0;
+/* Settings owns a stable frame; navigation and the active page scroll separately. */
+.settings-dialog-surface {
+  height: min(660px, calc(100dvh - 64px));
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
-.settings-shell > .settings-pane {
-  padding-inline-start: var(--sp-5);
-  border-inline-start: 1px solid var(--thread);
+.settings-dialog-surface > [data-slot="dialog-header"] {
+  justify-content: center;
+  min-height: 64px;
+  padding: 16px 64px 16px 24px;
+  border-bottom: 1px solid var(--thread);
+}
+
+.settings-dialog-surface > [data-slot="dialog-close"] {
+  top: 16px;
+  right: 20px;
+}
+
+.settings-shell {
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr);
+  min-height: 0;
 }
 
 .settings-nav {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-4);
+  gap: 28px;
   min-width: 0;
+  padding: 24px 12px 18px;
+  background: var(--rail);
+  border-inline-end: 1px solid var(--thread);
+  border-end-start-radius: var(--r-4);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
 
 .settings-group {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
   min-width: 0;
 }
 
 .settings-group h3 {
-  margin: 0 0 var(--sp-2);
-  padding: 0 var(--sp-2);
+  margin: 0 12px 8px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  line-height: var(--lh-xs);
+}
+
+.settings-group-links {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
 .settings-tab {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
+  flex: none;
+  gap: 10px;
+  min-height: 36px;
   width: 100%;
-  min-height: 28px;
-  padding: 0 var(--sp-2);
-  border: none;
+  padding: 8px 12px;
+  border: 0;
   border-radius: var(--r-2);
-  background: none;
-  /* Full-strength ink, so the group label above it is unambiguously the quieter
-     of the two — see designs/foundations.md § Typography. */
-  color: var(--ink);
+  background: transparent;
+  color: var(--ink-2);
   font: inherit;
   font-size: var(--text-sm);
   line-height: var(--lh-sm);
-  letter-spacing: var(--track-sm);
   text-align: start;
   cursor: pointer;
-  transition: background-color var(--dur-press) var(--ease-out);
+  transition:
+    background-color var(--dur-press) var(--ease-out),
+    color var(--dur-press) var(--ease-out);
+}
+
+.settings-tab svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
 }
 
 .settings-tab:hover {
   background: var(--surface-2);
+  color: var(--ink);
 }
 
-/* ── The one persistent indicator ──
-   The settings rail is a vertical tab list, which is the one kind of list whose
-   marker is not roving: it says which pane is currently on screen, and it has to
-   keep saying it while the pointer wanders across the other rows. So it takes a
-   shape the roving wash cannot be mistaken for — a 2px accent rule at the left
-   edge — and the wash then remains free to mean "the keys are here", exactly as
-   it does in every menu (designs/interaction.md § Control States).
-
-   Focus carries the rule too, because focus can land on the current tab, whose
-   fill is already the darker one; without the rule those two states would be
-   one. Never a drawn outline — that is the extra box excluded by
-   designs/foundations.md § Geometry, Depth, and Shape. */
-.settings-tab {
-  position: relative;
+.settings-tab[aria-current="page"] {
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-weight: var(--weight-medium);
 }
 
-/* Focus takes the halo every other control in the product takes — inset, because
-   the nav is a scroll container and an outset ring would push a horizontal
-   scrollbar into it — and *not* the accent rule. The rule belongs to
-   `aria-current` alone: when both wore it, a reader tabbing through the list saw
-   two identical accent marks and no way to tell which one was the pane they were
-   looking at. */
-.settings-tab:focus-visible {
-  outline: none;
-  background: var(--surface-2);
-  box-shadow: var(--focus-inset);
+.settings-tab[aria-current="page"] svg {
+  color: var(--accent);
 }
 
-.settings-tab[aria-current="true"]::before {
+.settings-tab[aria-current="page"]::before {
   content: "";
   position: absolute;
   inset-inline-start: 0;
-  top: 5px;
-  bottom: 5px;
+  top: 11px;
+  bottom: 11px;
   width: 2px;
   border-radius: var(--r-full);
   background: var(--accent);
 }
 
-.settings-tab[aria-current="true"] {
-  background: var(--accent-tint);
-  color: var(--ink);
-  font-weight: var(--weight-medium);
+.settings-tab:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-inset);
+}
+
+.settings-nav-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: auto 10px 0;
+  padding-top: 12px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}
+
+.settings-nav-note svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
 }
 
 .settings-pane {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-5);
   min-width: 0;
-  padding-inline-end: var(--sp-1);
+  padding: 32px 36px 40px;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
-@media (max-width: 700px) {
-  .settings-shell {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
-    height: min(640px, 100dvh - 112px);
-    gap: var(--sp-4);
-    min-height: 0;
-    max-height: none;
-  }
-
-  .settings-nav {
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: var(--sp-3);
-    overflow: visible;
-  }
-
-  .settings-group {
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--sp-1);
-  }
-
-  .settings-group h3 {
-    width: 100%;
-    margin: 0;
-  }
-
-  .settings-tab {
-    width: auto;
-    min-height: 32px;
-    background: var(--surface-2);
-  }
-
-  /* The pane owns the remaining dialog height and its only vertical scrollport. */
-  .settings-shell > .settings-pane {
-    min-height: 0;
-    padding-inline-start: 0;
-    border-inline-start: 0;
-    border-top: 1px solid var(--thread);
-    padding-top: var(--sp-4);
-  }
+.settings-page-header {
+  margin-bottom: 32px;
 }
 
-.settings-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-3);
+.settings-page-header h2 {
+  margin: 0 0 8px;
+  color: var(--ink);
+  font-size: 24px;
+  line-height: 1.3;
+  letter-spacing: -0.035em;
+  font-weight: var(--weight-strong);
 }
 
-.settings-section > p {
+.settings-page-header p,
+.settings-section > p,
+.settings-field p,
+.settings-empty p,
+.settings-danger-action p {
   margin: 0;
-  max-width: 60ch;
   color: var(--ink-2);
   font-size: var(--text-sm);
+  line-height: 1.65;
+  text-wrap: pretty;
+}
+
+.settings-page-content {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.settings-section,
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.settings-page-content > .settings-section + .settings-section,
+.settings-page-content > .settings-field {
+  padding-top: 24px;
+  border-top: 1px solid var(--thread);
+}
+
+.settings-section h3,
+.settings-field h3,
+.settings-field-label {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
   line-height: var(--lh-sm);
+  font-weight: var(--weight-strong);
 }
 
 .settings-section > .field {
-  max-width: 360px;
+  width: 100%;
+  max-width: 420px;
 }
 
 .settings-grid {
-  display: grid;
-  grid-template-columns: minmax(160px, auto) minmax(0, 1fr);
-  gap: var(--sp-1) var(--sp-4);
-  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 8px 0 0;
   font-size: var(--text-sm);
-  line-height: var(--lh-sm);
+  line-height: 1.5;
+}
+
+.settings-grid > div {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) minmax(0, 2fr);
+  align-items: baseline;
+  gap: 16px;
 }
 
 .settings-grid dt {
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 
 .settings-grid dd {
   margin: 0;
-  color: var(--ink-2);
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 
 .settings-grid dd button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-height: 32px;
+  padding: 4px 0;
   border: none;
+  border-radius: var(--r-1);
   background: none;
-  padding: 0;
-  color: inherit;
+  color: var(--ink-2);
   font: inherit;
   font-family: var(--font-mono);
   font-size: var(--text-xs);
@@ -214,12 +243,358 @@
   text-align: start;
 }
 
-.settings-grid dd button:hover {
-  color: var(--ink);
+.settings-grid dd button svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
 }
 
-.settings-danger h2 {
+.settings-grid dd button:hover {
+  color: var(--accent);
+}
+
+.settings-themes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 4px;
+}
+
+.settings-theme {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-3);
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.settings-theme-preview {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 112px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-3);
+  box-shadow: 0 0 0 3px transparent;
+  transition:
+    box-shadow var(--dur-press) var(--ease-out),
+    border-color var(--dur-press) var(--ease-out);
+}
+
+.settings-theme:hover .settings-theme-preview {
+  border-color: var(--ink-3);
+}
+
+.settings-theme[aria-pressed="true"] .settings-theme-preview {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.settings-theme:focus-visible {
+  outline: none;
+}
+
+.settings-theme:focus-visible .settings-theme-preview {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.settings-theme-mini {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 28% 1fr;
+  background: var(--canvas);
+}
+
+.settings-theme-mini-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 6px;
+  background: var(--rail);
+  border-inline-end: 1px solid var(--line);
+}
+
+.settings-theme-mini i,
+.settings-theme-mini b {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-3);
+}
+
+.settings-theme-mini-rail i:first-child {
+  height: 12px;
+  margin: -3px -2px 0;
+  border-radius: 3px;
+  background: var(--accent-soft);
+  border-inline-start: 2px solid var(--accent);
+}
+
+.settings-theme-mini-page {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 22px 12px;
+}
+
+.settings-theme-mini-page b {
+  width: 68%;
+  height: 6px;
+  margin-bottom: 3px;
+  background: var(--ink-2);
+}
+
+.settings-theme-mini-page i:last-child {
+  width: 64%;
+  margin-inline-start: 10px;
+}
+
+.settings-theme-preview[data-mode="system"] .settings-theme-mini:last-child {
+  clip-path: polygon(72% 0, 100% 0, 100% 100%, 28% 100%);
+}
+
+.settings-theme-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+.settings-theme-label svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+.settings-theme-check {
+  margin-inline-start: auto;
+  color: var(--accent);
+  visibility: hidden;
+}
+
+.settings-theme[aria-pressed="true"] .settings-theme-check {
+  visibility: visible;
+}
+
+.settings-reading-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 24px;
+  border: 1px solid var(--thread);
+  border-radius: var(--r-3);
+  background: var(--canvas);
+}
+
+.settings-preview-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.settings-preview-label svg {
+  width: 14px;
+  height: 14px;
+}
+
+.settings-reading-preview p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: var(--weight-medium);
+  line-height: 1.5;
+  letter-spacing: -0.025em;
+}
+
+.settings-storage-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.settings-storage-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-storage-stats span,
+.settings-storage-stats p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}
+
+.settings-storage-stats strong {
+  color: var(--ink);
+  font-size: 28px;
+  font-weight: var(--weight-medium);
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-danger-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 24px;
+  border: 1px solid color-mix(in oklab, var(--danger) 24%, var(--thread));
+  border-radius: var(--r-3);
+}
+
+.settings-danger-action > svg {
+  width: 22px;
+  height: 22px;
+  margin-bottom: 6px;
   color: var(--danger);
+}
+
+.settings-danger-action > button {
+  margin-top: 8px;
+}
+
+.settings-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 20px 8px;
+  text-align: center;
+}
+
+.settings-empty > svg {
+  width: 32px;
+  height: 32px;
+  margin-bottom: 8px;
+  color: var(--ink-3);
+}
+
+.settings-empty + .default-query-add {
+  display: flex;
+  justify-content: center;
+}
+
+@media (max-width: 700px) {
+  .settings-dialog-surface {
+    height: min(760px, calc(100dvh - 32px));
+  }
+
+  .settings-dialog-surface > [data-slot="dialog-header"] {
+    min-height: 56px;
+    padding: 12px 56px 12px 20px;
+  }
+
+  .settings-dialog-surface > [data-slot="dialog-close"] {
+    top: 12px;
+    right: 12px;
+  }
+
+  .settings-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .settings-nav {
+    gap: 2px;
+    padding: 8px 0;
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--thread);
+    border-radius: 0;
+  }
+
+  .settings-group {
+    display: grid;
+    grid-template-columns: 90px minmax(0, 1fr);
+    align-items: center;
+  }
+
+  .settings-group h3 {
+    margin: 0;
+    padding-inline-start: 16px;
+    padding-inline-end: 8px;
+  }
+
+  .settings-group-links {
+    flex-direction: row;
+    gap: 4px;
+    padding: 2px 12px 2px 2px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+  }
+
+  .settings-tab {
+    width: auto;
+    min-height: 40px;
+    gap: 6px;
+    padding: 8px 10px;
+    white-space: nowrap;
+  }
+
+  .settings-nav-note {
+    display: none;
+  }
+
+  .settings-pane {
+    padding: 24px 20px 32px;
+    scrollbar-gutter: auto;
+  }
+
+  .settings-page-header {
+    margin-bottom: 24px;
+  }
+
+  .settings-page-header h2 {
+    font-size: 22px;
+  }
+
+  .settings-themes {
+    gap: 10px;
+  }
+
+  .settings-theme-preview {
+    height: 92px;
+  }
+
+  .settings-theme-label {
+    flex-wrap: wrap;
+    column-gap: 4px;
+    font-size: var(--text-xs);
+  }
+
+  .settings-theme-label > svg:first-child {
+    display: none;
+  }
+
+  .settings-reading-preview,
+  .settings-danger-action {
+    padding: 20px;
+  }
+
+  .settings-reading-preview p {
+    font-size: 20px;
+  }
+
+  .settings-grid > div {
+    grid-template-columns: minmax(80px, 1fr) minmax(0, 2fr);
+    gap: 10px;
+  }
 }
 
 /* The one segmented control: a track with the chosen key raised out of it. The
@@ -272,32 +647,6 @@
   .segmented button {
     height: var(--sp-6);
   }
-}
-
-/* A named sub-setting inside a section: its own small heading and sentence, then
-   its control. A section that has two unrelated choices in it needs this; one
-   that has one does not, and takes the section heading as its label. */
-.settings-field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-}
-
-.settings-field h3 {
-  margin: 0;
-  color: var(--ink);
-  font-size: var(--text-sm);
-  line-height: var(--lh-sm);
-  letter-spacing: var(--track-sm);
-  font-weight: 600;
-}
-
-.settings-field p {
-  margin: 0;
-  max-width: 60ch;
-  color: var(--ink-2);
-  font-size: var(--text-sm);
-  line-height: var(--lh-sm);
 }
 
 /* ── Choosing a colour ──
@@ -475,10 +824,18 @@
     padding: 0 var(--sp-1);
   }
 
-  /* The accessible name is on the button; the compact mark keeps all eight
-     direct choices and the secondary action on one mobile row. */
-  .accent-custom-trigger > span:last-child {
-    display: none;
+  .accent-color-controls {
+    width: 100%;
+    gap: 12px;
+  }
+
+  .accent-color-controls > .color-choice {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .accent-custom-trigger {
+    padding-inline: 10px;
   }
 }
 
@@ -798,83 +1155,64 @@
   height: var(--sp-6);
 }
 
-/* ── The due tiers ──
-   Five rows, in the order dates move through them, each previewing itself. The
-   grid keeps the name, the preview, the reach and the tone in four columns so the
-   five rows read down as one scale rather than across as five settings. */
-/* One grid for the whole scale, and each tier inherits its tracks. The rows were
-   independent grids sharing a `grid-template-columns` string, which is not
-   the same thing at all: the second track is `auto`, so each row sized it to its
-   own preview chip and `within … days` landed at a different x in every row —
-   237.75px, 184.06px, 167.89px, 182.22px, and sixteen pixels of raggedness down
-   a column whose whole job is to be read down. `subgrid` is what makes five rows
-   actually agree; the previous comment here claimed they did. */
-/* Four tracks, and the *chip* is the elastic one. It used to be `auto` with the
-   reach cell taking `1fr`, which held while the reach cell's neighbour was a
-   128px dropdown and broke when six swatches sat in every row: the chip sized
-   itself to the longest date in the scale, the swatches took what they needed, and
-   `within [ ] days` was left with 33 pixels to put a 64px field in — a number
-   input squeezed until its own value was invisible. The chip is the one thing here
-   that can afford to give, because it already ellipsises and it is a preview
-   rather than a control. One fixed color well now owns that final track and
-   opens the full picker outside the grid.
-
-   The name column is `max-content` and not the 84px it was. 84 was sized for the
-   longest label in English; in Korean the labels are two syllables and the column
-   held fifty pixels of nothing between the name and the date it names, which read
-   as two separate columns of information rather than one row about one tier. It is
-   as wide as the widest label and no wider — `subgrid` means all five rows still
-   agree on it — and the fifty pixels go to the preview, which wanted them. */
+/* Each due tier owns its label/range, a live date, and one colour action. */
 .due-tiers {
   display: grid;
-  grid-template-columns: max-content minmax(0, 1fr) max-content max-content;
-  gap: var(--sp-2) var(--sp-3);
+  grid-template-columns: minmax(130px, 1fr) minmax(0, 1fr) 48px;
+  column-gap: 16px;
 }
 
-.due-tier {
+.due-tier,
+.due-tiers-heading {
   display: grid;
   grid-column: 1 / -1;
   grid-template-columns: subgrid;
   align-items: center;
 }
 
+.due-tiers-heading {
+  padding: 0 0 10px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.due-tier {
+  min-height: 70px;
+  padding: 12px 0;
+  border-top: 1px solid var(--thread);
+}
+
+.due-tier-detail {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
 .due-tier-name {
   color: var(--ink);
   font-size: var(--text-sm);
-  line-height: var(--lh-sm);
   font-weight: var(--weight-medium);
-  white-space: nowrap;
+}
+
+.due-tier-range,
+.due-tier-days {
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
 }
 
 .due-tier-days {
   display: inline-flex;
   align-items: center;
-  gap: var(--sp-1);
-  color: var(--ink-2);
-  font-size: var(--text-xs);
-  line-height: var(--lh-xs);
+  gap: 4px;
   white-space: nowrap;
 }
 
-/* ── A number that reads as a word ──
-   `within [7] days` is a sentence with a control in it. The control was a 64×32
-   ringed field: the only drawn box in the scale, eight pixels taller than the
-   chips and swatches in the rows either side of it, so the five rows of one
-   ordered scale had two different heights and the eye went to the one number
-   nobody came here to look at.
-
-   It is the query builder's own pattern now, for the same reason that has — a
-   control that reads as a word at rest, takes the one hover colour under the
-   pointer, and shows the field's resting ring only once the caret is actually in
-   it. At `--target` tall it is exactly the height of everything beside it, so the
-   scale reads down as five rows of one thing. The native spinner goes with the
-   box; the arrow keys it stood for still work, and 24×36 is over the hit floor.
-
-   Not shadcn's `Input`, deliberately: that component *is* the inset field this
-   one is not, and its `h-8` and `w-full` live in the utilities layer where
-   nothing in this file can reach them. */
 .due-tier-input {
-  flex: 0 0 36px;
+  flex: 0 0 42px;
+  width: 42px;
   height: var(--target);
   padding: 0 var(--sp-1);
   border: 0;
@@ -887,6 +1225,7 @@
   font-variant-numeric: tabular-nums;
   text-align: center;
   caret-color: var(--accent);
+  box-shadow: var(--e1);
   appearance: textfield;
   -moz-appearance: textfield;
   transition:
@@ -917,140 +1256,33 @@
   }
 }
 
-/* The three tiers with no reach to set still occupy the column, so the colour wells
-   line up down the whole scale. Without the explicit placement auto-flow puts
-   them in the third track — a row with three children fills the first three
-   columns — while the two threshold rows put colour in the fourth. */
-.due-tier > .color-studio-trigger {
-  grid-column: 4;
-}
-
-@media (max-width: 600px) {
+@media (max-width: 500px) {
   .due-tiers {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) 48px;
+    column-gap: 12px;
   }
 
-  /* One column per row, so there is no shared track to inherit. */
+  .due-tiers-heading {
+    display: none;
+  }
+
   .due-tier {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--sp-1);
-    padding-bottom: var(--sp-2);
+    row-gap: 8px;
+    padding: 16px 0;
+  }
+
+  .due-tier > .task-chip {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
+    max-width: 100%;
   }
 
   .due-tier > .color-studio-trigger {
-    grid-column: 1;
+    grid-column: 2;
+    grid-row: 1 / 3;
+    min-height: 40px;
   }
-}
-
-/* ── The day's standing questions, where they are written ──
-   A list of *questions*, so a row is one question: what it is called, how much it
-   currently finds, and its own verbs. The count is the same chip the journal
-   prints beside the same answer, which makes the row a preview at the size it
-   will render — the thing every other choice in this dialog owes the reader.
-
-   Rows are bounded objects rather than bands separated by rules: each one holds a
-   field and an editor that opens under it, and a hairline between two of those is
-   not enough to say where one stopped. `--surface-1` inside a dialog that is
-   already `--overlay` is the one step available, so the hairline closes it
-   (designs/foundations.md § Geometry, Depth, and Shape — luminance separates, a hairline closes). */
-.default-queries {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.default-query {
-  border-radius: var(--r-3);
-  background: var(--surface-1);
-  box-shadow: inset 0 0 0 1px var(--thread);
-}
-
-/* One row, four slots: the disclosure, the name, the count, the menu. The name
-   is the only one that gives, because it is the only one whose width is the
-   reader's. */
-.default-query-head {
-  display: grid;
-  grid-template-columns: var(--target) minmax(0, 1fr) max-content var(--target);
-  align-items: center;
-  gap: var(--sp-2);
-  padding: var(--sp-2);
-}
-
-/* The editor, under the row it belongs to. The seam is what says the two are one
-   object with a lid rather than two stacked ones — the same hairline the panel
-   itself is closed with, so no new line enters the product for this. */
-.default-query-body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-3);
-  padding: var(--sp-3) var(--sp-2) var(--sp-2);
-  border-top: 1px solid var(--thread);
-}
-
-.default-query-conditions-trigger {
-  align-self: flex-start;
-}
-
-.default-query-conditions-trigger[aria-expanded="true"] {
-  background: var(--accent-tint);
-  color: var(--accent);
-}
-
-/* The builder is written for a query surface, where it sits inside a panel of its
-   own. Here the row *is* that panel, so it gives up its own ground and keeps only
-   its rows. */
-.default-query-body > .query-builder {
-  padding: 0;
-  border: 0;
-  background: none;
-  /* Its own two hairlines would land on top of the seam above it and the row's
-     own closing line below — three lines where the object has two edges. */
-  box-shadow: none;
-}
-
-.default-query-body > .query-source {
-  border-radius: var(--r-2);
-}
-
-/* `Show as [List | Table]` is a label and its control on one line, at the
-   segmented track's own height — not a stacked field, which would put a form in
-   the middle of a list of questions. */
-.default-query-layout {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-}
-
-.default-query-layout .field-label {
-  margin-bottom: 0;
-}
-
-/* The empty state is the action, so the entrance is the section's floor rather
-   than a row that appears once something else exists. It is the one the outline's
-   `/` offers, and for the same reason: a query is built. */
-.default-query-add {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-2);
-}
-
-/* A field in the dialog fills its pane. The 360px reading width was tuned for a
-   full-page form; here it clipped the journal date format's own example, which is
-   the whole reason that option carries one. */
-.settings-pane .settings-section > .field {
-  max-width: none;
-}
-
-/* Inside the dialog the 19px title is already the largest thing on the surface,
-   so a section heading steps down rather than tying with it. */
-.settings-pane h2 {
-  font-size: var(--text-sm);
-  line-height: var(--lh-sm);
-  letter-spacing: var(--track-sm);
-  font-weight: 600;
 }
 
 .shortcut-list {
@@ -1069,7 +1301,8 @@
   grid-column: 1 / -1;
   grid-template-columns: subgrid;
   align-items: center;
-  min-height: 32px;
+  min-height: 44px;
+  border-bottom: 1px solid var(--thread);
   margin-inline: calc(var(--sp-1) * -1);
   padding: 0 var(--sp-1);
   border-radius: var(--r-2);
@@ -1098,7 +1331,7 @@
   align-items: center;
   justify-content: center;
   min-width: 68px;
-  height: 24px;
+  height: 30px;
   padding: 0 var(--sp-2);
   border: none;
   border-radius: var(--r-1);
@@ -1179,5 +1412,23 @@
 
   .shortcut-row {
     padding: var(--sp-1) var(--sp-1);
+  }
+}
+
+.settings-storage-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-storage-status svg {
+  width: 16px;
+  height: 16px;
+  color: var(--ok);
+}
+
+@media (min-width: 701px) and (max-height: 700px) {
+  .settings-nav-note {
+    display: none;
   }
 }

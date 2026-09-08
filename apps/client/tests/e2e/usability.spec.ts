@@ -174,6 +174,45 @@ test("creation and navigation have usable keyboard and pointer dismissal routes"
   await expect(app.editors.first()).toBeInViewport();
 });
 
+test("settings keeps a stable frame and reachable navigation while previews update", async ({
+  app,
+  page,
+}) => {
+  await app.createGraph("Settings workspace");
+  await app.settings("keyboard");
+  const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
+  const frame = await dialog.boundingBox();
+  expect(frame).not.toBeNull();
+  const navigate = async (section: string) => {
+    const tab = page.getByTestId(`settings-tab-${section}`);
+    await tab.scrollIntoViewIfNeeded();
+    await tab.click();
+    await expect(tab).toHaveAttribute("aria-current", "page");
+    await expect.poll(() => dialog.boundingBox()).toEqual(frame);
+  };
+
+  await navigate("journal");
+  await page.getByTestId("settings-date-format").click();
+  await page.getByRole("option", { name: /^ISO 8601/ }).click();
+  await expect(page.getByTestId("settings-journal-preview")).toHaveText("2026-09-07");
+
+  await navigate("tasks");
+  const reset = page.getByTestId("due-tiers-reset");
+  await reset.scrollIntoViewIfNeeded();
+  await expect(reset).toBeInViewport({ ratio: 1 });
+  await expect.poll(() => dialog.boundingBox()).toEqual(frame);
+  const close = dialog.getByRole("button", { name: "Close", exact: true });
+  await expect(close).toBeInViewport({ ratio: 1 });
+  await expect(dialog.getByRole("navigation", { name: "Settings sections" })).toBeInViewport();
+  await navigate("appearance");
+  await expect(page.getByTestId("settings-appearance")).toBeInViewport();
+  await close.focus();
+  await expect(close).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByTestId("open-settings")).toBeFocused();
+});
+
 test("language preferences survive reload without changing graph content", async ({
   app,
   page,

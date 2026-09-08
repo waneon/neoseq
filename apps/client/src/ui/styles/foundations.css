@@ -1,7 +1,8 @@
 /* Shared semantic roles: paper, stone, graphite and a reader-selected accent.
    Light and dark expose the same roles; feature styles only consume them. */
 
-:root {
+:root,
+[data-theme-preview] {
   color-scheme: light;
 
   --canvas: #fdfcf9;
@@ -188,6 +189,11 @@
   --z-toast: 70;
 }
 
+/* Theme previews share the product palette and the reader's current accent. */
+[data-theme-preview] {
+  --accent-h: inherit;
+}
+
 [data-palette="neutral"] {
   --tone: var(--ink-2);
 }
@@ -270,7 +276,8 @@
   }
 }
 
-:root[data-theme="dark"] {
+:root[data-theme="dark"],
+[data-theme-preview="dark"] {
   color-scheme: dark;
   --canvas: #202123;
   --surface-1: oklch(0.242 0.008 264);

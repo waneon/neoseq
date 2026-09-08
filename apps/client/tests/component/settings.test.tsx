@@ -46,6 +46,7 @@ describe("journal date format", () => {
     expect(chooser).toHaveTextContent(/Weekday and full date — .*20\d\d/);
     await chooseFromMenu(user, chooser, /ISO/);
     expect(journalDateFormat()).toBe("iso");
+    expect(screen.getByTestId("settings-journal-preview")).toHaveTextContent(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   it("is what the journal title, not just this dialog, is written in", async () => {

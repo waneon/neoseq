@@ -91,14 +91,18 @@ and returns focus to its control. Following a rail link closes the drawer,
 including a link to the current page; keyboard invocation preserves the editor's
 caret instead.
 
-The dialog keeps one frame size across sections so navigation does not move under
-the pointer. The section list remains stable while the active pane scrolls or
-stacks responsively. On compact screens the navigation takes its natural height
-and the active pane receives the remaining frame; short windows can scroll both
-regions independently without moving the dialog outside the viewport.
-Appearance choices preview their actual product role, and
-bounded color choices are selected from visible swatches rather than a free-form
-picker.
+The dialog keeps a spacious, stable frame across sections so navigation does not
+move under the pointer. Its sidebar groups application preferences for this
+device separately from the current graph. Each pane uses a consistent heading
+and description to establish purpose and scope before its controls. The active
+pane owns its scrolling within the remaining frame.
+
+On compact screens the two scope groups become separate, horizontally scrolling
+navigation rows. Their height stays predictable while the content receives the
+remaining viewport space; the dialog and its close action stay within reach in
+short windows. Theme choices use visual preview cards that show the writing
+surface and navigation together. Accent choices preview their actual product
+role, with visible swatches and bounded color controls.
 
 Graph-owned standing queries are authored here with the same query grammar used
 elsewhere. Settings owns their graph-level lifecycle; the answer surface owns
