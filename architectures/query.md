@@ -14,6 +14,11 @@ and raw read-only SPARQL 1.1. Both lower once at the Rust boundary into the same
 mutate CRDT state, select another graph, contact a SPARQL endpoint, or access
 platform I/O.
 
+Page and tag subjects share a stable document IRI (the established `page` spelling).
+Kind changes alter projected type and presentation, not reference identity. Legacy
+`tag` IRIs in parsed query terms and parameter bindings normalize at the logical
+execution boundary; authored source and string literals are never rewritten.
+
 ## RDF Projection Contract
 
 An open graph exposes one logical RDF default graph. There are no user-visible

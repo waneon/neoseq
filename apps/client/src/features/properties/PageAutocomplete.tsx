@@ -6,9 +6,9 @@
 // container and virtualized stacking context (which otherwise clipped it).
 
 import { useMemo, useRef, useState } from "react";
-import { canonicalEntityName } from "../../entities/names";
+import { canonicalEntityName, namedDocuments } from "../../entities/names";
 import type { Command } from "../../core-port/commands";
-import { isDeleted, pageKind, pageTitle } from "../../core-port/snapshot";
+
 import {
   Autocomplete,
   SearchField,
@@ -28,6 +28,7 @@ interface Option {
   id: string;
   label: string;
   create?: boolean;
+  convert?: boolean;
 }
 
 export function PageAutocomplete({
@@ -69,9 +70,9 @@ export function PageAutocomplete({
     const entities =
       kind === "tag"
         ? state.snapshot.tags.map((tag) => ({ id: tag.id, label: tag.name }))
-        : state.snapshot.pages
-            .filter((page) => !isDeleted(page))
-            .map((page) => ({ id: page.id, label: pageTitle(page), kind: pageKind(page) }));
+        : namedDocuments(state.snapshot)
+            .filter((entry) => !entry.deleted)
+            .map((entry) => ({ id: entry.id, label: entry.title }));
     const matches = entities
       .filter(
         (entity) => canonical.length === 0 || canonicalEntityName(entity.label).includes(canonical),
@@ -81,7 +82,20 @@ export function PageAutocomplete({
     const exact = entities.some((entity) => canonicalEntityName(entity.label) === canonical);
     const result: Option[] = matches.map(({ id, label }) => ({ id, label }));
     if (allowCreate && canonical.length > 0 && !exact) {
-      result.push({ id: "__create", label: query.trim(), create: true });
+      const page =
+        kind === "tag"
+          ? namedDocuments(state.snapshot).find(
+              (entry) =>
+                !entry.deleted &&
+                !entry.journal_date &&
+                canonicalEntityName(entry.title) === canonical,
+            )
+          : undefined;
+      result.push(
+        page
+          ? { id: page.id, label: page.title, convert: true }
+          : { id: "__create", label: query.trim(), create: true },
+      );
     }
     return result;
   }, [state.snapshot, query, allowCreate, kind, compare]);
@@ -92,10 +106,11 @@ export function PageAutocomplete({
     setPending(true);
     setOpen(false);
     try {
-      if (option.create) {
-        const id = `${kind === "tag" ? "t" : "p"}-${randomUUID()}`;
-        const ensure =
-          kind === "tag"
+      if (option.create || option.convert) {
+        const id = option.convert ? option.id : `${kind === "tag" ? "t" : "p"}-${randomUUID()}`;
+        const ensure = option.convert
+          ? { type: "set_entity_kind" as const, id, kind: "tag" as const }
+          : kind === "tag"
             ? { type: "ensure_tag" as const, tag_id: id, name: option.label }
             : { type: "ensure_page" as const, page_id: id, title: option.label };
         const attached = onCreate?.(id);
@@ -197,12 +212,14 @@ export function PageAutocomplete({
                 >
                   <span className="property-picker-candidate">
                     <span>
-                      {option.create
-                        ? message("properties.createEntity", {
-                            kind: message(kind === "tag" ? "common.tag" : "common.page"),
-                            name: option.label,
-                          })
-                        : option.label}
+                      {option.convert
+                        ? message("entity.convertAndApply", { name: option.label })
+                        : option.create
+                          ? message("properties.createEntity", {
+                              kind: message(kind === "tag" ? "common.tag" : "common.page"),
+                              name: option.label,
+                            })
+                          : option.label}
                     </span>
                   </span>
                 </ListBoxItem>

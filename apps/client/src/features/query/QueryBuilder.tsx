@@ -1,3 +1,4 @@
+import { namedDocuments } from "../../entities/names";
 import { useMemo, useState } from "react";
 import { PlusIcon, Trash2Icon, XIcon } from "lucide-react";
 import { Input } from "@/ui/shadcn/input";
@@ -645,7 +646,7 @@ function Operand({
 
   if (type === "page") {
     const current = value.type === "page" ? value.value : "";
-    const page = snapshot.pages.find((item) => item.id === current);
+    const page = namedDocuments(snapshot).find((item) => item.id === current);
     return (
       <span className="qb-operand">
         {page && (
@@ -731,7 +732,7 @@ function ValueListEditor({
   const nameOf = (member: string): string => {
     if (type === "tag") return snapshot.tags.find((tag) => tag.id === member)?.name ?? member;
     if (type === "page") {
-      const page = snapshot.pages.find((item) => item.id === member);
+      const page = namedDocuments(snapshot).find((item) => item.id === member);
       return page ? page.title || page.id : member;
     }
     return member;

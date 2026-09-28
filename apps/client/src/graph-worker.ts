@@ -7,7 +7,7 @@ import init, {
   encodeSyncMessageJson,
 } from "./wasm/neoseq_core.js";
 import { CORE_PORT_VERSION } from "./generated/core-port";
-import { SCHEMA_VERSION } from "./generated/graph-schema";
+import { SCHEMA_VERSION, supportsDocumentSchema } from "./generated/graph-schema";
 import type {
   CloseGraphRequest,
   CommandResult,
@@ -243,7 +243,7 @@ async function openGraph(request: OpenGraphRequest) {
   if (states.has(handle)) throw failure("graph_already_open", "graph is already open", false);
   const repository = createRepository();
   const metadata = await repository.openGraph(request.locator, now(), request.peer_id);
-  if (metadata.schema_version !== SCHEMA_VERSION) {
+  if (!supportsDocumentSchema(metadata.schema_version)) {
     throw failure(
       "unsupported_schema",
       `unsupported schema version ${metadata.schema_version}`,
@@ -287,7 +287,7 @@ async function recover(
   const checkpoints = await repository.checkpointsDescending(storageKey);
   for (const checkpoint of checkpoints) {
     let reason: string | undefined;
-    if (checkpoint.schema_version !== SCHEMA_VERSION)
+    if (!supportsDocumentSchema(checkpoint.schema_version))
       reason = `unsupported-checkpoint-schema:${checkpoint.schema_version}`;
     else if (!(await validChecksum(checkpoint.checksum, checkpoint.payload)))
       reason = "checkpoint-checksum-mismatch";
@@ -404,7 +404,7 @@ async function recover(
   } else if (metadata.schema_version < SCHEMA_VERSION) {
     await repository.installCheckpoint(
       storageKey,
-      ownedBuffer(core.exportGcCheckpoint()),
+      ownedBuffer(core.exportSnapshot()),
       validThrough,
       SCHEMA_VERSION,
       now(),

@@ -16,7 +16,7 @@ import {
   findBlock,
   findOutline,
   findPage,
-  findTag,
+  documentTitle,
   journalDate,
   outlineOwnerKey,
   pageTitle,
@@ -139,10 +139,10 @@ const XSD_DATE = "http://www.w3.org/2001/XMLSchema#date";
  * their text, which is what the outline-style list view does.
  */
 export function entityName(entity: QueryEntityRef, context: CellContext): string {
-  if (entity.kind === "tag") return findTag(context.snapshot, entity.id)?.name ?? entity.id;
+  if (entity.kind === "tag") return documentTitle(context.snapshot, entity.id);
   if (entity.kind === "block") return entity.id;
   const page = findPage(context.snapshot, entity.id);
-  if (!page) return entity.id;
+  if (!page) return documentTitle(context.snapshot, entity.id);
   const day = journalDate(page);
   return day ? context.formatDate(day) : pageTitle(page);
 }

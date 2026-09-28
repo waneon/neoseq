@@ -6,11 +6,11 @@ use super::{
     OutlineInsertion, PAGE_REFERENCE_CHAR, PAGE_REFERENCE_MARK, bag_contains_key, block_id,
     clear_property_values, collect_tagged_blocks, decode_bag, default_queries_map,
     ensure_page_name_available, ensure_property_field, ensure_tag_name_available,
-    initialize_created_node, key, map_string, node_has_tag, normalized_query_document,
-    normalized_query_view, property_owner_from_query_owner, property_owner_target,
-    remove_property_field, remove_repeated_value, replace_text, require_block_in, set_repeated,
-    set_single, tree_id, validate_default_query_title, validate_name, validate_text,
-    value_into_map, value_into_tree, write_query_document_snapshot,
+    initialize_created_node, key, node_has_tag, normalized_query_document, normalized_query_view,
+    property_owner_from_query_owner, property_owner_target, remove_property_field,
+    remove_repeated_value, replace_text, require_block_in, set_repeated, set_single, tree_id,
+    validate_default_query_title, validate_name, validate_text, value_into_map, value_into_tree,
+    write_query_document_snapshot,
 };
 use crate::SemanticEvent;
 use domain::{
@@ -21,7 +21,7 @@ use domain::{
     QueryView, QueryViewColumn, QueryViewId, QueryViewKind, QueryViewOptions, SplitPlacement,
     TagId, validate_property, validate_property_shape, validate_property_write,
 };
-use loro::{Container, LoroText, TextDelta, ValueOrContainer, cursor::PosType};
+use loro::{LoroText, TextDelta, cursor::PosType};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The first normalized command representation in the core.
@@ -266,6 +266,10 @@ impl EntitySeed {
 enum PrimitiveOp {
     EnsureEntity {
         seed: EntitySeed,
+    },
+    AssignKind {
+        id: PageId,
+        kind: domain::EntityKind,
     },
     AssignName {
         target: LifecycleEntity,
@@ -545,6 +549,15 @@ impl TransitionFootprint {
             match operation {
                 PrimitiveOp::EnsureEntity { seed } => {
                     footprint.entities.insert(seed.target());
+                }
+                PrimitiveOp::AssignKind { id, .. } => {
+                    footprint.entities.insert(TouchedEntity::Page(id.clone()));
+                    footprint
+                        .outlines
+                        .insert(OutlineOwner::Page { id: id.clone() });
+                    footprint.outlines.insert(OutlineOwner::Tag {
+                        id: TagId::new(id.as_str()).expect("valid entity ID"),
+                    });
                 }
                 PrimitiveOp::AssignName { target, .. }
                 | PrimitiveOp::AssignDeleted { target, .. } => {
@@ -952,9 +965,32 @@ impl GraphCore {
         command: &Command,
     ) -> Result<NormalizedTransition, CoreError> {
         let transition = match command {
+            Command::SetEntityKind { id, kind } => {
+                let record = self.require_live_page(id)?;
+                let (properties, _) = decode_bag(&self.page_properties(id)?);
+                if super::is_journal_page(&properties) {
+                    return Err(CoreError::InvalidHierarchy(
+                        "journals cannot change document kind".into(),
+                    ));
+                }
+                let name = crate::entities::name(&record)
+                    .ok_or_else(|| CoreError::PageNotFound(id.clone()))?;
+                ensure_page_name_available(&self.doc, id, &name)?;
+                NormalizedTransition::new(
+                    SemanticEvent::EntityKindChanged,
+                    vec![PrimitiveOp::AssignKind {
+                        id: id.clone(),
+                        kind: *kind,
+                    }],
+                    HistoryShape::Graph,
+                )
+            }
             Command::EnsurePage { page_id, title } => {
                 validate_entity_name(title, "page")?;
-                if self.doc.get_map("pages").get(page_id.as_str()).is_none() {
+                if crate::entities::all(&self.doc)
+                    .get(page_id.as_str())
+                    .is_none()
+                {
                     ensure_page_name_available(&self.doc, page_id, title)?;
                 }
                 NormalizedTransition::ensure(EntitySeed::RegularPage {
@@ -1001,15 +1037,8 @@ impl GraphCore {
                 )
             }
             Command::RestorePage { page_id } => {
-                let root = self.page_root(page_id)?;
-                let title = match root.get("content") {
-                    Some(ValueOrContainer::Container(Container::Text(text))) => text.to_string(),
-                    _ => {
-                        return Err(CoreError::InvalidHierarchy(
-                            "page root content is missing".to_owned(),
-                        ));
-                    }
-                };
+                let title = crate::entities::name(&self.require_page(page_id)?)
+                    .ok_or_else(|| CoreError::PageNotFound(page_id.clone()))?;
                 validate_name(&title, "page")?;
                 ensure_page_name_available(&self.doc, page_id, &title)?;
                 NormalizedTransition::new(
@@ -1027,7 +1056,10 @@ impl GraphCore {
             }
             Command::EnsureTag { tag_id, name } => {
                 validate_entity_name(name, "tag")?;
-                if self.doc.get_map("tags").get(tag_id.as_str()).is_none() {
+                if crate::entities::tags(&self.doc)
+                    .get(tag_id.as_str())
+                    .is_none()
+                {
                     ensure_tag_name_available(&self.doc, tag_id, name)?;
                 }
                 NormalizedTransition::ensure(EntitySeed::Tag {
@@ -1070,7 +1102,7 @@ impl GraphCore {
             }
             Command::RestoreTag { tag_id } => {
                 let tag = self.require_tag(tag_id)?;
-                let name = map_string(&tag, "name")
+                let name = crate::entities::name(&tag)
                     .ok_or_else(|| CoreError::TagNotFound(tag_id.clone()))?;
                 validate_name(&name, "tag")?;
                 ensure_tag_name_available(&self.doc, tag_id, &name)?;
@@ -2090,16 +2122,36 @@ impl GraphCore {
                         outcome.created_tag = created;
                     }
                 },
-                PrimitiveOp::AssignName { target, name } => {
-                    match target {
-                        LifecycleEntity::Page(page_id) => replace_text(
-                            &self.page_root(page_id)?.ensure_mergeable_text("content")?,
-                            name,
-                        )?,
-                        LifecycleEntity::Tag(tag_id) => {
-                            self.require_tag(tag_id)?.insert("name", name.as_str())?;
+                PrimitiveOp::AssignKind { id, kind } => {
+                    let record = self.require_page(id)?;
+                    if crate::entities::kind(&record) != *kind {
+                        let root = crate::entities::root(&record);
+                        root.ensure_mergeable_map("tag_refs")?;
+                        record.ensure_mergeable_map("defaults")?;
+                        let properties = root.ensure_mergeable_map("properties")?;
+                        if !bag_contains_key(&properties, &key("builtin.page-kind")) {
+                            set_single(
+                                &properties,
+                                &key("builtin.page-kind"),
+                                &PropertyValue::String("regular".into()),
+                            )?;
                         }
+                        record.insert(
+                            "kind",
+                            match kind {
+                                domain::EntityKind::Page => "page",
+                                domain::EntityKind::Tag => "tag",
+                            },
+                        )?;
+                        outcome.changed = true;
                     }
+                }
+                PrimitiveOp::AssignName { target, name } => {
+                    let record = match target {
+                        LifecycleEntity::Page(id) => self.require_page(id)?,
+                        LifecycleEntity::Tag(id) => self.require_tag(id)?,
+                    };
+                    crate::entities::set_name(&record, name)?;
                     outcome.changed = true;
                 }
                 PrimitiveOp::AssignDeleted { target, deleted } => {
@@ -2603,28 +2655,16 @@ impl GraphCore {
 
     fn tag_reference_targets(&self, tag_id: &TagId) -> Result<Vec<TagReferenceTarget>, CoreError> {
         let mut owners = Vec::new();
-        self.doc.get_map("pages").for_each(|raw_id, value| {
-            if let (Ok(page_id), Some(page)) = (PageId::new(raw_id), value_into_map(value)) {
-                owners.push((OutlineOwner::Page { id: page_id }, page));
-            }
-        });
-        self.doc.get_map("tags").for_each(|raw_id, value| {
-            if let (Ok(owner_id), Some(tag)) = (TagId::new(raw_id), value_into_map(value)) {
-                owners.push((OutlineOwner::Tag { id: owner_id }, tag));
+        crate::entities::all(&self.doc).for_each(|id, value| {
+            if let Some(record) = value_into_map(value) {
+                owners.push((crate::entities::owner(id, &record), record));
             }
         });
         owners.sort_by(|left, right| left.0.cmp(&right.0));
 
         let mut targets = Vec::new();
         for (owner, map) in owners {
-            let root_tagged = match &owner {
-                OutlineOwner::Page { .. } => map
-                    .get("root")
-                    .and_then(value_into_map)
-                    .ok_or_else(|| CoreError::InvalidHierarchy("page root node is missing".into()))
-                    .map(|root| node_has_tag(&root, tag_id))?,
-                OutlineOwner::Tag { .. } => false,
-            };
+            let root_tagged = node_has_tag(&crate::entities::root(&map), tag_id);
             let outline = match map.get("outline") {
                 Some(value) => value_into_tree(value).ok_or_else(|| {
                     CoreError::InvalidHierarchy("owner outline is invalid".into())
@@ -2637,10 +2677,11 @@ impl GraphCore {
                 }
             };
             if root_tagged {
-                let OutlineOwner::Page { id } = &owner else {
-                    unreachable!("only page roots can carry tags")
+                let id = match &owner {
+                    OutlineOwner::Page { id } => id.clone(),
+                    OutlineOwner::Tag { id } => PageId::new(id.as_str()).expect("valid entity ID"),
                 };
-                targets.push(TagReferenceTarget::PageRoot(id.clone()));
+                targets.push(TagReferenceTarget::PageRoot(id));
             }
             let mut blocks = Vec::new();
             for node in outline.roots() {

@@ -536,7 +536,7 @@ export class GraphSession {
     let snapshot = mergeSummary(read.summary, this.state.snapshot);
     const ownersToRead =
       scope.kind === "all-hydrated-outlines"
-        ? [...this.state.hydratedOutlines].map(parseOutlineKey)
+        ? [...this.state.hydratedOutlines].map((key) => parseOutlineKey(key, snapshot))
         : scope.kind === "outlines"
           ? scope.owners.filter((owner) => this.state.hydratedOutlines.has(outlineOwnerKey(owner)))
           : [];
@@ -547,7 +547,7 @@ export class GraphSession {
     }
     const hydratedOutlines = new Set(
       [...this.state.hydratedOutlines].filter((key) =>
-        outlineExists(snapshot, parseOutlineKey(key)),
+        outlineExists(snapshot, parseOutlineKey(key, snapshot)),
       ),
     );
     for (const owner of ownersToRead) {
@@ -589,20 +589,21 @@ export class GraphSession {
   }
 }
 
-function parseOutlineKey(key: string): OutlineOwner {
+function parseOutlineKey(key: string, snapshot: GraphSnapshot): OutlineOwner {
   const separator = key.indexOf(":");
   const kind = key.slice(0, separator);
   const id = key.slice(separator + 1);
-  if ((kind !== "page" && kind !== "tag") || !id) {
+  if (kind !== "document" || !id) {
     throw new Error(`invalid outline key: ${key}`);
   }
-  return { kind, id };
+  return { kind: snapshot.tags.some((tag) => tag.id === id) ? "tag" : "page", id };
 }
 
 function outlineExists(snapshot: GraphSnapshot, owner: OutlineOwner): boolean {
-  return owner.kind === "page"
-    ? snapshot.pages.some((page) => page.id === owner.id)
-    : snapshot.tags.some((tag) => tag.id === owner.id);
+  return (
+    snapshot.pages.some((page) => page.id === owner.id) ||
+    snapshot.tags.some((tag) => tag.id === owner.id)
+  );
 }
 
 function randomPeerId(): number {

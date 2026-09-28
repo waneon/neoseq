@@ -383,7 +383,7 @@ export async function runWorkerCorePortCorpus() {
     "a canonical command built an unused query index",
   );
   const read = await worker.read({ graph_handle: opened.graph_handle });
-  assert((read.summary as Snapshot).schema_version === 7, "worker read did not return schema v7");
+  assert((read.summary as Snapshot).schema_version === 8, "worker read did not return schema v8");
   const outline = await worker.readOutline({
     graph_handle: opened.graph_handle,
     owner: { kind: "page", id: "home" },

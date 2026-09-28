@@ -1,3 +1,4 @@
+import { documentTitle } from "../../core-port/snapshot";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   ArrowLeftIcon,
@@ -466,7 +467,7 @@ export function PropertyPicker({
       return value.value ? message("properties.checked") : message("properties.unchecked");
     if (value.type === "page") {
       const page = findPage(state.snapshot, value.value);
-      if (!page) return value.value;
+      if (!page) return documentTitle(state.snapshot, value.value);
       return isDeleted(page)
         ? message("properties.deleted", { name: pageTitle(page) })
         : pageTitle(page);

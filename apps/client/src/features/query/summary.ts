@@ -1,3 +1,4 @@
+import { documentTitle } from "../../core-port/snapshot";
 // Localized context shared by the query heading, its conditions control, and settings.
 
 import type { GraphSnapshot } from "../../core-port/snapshot";
@@ -162,10 +163,9 @@ function textOperand(field: PlanField, value: string, context: SummaryContext): 
 
 /** A tag speaks its own `#` voice in a caption, as it does everywhere else. */
 function tagName(id: string, context: SummaryContext): string {
-  return `#${context.snapshot.tags.find((tag) => tag.id === id)?.name ?? id}`;
+  return `#${documentTitle(context.snapshot, id)}`;
 }
 
 function pageName(id: string, context: SummaryContext): string {
-  const page = context.snapshot.pages.find((item) => item.id === id);
-  return page ? page.title || page.id : id;
+  return documentTitle(context.snapshot, id);
 }

@@ -21,11 +21,8 @@ function iriComponent(value: string): string {
 const PAGE_SIZE = 100;
 
 function referenceQuery(graphId: string, target: OutlineOwner, page: number): SparqlQueryRequest {
-  const relation =
-    target.kind === "tag"
-      ? "?source neo:tag ?target ."
-      : `?source ?relation ?target .
-       FILTER(?relation = neo:references ||
+  const relation = `?source ?relation ?target .
+       FILTER(?relation = neo:tag || ?relation = neo:references ||
          STRSTARTS(STR(?relation), "urn:neoseq:property:") ||
          STRSTARTS(STR(?relation), "urn:neoseq:default-property:"))`;
   return {
@@ -43,7 +40,7 @@ function referenceQuery(graphId: string, target: OutlineOwner, page: number): Sp
     bindings: {
       target: {
         kind: "iri",
-        value: `urn:neoseq:entity:${iriComponent(graphId)}:${target.kind}:${iriComponent(target.id)}`,
+        value: `urn:neoseq:entity:${iriComponent(graphId)}:page:${iriComponent(target.id)}`,
       },
     },
   };

@@ -97,6 +97,14 @@ explain that applying a tag copies missing values rather than maintaining a live
 inheritance relationship. Notes have their own named outline section, followed by
 references. Disclosure is session state and never changes the graph.
 
+Page and tag menus offer conversion in place; journals do not. A tag remains a
+normal link target, and `[[...]]` completion searches both kinds. When a `#...`
+name belongs to a regular page, completion explicitly offers conversion and
+application instead of creating another document. Turning tag behavior off
+preserves existing chips, defaults, and copied values. Old links navigate to the
+current document surface. Conflicting names are shown with links to each document
+and resolved by renaming, never by an automatic merge.
+
 ## Tasks
 
 A task is any block carrying task properties; it is not a separate visual object

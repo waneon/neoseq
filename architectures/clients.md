@@ -162,7 +162,9 @@ stable anchor/head IDs live in the surface adapter, never in the Vim grammar.
 
 One owner-parameterized `Outliner` serves page, journal, and tag routes. Commands,
 presence, hydration, query-result editing, and history identify its
-`OutlineOwner` (`page` or `tag`); no tag route creates a hidden backing page.
+`OutlineOwner` (`page` or `tag`) as a presentation alias for a stable document ID. Hydration
+and content-session identity are independent of kind, so conversion cannot
+discard an active draft or recreate an outline.
 
 Transient outline layers and pointer gestures are closed state machines in
 `features/outline/interaction-state.ts`. Exactly one property, tag, completion,
@@ -460,3 +462,12 @@ bounded frontier. An active query row remains pinned across answer changes.
   use Playwright.
 - Native and browser adapters consume the same current CorePort fixture and
   round-trip built-in, repeated, and unknown property values.
+
+## Document Kind and Names
+
+Page and tag routes redirect to the current kind while preserving the entity ID.
+Document menus convert regular pages and tags in place. Reference completion
+searches both kinds; tag completion offers an explicit conversion when the name
+belongs to a regular page. New-name checks use the shared directory. Duplicate
+names from older data or concurrent edits expose links for manual renaming;
+content is never automatically merged or discarded.

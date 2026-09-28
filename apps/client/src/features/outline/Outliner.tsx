@@ -159,6 +159,7 @@ import {
   detectSlash,
   filterPageOptions,
   filterTagOptions,
+  tagOptionCommand,
   removeCompletionToken,
   type BlockCompletionRequest,
   type BlockPageOption,
@@ -1241,17 +1242,11 @@ export function Outliner({
             void commitDraftWith(
               realId,
               typed,
-              intent.option.present
-                ? null
-                : {
-                    type: "add_tag",
-                    entity: {
-                      kind: "block",
-                      owner: ownerRef.current,
-                      id: realId,
-                    },
-                    tag_id: intent.option.id,
-                  },
+              tagOptionCommand(intent.option, {
+                kind: "block",
+                owner: ownerRef.current,
+                id: realId,
+              }),
               message(intent.option.present ? "failure.lastEdit" : "failure.addTag"),
             );
             completionCommitted = true;
@@ -2103,8 +2098,14 @@ export function Outliner({
   const hashResults = useMemo<TagOption[]>(() => {
     if (!hashRequest) return [];
     const present = new Set(findBlock(outline, hashRequest.blockId)?.tags ?? []);
-    return filterTagOptions(state.snapshot.tags, hashRequest.query, present, compare);
-  }, [compare, hashRequest, outline, state.snapshot.tags]);
+    return filterTagOptions(
+      state.snapshot.tags,
+      hashRequest.query,
+      present,
+      compare,
+      pageDirectory,
+    );
+  }, [compare, hashRequest, outline, state.snapshot.tags, pageDirectory]);
   const hashIndex = Math.min(hashActive, Math.max(hashResults.length - 1, 0));
   const pageResults = useMemo<PageOption[]>(
     () => (pageRequest ? filterPageOptions(pageDirectory, pageRequest.query, compare) : []),
@@ -2163,7 +2164,8 @@ export function Outliner({
 
     const hash = detectHash(value, textarea.selectionStart, textarea.selectionEnd);
     const hasHashResults = hash
-      ? filterTagOptions(state.snapshot.tags, hash.query, NO_TAGS, compare).length > 0
+      ? filterTagOptions(state.snapshot.tags, hash.query, NO_TAGS, compare, pageDirectory).length >
+        0
       : false;
     dispatchOverlay({
       type: "set-completion",
@@ -2379,13 +2381,7 @@ export function Outliner({
       void commitDraftWith(
         row.block.id,
         next,
-        chosen.present
-          ? null
-          : {
-              type: "add_tag",
-              entity: { kind: "block", owner, id: row.block.id },
-              tag_id: chosen.id,
-            },
+        tagOptionCommand(chosen, { kind: "block", owner, id: row.block.id }),
         message(chosen.present ? "failure.lastEdit" : "failure.addTag"),
       );
     },

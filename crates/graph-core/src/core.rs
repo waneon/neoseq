@@ -413,8 +413,7 @@ impl ProjectionChangeTracker {
             .captured
             .lock()
             .expect("projection change tracker mutex poisoned");
-        let pages = doc.get_map("pages");
-        let tags = doc.get_map("tags");
+        let pages = crate::entities::all(doc);
         let mut mappings = ContentMappings::new();
         for change in captured.iter() {
             let Some(delta) = &change.text else { continue };
@@ -431,25 +430,8 @@ impl ProjectionChangeTracker {
             };
             let owner = change.path.iter().find_map(|(container, index)| {
                 let Index::Key(key) = index else { return None };
-                if pages
-                    .get(key)
-                    .and_then(value_into_map)
-                    .is_some_and(|page| page.id() == *container)
-                {
-                    PageId::new(key.as_ref())
-                        .ok()
-                        .map(|id| OutlineOwner::Page { id })
-                } else if tags
-                    .get(key)
-                    .and_then(value_into_map)
-                    .is_some_and(|tag| tag.id() == *container)
-                {
-                    TagId::new(key.as_ref())
-                        .ok()
-                        .map(|id| OutlineOwner::Tag { id })
-                } else {
-                    None
-                }
+                let record = pages.get(key).and_then(value_into_map)?;
+                (record.id() == *container).then(|| crate::entities::owner(key, &record))
             });
             let Some(owner) = owner else { continue };
             let mapping = mappings.entry((owner, block_id)).or_default();
@@ -484,131 +466,61 @@ impl ProjectionChangeTracker {
         let captured = self
             .captured
             .lock()
-            .expect("projection change tracker mutex poisoned")
-            .clone();
-        let pages = doc.get_map("pages");
-        let tags = doc.get_map("tags");
-        let pages_id = pages.id();
-        let tags_id = tags.id();
+            .expect("projection change tracker mutex poisoned");
         let mut result = GraphChangeSet::default();
-        let created_pages = captured
+        let records = crate::entities::all(doc);
+        let roots = ["entities", "pages", "tags"].map(|name| doc.get_map(name).id());
+        let created: BTreeSet<_> = captured
             .iter()
-            .filter(|change| change.target == pages_id)
-            .flat_map(|change| &change.map_keys)
-            .filter_map(|key| PageId::new(key).ok())
-            .collect::<BTreeSet<_>>();
-
-        for change in captured {
-            let page_scope =
-                change.target == pages_id || path_is_below_root(&change.path, &pages_id, "pages");
-            let tag_scope =
-                change.target == tags_id || path_is_below_root(&change.path, &tags_id, "tags");
-            if !page_scope && !tag_scope {
-                continue;
-            }
+            .filter(|change| roots.contains(&change.target))
+            .flat_map(|change| change.map_keys.iter().cloned())
+            .collect();
+        for change in captured.iter() {
             if change.unknown {
                 result.require_rebuild();
                 continue;
             }
-            if page_scope
-                && page_for_title_target(&pages, &change.target)
-                    .is_some_and(|page_id| !created_pages.contains(&page_id))
-            {
-                // Every referring block materializes this title. The canonical
-                // references do not change, but the disposable RDF/text index
-                // must refresh those derived strings as one coherent view.
-                result.require_rebuild();
-            }
-
-            let mut resolved = false;
-            if change.target == pages_id {
-                resolved = true;
-                for key in &change.map_keys {
-                    if let Ok(page_id) = PageId::new(key) {
-                        result.include_page(page_id);
+            if roots.contains(&change.target) {
+                for id in &change.map_keys {
+                    if let Some(record) = records.get(id).and_then(value_into_map) {
+                        match crate::entities::owner(id, &record) {
+                            OutlineOwner::Page { id } => result.include_page(id),
+                            OutlineOwner::Tag { id } => result.include_tag(id),
+                        }
+                    } else {
+                        result.require_rebuild();
                     }
                 }
             }
-            if change.target == tags_id {
-                resolved = true;
-                for key in &change.map_keys {
-                    if let Ok(tag_id) = TagId::new(key) {
-                        result.include_tag(tag_id);
+            if let Some((id, record)) = change.path.iter().find_map(|(container, index)| {
+                let Index::Key(key) = index else { return None };
+                let record = records.get(key).and_then(value_into_map)?;
+                (record.id() == *container).then_some((key.as_ref(), record))
+            }) {
+                let name_changed = match crate::entities::root(&record).get("content") {
+                    Some(ValueOrContainer::Container(Container::Text(text))) => {
+                        text.id() == change.target
                     }
-                }
-            }
-
-            for (container_id, index) in &change.path {
-                let Index::Key(key) = index else {
-                    continue;
+                    _ => {
+                        change.target == record.id()
+                            && change.map_keys.iter().any(|key| key == "name")
+                    }
                 };
-                let key = key.to_string();
-                if page_scope
-                    && pages
-                        .get(&key)
-                        .and_then(value_into_map)
-                        .is_some_and(|page| page.id() == *container_id)
+                if !created.contains(id)
+                    && (name_changed
+                        || (change.target == record.id()
+                            && change.map_keys.iter().any(|key| key == "kind")))
                 {
-                    if let Ok(page_id) = PageId::new(&key) {
-                        result.include_page(page_id);
-                    }
-                    resolved = true;
+                    result.require_rebuild();
                 }
-                if tag_scope
-                    && tags
-                        .get(&key)
-                        .and_then(value_into_map)
-                        .is_some_and(|tag| tag.id() == *container_id)
-                {
-                    if let Ok(tag_id) = TagId::new(&key) {
-                        result.include_tag(tag_id);
-                    }
-                    resolved = true;
+                match crate::entities::owner(id, &record) {
+                    OutlineOwner::Page { id } => result.include_page(id),
+                    OutlineOwner::Tag { id } => result.include_tag(id),
                 }
-            }
-
-            if !resolved {
-                result.require_rebuild();
             }
         }
         result
     }
-}
-
-fn page_for_title_target(pages: &LoroMap, target: &ContainerID) -> Option<PageId> {
-    let mut found = None;
-    pages.for_each(|raw_id, value| {
-        if found.is_some() {
-            return;
-        }
-        let Some(page) = value_into_map(value) else {
-            return;
-        };
-        let Some(root) = page.get("root").and_then(value_into_map) else {
-            return;
-        };
-        if root
-            .get("content")
-            .and_then(|value| match value {
-                ValueOrContainer::Container(Container::Text(text)) => Some(text.id() == *target),
-                _ => None,
-            })
-            .unwrap_or(false)
-        {
-            found = PageId::new(raw_id).ok();
-        }
-    });
-    found
-}
-
-fn path_is_below_root(
-    path: &[(ContainerID, Index)],
-    root_id: &ContainerID,
-    root_name: &str,
-) -> bool {
-    path.iter().any(|(container_id, index)| {
-        container_id == root_id && matches!(index, Index::Key(key) if key.to_string() == root_name)
-    })
 }
 
 pub(crate) fn configure_inline_content(doc: &LoroDoc) {
@@ -634,8 +546,7 @@ pub(crate) fn new_document(
     let settings = doc.get_map("graph_settings");
     settings.insert("schema_version", i64::from(GRAPH_SETTINGS_SCHEMA_VERSION))?;
     let _ = settings.ensure_mergeable_map("default_queries")?;
-    let _ = doc.get_map("pages");
-    let _ = doc.get_map("tags");
+    let _ = doc.get_map("entities");
     doc.set_next_commit_origin("system:init");
     doc.set_next_commit_message(&format!("initialize graph at {now}"));
     doc.commit();
@@ -907,6 +818,9 @@ impl GraphCore {
                 self.doc.set_next_commit_origin("local:command");
                 self.doc
                     .set_next_commit_message(envelope.command_id.as_str());
+                self.doc
+                    .get_map("meta")
+                    .insert("schema_version", i64::from(SCHEMA_VERSION))?;
                 let apply_result = self.apply(&prepared, now, &mut outcome);
                 if apply_result.is_ok() {
                     self.doc.commit();
@@ -1139,7 +1053,7 @@ impl GraphCore {
     fn project_graph(&self) -> Result<ProjectedGraph, CoreError> {
         let mut diagnostics = ProjectionDiagnostics::default();
         let mut tag_headers = BTreeMap::<TagId, (TagSummary, LoroMap)>::new();
-        self.doc.get_map("tags").for_each(|raw_id, value| {
+        crate::entities::tags(&self.doc).for_each(|raw_id, value| {
             let Ok(tag_id) = TagId::new(raw_id) else {
                 diagnostics
                     .quarantined
@@ -1156,11 +1070,11 @@ impl GraphCore {
                 tag_headers.insert(tag_id, (summary, tag));
             }
         });
-        let live_tags = tag_headers.keys().cloned().collect::<BTreeSet<_>>();
+        let live_tags = live_tag_ids(&self.doc);
 
         let mut page_directory = BTreeMap::<PageId, PageDirectoryEntry>::new();
         let mut page_headers = BTreeMap::<PageId, (PageSnapshot, LoroMap)>::new();
-        self.doc.get_map("pages").for_each(|raw_id, value| {
+        crate::entities::all(&self.doc).for_each(|raw_id, value| {
             let Ok(page_id) = PageId::new(raw_id) else {
                 diagnostics
                     .quarantined
@@ -1241,8 +1155,11 @@ impl GraphCore {
         diagnostics.query_conflicts.extend(query_conflicts);
         diagnostics.sort();
 
-        let mut text_conflicts =
-            page_title_limit_conflicts(pages.values().map(|page| (&page.id, page.title.as_str())));
+        let mut text_conflicts = page_title_limit_conflicts(
+            page_directory
+                .values()
+                .map(|page| (&page.id, page.title.as_str())),
+        );
         text_conflicts.extend(diagnostics.text_conflicts);
         let conflicts = projection_conflicts(
             pages
@@ -1408,7 +1325,7 @@ impl GraphCore {
             .map(|entry| (entry.id.clone(), entry))
             .collect::<BTreeMap<_, _>>();
         let tags = tag_snapshots(&self.doc, &live_tags, &directory, &mut quarantined)?;
-        let pages = self.doc.get_map("pages");
+        let pages = crate::entities::all(&self.doc);
         let mut page_ids = BTreeSet::new();
         pages.for_each(|raw_id, value| {
             if value_into_map(value).is_some()
@@ -1754,11 +1671,16 @@ impl GraphCore {
         date: Option<domain::LocalDate>,
         now: &str,
     ) -> Result<Option<PageId>, CoreError> {
-        let pages = self.doc.get_map("pages");
+        let pages = crate::entities::all(&self.doc);
         if pages.get(page_id.as_str()).is_some() {
             return Ok(None);
         }
-        let page = pages.ensure_mergeable_map(page_id.as_str())?;
+        let page = self
+            .doc
+            .get_map("entities")
+            .ensure_mergeable_map(page_id.as_str())?;
+        page.insert("kind", "page")?;
+        page.ensure_mergeable_map("defaults")?;
         let root = page.ensure_mergeable_map("root")?;
         initialize_node(&root, "")?;
         let properties = root.ensure_mergeable_map("properties")?;
@@ -1789,7 +1711,7 @@ impl GraphCore {
     /// the source graph ID. Resolve the semantic journal date first to avoid
     /// creating a duplicate day after import.
     fn journal_page_id(&self, date: &domain::LocalDate) -> PageId {
-        let pages = self.doc.get_map("pages");
+        let pages = crate::entities::all(&self.doc);
         let mut matches = Vec::new();
         pages.for_each(|raw_id, value| {
             let Ok(page_id) = PageId::new(raw_id) else {
@@ -1798,9 +1720,7 @@ impl GraphCore {
             let Some(page) = value_into_map(value) else {
                 return;
             };
-            let Some(root) = page.get("root").and_then(value_into_map) else {
-                return;
-            };
+            let root = crate::entities::root(&page);
             let Some(properties) = root.get("properties").and_then(value_into_map) else {
                 return;
             };
@@ -1828,17 +1748,15 @@ impl GraphCore {
         name: &str,
         now: &str,
     ) -> Result<Option<TagId>, CoreError> {
-        let tags = self.doc.get_map("tags");
-        if tags.get(tag_id.as_str()).is_some() {
+        let id = PageId::new(tag_id.as_str()).expect("valid entity ID");
+        if crate::entities::all(&self.doc)
+            .get(tag_id.as_str())
+            .is_some()
+        {
             return Ok(None);
         }
-        let tag = tags.ensure_mergeable_map(tag_id.as_str())?;
-        let properties = tag.ensure_mergeable_map("properties")?;
-        let _ = tag.ensure_mergeable_map("defaults")?;
-        let outline = tag.ensure_mergeable_tree("outline")?;
-        outline.enable_fractional_index(0);
-        tag.insert("name", name)?;
-        initialize_lifecycle(&properties, now)?;
+        self.ensure_page(&id, "regular", Some(name), None, now)?;
+        self.require_page(&id)?.insert("kind", "tag")?;
         Ok(Some(tag_id.clone()))
     }
 
@@ -1975,9 +1893,7 @@ impl GraphCore {
             .into_iter()
             .map(|(id, name)| (canonical_entity_name(&name), id))
             .collect::<BTreeMap<_, _>>();
-        let mut reserved_tag_ids = self
-            .doc
-            .get_map("tags")
+        let mut reserved_tag_ids = crate::entities::all(&self.doc)
             .keys()
             .filter_map(|id| TagId::new(id.to_string()).ok())
             .collect::<BTreeSet<_>>();
@@ -1993,6 +1909,7 @@ impl GraphCore {
                     &reference.id,
                     &reserved_tag_ids,
                 )?;
+                ensure_tag_name_available(&self.doc, &id, &reference.name)?;
                 reserved_tag_ids.insert(id.clone());
                 tag_names.insert(canonical_entity_name(&reference.name), id.clone());
                 new_tags.push((id.clone(), reference.name.clone()));
@@ -2007,12 +1924,17 @@ impl GraphCore {
             .into_iter()
             .map(|(id, name)| (canonical_entity_name(&name), id))
             .collect::<BTreeMap<_, _>>();
-        let mut reserved_page_ids = self
-            .doc
-            .get_map("pages")
+        let mut reserved_page_ids = crate::entities::all(&self.doc)
             .keys()
             .filter_map(|id| PageId::new(id.to_string()).ok())
             .collect::<BTreeSet<_>>();
+        for (id, name) in &new_tags {
+            page_names.insert(
+                canonical_entity_name(name),
+                PageId::new(id.as_str()).expect("valid entity ID"),
+            );
+            reserved_page_ids.insert(PageId::new(id.as_str()).expect("valid entity ID"));
+        }
         for reference in &fragment.pages {
             let target = if same_graph && self.require_live_page(&reference.id).is_ok() {
                 reference.id.clone()
@@ -2132,8 +2054,7 @@ impl GraphCore {
     }
 
     fn require_page(&self, page_id: &PageId) -> Result<LoroMap, CoreError> {
-        self.doc
-            .get_map("pages")
+        crate::entities::all(&self.doc)
             .get(page_id.as_str())
             .and_then(value_into_map)
             .ok_or_else(|| CoreError::PageNotFound(page_id.clone()))
@@ -2142,9 +2063,7 @@ impl GraphCore {
     fn require_live_page(&self, page_id: &PageId) -> Result<LoroMap, CoreError> {
         let page = self.require_page(page_id)?;
         if bag_contains_key(
-            &page
-                .ensure_mergeable_map("root")?
-                .ensure_mergeable_map("properties")?,
+            &crate::entities::root(&page).ensure_mergeable_map("properties")?,
             &key("builtin.deleted-at"),
         ) {
             return Err(CoreError::PageDeleted(page_id.clone()));
@@ -2173,7 +2092,9 @@ impl GraphCore {
     fn require_live_outline_owner(&self, owner: &OutlineOwner) -> Result<LoroMap, CoreError> {
         match owner {
             OutlineOwner::Page { id } => self.require_live_page(id),
-            OutlineOwner::Tag { id } => self.require_live_tag(id),
+            OutlineOwner::Tag { id } => {
+                self.require_live_page(&PageId::new(id.as_str()).expect("valid entity ID"))
+            }
         }
     }
 
@@ -2189,15 +2110,11 @@ impl GraphCore {
     }
 
     fn page_root(&self, page_id: &PageId) -> Result<LoroMap, CoreError> {
-        self.require_page(page_id)?
-            .get("root")
-            .and_then(value_into_map)
-            .ok_or_else(|| CoreError::InvalidHierarchy("page root node is missing".to_owned()))
+        Ok(crate::entities::root(&self.require_page(page_id)?))
     }
 
     fn require_tag(&self, tag_id: &TagId) -> Result<LoroMap, CoreError> {
-        self.doc
-            .get_map("tags")
+        crate::entities::tags(&self.doc)
             .get(tag_id.as_str())
             .and_then(value_into_map)
             .ok_or_else(|| CoreError::TagNotFound(tag_id.clone()))
@@ -2206,16 +2123,25 @@ impl GraphCore {
     fn require_live_tag(&self, tag_id: &TagId) -> Result<LoroMap, CoreError> {
         let tag = self.require_tag(tag_id)?;
         if bag_contains_key(
-            &tag.ensure_mergeable_map("properties")?,
+            &crate::entities::root(&tag).ensure_mergeable_map("properties")?,
             &key("builtin.deleted-at"),
         ) {
             return Err(CoreError::TagDeleted(tag_id.clone()));
+        }
+        if crate::entities::kind(&tag) != domain::EntityKind::Tag {
+            return Err(CoreError::TagNotFound(tag_id.clone()));
         }
         Ok(tag)
     }
 
     fn tag_bag(&self, tag_id: &TagId, name: &str) -> Result<LoroMap, CoreError> {
-        Ok(self.require_tag(tag_id)?.ensure_mergeable_map(name)?)
+        let record = self.require_tag(tag_id)?;
+        let container = if name == "properties" {
+            crate::entities::root(&record)
+        } else {
+            record
+        };
+        Ok(container.ensure_mergeable_map(name)?)
     }
 
     fn block_bag(&self, owner: &OutlineOwner, block_id: &BlockId) -> Result<LoroMap, CoreError> {
@@ -2374,40 +2300,23 @@ fn rewrite_graph_scoped_query_iris(
     target_graph_id: &GraphId,
 ) -> Result<(), CoreError> {
     let mut property_bags = Vec::new();
-    doc.get_map("pages").for_each(|_, value| {
-        let Some(page) = value_into_map(value) else {
+    crate::entities::all(doc).for_each(|_, value| {
+        let Some(record) = value_into_map(value) else {
             return;
         };
-        if let Some(root) = page.get("root").and_then(value_into_map)
-            && let Some(properties) = root.get("properties").and_then(value_into_map)
-        {
-            property_bags.push(properties);
-        }
-        if let Some(outline) = page.get("outline").and_then(value_into_tree) {
-            for node in outline.nodes() {
-                if let Ok(meta) = outline.get_meta(node)
-                    && let Some(properties) = meta.get("properties").and_then(value_into_map)
-                {
-                    property_bags.push(properties);
+        for container in [crate::entities::root(&record), record.clone()] {
+            for name in ["properties", "defaults"] {
+                if let Some(bag) = container.get(name).and_then(value_into_map) {
+                    property_bags.push(bag);
                 }
             }
         }
-    });
-    doc.get_map("tags").for_each(|_, value| {
-        let Some(tag) = value_into_map(value) else {
-            return;
-        };
-        for name in ["properties", "defaults"] {
-            if let Some(properties) = tag.get(name).and_then(value_into_map) {
-                property_bags.push(properties);
-            }
-        }
-        if let Some(outline) = tag.get("outline").and_then(value_into_tree) {
+        if let Some(outline) = record.get("outline").and_then(value_into_tree) {
             for node in outline.nodes() {
                 if let Ok(meta) = outline.get_meta(node)
-                    && let Some(properties) = meta.get("properties").and_then(value_into_map)
+                    && let Some(bag) = meta.get("properties").and_then(value_into_map)
                 {
-                    property_bags.push(properties);
+                    property_bags.push(bag);
                 }
             }
         }
@@ -2420,7 +2329,14 @@ fn rewrite_graph_scoped_query_iris(
                 .map_err(|error| CoreError::InvalidHierarchy(error.to_string()))?;
             let target = query::entity_iri(target_graph_id, kind, "")
                 .map_err(|error| CoreError::InvalidHierarchy(error.to_string()))?;
-            Ok((source.as_str().to_owned(), target.as_str().to_owned()))
+            let alias = |iri: &str| {
+                if kind == "tag" {
+                    iri.replacen(":page:", ":tag:", 1)
+                } else {
+                    iri.to_owned()
+                }
+            };
+            Ok((alias(source.as_str()), alias(target.as_str())))
         })
         .collect::<Result<Vec<_>, CoreError>>()?;
 
@@ -2517,33 +2433,34 @@ fn push_query_document(
 /// Graph-default documents are projected once by `project_graph_settings`.
 fn stored_query_documents(doc: &LoroDoc) -> Vec<StoredQueryDocument> {
     let mut documents = Vec::new();
-    doc.get_map("pages").for_each(|raw_id, value| {
-        let Some(page) = value_into_map(value) else {
+    crate::entities::all(doc).for_each(|id, value| {
+        let Some(record) = value_into_map(value) else {
             return;
         };
-        let page_id = PageId::new(raw_id).ok();
-        let outline_owner = page_id
-            .as_ref()
-            .map(|id| OutlineOwner::Page { id: id.clone() });
-        if let Some(root) = page.get("root").and_then(value_into_map)
-            && let Some(properties) = root.get("properties").and_then(value_into_map)
+        let owner = crate::entities::owner(id, &record);
+        let query_owner = match &owner {
+            OutlineOwner::Page { id } => QueryOwner::Page { id: id.clone() },
+            OutlineOwner::Tag { id } => QueryOwner::Tag { tag_id: id.clone() },
+        };
+        if let Some(bag) = crate::entities::root(&record)
+            .get("properties")
+            .and_then(value_into_map)
         {
-            push_query_document(
-                &mut documents,
-                &properties,
-                page_id.clone().map(|id| QueryOwner::Page { id }),
-            );
+            push_query_document(&mut documents, &bag, Some(query_owner));
         }
-        if let Some(outline) = page.get("outline").and_then(value_into_tree) {
+        if let Some(bag) = record.get("defaults").and_then(value_into_map) {
+            push_query_document(&mut documents, &bag, None);
+        }
+        if let Some(outline) = record.get("outline").and_then(value_into_tree) {
             for node in outline.nodes() {
                 if let Ok(meta) = outline.get_meta(node)
-                    && let Some(properties) = meta.get("properties").and_then(value_into_map)
+                    && let Some(bag) = meta.get("properties").and_then(value_into_map)
                 {
                     push_query_document(
                         &mut documents,
-                        &properties,
-                        outline_owner.clone().map(|owner| QueryOwner::Block {
-                            owner,
+                        &bag,
+                        Some(QueryOwner::Block {
+                            owner: owner.clone(),
                             id: block_id(node),
                         }),
                     );
@@ -2551,44 +2468,7 @@ fn stored_query_documents(doc: &LoroDoc) -> Vec<StoredQueryDocument> {
             }
         }
     });
-    doc.get_map("tags").for_each(|raw_id, value| {
-        let Some(tag) = value_into_map(value) else {
-            return;
-        };
-        let tag_id = TagId::new(raw_id).ok();
-        let outline_owner = tag_id
-            .as_ref()
-            .map(|id| OutlineOwner::Tag { id: id.clone() });
-        if let Some(properties) = tag.get("properties").and_then(value_into_map) {
-            push_query_document(
-                &mut documents,
-                &properties,
-                tag_id.clone().map(|tag_id| QueryOwner::Tag { tag_id }),
-            );
-        }
-        if let Some(defaults) = tag.get("defaults").and_then(value_into_map) {
-            // Query documents are not valid tag defaults, but an unowned entry
-            // is still decoded so malformed remote state cannot hide here.
-            push_query_document(&mut documents, &defaults, None);
-        }
-        if let Some(outline) = tag.get("outline").and_then(value_into_tree) {
-            for node in outline.nodes() {
-                if let Ok(meta) = outline.get_meta(node)
-                    && let Some(properties) = meta.get("properties").and_then(value_into_map)
-                {
-                    push_query_document(
-                        &mut documents,
-                        &properties,
-                        outline_owner.clone().map(|owner| QueryOwner::Block {
-                            owner,
-                            id: block_id(node),
-                        }),
-                    );
-                }
-            }
-        }
-    });
-    documents.sort_by(|left, right| left.owner.cmp(&right.owner));
+    documents.sort_by(|a, b| a.owner.cmp(&b.owner));
     documents
 }
 
@@ -2682,25 +2562,11 @@ fn validate_name(value: &str, entity: &'static str) -> Result<(), CoreError> {
 }
 
 fn live_page_names(doc: &LoroDoc) -> Vec<(PageId, String)> {
-    let mut names = Vec::new();
-    let live_tags = live_tag_ids(doc);
-    doc.get_map("pages").for_each(|raw_id, value| {
-        let Ok(page_id) = PageId::new(raw_id) else {
-            return;
-        };
-        let Some(page) = value_into_map(value) else {
-            return;
-        };
-        let mut quarantined = Vec::new();
-        let Some(snapshot) = page_metadata(&page_id, &page, &live_tags, &mut quarantined) else {
-            return;
-        };
-        if !is_journal_page(&snapshot.properties) {
-            names.push((page_id, snapshot.title));
-        }
-    });
-    names.sort_by(|left, right| left.0.cmp(&right.0));
-    names
+    page_directory(doc, &mut Vec::new())
+        .into_iter()
+        .filter(|entry| !entry.deleted && entry.journal_date.is_none())
+        .map(|entry| (entry.id, entry.title))
+        .collect()
 }
 
 fn live_tag_names(doc: &LoroDoc) -> Vec<(TagId, String)> {
@@ -2712,11 +2578,19 @@ fn live_tag_names(doc: &LoroDoc) -> Vec<(TagId, String)> {
 }
 
 fn live_tag_ids(doc: &LoroDoc) -> BTreeSet<TagId> {
-    let mut quarantined = Vec::new();
-    tag_summaries(doc, &mut quarantined)
-        .into_iter()
-        .map(|tag| tag.id)
-        .collect()
+    let mut ids = BTreeSet::new();
+    crate::entities::all(doc).for_each(|id, value| {
+        if let Some(record) = value_into_map(value)
+            && let Some(properties) = crate::entities::root(&record)
+                .get("properties")
+                .and_then(value_into_map)
+            && !bag_contains_key(&properties, &key("builtin.deleted-at"))
+            && let Ok(id) = TagId::new(id)
+        {
+            ids.insert(id);
+        }
+    });
+    ids
 }
 
 fn ensure_page_name_available(
@@ -2738,17 +2612,18 @@ fn ensure_page_name_available(
 }
 
 fn ensure_tag_name_available(doc: &LoroDoc, tag_id: &TagId, name: &str) -> Result<(), CoreError> {
-    let canonical = canonical_entity_name(name);
-    if let Some((existing, _)) = live_tag_names(doc)
-        .into_iter()
-        .find(|(id, current)| id != tag_id && canonical_entity_name(current) == canonical)
-    {
-        return Err(CoreError::TagNameConflict {
-            name: name.to_owned(),
-            existing,
-        });
-    }
-    Ok(())
+    ensure_page_name_available(
+        doc,
+        &PageId::new(tag_id.as_str()).expect("valid entity ID"),
+        name,
+    )
+    .map_err(|error| match error {
+        CoreError::PageNameConflict { name, existing } => CoreError::TagNameConflict {
+            name,
+            existing: TagId::new(existing.as_str()).expect("valid entity ID"),
+        },
+        error => error,
+    })
 }
 
 pub(crate) fn validate_entity_names(doc: &LoroDoc) -> Result<(), CoreError> {
@@ -2793,49 +2668,32 @@ fn projection_conflicts<'page, 'tag>(
     text_conflicts: Vec<GraphConflict>,
     query_conflicts: Vec<GraphConflict>,
 ) -> Vec<GraphConflict> {
-    let mut page_names = BTreeMap::<String, Vec<PageId>>::new();
-    for (page_id, name) in pages {
-        page_names
+    let mut names = BTreeMap::<String, Vec<PageId>>::new();
+    for (id, name) in pages {
+        names
             .entry(canonical_entity_name(name))
             .or_default()
-            .push(page_id.clone());
+            .push(id.clone());
     }
-
-    let mut tag_names = BTreeMap::<String, Vec<TagId>>::new();
-    for (tag_id, name) in tags {
-        tag_names
+    for (id, name) in tags {
+        names
             .entry(canonical_entity_name(name))
             .or_default()
-            .push(tag_id.clone());
+            .push(PageId::new(id.as_str()).expect("valid entity ID"));
     }
-
-    let mut conflicts = page_names
+    let mut conflicts = names
         .into_iter()
-        .filter_map(|(canonical_name, mut page_ids)| {
-            if page_ids.len() < 2 {
+        .filter_map(|(canonical_name, mut entity_ids)| {
+            if entity_ids.len() < 2 {
                 return None;
             }
-            page_ids.sort();
-            Some(GraphConflict::DuplicatePageName {
+            entity_ids.sort();
+            Some(GraphConflict::DuplicateEntityName {
                 canonical_name,
-                page_ids,
+                entity_ids,
             })
         })
         .collect::<Vec<_>>();
-    conflicts.extend(
-        tag_names
-            .into_iter()
-            .filter_map(|(canonical_name, mut tag_ids)| {
-                if tag_ids.len() < 2 {
-                    return None;
-                }
-                tag_ids.sort();
-                Some(GraphConflict::DuplicateTagName {
-                    canonical_name,
-                    tag_ids,
-                })
-            }),
-    );
     if !overflow_ids.is_empty() {
         conflicts.push(GraphConflict::DefaultQueryOverflow { overflow_ids });
     }
@@ -3933,21 +3791,23 @@ fn project_page_header(
     live_tags: &BTreeSet<TagId>,
     diagnostics: &mut ProjectionDiagnostics,
 ) -> Option<ProjectedPageHeader> {
-    let Some(root) = page.get("root").and_then(value_into_map) else {
-        diagnostics
-            .quarantined
-            .push(format!("page:{page_id}:root:missing-or-invalid"));
-        return None;
-    };
-    let title = match root.get("content") {
-        Some(ValueOrContainer::Container(Container::Text(text))) => text.to_string(),
-        _ => {
-            diagnostics
-                .quarantined
-                .push(format!("page:{page_id}:root:missing-content"));
-            String::new()
-        }
-    };
+    let root = crate::entities::root(page);
+    let title = crate::entities::name(page).unwrap_or_default();
+    if crate::entities::kind(page) == domain::EntityKind::Tag {
+        let deleted = root
+            .get("properties")
+            .and_then(value_into_map)
+            .is_some_and(|bag| bag_contains_key(&bag, &key("builtin.deleted-at")));
+        return Some(ProjectedPageHeader {
+            directory: PageDirectoryEntry {
+                id: page_id.clone(),
+                title,
+                journal_date: None,
+                deleted,
+            },
+            snapshot: None,
+        });
+    }
     let property_owner = PropertyOwner::Page {
         id: page_id.clone(),
     };
@@ -3955,7 +3815,9 @@ fn project_page_header(
         project_bag_child(&root, "properties", Some(&property_owner), diagnostics);
     diagnostics.quarantined.append(&mut issues);
     properties.retain(|entry| {
-        if validate_property_target(&entry.key, PropertyTarget::Page).is_ok() {
+        if validate_property_target(&entry.key, PropertyTarget::Page).is_ok()
+            || validate_property_target(&entry.key, PropertyTarget::TagMetadata).is_ok()
+        {
             true
         } else {
             diagnostics.quarantined.push(format!(
@@ -3981,7 +3843,7 @@ fn project_page_header(
         journal_date,
         deleted,
     };
-    let snapshot = if deleted {
+    let snapshot = if deleted || crate::entities::kind(page) == domain::EntityKind::Tag {
         None
     } else {
         Some(PageSnapshot {
@@ -4020,7 +3882,7 @@ fn page_directory(doc: &LoroDoc, quarantined: &mut Vec<String>) -> Vec<PageDirec
     let live_tags = live_tag_ids(doc);
     let mut diagnostics = ProjectionDiagnostics::default();
     let mut entries = BTreeMap::new();
-    doc.get_map("pages").for_each(|raw_id, value| {
+    crate::entities::all(doc).for_each(|raw_id, value| {
         let Ok(page_id) = PageId::new(raw_id) else {
             diagnostics
                 .quarantined
@@ -4119,7 +3981,7 @@ fn materialize_block_content(
 }
 
 fn tag_summaries(doc: &LoroDoc, quarantined: &mut Vec<String>) -> Vec<TagSummary> {
-    let tags = doc.get_map("tags");
+    let tags = crate::entities::tags(doc);
     let mut snapshots = BTreeMap::new();
     tags.for_each(|raw_id, value| {
         let Ok(tag_id) = TagId::new(raw_id) else {
@@ -4155,8 +4017,7 @@ fn tag_snapshots(
 ) -> Result<Vec<TagSnapshot>, CoreError> {
     let mut snapshots = Vec::new();
     for summary in tag_summaries(doc, quarantined) {
-        let tag = doc
-            .get_map("tags")
+        let tag = crate::entities::tags(doc)
             .get(summary.id.as_str())
             .and_then(value_into_map)
             .ok_or_else(|| CoreError::TagNotFound(summary.id.clone()))?;
@@ -4193,8 +4054,7 @@ fn tag_snapshot_by_id(
     directory: &BTreeMap<PageId, PageDirectoryEntry>,
     quarantined: &mut Vec<String>,
 ) -> Result<Option<TagSnapshot>, CoreError> {
-    let tag = doc
-        .get_map("tags")
+    let tag = crate::entities::tags(doc)
         .get(tag_id.as_str())
         .and_then(value_into_map);
     let Some(tag) = tag else {
@@ -4230,7 +4090,10 @@ fn project_tag_summary(
     tag: &LoroMap,
     diagnostics: &mut ProjectionDiagnostics,
 ) -> Option<TagSummary> {
-    let Some(name) = map_string(tag, "name") else {
+    if crate::entities::kind(tag) != domain::EntityKind::Tag {
+        return None;
+    }
+    let Some(name) = crate::entities::name(tag) else {
         diagnostics
             .quarantined
             .push(format!("tag:{tag_id}:missing-name"));
@@ -4239,8 +4102,12 @@ fn project_tag_summary(
     let property_owner = PropertyOwner::Tag {
         tag_id: tag_id.clone(),
     };
-    let (mut properties, mut issues) =
-        project_bag_child(tag, "properties", Some(&property_owner), diagnostics);
+    let (mut properties, mut issues) = project_bag_child(
+        &crate::entities::root(tag),
+        "properties",
+        Some(&property_owner),
+        diagnostics,
+    );
     diagnostics.quarantined.append(&mut issues);
     if properties.contains_key("builtin.deleted-at") {
         return None;
@@ -4439,15 +4306,13 @@ fn value_into_text(value: ValueOrContainer) -> Option<LoroText> {
 
 pub(crate) fn enable_outlines(doc: &LoroDoc) -> Result<(), CoreError> {
     let mut outlines = Vec::new();
-    for root in [doc.get_map("pages"), doc.get_map("tags")] {
-        root.for_each(|_, value| {
-            if let Some(owner) = value_into_map(value)
-                && let Some(outline) = owner.get("outline").and_then(value_into_tree)
-            {
-                outlines.push(outline);
-            }
-        });
-    }
+    crate::entities::all(doc).for_each(|_, value| {
+        if let Some(owner) = value_into_map(value)
+            && let Some(outline) = owner.get("outline").and_then(value_into_tree)
+        {
+            outlines.push(outline);
+        }
+    });
     for outline in outlines {
         outline.enable_fractional_index(0);
     }
@@ -7849,7 +7714,7 @@ mod tests {
 
         let page_map = core.require_page(&page()).unwrap();
         assert!(page_map.get("properties").is_none());
-        assert!(page_map.get("defaults").is_none());
+        assert!(page_map.get("defaults").is_some());
         let root = core.page_root(&page()).unwrap();
         for field in ["content", "properties", "tag_refs"] {
             assert!(root.get(field).is_some(), "page root lacks {field}");
@@ -7860,7 +7725,7 @@ mod tests {
             assert!(block_meta.get(field).is_some(), "block lacks {field}");
         }
         assert!(block_meta.get("markdown").is_none());
-        assert!(core.doc.get_map("tags").get(tag.as_str()).is_some());
+        assert!(crate::entities::tags(&core.doc).get(tag.as_str()).is_some());
 
         let snapshot = core.snapshot().unwrap();
         assert_eq!(snapshot.tags[0].id, tag);
@@ -8632,9 +8497,9 @@ mod tests {
         );
         assert_eq!(
             snapshot.conflicts,
-            vec![GraphConflict::DuplicatePageName {
+            vec![GraphConflict::DuplicateEntityName {
                 canonical_name: "alpha".into(),
-                page_ids: vec![page(), PageId::new("other").unwrap()],
+                entity_ids: vec![page(), PageId::new("other").unwrap()],
             }]
         );
 
@@ -8843,3 +8708,7 @@ mod tests {
         assert!(!snapshot.quarantined.is_empty());
     }
 }
+
+#[cfg(test)]
+#[path = "entity_tests.rs"]
+mod entity_tests;

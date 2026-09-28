@@ -3,7 +3,7 @@
 ## Boundary
 
 An inline page reference is a semantic atom inside collaborative block content.
-Its identity is a stable `PageId`; a page title is never duplicated into the
+Its identity is a stable document ID, whether the target is a page or a tag; its title is never duplicated into the
 canonical block. `[[current title]]` is the shared editor, reading, query, and
 clipboard projection of that atom.
 
@@ -15,7 +15,7 @@ until an explicit completion resolves it.
 
 ## Projection
 
-Graph summaries expose a page directory containing live and deleted page IDs,
+Graph summaries expose a document directory containing live and deleted page and tag IDs,
 titles, journal dates, and lifecycle state. A block snapshot carries semantic
 content. Materialized Markdown and reference spans are disposable reader
 projections, mapping each displayed token to its one canonical logical position. Changing a page
@@ -51,7 +51,7 @@ Reference marks use `ExpandType::None`. A valid mark covers exactly one reserved
 object-replacement character and carries one valid `PageId`. Invalid remote or
 forward data is quarantined and never becomes a reference projection or query
 fact. The current schema requires every writer to preserve the reserved atom;
-this representation was introduced in schema v6 and remains part of schema v7.
+this representation was introduced in schema v6 and remains part of schema v8.
 
 ## Derived Consumers
 
@@ -68,8 +68,8 @@ edges form the boundary for a future incremental reverse ledger if rename
 rebuild cost becomes material.
 
 Page and tag surfaces expose incoming links through the session-scoped query
-execution cache. Page links include semantic inline atoms and typed page
-properties; tag links include explicit attachments on pages and blocks.
+execution cache. Both document kinds include semantic inline atoms, typed
+references, and explicit classification attachments on pages and blocks.
 Structural ownership and unresolved text do not count as links. The disposable
 RDF index finds sources across unloaded outlines, and its entity references
 provide canonical navigation. References refresh with graph revisions and are

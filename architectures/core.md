@@ -37,8 +37,9 @@ into Loro operations and Loro changes back into domain DTOs.
 - Atomic `PropertyValue` variants are finite number, string, page reference,
   checkbox/boolean, or local date. A document value is a schema/version-tagged
   immutable snapshot backed by finer-grained CRDT containers.
-- `TagId` identifies a graph-scoped tag independently of pages. Page roots and
-  blocks carry `TagId` sets outside their property bags.
+- `PageId` and `TagId` are command/projection aliases for one graph-scoped
+  document identity. A page reference may target either kind; classification
+  remains a separate edge stored outside property bags.
 - `OutlineOwner` identifies the page or tag whose movable block tree contains a
   block. Block IDs are always interpreted together with this owner.
 - `DefaultQueryId` identifies a graph-owned standing query. `QueryOwner`
@@ -127,8 +128,8 @@ canonical inline content without an inserted separator, and adopts the source's
 children after its own. The source identity and metadata are deleted. Validation,
 mutation, and undo cover the complete text-and-tree change atomically.
 
-Local commands keep live regular page names and live tag names unique in
-separate graph-scoped namespaces. Comparison trims and collapses whitespace and
+Local commands keep live regular page and tag names unique in one graph-scoped
+namespace. Comparison trims and collapses whitespace and
 applies Unicode lowercasing; commands preserve the submitted display form. A
 remote update is first applied to a deep document fork, but a duplicate produced
 by valid concurrent commands is preserved. Snapshot projection emits a typed
@@ -138,6 +139,11 @@ or delete resolves it through ordinary domain semantics.
 Idempotency is scoped to an open runtime: a bounded result cache prevents
 duplicate submission after a bridge timeout. After restart, the client
 rehydrates canonical state instead of replaying an uncertain UI request.
+
+Changing document kind is one undoable transition on the existing entity. It
+preserves containers, block IDs, properties, references, and classification
+attachments. Defaults stay stored while tag behavior is disabled. Old outline
+owner aliases remain valid for in-flight edits; journals cannot be converted.
 
 ## Node and Property Semantics
 

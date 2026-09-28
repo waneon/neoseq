@@ -153,15 +153,19 @@ CorePort.
 ## Data and Consistency
 
 - One graph is one Loro document and one independent storage and future sync unit.
-- Pages and tags use stable IDs. Each owns one owner-local movable block tree;
-  structure never moves across owners, while clipboard transfer is a copy.
+- Pages and tags are two kinds of one document entity with a stable ID and
+  one movable block tree. Conversion changes kind without copying content or
+  rewriting references; clipboard transfer between documents remains a copy.
 - Page roots and blocks share collaborative content, a typed property bag, and
   explicit tag references. Block content may contain stable page-reference
   atoms whose current-title source is a projection. A tag outline does not
   implicitly tag its blocks.
-- Local commands preserve unique page and tag names in separate normalized
-  namespaces. Concurrent duplicates remain valid causal data and appear as
-  deterministic typed conflicts until an ordinary rename resolves them.
+- Local commands preserve one normalized name space for regular pages and tags.
+  Legacy and concurrent duplicates remain intact as typed conflicts; the UI links
+  each conflicting document so an ordinary rename can resolve the ambiguity.
+- A document in tag mode admits new classification attachments and supplies
+  defaults. Converting it to a page preserves existing attachments, defaults,
+  properties, and undo. Journal documents cannot change kind.
 - New journal IDs derive deterministically from graph ID and local date. A
   portable copy retains existing journal IDs and resolves them by semantic date.
 - A property key names one regular child-map generation containing its shape

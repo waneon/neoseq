@@ -3,7 +3,7 @@
 import { XIcon } from "lucide-react";
 import { Link, useParams } from "react-router";
 import type { BlockSnapshot, OutlineOwner } from "../../core-port/snapshot";
-import { findTag } from "../../core-port/snapshot";
+import { findTag, findPage, pageTitle } from "../../core-port/snapshot";
 import { tagColor, tagIcon } from "../../entities/tag-identity";
 import { useNotify } from "../notify/context";
 import { useSession, useSessionSelector } from "../shell/session-context";
@@ -36,8 +36,9 @@ export function TagChips({
     <>
       {block.tags.map((tagId) => {
         const tag = findTag(state.snapshot, tagId);
-        const missing = !tag;
-        const label = tag?.name ?? tagId;
+        const page = findPage(state.snapshot, tagId);
+        const missing = !tag && !page;
+        const label = tag?.name ?? (page ? pageTitle(page) : tagId);
         const deleted = message("properties.deleted", { name: `#${label}` });
         const remove = () =>
           void session
@@ -81,7 +82,7 @@ export function TagChips({
                 <Link
                   className="chip"
                   data-variant="reference"
-                  data-hue={tagColor(tag) ?? undefined}
+                  data-hue={tag ? (tagColor(tag) ?? undefined) : undefined}
                   to={graphPath(repositoryId, graphId, `t/${tagId}`)}
                   data-testid="tag-chip"
                   aria-label={message("properties.openTag", { name: label })}

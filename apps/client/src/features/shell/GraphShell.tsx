@@ -66,7 +66,7 @@ import {
 } from "@/ui/shadcn/dropdown-menu";
 import { setTheme, storedTheme, subscribeTheme, type Theme } from "../../ui/theme";
 import { useToday } from "../time/use-local-clock";
-import { canonicalEntityName, nextAvailableEntityName } from "../../entities/names";
+import { canonicalEntityName, nextAvailableEntityName, namedDocuments } from "../../entities/names";
 import {
   CommandContext,
   createContextualHandlerRegistry,
@@ -377,7 +377,13 @@ function ShellBody({
       if (readonly) return;
       const pageId = `p-${randomUUID()}`;
       const pageName =
-        title ?? nextAvailableEntityName(message("page.untitled"), pages.map(pageTitle));
+        title ??
+        nextAvailableEntityName(
+          message("page.untitled"),
+          namedDocuments(state.snapshot)
+            .filter((entry) => !entry.deleted)
+            .map((entry) => entry.title),
+        );
       try {
         await session.execute({ type: "ensure_page", page_id: pageId, title: pageName });
       } catch (error) {
@@ -585,8 +591,9 @@ function ShellBody({
           run: () => navigate(graphPath(repositoryId, graphId, `journal/${date}`)),
         });
       }
-      const exists = pages.some(
-        (page) => canonicalEntityName(pageTitle(page)) === canonicalEntityName(query),
+      const exists = namedDocuments(state.snapshot).some(
+        (entry) =>
+          !entry.deleted && canonicalEntityName(entry.title) === canonicalEntityName(query),
       );
       if (!date && !exists && !readonly) {
         rows.push({
@@ -602,6 +609,7 @@ function ShellBody({
     },
     [
       createPage,
+      state.snapshot,
       formatJournalDate,
       graphId,
       message,
@@ -957,6 +965,7 @@ SELECT ?entity ?content WHERE {
             </div>
           </header>
           <div className="shell-content" id="page-content">
+            <DocumentNameConflicts />
             <Outlet />
           </div>
           <nav className="mobile-navigation" aria-label={message("shell.mobile.navigation")}>
@@ -1352,5 +1361,38 @@ function ShellLoading() {
         </>
       )}
     </div>
+  );
+}
+
+function DocumentNameConflicts() {
+  const snapshot = useSessionSelector((state) => state.snapshot);
+  const { repositoryId = LOCAL_REPOSITORY_ID, graphId = "" } = useParams();
+  const { message } = useI18n();
+  const conflicts = snapshot.conflicts.flatMap((conflict) => {
+    if (conflict.kind === "duplicate_entity_name")
+      return [{ name: conflict.canonical_name, ids: conflict.entity_ids }];
+    return [];
+  });
+  if (!conflicts.length) return null;
+  return (
+    <aside className="document-name-conflicts" role="status" data-testid="document-name-conflicts">
+      <p>{message("entity.nameConflicts")}</p>
+      {conflicts.map((conflict) => (
+        <p key={conflict.name}>
+          {conflict.ids.map((id, index) => {
+            const tag = snapshot.tags.some((tag) => tag.id === id);
+            return (
+              <span key={id}>
+                {index > 0 ? " · " : ""}
+                <Link to={graphPath(repositoryId, graphId, `${tag ? "t" : "p"}/${id}`)}>
+                  {tag ? "#" : ""}
+                  {conflict.name} ({message(tag ? "common.tag" : "common.page")})
+                </Link>
+              </span>
+            );
+          })}
+        </p>
+      ))}
+    </aside>
   );
 }

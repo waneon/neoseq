@@ -1,5 +1,6 @@
+import { EntityKindMenuItem } from "./EntityKindMenuItem";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Link, useParams } from "react-router";
+import { Link, Navigate, useParams } from "react-router";
 import {
   CalendarDaysIcon,
   FileTextIcon,
@@ -50,7 +51,7 @@ import { LinkedReferences } from "../references/LinkedReferences";
 import { QueryPanel } from "../query/QueryPanel";
 
 export function PageView() {
-  const { graphId = "", pageId = "" } = useParams();
+  const { repositoryId = LOCAL_REPOSITORY_ID, graphId = "", pageId = "" } = useParams();
   const session = useSession();
   const state = useSessionSelector(
     (current) => current,
@@ -87,6 +88,8 @@ export function PageView() {
     load();
   }, [load, page, pageId, state.hydratedOutlines, state.status]);
 
+  if (!page && state.snapshot.tags.some((tag) => tag.id === pageId))
+    return <Navigate replace to={graphPath(repositoryId, graphId, `t/${pageId}`)} />;
   if (!page) {
     // Deleted pages are soft-deleted and leave the snapshot, so a missing
     // page is either deleted or never existed. Either way the reference
@@ -383,6 +386,7 @@ function PageMenu({
           </DropdownMenuItem>
           {!isJournal && !readonly && (
             <>
+              <EntityKindMenuItem id={page.id} kind="tag" />
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 variant="destructive"

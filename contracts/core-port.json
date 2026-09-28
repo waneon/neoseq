@@ -27,7 +27,8 @@
     "GraphSettingsChanged",
     "CommandBatchApplied",
     "LocalUndo",
-    "LocalRedo"
+    "LocalRedo",
+    "EntityKindChanged"
   ],
   "queryPlan": {
     "version": 2,

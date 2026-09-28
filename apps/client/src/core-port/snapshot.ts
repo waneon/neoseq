@@ -1,3 +1,4 @@
+import { SCHEMA_VERSION } from "../generated/graph-schema";
 import { outlineIndex } from "./outline-index";
 // Read-only projections and helpers over generated domain DTOs.
 import type {
@@ -47,7 +48,7 @@ export type {
 } from "../generated/domain";
 
 export const EMPTY_SNAPSHOT: GraphSnapshot = {
-  schema_version: 7,
+  schema_version: SCHEMA_VERSION,
   graph_id: "",
   pages: [],
   page_directory: [],
@@ -64,12 +65,13 @@ export function mergeSummary(
   const directory = new Map((summary.page_directory ?? []).map((page) => [page.id, page]));
   const hydrate = (blocks: readonly BlockSnapshot[]) =>
     blocks.map((block) => rematerializeBlock(block, directory));
-  const hydratedPages = new Map(current.pages.map((page) => [page.id, hydrate(page.blocks)]));
-  const hydratedTags = new Map(current.tags.map((tag) => [tag.id, hydrate(tag.blocks)]));
+  const hydrated = new Map(
+    [...current.pages, ...current.tags].map((document) => [document.id, hydrate(document.blocks)]),
+  );
   return {
     ...summary,
-    pages: summary.pages.map((page) => ({ ...page, blocks: hydratedPages.get(page.id) ?? [] })),
-    tags: summary.tags.map((tag) => ({ ...tag, blocks: hydratedTags.get(tag.id) ?? [] })),
+    pages: summary.pages.map((page) => ({ ...page, blocks: hydrated.get(page.id) ?? [] })),
+    tags: summary.tags.map((tag) => ({ ...tag, blocks: hydrated.get(tag.id) ?? [] })),
   };
 }
 
@@ -167,16 +169,11 @@ export function mergePage(snapshot: GraphSnapshot, page: PageSnapshot): GraphSna
 }
 
 export function mergeOutline(snapshot: GraphSnapshot, outline: OutlineSnapshot): GraphSnapshot {
-  if (outline.owner.kind === "page") {
-    return {
-      ...snapshot,
-      pages: snapshot.pages.map((page) =>
-        page.id === outline.owner.id ? { ...page, blocks: outline.blocks } : page,
-      ),
-    };
-  }
   return {
     ...snapshot,
+    pages: snapshot.pages.map((page) =>
+      page.id === outline.owner.id ? { ...page, blocks: outline.blocks } : page,
+    ),
     tags: snapshot.tags.map((tag) =>
       tag.id === outline.owner.id ? { ...tag, blocks: outline.blocks } : tag,
     ),
@@ -240,18 +237,18 @@ export function findPage(snapshot: GraphSnapshot, pageId: string): PageSnapshot 
 }
 
 export function outlineOwnerKey(owner: OutlineOwner): string {
-  return `${owner.kind}:${owner.id}`;
+  return `document:${owner.id}`;
 }
 
 export function sameOutlineOwner(left: OutlineOwner, right: OutlineOwner): boolean {
-  return left.kind === right.kind && left.id === right.id;
+  return left.id === right.id;
 }
 
 export function findOutline(
   snapshot: GraphSnapshot,
   owner: OutlineOwner,
 ): PageSnapshot | TagSnapshot | undefined {
-  return owner.kind === "page" ? findPage(snapshot, owner.id) : findTag(snapshot, owner.id);
+  return findPage(snapshot, owner.id) ?? findTag(snapshot, owner.id);
 }
 
 export function findJournalPage(snapshot: GraphSnapshot, date: string): PageSnapshot | undefined {
@@ -267,4 +264,11 @@ export function findBlock(
 
 export function findTag(snapshot: GraphSnapshot, tagId: string): TagSnapshot | undefined {
   return snapshot.tags.find((tag) => tag.id === tagId);
+}
+
+export function documentTitle(snapshot: GraphSnapshot, id: string): string {
+  const entry = snapshot.page_directory?.find((entry) => entry.id === id);
+  if (entry) return entry.title;
+  const page = findPage(snapshot, id);
+  return page ? pageTitle(page) : (findTag(snapshot, id)?.name ?? id);
 }

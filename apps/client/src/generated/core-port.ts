@@ -37,6 +37,7 @@ export const SEMANTIC_EVENTS = [
   "CommandBatchApplied",
   "LocalUndo",
   "LocalRedo",
+  "EntityKindChanged",
 ] as const;
 export type SemanticEvent = (typeof SEMANTIC_EVENTS)[number];
 export type EventSource = "local" | "remote";

@@ -57,9 +57,10 @@ register has its own exact envelope version; the enclosed domain `QueryPlan`
 must be a bounded JSON object with a positive version, but a syntactically valid
 future plan version remains opaque data that the server accepts and relays.
 
-The server accepts and writes document schema v7. Room reconstruction rejects
-every other schema version; this pre-release baseline has no document migration
-path.
+The server reads document schemas v7 and v8 and admits only schema v8 writers.
+Legacy page and tag containers remain in their original storage homes so upgrades
+preserve CRDT identities and offline history. New documents use a shared entity
+root with a page/tag kind register.
 
 People submit a username and password only to the login endpoint. A successful
 login returns a bounded opaque session credential whose digest, purpose, expiry,

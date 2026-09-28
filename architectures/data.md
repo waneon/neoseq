@@ -3,30 +3,33 @@
 ## Canonical Graph
 
 Each graph maps to one Loro document and is an independent storage, export, and
-synchronization unit. The current document schema is v7 and has four roots:
+synchronization unit. The current writer schema is v8. New documents have three roots:
 
 ```text
-meta: Map
-  graph_id: string
-  schema_version: 7
-pages: Map<PageId, PageMap>
-tags: Map<TagId, TagRecord>
-graph_settings: Map
-  schema_version: 1
-  default_queries: Map<DefaultQueryId, DefaultQueryRecord>
+meta: Map { graph_id, schema_version }
+entities: Map<DocumentId, DocumentRecord>
+graph_settings: Map { schema_version, default_queries }
+
+DocumentRecord
+  kind: page | tag
+  root: NodeData
+  outline: MovableTree<NodeData>
+  defaults: PropertyBag
 ```
 
-The Loro document plus its verified update/checkpoint history is the only
-canonical representation. RDF triples, text caches, logical/evaluator query
-plans, and session UI state are disposable projections. A shared query document
-and its authored `QueryPlan` are canonical graph data whether an entity property
-or graph setting owns them.
+The Loro document and its verified checkpoint/Tail history are canonical. RDF,
+search indexes, summaries, and UI state are disposable projections. A document
+has one authoritative name, property bag, and outline. Page/tag DTO variants
+remain presentation and command aliases for the same stable ID.
 
-Live replicas accept schema v7 exactly. Recovery validates the Base
-and complete Tail against current invariants before exposing the graph. There is
-no migration registry, minimum-writer marker, or lazy repair path. Portable
-[archive import](graph-archive.md) explicitly converts supported schema 6 copies
-before publishing a new graph; it does not upgrade an existing replica.
+Readers support schema 7 and 8. Existing schema-7 `pages` and `tags` container
+homes remain valid and are read in place, preserving tree IDs and offline causal
+history. Their original home supplies the kind until an explicit conversion
+writes it. New entities always use the common root. The first subsequent local
+command records schema 8 in the same durable update; opening a replica does not
+invent migration operations. Recovery checkpoints retain history when upgrading
+storage metadata. Live synchronization requires writer schema 8 on both ends.
+Portable archive import also retains its explicit schema-6 property conversion.
 
 ## Graph Settings
 
@@ -43,7 +46,7 @@ this map entry.
 
 ## Outline Owners, Nodes, and Ordering
 
-`pages` is keyed by stable `PageId`. Each page contains:
+Documents are keyed by stable IDs. Their shared writing structure is:
 
 ```text
 root: NodeData
@@ -64,15 +67,15 @@ The page root's content is a regular page title. Journal display titles derive
 from `builtin.journal-date`. New journal IDs derive deterministically from graph
 ID and date; a portable graph copy keeps existing journal IDs and resolves a day
 by that semantic property before deriving an ID.
-Local commands keep regular page names unique after whitespace normalization
-and Unicode lowercasing. Stable IDs, not names, are identity. Concurrent
-duplicates are preserved and reported with all participating IDs rather than
-causing an otherwise valid merge to fail.
+Local commands keep regular page and tag names unique in one namespace after
+whitespace normalization and Unicode lowercasing. IDs remain identity. Legacy
+and concurrent duplicate names preserve all documents and publish one typed
+conflict with the participating IDs; resolving it requires an ordinary rename.
 
-Each tag record likewise owns metadata, defaults, and a direct
-`outline: MovableTree<NodeData>`. The tag is the owner; there is no backing page,
-and placing a block in that tree does not add the tag to the block. A missing or
-non-tree outline is invalid rather than silently repaired.
+A tag is the same document with tag behavior enabled. Its existing outline is
+its notes, and placing a block there does not classify that block. Conversion
+preserves the outline container and every block ID. A missing or non-tree outline
+is invalid rather than silently repaired.
 
 Every outline node is a block. Its Loro tree ID is the external `BlockId`, and
 the containing page or tag tree determines ownership. Indent, outdent, reorder,
@@ -92,12 +95,14 @@ Structural commands validate the entire proposed change before mutation.
 
 ## Tags and Properties
 
-Tags are independent graph entities keyed by `TagId`; local commands maintain
-their live-name namespace, while concurrent duplicates are typed conflicts.
-Page and block `tag_refs` carry membership explicitly. Tag
+Tag references carry document IDs; page and block `tag_refs` record classification
+explicitly. Adding a membership requires an active tag. Converting to a page
+retains existing memberships and defaults, disables new attachment, and leaves
+previously materialized properties untouched. Converting back re-enables defaults.
+Journal identity remains date-based and cannot be converted. Tag
 deletion keeps the tag record as a tombstone but removes its ID from every node
-in the same transaction. Snapshot projection exposes only references to live
-tags, quarantining stale or concurrently merged dangling IDs.
+in the same transaction. Snapshot projection exposes only references to live documents, including former
+tags, and quarantines dangling IDs.
 
 A property bag maps each validated key to one regular Loro map. This child is a
 field generation: its immutable shape records type and cardinality, while its
@@ -153,7 +158,7 @@ The runtime validates these structural invariants before publishing state:
 - no visible hierarchy cycle exists;
 - page and tag names have readable representations;
 - properties and tag records have valid encodings;
-- published page and block tag memberships resolve to live tag records.
+- published classification memberships resolve to live document records.
 
 Local commands additionally enforce semantic and admission constraints such as
 name uniqueness and bounded collection creation. Remote updates are first
@@ -310,11 +315,11 @@ browser directory resolves remote connection metadata. Transport credentials,
 Base provenance, and presence are not canonical graph state. The RDF index is
 rebuilt on open and has no persisted cache.
 
-Before the first supported release, a canonical layout change replaces the
-current contract and all adapters reject the previous one. After release, a
-schema change must define its supported input, identity-preserving transition,
-deployed-data fixture, writer gate, and checkpoint rollback boundary here.
-Readers, commands, and projections never repair missing structure lazily.
+Schema changes define readable input versions and the writer gate in the shared
+schema contract. The schema-8 transition retains legacy storage homes rather
+than copying trees. Explicit conversion initializes the optional capabilities
+needed by the new kind in one transaction. Readers never repair missing structure
+or automatically combine documents that happen to share a name.
 
 ## Verification
 

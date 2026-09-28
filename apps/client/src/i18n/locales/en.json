@@ -908,5 +908,11 @@
   "tags.pickerHint": "↑↓ Navigate · Enter to add",
   "tags.allApplied": "All tags have been added",
   "shell.mobile.library": "Library",
-  "shell.mobile.navigation": "Main navigation"
+  "shell.mobile.navigation": "Main navigation",
+  "entity.convertToTag": "Convert to tag",
+  "entity.convertToPage": "Convert to page",
+  "entity.convertAndApply": "Convert “{name}” to a tag and apply",
+  "entity.convertFailed": "Could not change document kind",
+  "entity.nameConflicts": "Some documents share a name. Open a document and rename it to resolve the conflict; all content has been preserved.",
+  "entity.duplicate": "A document named “{name}” already exists."
 }

@@ -19,7 +19,7 @@ import {
 import type { Command } from "../../core-port/commands";
 import type { TagSnapshot } from "../../core-port/snapshot";
 import { FAVOURITE_KEY, isFavourite } from "../../entities/favourites";
-import { canonicalEntityName } from "../../entities/names";
+import { canonicalEntityName, namedDocuments } from "../../entities/names";
 import {
   TAG_GROUP_KEY,
   TAG_ORDER_KEY,
@@ -907,20 +907,32 @@ function NewTagDialog({
   const pendingRef = useRef(false);
   const nameId = useId();
   const groupId = useId();
+  const snapshot = useSessionSelector((state) => state.snapshot);
   const name = draft.trim();
   const duplicate =
     name && existing.some((tag) => canonicalEntityName(tag.name) === canonicalEntityName(name));
 
+  const page = namedDocuments(snapshot).find(
+    (entry) =>
+      !entry.deleted &&
+      !entry.journal_date &&
+      !snapshot.tags.some((tag) => tag.id === entry.id) &&
+      canonicalEntityName(entry.title) === canonicalEntityName(name),
+  );
   const create = async () => {
     if (!name || duplicate || pendingRef.current) return;
     pendingRef.current = true;
     setPending(true);
     setFailure(null);
-    const tagId = `t-${randomUUID()}`;
+    const tagId = page?.id ?? `t-${randomUUID()}`;
     const owner = { kind: "tag", tag_id: tagId } as const;
     const nextGroup = groupDraft.trim() || null;
     const siblings = existing.filter((tag) => tagGroup(tag) === nextGroup);
-    const commands: Command[] = [{ type: "ensure_tag", tag_id: tagId, name }];
+    const commands: Command[] = [
+      page
+        ? { type: "set_entity_kind", id: tagId, kind: "tag" }
+        : { type: "ensure_tag", tag_id: tagId, name },
+    ];
     if (nextGroup !== null)
       commands.push({
         type: "set_property",
@@ -1012,7 +1024,7 @@ function NewTagDialog({
             data-testid="new-tag-submit"
             disabled={!name || !!duplicate || pending}
           >
-            {message("tags.new")}
+            {message(page ? "entity.convertToTag" : "tags.new")}
           </Button>
         </div>
       </form>

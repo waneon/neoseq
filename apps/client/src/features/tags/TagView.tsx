@@ -1,5 +1,6 @@
+import { EntityKindMenuItem } from "../page/EntityKindMenuItem";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, Navigate, useNavigate, useParams } from "react-router";
 import {
   FolderIcon,
   InfoIcon,
@@ -12,7 +13,7 @@ import {
 } from "lucide-react";
 import type { TagSnapshot } from "../../core-port/snapshot";
 import { findTag, outlineOwnerKey, queryDocument, stringValue } from "../../core-port/snapshot";
-import { canonicalEntityName } from "../../entities/names";
+import { canonicalEntityName, namedDocuments } from "../../entities/names";
 import { configuredTimezone } from "../../entities/journal";
 import { tagPlan } from "../../entities/query-plan";
 import { FAVOURITE_KEY, isFavourite } from "../../entities/favourites";
@@ -43,7 +44,7 @@ import { writeClipboardText } from "@/lib/clipboard";
 import { LinkedReferences } from "../references/LinkedReferences";
 
 export function TagView() {
-  const { graphId = "", tagId = "" } = useParams();
+  const { repositoryId = LOCAL_REPOSITORY_ID, graphId = "", tagId = "" } = useParams();
   const state = useSessionSelector(
     (current) => current,
     (left, right) =>
@@ -75,6 +76,8 @@ export function TagView() {
     load();
   }, [load, state.hydratedOutlines, state.status, tag, tagId]);
 
+  if (!tag && state.snapshot.pages.some((page) => page.id === tagId))
+    return <Navigate replace to={graphPath(repositoryId, graphId, `p/${tagId}`)} />;
   if (!tag) {
     return (
       <Tombstone
@@ -243,15 +246,17 @@ function TagTitle({ tag }: { tag: TagSnapshot }) {
       className="tag-title-field"
       readonly={state.mode === "readonly"}
       validate={(next) => {
-        const clash = state.snapshot.tags.find(
-          (other) =>
-            other.id !== tag.id && canonicalEntityName(other.name) === canonicalEntityName(next),
-        );
+        const clash = namedDocuments(state.snapshot)
+          .filter((entry) => !entry.deleted)
+          .find(
+            (other) =>
+              other.id !== tag.id && canonicalEntityName(other.title) === canonicalEntityName(next),
+          );
         if (!clash) return true;
         notify.show({
           tone: "info",
           key: "tag-duplicate",
-          title: message("tags.duplicate", { name: next }),
+          title: message("entity.duplicate", { name: next }),
         });
         return false;
       }}
@@ -345,6 +350,7 @@ function TagMenu({
           </DropdownMenuItem>
           {!readonly && (
             <>
+              <EntityKindMenuItem id={tag.id} kind="page" />
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 variant="destructive"

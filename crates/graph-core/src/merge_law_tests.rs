@@ -587,9 +587,9 @@ fn duplicate_page_name_is_merge_total_and_reported_as_data() {
             },
         )
         .assert_merge_closed(
-            vec![GraphConflict::DuplicatePageName {
+            vec![GraphConflict::DuplicateEntityName {
                 canonical_name: "shared name".into(),
-                page_ids: vec![
+                entity_ids: vec![
                     PageId::new("left-page").unwrap(),
                     PageId::new("right-page").unwrap(),
                 ],
@@ -680,11 +680,11 @@ fn duplicate_tag_name_is_merge_total_and_reported_as_data() {
             },
         )
         .assert_merge_closed(
-            vec![GraphConflict::DuplicateTagName {
+            vec![GraphConflict::DuplicateEntityName {
                 canonical_name: "shared tag".into(),
-                tag_ids: vec![
-                    TagId::new("left-tag").unwrap(),
-                    TagId::new("right-tag").unwrap(),
+                entity_ids: vec![
+                    PageId::new("left-tag").unwrap(),
+                    PageId::new("right-tag").unwrap(),
                 ],
             }],
             Vec::new(),

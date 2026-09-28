@@ -698,3 +698,17 @@
   width: 12px;
   height: 12px;
 }
+
+.document-name-conflicts {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.875rem;
+}
+
+.document-name-conflicts p + p {
+  margin-top: 0.25rem;
+}
+
+.document-name-conflicts a {
+  text-decoration: underline;
+}

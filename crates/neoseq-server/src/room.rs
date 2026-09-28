@@ -158,7 +158,7 @@ impl RoomManager {
             return Err(RoomError::InvalidSession);
         }
         let membership = self.store.authorize(graph_id, account_id).await?;
-        if membership.schema_version != SCHEMA_VERSION {
+        if !domain::supports_document_schema(membership.schema_version) {
             return Err(RoomError::UnsupportedSchema);
         }
         let room = self.room_for(graph_id).await?;
@@ -244,7 +244,7 @@ impl RoomManager {
         account_id: &str,
     ) -> Result<GraphCheckpoint, RoomError> {
         let membership = self.store.authorize(graph_id, account_id).await?;
-        if membership.schema_version != SCHEMA_VERSION {
+        if !domain::supports_document_schema(membership.schema_version) {
             return Err(RoomError::UnsupportedSchema);
         }
         let room = self.room_for(graph_id).await?;
@@ -293,7 +293,7 @@ impl RoomManager {
 
     async fn reconstruct(&self, graph_id: &GraphId) -> Result<Arc<Mutex<Room>>, RoomError> {
         let durable = self.store.load_graph(graph_id).await?;
-        if durable.schema_version != SCHEMA_VERSION {
+        if !domain::supports_document_schema(durable.schema_version) {
             return Err(RoomError::UnsupportedSchema);
         }
         if durable.checkpoint.snapshot.len() > self.config.limits.max_decompressed_bytes as usize {

@@ -235,3 +235,43 @@ test("checkpoint compaction keeps the active editor and WebSocket alive", async 
   await openRemote(fresh, remote, remote.owner, "Checkpoint writing", "Writing");
   await fresh.expectOutline(["Revision 259", "Continued after compaction"]);
 });
+
+test("document conversion merges offline edits and preserves identity on both replicas", async ({
+  app: owner,
+  remote,
+}) => {
+  await createRemote(owner, remote, "Conversion project");
+  await owner.createPage("env");
+  await owner.startBlock("Environment notes");
+  const pageURL = owner.page.url();
+  const blockId = await owner.block(0).getAttribute("data-block-id");
+  await invite(owner.page, remote.peer);
+  const peer = await remote.newProfile();
+  await openRemote(peer, remote, remote.peer, "Conversion project", "env");
+  await peer.expectOutline(["Environment notes"]);
+  await expectSynced(peer.page);
+  await peer.page.context().setOffline(true);
+  await peer.editBlock(0, "Environment notes edited offline");
+
+  await owner.page.getByTestId("page-actions-trigger").click();
+  await owner.saved(() => owner.page.getByTestId("convert-to-tag").click());
+  await expect(owner.page.getByTestId("tag-title")).toHaveValue("env");
+  await expectSynced(owner.page);
+  await peer.page.context().setOffline(false);
+  await expect(peer.page.getByTestId("tag-title")).toHaveValue("env");
+  await owner.expectOutline(["Environment notes edited offline"]);
+  await peer.expectOutline(["Environment notes edited offline"]);
+  expect(await peer.block(0).getAttribute("data-block-id")).toBe(blockId);
+  await expectSynced(peer.page);
+
+  await peer.page.getByTestId("tag-actions-trigger").click();
+  await peer.saved(() => peer.page.getByTestId("convert-to-page").click());
+  await expect(owner.page).toHaveURL(pageURL);
+  await owner.expectOutline(["Environment notes edited offline"]);
+  await expectSynced(peer.page);
+  await expectSynced(owner.page);
+  const fresh = await remote.newProfile();
+  await openRemote(fresh, remote, remote.owner, "Conversion project", "env");
+  await fresh.expectOutline(["Environment notes edited offline"]);
+  expect(await fresh.block(0).getAttribute("data-block-id")).toBe(blockId);
+});

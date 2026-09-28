@@ -97,6 +97,12 @@ export interface MessageArgumentMap {
   "common.unavailable": undefined;
   "common.unknown": undefined;
   "common.yes": undefined;
+  "entity.convertAndApply": { readonly "name": string | number };
+  "entity.convertFailed": undefined;
+  "entity.convertToPage": undefined;
+  "entity.convertToTag": undefined;
+  "entity.duplicate": { readonly "name": string | number };
+  "entity.nameConflicts": undefined;
   "error.archiveChecksumMismatch": undefined;
   "error.archiveTooLarge": undefined;
   "error.commandTimeout": undefined;

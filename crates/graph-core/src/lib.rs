@@ -5,6 +5,7 @@ mod archive;
 mod convergence_tests;
 mod core;
 mod document;
+mod entities;
 #[cfg(test)]
 mod merge_law_tests;
 mod persistence;

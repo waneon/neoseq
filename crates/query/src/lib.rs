@@ -1,5 +1,6 @@
 //! Reproducible RDF projection and read-only logical query execution.
 
+mod entity_identity;
 pub mod logical;
 pub mod plan;
 
@@ -1177,8 +1178,9 @@ impl GraphIndex {
         }
 
         let mut query = request.query.into_algebra();
-        let bindings = request.bindings;
+        let mut bindings = request.bindings;
         let text_calls = validate_query(&query, budget.max_algebra_operators, &bindings)?;
+        entity_identity::normalize(&mut query, &mut bindings);
         let top_k_subjects = select_top_k_candidates(
             &query,
             &bindings,
@@ -2995,6 +2997,7 @@ fn to_ground_term(term: RdfTerm) -> Result<GroundTerm, QueryError> {
 }
 
 pub fn entity_iri(graph_id: &GraphId, kind: &str, id: &str) -> Result<NamedNode, QueryError> {
+    let kind = if kind == "tag" { "page" } else { kind };
     named(&format!(
         "{ENTITY_NS}{}:{kind}:{}",
         encode_component(graph_id.as_str()),
@@ -3237,6 +3240,25 @@ mod tests {
             bindings: BTreeMap::new(),
             budget: QueryBudget::default(),
         }
+    }
+
+    #[test]
+    fn legacy_tag_iris_resolve_without_rewriting_literal_text() {
+        let snapshot = snapshot();
+        let index = GraphIndex::new(&snapshot).unwrap();
+        let source = r#"PREFIX neo: <urn:neoseq:vocab:v1:>
+          SELECT ?name ?literal WHERE {
+            <urn:neoseq:entity:query%20graph:tag:project> neo:name ?name .
+            BIND("urn:neoseq:entity:query%20graph:tag:project" AS ?literal)
+          }"#;
+        let QueryResult::Select { rows, .. } = index.execute(request(source)).unwrap() else {
+            panic!("expected SELECT");
+        };
+        assert_eq!(rows.len(), 1);
+        assert!(matches!(&rows[0]["name"], RdfTerm::Literal { value, .. } if value == "Project"));
+        assert!(
+            matches!(&rows[0]["literal"], RdfTerm::Literal { value, .. } if value == "urn:neoseq:entity:query%20graph:tag:project")
+        );
     }
 
     #[test]

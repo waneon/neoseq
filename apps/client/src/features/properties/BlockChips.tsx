@@ -1,3 +1,4 @@
+import { documentTitle } from "../../core-port/snapshot";
 // The metadata strip under a block: quiet chips, not a form.
 //
 // Everything typed the block carries beyond its text renders here as one
@@ -86,7 +87,7 @@ export function BlockChips({
     if (value.type === "date") return formatJournalDate(value.value);
     if (value.type === "page") {
       const page = findPage(snapshot, value.value);
-      if (!page) return value.value;
+      if (!page) return documentTitle(snapshot, value.value);
       return isDeleted(page)
         ? message("properties.deleted", { name: pageTitle(page) })
         : pageTitle(page);

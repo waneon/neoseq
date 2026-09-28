@@ -1,3 +1,4 @@
+import type { Command, EntityRef } from "../../../core-port/commands";
 // Shared token completion grammar for block Markdown editors.
 //
 // Detection and menu presentation are surface-independent. A surface adapter
@@ -60,6 +61,7 @@ export interface BlockTagOption {
   id: string;
   name: string;
   present: boolean;
+  convert?: boolean;
 }
 
 export interface BlockPageOption {
@@ -139,6 +141,7 @@ export function filterTagOptions(
   query: string,
   present: ReadonlySet<string>,
   compare: (left: string, right: string) => number,
+  pages: readonly PageDirectoryEntry[] = [],
 ): BlockTagOption[] {
   const needle = query.trim();
   const best: { tag: TagSnapshot; score: number }[] = [];
@@ -151,11 +154,28 @@ export function filterTagOptions(
         : compare(left.tag.name, right.tag.name),
     );
   }
-  return best.map(({ tag }) => ({
+  const options: BlockTagOption[] = best.map(({ tag }) => ({
     id: tag.id,
     name: tag.name,
     present: present.has(tag.id),
   }));
+  const page = needle
+    ? pages.find(
+        (page) =>
+          !page.deleted &&
+          !page.journal_date &&
+          canonicalEntityName(page.title) === canonicalEntityName(needle) &&
+          !tags.some((tag) => tag.id === page.id),
+      )
+    : undefined;
+  if (page)
+    options.unshift({
+      id: page.id,
+      name: page.title,
+      present: present.has(page.id),
+      convert: true,
+    });
+  return options.slice(0, COMPLETION_LIMIT);
 }
 
 export function filterPageOptions(
@@ -339,7 +359,11 @@ export function BlockTagMenu({
         >
           <HashIcon aria-hidden />
           <span className="slash-item-text">
-            <strong>{option.name}</strong>
+            <strong>
+              {option.convert
+                ? message("entity.convertAndApply", { name: option.name })
+                : option.name}
+            </strong>
             {disabledReason && <small>{disabledReason}</small>}
           </span>
           {option.present && <CheckIcon className="tag-opt-check" aria-hidden />}
@@ -444,4 +468,17 @@ export function BlockSlashMenu({
       ))}
     </AnchoredPanel>
   );
+}
+
+export function tagOptionCommand(option: BlockTagOption, entity: EntityRef): Command | null {
+  const add: Command = { type: "add_tag", entity, tag_id: option.id };
+  if (option.convert)
+    return {
+      type: "batch",
+      commands: [
+        { type: "set_entity_kind", id: option.id, kind: "tag" },
+        ...(option.present ? [] : [add]),
+      ],
+    };
+  return option.present ? null : add;
 }

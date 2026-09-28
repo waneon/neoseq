@@ -89,7 +89,7 @@ impl NativeCorePort {
             let through = recovered_metadata.next_sequence.saturating_sub(1);
             repository
                 .install_checkpoint(
-                    &core.export_gc_checkpoint().map_err(map_core_error)?,
+                    &core.export_snapshot().map_err(map_core_error)?,
                     through,
                     &checkpointed_at,
                 )

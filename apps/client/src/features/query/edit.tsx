@@ -64,6 +64,7 @@ import {
   detectSlash,
   filterPageOptions,
   filterTagOptions,
+  tagOptionCommand,
   removeCompletionToken,
   type BlockCompletionRequest,
   type BlockPageOption,
@@ -672,17 +673,11 @@ export function useQueryResultEditor({
         await commit(
           false,
           next,
-          option.present
-            ? undefined
-            : {
-                type: "add_tag",
-                entity: {
-                  kind: "block",
-                  owner: current.binding.block.owner,
-                  id: current.binding.block.id,
-                },
-                tag_id: option.id,
-              },
+          tagOptionCommand(option, {
+            kind: "block",
+            owner: current.binding.block.owner,
+            id: current.binding.block.id,
+          }) ?? undefined,
         );
       })();
       return true;
@@ -933,9 +928,10 @@ function QueryMarkdownField({
             hashRequest.query,
             new Set(block?.tags ?? []),
             compare,
+            state.snapshot.page_directory,
           )
         : [],
-    [block?.tags, compare, hashRequest, state.snapshot.tags],
+    [block?.tags, compare, hashRequest, state.snapshot.tags, state.snapshot.page_directory],
   );
   const pageDirectory = useMemo(
     () =>
@@ -995,8 +991,13 @@ function QueryMarkdownField({
       const hash = detectHash(value, element.selectionStart, element.selectionEnd);
       const available =
         hash &&
-        filterTagOptions(state.snapshot.tags, hash.query, new Set(block?.tags ?? []), compare)
-          .length > 0;
+        filterTagOptions(
+          state.snapshot.tags,
+          hash.query,
+          new Set(block?.tags ?? []),
+          compare,
+          state.snapshot.page_directory,
+        ).length > 0;
       dispatchCompletion({
         type: "set",
         completion:

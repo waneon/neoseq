@@ -1,4 +1,4 @@
-use crate::{CoreError, GraphCore, SCHEMA_VERSION};
+use crate::{CoreError, GraphCore};
 use domain::GraphId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -165,7 +165,7 @@ pub fn recover_graph<R: LocalGraphRepository>(
 ) -> Result<(GraphCore, RecoveryReport), RecoveryError> {
     let metadata = repository.metadata().map_err(repository_error::<R>)?;
     let peer_id = metadata.replica_id;
-    if metadata.schema_version != SCHEMA_VERSION {
+    if !domain::supports_document_schema(metadata.schema_version) {
         return Err(RecoveryError::Core(CoreError::UnsupportedSchema(
             i64::from(metadata.schema_version),
         )));
@@ -178,7 +178,7 @@ pub fn recover_graph<R: LocalGraphRepository>(
         .map_err(repository_error::<R>)?;
     let had_checkpoints = !checkpoints.is_empty();
     for checkpoint in checkpoints {
-        let reason = if checkpoint.schema_version != SCHEMA_VERSION {
+        let reason = if !domain::supports_document_schema(checkpoint.schema_version) {
             Some(format!(
                 "unsupported-checkpoint-schema:{}",
                 checkpoint.schema_version

@@ -113,10 +113,10 @@ describe("outline hydration", () => {
       { kind: "page", id: "missing" },
     ]);
 
-    expect(port.readOwners).toEqual(["page:two", "tag:topic", "page:one"]);
+    expect(port.readOwners).toEqual(["document:two", "document:topic", "document:one"]);
     expect(publications).toBe(1);
     expect(session.getState().hydratedOutlines).toEqual(
-      new Set(["page:two", "tag:topic", "page:one"]),
+      new Set(["document:two", "document:topic", "document:one"]),
     );
     const one = findPage(session.getState().snapshot, "one");
     const two = findPage(session.getState().snapshot, "two");
@@ -177,7 +177,7 @@ describe("outline hydration", () => {
     });
     expect(port.readOwners).toEqual([]);
     expect(findPage(session.getState().snapshot, "home")?.blocks).toEqual([]);
-    expect(session.getState().hydratedOutlines.has("page:home")).toBe(false);
+    expect(session.getState().hydratedOutlines.has("document:home")).toBe(false);
     port.summaryReads = 0;
 
     await session.execute({
@@ -191,10 +191,10 @@ describe("outline hydration", () => {
     expect(port.summaryReads).toBe(0);
     expect(port.readOwners).toEqual([]);
     expect(findPage(session.getState().snapshot, "home")?.blocks).toEqual([]);
-    expect(session.getState().hydratedOutlines.has("page:home")).toBe(false);
+    expect(session.getState().hydratedOutlines.has("document:home")).toBe(false);
 
     await session.hydratePage("home");
-    expect(port.readOwners).toEqual(["page:home"]);
+    expect(port.readOwners).toEqual(["document:home"]);
     const page = findPage(session.getState().snapshot, "home");
     expect(page && findBlock(page, inserted.created_block!)?.markdown).toBe("After");
     await session.close();

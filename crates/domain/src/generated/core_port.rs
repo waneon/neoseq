@@ -40,6 +40,7 @@ pub enum SemanticEvent {
     CommandBatchApplied,
     LocalUndo,
     LocalRedo,
+    EntityKindChanged,
 }
 
 impl SemanticEvent {
@@ -70,6 +71,7 @@ impl SemanticEvent {
             Self::CommandBatchApplied => "CommandBatchApplied",
             Self::LocalUndo => "LocalUndo",
             Self::LocalRedo => "LocalRedo",
+            Self::EntityKindChanged => "EntityKindChanged",
         }
     }
 }
@@ -106,6 +108,7 @@ pub const SEMANTIC_EVENTS: &[SemanticEvent] = &[
     SemanticEvent::CommandBatchApplied,
     SemanticEvent::LocalUndo,
     SemanticEvent::LocalRedo,
+    SemanticEvent::EntityKindChanged,
 ];
 
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]

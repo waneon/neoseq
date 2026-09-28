@@ -42,7 +42,7 @@ publication so the server and browser cannot acquire unrelated CRDT histories:
 1. Decode and bound the container, then verify the manifest and checksum.
 2. Open the source through `GraphCore`'s archive boundary, requiring the manifest
    schema to agree with the snapshot. Schema 6 property slots are converted in
-   memory to schema 7 field generations; current-schema sources need no conversion.
+   memory to current field generations; schemas 7 and 8 need no container conversion.
    Validate the complete current-schema source before creating the target graph.
 3. Generate the target graph and replica IDs locally and create a shallow clone
    baseline with the rewritten graph identity.
@@ -72,8 +72,9 @@ manifest contract. A future reader may add an explicitly supported archive or
 payload version, but it must preserve the copy-only identity rule and validate
 the complete staged graph before installation. Export and import remain adapter
 operations outside CorePort because they package and install platform storage.
-The reader supports document schemas 6 and 7 only. Compatibility belongs to
-portable import, not live recovery or synchronization. The conversion preserves
+The archive reader supports document schemas 6, 7, and 8. Schema 6 conversion
+belongs to portable import; live recovery also reads schema 7 while requiring
+schema 8 writers for synchronization. The conversion preserves
 entity and tree identities, reference marks, empty fields, set membership, query
 documents and view state, tag defaults, and lifecycle metadata. Invalid or
 orphaned legacy property slots fail rather than disappearing. It leaves the

@@ -16,7 +16,7 @@ impl GraphCore {
         snapshot: &[u8],
     ) -> Result<Self, CoreError> {
         match document_schema {
-            SCHEMA_VERSION => Self::from_snapshot(graph_id, peer_id, snapshot),
+            SCHEMA_VERSION | 7 => Self::from_snapshot(graph_id, peer_id, snapshot),
             6 => {
                 let doc = LoroDoc::from_snapshot(snapshot)?;
                 let meta = doc.get_map("meta");

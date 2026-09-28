@@ -1,3 +1,4 @@
+import { documentTitle } from "../../core-port/snapshot";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PageSnapshot, PropertyField, PropertyValue } from "../../core-port/snapshot";
 import type { SessionState } from "../../core-port/session";
@@ -151,7 +152,7 @@ function describe(
   if (value.type === "checkbox") return value.value ? message("common.yes") : message("common.no");
   if (value.type === "page") {
     const target = findPage(state.snapshot, value.value);
-    if (!target) return value.value;
+    if (!target) return documentTitle(state.snapshot, value.value);
     return isDeleted(target)
       ? message("properties.deleted", { name: pageTitle(target) })
       : pageTitle(target);

@@ -8,7 +8,7 @@ use crate::core::CoreError;
 use domain::{
     Cardinality, DefaultQueryId, GraphId, PageId, PropertyKey, PropertyType, PropertyValue,
     QUERY_DOCUMENT_SCHEMA, QUERY_DOCUMENT_VERSION, QUERY_LANGUAGE, QueryPlan, QueryViewColumn,
-    QueryViewId, SCHEMA_VERSION, TagId, validate_property, validate_property_shape,
+    QueryViewId, TagId, validate_property, validate_property_shape,
 };
 use loro::{
     Container, LoroDoc, LoroMap, LoroText, LoroTree, LoroValue, TextDelta, ValueOrContainer,
@@ -54,10 +54,35 @@ pub(crate) enum StoredPlanState {
 pub(crate) fn validate_causal_document(doc: &LoroDoc, graph_id: &GraphId) -> Result<(), CoreError> {
     validate_metadata(doc, graph_id)?;
 
-    let pages = doc.get_map("pages");
-    let page_ids = validate_page_ids(&pages)?;
-    validate_pages(&pages, &page_ids)?;
-    validate_tags(&doc.get_map("tags"), &page_ids)?;
+    let mut ids = BTreeSet::new();
+    for home in ["entities", "pages", "tags"] {
+        for raw in doc.get_map(home).keys() {
+            let id =
+                PageId::new(raw.to_string()).map_err(|_| invalid("invalid document ID".into()))?;
+            if !ids.insert(id) {
+                return Err(invalid(
+                    "document ID appears in multiple storage homes".into(),
+                ));
+            }
+        }
+    }
+    validate_pages(&doc.get_map("pages"), &ids)?;
+    validate_pages(&doc.get_map("entities"), &ids)?;
+    validate_tags(&doc.get_map("tags"), &ids)?;
+    let mut bad_kind = false;
+    crate::entities::all(doc).for_each(|_, value| {
+        if let ValueOrContainer::Container(Container::Map(record)) = value {
+            if let Some(value) = record.get("kind") {
+                bad_kind |= !matches!(value, ValueOrContainer::Value(LoroValue::String(value)) if value.as_ref() == "page" || value.as_ref() == "tag");
+            }
+            if let Some(value) = record.get("defaults") {
+                bad_kind |= required_map(Some(value), "document defaults").and_then(|bag| validate_property_bag(&bag, "document defaults")).is_err();
+            }
+        }
+    });
+    if bad_kind {
+        return Err(invalid("invalid document kind or defaults".into()));
+    }
     validate_graph_settings(doc)
 }
 
@@ -69,20 +94,10 @@ fn validate_metadata(doc: &LoroDoc, graph_id: &GraphId) -> Result<(), CoreError>
     }
     let stored = map_i64(&meta, "schema_version").unwrap_or(0);
     let schema = u32::try_from(stored).map_err(|_| CoreError::UnsupportedSchema(stored))?;
-    if schema != SCHEMA_VERSION {
+    if !domain::supports_document_schema(schema) {
         return Err(CoreError::UnsupportedSchema(stored));
     }
     Ok(())
-}
-
-fn validate_page_ids(pages: &LoroMap) -> Result<BTreeSet<PageId>, CoreError> {
-    pages
-        .keys()
-        .map(|raw_id| {
-            PageId::new(raw_id.to_string())
-                .map_err(|_| invalid(format!("page id is invalid: {raw_id}")))
-        })
-        .collect()
 }
 
 fn validate_pages(pages: &LoroMap, page_ids: &BTreeSet<PageId>) -> Result<(), CoreError> {

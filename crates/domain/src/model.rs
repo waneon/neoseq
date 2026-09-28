@@ -5,6 +5,14 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EntityKind {
+    Page,
+    Tag,
+}
+
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum OutlineOwner {
@@ -108,6 +116,10 @@ pub struct PropertyChange {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Command {
+    SetEntityKind {
+        id: PageId,
+        kind: EntityKind,
+    },
     EnsurePage {
         page_id: PageId,
         title: String,
@@ -634,13 +646,9 @@ pub struct GraphSummary {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum GraphConflict {
-    DuplicatePageName {
+    DuplicateEntityName {
         canonical_name: String,
-        page_ids: Vec<PageId>,
-    },
-    DuplicateTagName {
-        canonical_name: String,
-        tag_ids: Vec<TagId>,
+        entity_ids: Vec<PageId>,
     },
     /// Concurrently valid creations exceeded the bounded visible projection.
     /// The entries remain canonical data and are promoted deterministically

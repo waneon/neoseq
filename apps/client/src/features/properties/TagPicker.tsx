@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { PlusIcon, SearchIcon, XIcon } from "lucide-react";
 import type { BlockSnapshot, OutlineOwner } from "../../core-port/snapshot";
 import { findBlock, findOutline } from "../../core-port/snapshot";
-import { canonicalEntityName } from "../../entities/names";
+import { canonicalEntityName, namedDocuments } from "../../entities/names";
 import { randomUUID } from "@/lib/crypto";
 import { tagGroup } from "../../entities/tag-identity";
 import type { Anchor } from "@/ui/anchored";
@@ -53,15 +53,24 @@ export function TagPicker({
     const rows: (
       | { kind: "existing"; tag: (typeof matches)[number]; name: string }
       | { kind: "create"; name: string }
+      | { kind: "convert"; id: string; name: string }
     )[] = matches.map((tag) => ({ kind: "existing", tag, name: tag.name }));
     if (
       canonical &&
       !state.snapshot.tags.some((tag) => canonicalEntityName(tag.name) === canonical)
     ) {
-      rows.push({ kind: "create", name: query.trim() });
+      const page = namedDocuments(state.snapshot).find(
+        (entry) =>
+          !entry.deleted && !entry.journal_date && canonicalEntityName(entry.title) === canonical,
+      );
+      rows.push(
+        page
+          ? { kind: "convert", id: page.id, name: page.title }
+          : { kind: "create", name: query.trim() },
+      );
     }
     return rows;
-  }, [state.snapshot.tags, current.tags, query, compare]);
+  }, [state.snapshot, current.tags, query, compare]);
   const selectedIndex = Math.max(0, Math.min(active, options.length - 1));
   const readonly = state.mode === "readonly";
 
@@ -76,19 +85,26 @@ export function TagPicker({
     submitting.current = true;
     setPending(true);
     try {
-      const tagId = option.kind === "create" ? `t-${randomUUID()}` : option.tag.id;
+      const tagId =
+        option.kind === "create"
+          ? `t-${randomUUID()}`
+          : option.kind === "convert"
+            ? option.id
+            : option.tag.id;
       const add = {
         type: "add_tag" as const,
         entity: { kind: "block" as const, owner, id: block.id },
         tag_id: tagId,
       };
       await session.execute(
-        option.kind === "create"
-          ? {
-              type: "batch",
-              commands: [{ type: "ensure_tag", tag_id: tagId, name: option.name }, add],
-            }
-          : add,
+        option.kind === "convert"
+          ? { type: "batch", commands: [{ type: "set_entity_kind", id: tagId, kind: "tag" }, add] }
+          : option.kind === "create"
+            ? {
+                type: "batch",
+                commands: [{ type: "ensure_tag", tag_id: tagId, name: option.name }, add],
+              }
+            : add,
       );
       setQuery("");
       setActive(0);
@@ -228,12 +244,14 @@ export function TagPicker({
                   key={option.kind === "existing" ? option.tag.id : "__create"}
                   className="tag-picker-option"
                   aria-label={
-                    option.kind === "create"
-                      ? message("properties.createEntity", {
-                          kind: message("common.tag"),
-                          name: option.name,
-                        })
-                      : option.name
+                    option.kind === "convert"
+                      ? message("entity.convertAndApply", { name: option.name })
+                      : option.kind === "create"
+                        ? message("properties.createEntity", {
+                            kind: message("common.tag"),
+                            name: option.name,
+                          })
+                        : option.name
                   }
                   aria-selected={false}
                   aria-disabled={pending}
@@ -251,12 +269,14 @@ export function TagPicker({
                     )}
                   </span>
                   <span className="tag-picker-option-name">
-                    {option.kind === "create"
-                      ? message("properties.createEntity", {
-                          kind: message("common.tag"),
-                          name: option.name,
-                        })
-                      : option.name}
+                    {option.kind === "convert"
+                      ? message("entity.convertAndApply", { name: option.name })
+                      : option.kind === "create"
+                        ? message("properties.createEntity", {
+                            kind: message("common.tag"),
+                            name: option.name,
+                          })
+                        : option.name}
                   </span>
                   {option.kind === "existing" && tagGroup(option.tag) && (
                     <span className="tag-picker-option-group">{tagGroup(option.tag)}</span>

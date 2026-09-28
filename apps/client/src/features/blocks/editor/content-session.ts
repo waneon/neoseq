@@ -302,7 +302,9 @@ export class ContentSessions {
           });
         const buffer = target.buffer;
         const content = bufferCommand(buffer, target.owner, target.blockId);
-        submittedActions = [...(this.retryActions.get(target) ?? []), ...actions];
+        submittedActions = [...(this.retryActions.get(target) ?? []), ...actions].flatMap(
+          (action) => (action.type === "batch" ? action.commands : [action]),
+        );
         const commands = [...submittedActions, ...(content ? [content] : [])];
         if (commands.length === 0) return null;
         this.retryActions.delete(target);
