@@ -74,6 +74,8 @@ pub struct Welcome {
 pub enum WelcomePayload {
     /// Import the Loro operations absent from the client's current version vector.
     Delta { update: Vec<u8> },
+    /// Download retained history and merge it into the existing replica.
+    MergeDownload {},
     /// Replace local canonical state with this server-owned checkpoint.
     ReplaceInline { checkpoint: Vec<u8> },
     /// Download the replacement checkpoint from the authenticated HTTP endpoint.
@@ -156,6 +158,10 @@ pub enum Message {
     Presence(Presence),
     Error(ErrorMessage),
     ResyncRequired(ResyncRequired),
+    /// Echoed by the server to detect a stalled transport without touching graph state.
+    Heartbeat {
+        nonce: u32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -332,7 +338,11 @@ pub fn validate_message(message: &Message, limits: Limits) -> Result<(), Protoco
                 ));
             }
         }
-        Message::Welcome(_) | Message::Ack(_) | Message::Error(_) | Message::ResyncRequired(_) => {}
+        Message::Welcome(_)
+        | Message::Ack(_)
+        | Message::Error(_)
+        | Message::ResyncRequired(_)
+        | Message::Heartbeat { .. } => {}
     }
     Ok(())
 }
@@ -393,6 +403,7 @@ mod tests {
     fn welcome_payload_selects_exactly_one_sync_action() {
         let cases = [
             WelcomePayload::Delta { update: vec![1, 2] },
+            WelcomePayload::MergeDownload {},
             WelcomePayload::ReplaceInline {
                 checkpoint: vec![3, 4],
             },

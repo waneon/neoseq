@@ -199,6 +199,9 @@ export class ContentSessions {
             }
             next.set(id, value);
           }
+          // A restored block or a successfully mapped update establishes the
+          // baseline again; an earlier failure must not poison future edits.
+          if (sameContent(value.source, canonical.source)) this.unavailable.delete(target);
           target.publish({
             before: bufferAtoms(buffer),
             after: bufferAtoms(value),
@@ -240,6 +243,7 @@ export class ContentSessions {
       );
       return;
     }
+    this.unavailable.delete(target);
     target.publish({
       before: bufferAtoms(before),
       after: bufferAtoms(rebased.buffer),

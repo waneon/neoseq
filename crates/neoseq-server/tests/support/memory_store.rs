@@ -309,7 +309,7 @@ impl GraphStore for MemoryStore {
         })
     }
 
-    async fn install_checkpoint(
+    async fn compact_checkpoint(
         &self,
         graph_id: &GraphId,
         expected_epoch: u64,
@@ -317,7 +317,7 @@ impl GraphStore for MemoryStore {
         schema_version: u32,
         snapshot: &[u8],
         _version_vector: &[u8],
-    ) -> Result<u64, StoreError> {
+    ) -> Result<(), StoreError> {
         let mut state = self.inner.lock().expect("memory store mutex");
         if !state.available {
             return Err(StoreError::Unavailable("injected outage"));
@@ -329,9 +329,6 @@ impl GraphStore for MemoryStore {
         if graph.history_epoch != expected_epoch {
             return Err(StoreError::StaleHistory);
         }
-        let next_epoch = expected_epoch
-            .checked_add(1)
-            .ok_or(StoreError::Corrupt("history epoch overflow"))?;
         let prior = graph.checkpoint.clone();
         if included_cursor < prior.included_cursor {
             return Err(StoreError::StaleHistory);
@@ -368,7 +365,6 @@ impl GraphStore for MemoryStore {
             let minimum = cursors[MAX_RETAINED_RECEIPTS - 1];
             graph.receipts.retain(|_, cursor| *cursor >= minimum);
         }
-        graph.history_epoch = next_epoch;
         graph.schema_version = schema_version;
         graph.used_bytes = used_bytes;
         graph.prior_checkpoint = Some(prior);
@@ -378,7 +374,7 @@ impl GraphStore for MemoryStore {
             checksum: checksum(snapshot),
         };
         graph.updates = retained;
-        Ok(next_epoch)
+        Ok(())
     }
 }
 

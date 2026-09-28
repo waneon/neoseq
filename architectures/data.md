@@ -185,7 +185,7 @@ ambiguous after-commit failure returns the prior sequence instead of duplicating
 the update.
 
 For a remote Tail record, this same lowercase 64-hex digest is its outbox key and
-the sync v6 `message_id`; there is no independently generated transport UUID.
+the sync `message_id`; there is no independently generated transport UUID.
 
 A successful core mutation remains pending until append commits. While pending,
 the runtime rejects another mutation and clean close; retry uses the same bytes.
@@ -226,20 +226,19 @@ path are best effort after append; their failure never changes an already durabl
 command into a rejected response. Clean close also attempts maintenance, but
 correctness does not depend on close firing.
 
-Remote replicas cannot choose a GC frontier independently. They retain mergeable
-history until the server publishes a new `history_epoch`. Adopting that epoch is
-one transaction: the server checkpoint becomes Base, durable unacknowledged
-intent is replayed and exported against the server version vector as at most one
-Tail record, and the outbox references that Tail. If rebase or commit fails, the
-old canonical state remains intact.
+Remote replicas use the same checkpoint and Tail retention mechanism with a
+snapshot that preserves causal history. Unacknowledged outbox entries pin their
+exact Tail payloads until server acknowledgement, even after both retained
+checkpoints cover them. Compaction preserves the live core, undo, epoch, and
+server provenance. Received bulk snapshots are durable imports into that core.
 
 The `sync-state` record distinguishes an arbitrary local checkpoint from a
 server-approved Base. Sync configuration does not create an update. A replica
-without the marker must install a replacement server checkpoint before it can
-mutate; checkpoint, epoch, provenance marker, rebased Tail, and outbox replacement
-commit atomically. When no durable outbox intent exists, replacement emits no
-Tail even if two shallow checkpoint encodings expose different internal
-frontiers.
+without the marker installs its initial server checkpoint before it can mutate;
+checkpoint, epoch and provenance commit atomically. A based replica or one with
+pending outbox work refuses replacement and retains its exact local state for
+recovery. History truncation and replay across incompatible epochs are not part
+of ordinary synchronization.
 
 Quarantine records are not silently deleted or re-imported. The storage UI may
 export their opaque bytes by handle without treating them as graph data.
@@ -276,7 +275,7 @@ Opening a graph verifies each referenced Tail checksum against its payload.
 Before exposing the graph, a serialized write transaction rechecks and rewrites
 pending records from the preceding protocol generation from their arbitrary
 transport ID to that checksum. A concurrent acknowledgement or replacement
-cannot be resurrected, and no unverified record can cross the v6 wire boundary.
+cannot be resurrected, and no unverified record can cross the wire boundary.
 
 Portable import generates a new graph and replica ID outside the archive, then
 prepares a validated shallow clone. Local import installs it directly. Remote
@@ -323,7 +322,7 @@ Readers, commands, and projections never repair missing structure lazily.
 - restart tests compare semantic graph state after checkpoint plus tail replay;
 - fault tests cover before-commit, after-commit, busy/quota, and corrupt records;
 - convergence tests exchange binary updates in different and duplicate orders;
-- browser outbox tests cover normalized queueing, epoch rebase, checkpoint plus
+- browser outbox tests cover normalized queueing, rejected replacement, checkpoint plus
   Tail resync, restart, protocol encoding, and acknowledgement;
 - compaction tests cross the periodic threshold and reopen from the retained
   current/prior checkpoints and remaining Tail;

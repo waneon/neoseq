@@ -183,10 +183,11 @@ impl RoomManager {
             Some(update) if update.len() <= self.config.limits.max_update_bytes as usize => {
                 WelcomePayload::Delta { update }
             }
-            _ => {
+            Some(_) => WelcomePayload::MergeDownload {},
+            None => {
                 let checkpoint = guard
                     .graph
-                    .export_gc_checkpoint()
+                    .export_snapshot()
                     .map_err(|_| RoomError::InvalidUpdate)?;
                 let inline_checkpoint_bytes = (self.config.limits.max_frame_bytes as usize)
                     .saturating_sub(INLINE_CHECKPOINT_FRAME_OVERHEAD);
@@ -254,7 +255,7 @@ impl RoomManager {
         }
         let bytes = guard
             .graph
-            .export_gc_checkpoint()
+            .export_snapshot()
             .map_err(|_| RoomError::InvalidUpdate)?;
         if bytes.len() > self.config.limits.max_decompressed_bytes as usize {
             return Err(StoreError::QuotaExceeded.into());
@@ -376,7 +377,7 @@ impl RoomManager {
             .graph
             .prepare_update(&update.bytes)
             .map_err(|_| RoomError::InvalidUpdate)?;
-        if candidate.gc_checkpoint_len() > self.config.limits.max_decompressed_bytes as usize {
+        if candidate.snapshot_len() > self.config.limits.max_decompressed_bytes as usize {
             return Err(StoreError::QuotaExceeded.into());
         }
 
@@ -457,32 +458,35 @@ impl RoomManager {
             && (room.tail_updates >= CHECKPOINT_TAIL_UPDATES
                 || room.tail_bytes >= CHECKPOINT_TAIL_BYTES)
         {
-            // Checkpoint rotation is maintenance after the update is durable and
-            // acknowledged. A failed rotation leaves the current epoch intact so
+            // Compaction preserves causal history and live sessions. It follows
+            // durable acceptance; a failed checkpoint leaves the Tail intact so
             // a later update can retry without turning success into a false NACK.
-            if let Err(error) = self.rotate_history(&connection.graph_id, &mut room).await {
+            if let Err(error) = self
+                .compact_checkpoint(&connection.graph_id, &mut room)
+                .await
+            {
                 tracing::warn!(
                     graph_id = telemetry_id(connection.graph_id.as_str()),
                     error = %error,
-                    "history checkpoint rotation deferred"
+                    "checkpoint compaction deferred"
                 );
             }
         }
         Ok(())
     }
 
-    async fn rotate_history(&self, graph_id: &GraphId, room: &mut Room) -> Result<(), RoomError> {
+    async fn compact_checkpoint(
+        &self,
+        graph_id: &GraphId,
+        room: &mut Room,
+    ) -> Result<(), RoomError> {
         let snapshot = room
             .graph
-            .export_gc_checkpoint()
+            .export_snapshot()
             .map_err(|_| RoomError::InvalidUpdate)?;
         let version_vector = room.graph.version_vector();
-        let graph = room.graph.graph_id().clone();
-        let replacement = ServerGraph::from_checkpoint(graph, SERVER_PEER_ID, &snapshot)
-            .map_err(|_| StoreError::Corrupt("candidate checkpoint is invalid"))?;
-        let next_epoch = self
-            .store
-            .install_checkpoint(
+        self.store
+            .compact_checkpoint(
                 graph_id,
                 room.history_epoch,
                 room.cursor,
@@ -491,20 +495,15 @@ impl RoomManager {
                 &version_vector,
             )
             .await?;
-        room.graph = replacement;
-        room.history_epoch = next_epoch;
         room.tail_updates = 0;
         room.tail_bytes = 0;
-        let message = Message::ResyncRequired(ResyncRequired {
-            code: ErrorCode::StaleHistory,
-            server_cursor: room.cursor,
-            history_epoch: room.history_epoch,
-            diagnostic: "history checkpoint rotated; reconnect from the new epoch".into(),
-        });
-        for session in room.sessions.values() {
-            let _ = session.outbound.try_send(message.clone());
-        }
-        room.sessions.clear();
+        tracing::info!(
+            graph_id = telemetry_id(graph_id.as_str()),
+            history_epoch = room.history_epoch,
+            cursor = room.cursor,
+            checkpoint_bytes = snapshot.len(),
+            "checkpoint compacted"
+        );
         Ok(())
     }
 

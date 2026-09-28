@@ -161,3 +161,30 @@ describe("graph content sessions", () => {
     unobserve();
   });
 });
+
+it("recovers a retained draft when a refresh restores its source", async () => {
+  const { session, port, target, block } = await openContent();
+  // A lost event forces a full refresh without position mappings.
+  const subscribe = port.subscribe.bind(port);
+  port.subscribe = async (request) => ({ ...(await subscribe(request)), resync_required: true });
+  target.edit("abcLdef", []);
+  await session.execute({
+    type: "splice_block_content",
+    owner,
+    block_id: block.id,
+    index: 1,
+    delete: 0,
+    insert: [{ type: "markdown", value: "X" }],
+  });
+  await expect(target.submit()).rejects.toMatchObject({ detail: { code: "invalid_request" } });
+  await session.execute({
+    type: "splice_block_content",
+    owner,
+    block_id: block.id,
+    index: 1,
+    delete: 1,
+    insert: [],
+  });
+  await target.submit();
+  expect(findPage(session.getState().snapshot, owner.id)!.blocks[0].markdown).toBe("abcLdef");
+});

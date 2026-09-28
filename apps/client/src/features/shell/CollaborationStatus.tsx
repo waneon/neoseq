@@ -40,7 +40,9 @@ export function CollaborationStatus({ sync, live }: { sync: RemoteSyncState; liv
           ? message("sync.pausedAuth")
           : sync.reason === "revoked"
             ? message("sync.pausedRevoked")
-            : message("sync.incompatible")
+            : sync.reason === "history"
+              ? message("sync.pausedHistory")
+              : message("sync.incompatible")
         : sync.kind === "error"
           ? message("sync.notSynced")
           : null;

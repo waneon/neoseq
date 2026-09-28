@@ -217,7 +217,8 @@ pub trait GraphStore: Send + Sync + 'static {
         bytes: &[u8],
     ) -> Result<CommitOutcome, StoreError>;
 
-    async fn install_checkpoint(
+    /// Installs a checkpoint containing all retained causal history without changing its epoch.
+    async fn compact_checkpoint(
         &self,
         graph_id: &GraphId,
         expected_epoch: u64,
@@ -225,7 +226,7 @@ pub trait GraphStore: Send + Sync + 'static {
         schema_version: u32,
         snapshot: &[u8],
         version_vector: &[u8],
-    ) -> Result<u64, StoreError>;
+    ) -> Result<(), StoreError>;
 }
 
 #[async_trait]
@@ -748,7 +749,7 @@ impl GraphStore for PgStore {
         })
     }
 
-    async fn install_checkpoint(
+    async fn compact_checkpoint(
         &self,
         graph_id: &GraphId,
         expected_epoch: u64,
@@ -756,7 +757,7 @@ impl GraphStore for PgStore {
         schema_version: u32,
         snapshot: &[u8],
         version_vector: &[u8],
-    ) -> Result<u64, StoreError> {
+    ) -> Result<(), StoreError> {
         let mut transaction = self.pool.begin().await?;
         let row = sqlx::query(
             "SELECT history_epoch, byte_quota, checkpoint_id FROM graph
@@ -769,9 +770,6 @@ impl GraphStore for PgStore {
         if as_u64(row.try_get("history_epoch")?)? != expected_epoch {
             return Err(StoreError::StaleHistory);
         }
-        let next_epoch = expected_epoch
-            .checked_add(1)
-            .ok_or(StoreError::Corrupt("history epoch overflow"))?;
         let prior_checkpoint_id: i64 = row.try_get("checkpoint_id")?;
         let prior = sqlx::query(
             "SELECT included_cursor, size_bytes FROM graph_checkpoint
@@ -810,7 +808,7 @@ impl GraphStore for PgStore {
              RETURNING checkpoint_id",
         )
         .bind(graph_id.as_str())
-        .bind(as_i64(next_epoch)?)
+        .bind(as_i64(expected_epoch)?)
         .bind(as_i64(included_cursor)?)
         .bind(snapshot)
         .bind(version_vector)
@@ -853,7 +851,7 @@ impl GraphStore for PgStore {
         )
         .bind(graph_id.as_str())
         .bind(checkpoint_id)
-        .bind(as_i64(next_epoch)?)
+        .bind(as_i64(expected_epoch)?)
         .bind(i32::try_from(schema_version).map_err(|_| StoreError::Corrupt("schema overflow"))?)
         .bind(as_i64(used_bytes)?)
         .execute(&mut *transaction)
@@ -868,7 +866,7 @@ impl GraphStore for PgStore {
         .execute(&mut *transaction)
         .await?;
         transaction.commit().await?;
-        Ok(next_epoch)
+        Ok(())
     }
 }
 

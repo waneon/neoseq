@@ -72,7 +72,7 @@ authenticated graph HTTP surface creates and lists graphs, lets an owner delete
 a graph, and lets an owner list, grant, or revoke memberships by username while membership rows retain the
 account's immutable ID. Browser WebSockets carry the session credential in
 a dedicated base64url subprotocol entry because the browser API cannot set an
-`Authorization` header; the server selects only the stable `neoseq.v6`
+`Authorization` header; the server selects only the stable `neoseq.v7`
 application subprotocol. Credentials are never accepted in a URL.
 
 Graph creation has two forms. Ordinary creation commits a server-generated
@@ -95,18 +95,19 @@ on other devices remain local data and can no longer synchronize.
 
 The binary protocol is versioned independently from the CRDT schema.
 `contracts/sync-protocol.json` declares that version and derives the
-`neoseq.v6` subprotocol name from it, generated for the server and the browser
+`neoseq.v7` subprotocol name from it, generated for the server and the browser
 client alike, so a bump cannot leave one side advertising the other's version.
 Messages are length-delimited envelopes:
 
 - `Hello`: exact protocol/schema versions, graph ID, session ID, history epoch,
   Loro version vector, and whether the local Base has server provenance;
 - `Welcome`: history epoch, server version vector, and exactly one payload: a
-  missing-update delta, an inline replacement checkpoint, or a bulk-checkpoint
-  download marker;
+  missing-update delta, a mergeable bulk-checkpoint download, or an initial
+  replacement checkpoint delivered inline or by download;
 - `Update`: history epoch, content ID, base version vector, and Loro bytes;
 - `Ack`: history epoch, content ID, and durable server receipt cursor;
 - `Presence`: ephemeral cursor/selection state with expiry;
+- `Heartbeat`: transport-only echo, independent of graph durability;
 - `Error`/`ResyncRequired`: stable code and recoverability metadata.
 
 The server sequence/cursor proves durable receipt and supports resumable
@@ -114,7 +115,7 @@ transport; it never defines CRDT conflict order. Updates are duplicate-safe. A
 client keeps an outbox item until its content ID is acknowledged. A content ID
 is exactly the lowercase 64-hex SHA-256 of the update bytes. Protocol decoding,
 the room, and durable storage each reject a different spelling or byte digest.
-The Rust wire model represents this string as a validated `ContentId`; the v6
+The Rust wire model represents this string as a validated `ContentId`; the
 JSON/postcard field name remains `message_id` for the cross-language contract.
 
 ## Session Flow
@@ -122,11 +123,11 @@ JSON/postcard field name remains `message_id` for the cross-language contract.
 1. Authenticate the connection and authorize current graph membership.
 2. Require the current protocol and document-schema versions exactly.
 3. If the replica lacks a server-approved Base, send a replacement checkpoint.
-   Otherwise compare history epochs and Loro version vectors, exporting missing
-   operations within one epoch or replacing the checkpoint across epochs. A
-   replacement that exceeds the update-frame budget is fetched from the
-   authenticated graph checkpoint endpoint rather than enlarged into a
-   WebSocket frame.
+   Otherwise compare history epochs and Loro version vectors. Compatible replicas
+   receive missing operations, or download and merge retained history when the
+   delta exceeds the live frame budget. A replacement request for a previously
+   based replica pauses client synchronization while preserving its local work.
+   Only an unbased replica installs an initial checkpoint.
 4. For every client update, enforce limits and prepare a validated candidate on
    a temporary fork of the room document.
 5. Persist the exact validated bytes transactionally, then adopt the prepared
@@ -157,7 +158,7 @@ The logical PostgreSQL records are:
   owner membership is the canonical ownership record;
 - update: graph ID, server cursor, content ID, account ID, bytes, size, received
   time;
-- checkpoint: graph ID, history epoch, included cursor, shallow Loro
+- checkpoint: graph ID, history epoch, included cursor, retained-history Loro
   snapshot/version vector, checksum, and size;
 - compact receipt: graph/content ID and original cursor for idempotent retries
   after covered update rows are reclaimed;
@@ -184,26 +185,27 @@ source of truth.
 
 ## Checkpoints and Retention
 
-Graph creation stores an initial verified checkpoint and the room always loads
-the pointed Base before its durable Tail. After 256 Tail records or 1 MiB, the
-room exports a shallow checkpoint at its current cursor. One PostgreSQL
-transaction inserts the new Base, copies covered content identities to compact
-receipts, advances the graph pointer and `history_epoch`, and recomputes used
-bytes. It retains the pointed Base, its immediate predecessor, and the Tail
-needed to reconstruct from that predecessor. The next successful rotation
-deletes the superseded Base and its now-unneeded Tail generation. The in-memory
-room then adopts the new Base and asks connected replicas to reconnect.
+Graph creation stores an initial verified checkpoint and rooms load that Base
+before its durable Tail. Storage compaction installs a snapshot containing all
+retained causal history, copies covered content identities to compact receipts,
+advances the checkpoint pointer, and recomputes used bytes in one transaction.
+It retains the current Base, its immediate predecessor, and the Tail needed for
+fallback. Later compaction reclaims obsolete rows. Neither the live document nor
+its sessions are replaced, and the history epoch stays unchanged.
 
-A replica on the current epoch and a server-approved Base normally receives a
-version-vector delta. A replica without that Base, on an older epoch, or whose
-delta cannot be represented within the negotiated limit receives a replacement
-checkpoint and must atomically rebase only durable unacknowledged intent. Small
-checkpoints remain inline. Large checkpoints use an authorized, non-cacheable
-HTTP response whose checksum, history epoch, and version vector describe one
-room snapshot atomically. Live updates observed around that snapshot remain
-safe because Loro operation import is idempotent; epoch rotation still forces a
-reconnect. With no outbox intent the installed state is exactly the server Base;
-a shallow snapshot representation difference is never inferred to be a local edit.
+The server does not automatically truncate CRDT history. Snapshot and storage
+quotas account for retained history; compaction bounds Tail replay and row count,
+not total lifetime history. Future history reclamation requires an explicit
+offline-retention and recovery policy. Previously truncated history cannot be
+restored by exporting a full snapshot of its surviving suffix.
+
+Compatible catch-up normally uses a version-vector delta. Large catch-up uses an
+authorized, non-cacheable HTTP checkpoint whose checksum, history epoch, and
+version vector describe one room snapshot atomically. The client merges these
+bytes into its existing core, including changes authored while downloading.
+Queued live updates remain safe because operation import is idempotent.
+Initial replicas use the same endpoint for bootstrap. A changed epoch during
+download invalidates the transfer rather than mixing synchronization generations.
 Compact receipts are capped at the most recent
 4,096 content receipts per graph; older retries may obtain a new transport cursor, but
 Loro operation identity keeps their content import idempotent.
@@ -253,7 +255,8 @@ closes sessions; clients reconcile on reconnect regardless.
 Structured logs carry request/session IDs, opaque graph/account IDs, cursor,
 sizes, and result codes, but never note text, property values, tokens, message
 IDs, or raw update bytes. Metrics cover active sessions/rooms, accepted updates,
-rejected frames, slow consumers, and room reconstruction count.
+rejected frames, slow consumers, and room reconstruction count. Checkpoint logs
+include retained snapshot size, epoch, and covered cursor.
 
 ## Verification
 
@@ -272,9 +275,10 @@ rejected frames, slow consumers, and room reconstruction count.
 - Seeded-creation tests verify exact retry/conflict behavior and connect a fresh
   second client over WebSocket to the imported server Base, including the bulk
   checkpoint path above the inline frame budget.
-- Epoch tests verify one-generation checkpoint/Tail retention and reclamation,
-  replacement checkpoints, stale update rejection, and duplicate
-  acknowledgement from compact receipts.
+- Compaction tests cross multiple checkpoints on one live session, merge offline
+  changes after room eviction, and verify fallback retention and duplicate receipts.
+- Transport tests verify heartbeat echoes; client tests cover stalled connections,
+  acknowledgements, obsolete responses, and non-destructive history recovery.
 
 The differential exchange follows Loro's documented
 [version-vector synchronization model](https://www.loro.dev/docs/tutorial/sync).

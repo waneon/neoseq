@@ -382,23 +382,20 @@ async fn postgres_schema_persistence_and_authorization() {
         Err(StoreError::ReadOnly)
     ));
 
-    let rotated = client.export_gc_checkpoint().unwrap();
-    assert_eq!(
-        store
-            .install_checkpoint(
-                &graph_id,
-                0,
-                durable_cursor,
-                SCHEMA_VERSION,
-                &rotated,
-                &client.version_vector(),
-            )
-            .await
-            .unwrap(),
-        1
-    );
+    let rotated = client.export_snapshot().unwrap();
+    store
+        .compact_checkpoint(
+            &graph_id,
+            0,
+            durable_cursor,
+            SCHEMA_VERSION,
+            &rotated,
+            &client.version_vector(),
+        )
+        .await
+        .unwrap();
     let compacted = store.load_graph(&graph_id).await.unwrap();
-    assert_eq!(compacted.history_epoch, 1);
+    assert_eq!(compacted.history_epoch, 0);
     assert!(compacted.updates.is_empty());
     let retained_checkpoints: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM graph_checkpoint WHERE graph_id = $1")
@@ -414,20 +411,17 @@ async fn postgres_schema_persistence_and_authorization() {
             .unwrap();
     assert_eq!(retained_checkpoints, 2);
     assert_eq!(retained_tail, 1);
-    assert_eq!(
-        store
-            .install_checkpoint(
-                &graph_id,
-                1,
-                durable_cursor,
-                SCHEMA_VERSION,
-                &rotated,
-                &client.version_vector(),
-            )
-            .await
-            .unwrap(),
-        2
-    );
+    store
+        .compact_checkpoint(
+            &graph_id,
+            0,
+            durable_cursor,
+            SCHEMA_VERSION,
+            &rotated,
+            &client.version_vector(),
+        )
+        .await
+        .unwrap();
     let reclaimed_tail: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM graph_update WHERE graph_id = $1")
             .bind(graph_id.as_str())

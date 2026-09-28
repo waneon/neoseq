@@ -54,7 +54,7 @@ flowchart LR
 
     Agent <--> Worker
     Agent <--> Sync[Sync server]
-    Sync --> Postgres[(PostgreSQL epoch checkpoint + tail)]
+    Sync --> Postgres[(PostgreSQL checkpoint + tail)]
 
     Admin[Admin Web app] --> Sync
 
@@ -237,9 +237,14 @@ a shallow Loro checkpoint after 128 uncompacted tail records or 512 KiB. The
 current and prior Base remain recoverable for one generation; covered Tail rows
 are reclaimed when the next Base makes that prior generation obsolete. Each
 durable replica keeps one stable Loro peer ID.
-Remote history is reclaimed only when the server rotates a `history_epoch`;
-clients atomically adopt the new Base and rebase any unacknowledged local intent
-into one referenced Tail/outbox record.
+Remote replicas and the server compact storage using snapshots that retain
+causal history. Checkpoint generations never change `history_epoch`, replace a
+live replica, or interrupt its transport. Large catch-up snapshots merge through
+the same publication path as incremental updates, preserving editor and undo state.
+Automatic remote history truncation is disabled. A previously based replica that
+requires incompatible replacement keeps its local data and pauses synchronization;
+only initial bootstrap may replace the replica. Long-term history reclamation
+requires a separate retention and offline-recovery policy.
 
 ## Security and Privacy
 

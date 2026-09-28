@@ -74,7 +74,7 @@ export type HistoryScope = "entity" | "outline" | "graph";
 export type InlineContent = { "type": "markdown", value: string, } | { "type": "page_reference", page_id: PageId, };
 export type LocalDate = string;
 export type MarkdownSplice = { block_id: BlockId, index: number, delete: number, insert: string, };
-export type Message = { "Hello": Hello } | { "Welcome": Welcome } | { "Update": Update } | { "Ack": Ack } | { "Presence": Presence } | { "Error": ErrorMessage } | { "ResyncRequired": ResyncRequired };
+export type Message = { "Hello": Hello } | { "Welcome": Welcome } | { "Update": Update } | { "Ack": Ack } | { "Presence": Presence } | { "Error": ErrorMessage } | { "ResyncRequired": ResyncRequired } | { "Heartbeat": { nonce: number, } };
 export type OutlineFragment = { kind: string, version: number, source_graph_id: GraphId, items: Array<OutlineFragmentItem>, tags: Array<OutlineFragmentTag>, pages: Array<OutlineFragmentPage>, };
 export type OutlineFragmentItem = { depth: number, markdown: string, page_references: Array<PageReferenceSpan>, properties: PropertyBag, tags: Array<TagId>, };
 export type OutlineFragmentPage = { id: PageId, title: string, journal_date: LocalDate | null, };
@@ -167,4 +167,4 @@ export type Update = { history_epoch: number,
  */
 message_id: ContentId, base_version_vector: Array<number>, bytes: Array<number>, };
 export type Welcome = { history_epoch: number, server_version_vector: Array<number>, payload: WelcomePayload, };
-export type WelcomePayload = { "delta": { update: Array<number>, } } | { "replace_inline": { checkpoint: Array<number>, } } | { "replace_download": Record<symbol, never> };
+export type WelcomePayload = { "delta": { update: Array<number>, } } | { "merge_download": Record<symbol, never> } | { "replace_inline": { checkpoint: Array<number>, } } | { "replace_download": Record<symbol, never> };

@@ -45,7 +45,7 @@ describe("sync Welcome payloads", () => {
     expect(receiver.replaceRemote).toHaveBeenCalledWith([7, 8], 4, [5, 6]);
   });
 
-  it("uses downloaded checkpoint metadata for a bulk replacement", async () => {
+  it("uses downloaded version metadata within the same history epoch", async () => {
     const receiver = target();
     const checkpoint = new Uint8Array([9, 10]).buffer;
 
@@ -58,13 +58,13 @@ describe("sync Welcome payloads", () => {
       receiver,
       async () => ({
         checkpoint,
-        history_epoch: 5,
+        history_epoch: 4,
         server_version_vector: [11, 12],
       }),
     );
 
     expect(receiver.applyRemote).not.toHaveBeenCalled();
-    expect(receiver.replaceRemote).toHaveBeenCalledWith(checkpoint, 5, [11, 12]);
+    expect(receiver.replaceRemote).toHaveBeenCalledWith(checkpoint, 4, [11, 12]);
   });
 
   it("rejects a missing replacement checkpoint", async () => {
@@ -83,4 +83,48 @@ describe("sync Welcome payloads", () => {
       ),
     ).rejects.toThrow("replacement checkpoint is missing");
   });
+});
+
+it("merges bulk catch-up without replacing the replica", async () => {
+  const receiver = target();
+  const checkpoint = new Uint8Array([1, 2]).buffer;
+  await applyWelcomePayload(
+    { history_epoch: 2, server_version_vector: [], payload: { merge_download: {} } },
+    receiver,
+    async () => ({ checkpoint, history_epoch: 2, server_version_vector: [3] }),
+  );
+  expect(receiver.applyRemote).toHaveBeenCalledWith(checkpoint);
+  expect(receiver.replaceRemote).not.toHaveBeenCalled();
+});
+
+it("discards a download from a replaced connection", async () => {
+  const receiver = target();
+  await applyWelcomePayload(
+    { history_epoch: 2, server_version_vector: [], payload: { merge_download: {} } },
+    receiver,
+    async () => ({
+      checkpoint: new Uint8Array([1]).buffer,
+      history_epoch: 2,
+      server_version_vector: [],
+    }),
+    () => false,
+  );
+  expect(receiver.applyRemote).not.toHaveBeenCalled();
+  expect(receiver.replaceRemote).not.toHaveBeenCalled();
+});
+
+it("rejects history changes during a bulk download", async () => {
+  const receiver = target();
+  await expect(
+    applyWelcomePayload(
+      { history_epoch: 2, server_version_vector: [], payload: { merge_download: {} } },
+      receiver,
+      async () => ({
+        checkpoint: new Uint8Array([1]).buffer,
+        history_epoch: 3,
+        server_version_vector: [],
+      }),
+    ),
+  ).rejects.toThrow("checkpoint history changed");
+  expect(receiver.applyRemote).not.toHaveBeenCalled();
 });

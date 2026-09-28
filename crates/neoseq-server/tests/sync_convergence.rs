@@ -100,7 +100,9 @@ async fn duplicate_and_reordered_updates_converge_after_room_eviction() {
             client_c =
                 graph_core::GraphCore::from_snapshot(graph_id.clone(), 4, checkpoint).unwrap();
         }
-        WelcomePayload::ReplaceDownload {} => panic!("small test checkpoint must remain inline"),
+        WelcomePayload::ReplaceDownload {} | WelcomePayload::MergeDownload {} => {
+            panic!("small test checkpoint must remain inline")
+        }
     }
     assert_eq!(expected, client_c.fingerprint().unwrap());
 
@@ -139,19 +141,28 @@ async fn reconnect_receives_checkpoint_when_incremental_delta_exceeds_limit() {
         )
         .await
         .unwrap();
-    let checkpoint = match &opened.welcome.payload {
-        WelcomePayload::ReplaceInline { checkpoint } => checkpoint,
-        payload => panic!("expected inline replacement, got {payload:?}"),
-    };
-    let reconnect = graph_core::GraphCore::from_snapshot(graph_id, 3, checkpoint).unwrap();
+    assert!(matches!(
+        opened.welcome.payload,
+        WelcomePayload::MergeDownload {}
+    ));
+    let downloaded = fixture
+        .manager
+        .export_checkpoint(&graph_id, OWNER)
+        .await
+        .unwrap();
+    let (mut reconnect, offline) =
+        client_update(&fixture.snapshot, 3, "offline", "offline-page", "Offline");
+    reconnect.import_remote(&downloaded.bytes).unwrap();
+    let mut expected = client;
+    expected.import_remote(&offline.bytes).unwrap();
     assert_eq!(
-        client.fingerprint().unwrap(),
+        expected.fingerprint().unwrap(),
         reconnect.fingerprint().unwrap()
     );
 }
 
 #[tokio::test]
-async fn history_epoch_rotation_keeps_one_fallback_generation_before_reclaim() {
+async fn checkpoint_compaction_preserves_epoch_and_one_fallback_generation() {
     let fixture = fixture(RoomConfig::default());
     let graph_id = GraphId::new(GRAPH).unwrap();
     let (client, update) = client_update(&fixture.snapshot, 2, "rotate", "page-a", "A");
@@ -160,10 +171,10 @@ async fn history_epoch_rotation_keeps_one_fallback_generation_before_reclaim() {
         .commit_update(&graph_id, OWNER, &update.message_id, &update.bytes)
         .await
         .unwrap();
-    let checkpoint = client.export_gc_checkpoint().unwrap();
-    let epoch = fixture
+    let checkpoint = client.export_snapshot().unwrap();
+    fixture
         .store
-        .install_checkpoint(
+        .compact_checkpoint(
             &graph_id,
             0,
             committed.cursor(),
@@ -173,15 +184,14 @@ async fn history_epoch_rotation_keeps_one_fallback_generation_before_reclaim() {
         )
         .await
         .unwrap();
-    assert_eq!(epoch, 1);
     assert_eq!(fixture.store.checkpoint_count(&graph_id), 2);
     assert_eq!(fixture.store.update_count(&graph_id), 1);
 
-    let epoch = fixture
+    fixture
         .store
-        .install_checkpoint(
+        .compact_checkpoint(
             &graph_id,
-            1,
+            0,
             committed.cursor(),
             graph_core::SCHEMA_VERSION,
             &checkpoint,
@@ -189,7 +199,6 @@ async fn history_epoch_rotation_keeps_one_fallback_generation_before_reclaim() {
         )
         .await
         .unwrap();
-    assert_eq!(epoch, 2);
     assert_eq!(fixture.store.checkpoint_count(&graph_id), 2);
     assert_eq!(fixture.store.update_count(&graph_id), 0);
 
@@ -210,24 +219,96 @@ async fn history_epoch_rotation_keeps_one_fallback_generation_before_reclaim() {
         .open(&graph_id, "stale-client", OWNER, 0, &fixture.base_version)
         .await
         .unwrap();
-    assert_eq!(opened.welcome.history_epoch, 2);
-    let checkpoint = match &opened.welcome.payload {
-        WelcomePayload::ReplaceInline { checkpoint } => checkpoint,
-        payload => panic!("expected inline replacement, got {payload:?}"),
+    assert_eq!(opened.welcome.history_epoch, 0);
+    let update = match &opened.welcome.payload {
+        WelcomePayload::Delta { update } => update,
+        payload => panic!("expected delta after storage compaction, got {payload:?}"),
     };
-    let mut stale = update;
-    stale.history_epoch = 0;
-    assert!(matches!(
-        fixture
-            .manager
-            .submit_update(&opened.connection, stale)
-            .await,
-        Err(neoseq_server::RoomError::StaleHistory)
-    ));
-    let restored = graph_core::GraphCore::from_snapshot(graph_id, 3, checkpoint).unwrap();
+    let mut restored =
+        graph_core::GraphCore::from_snapshot(graph_id, 3, &fixture.snapshot).unwrap();
+    restored.import_remote(update).unwrap();
     assert_eq!(
         client.fingerprint().unwrap(),
         restored.fingerprint().unwrap()
     );
     let _ = opened.connection.take_outbound();
+}
+
+#[tokio::test]
+async fn repeated_compaction_keeps_sessions_and_offline_history_mergeable() {
+    use domain::{Command, CommandEnvelope, CommandId, PageId};
+    use sync_protocol::{ContentId, Update};
+    let fixture = fixture(RoomConfig::default());
+    let graph_id = GraphId::new(GRAPH).unwrap();
+    let (mut writer, first) = client_update(&fixture.snapshot, 2, "first", "page", "Start");
+    let (mut offline, offline_update) =
+        client_update(&fixture.snapshot, 3, "offline", "offline", "Offline");
+    let mut opened = fixture
+        .manager
+        .open(&graph_id, "writer", OWNER, 0, &fixture.base_version)
+        .await
+        .unwrap();
+    let mut rx = opened.connection.take_outbound();
+    fixture
+        .manager
+        .submit_update(&opened.connection, first.clone())
+        .await
+        .unwrap();
+    assert_ack(&mut rx, &first.message_id).await;
+    for index in 0..520 {
+        let base_version_vector = writer.version_vector();
+        let bytes = writer
+            .execute(
+                CommandEnvelope {
+                    graph_id: graph_id.clone(),
+                    command_id: CommandId::new(format!("rename-{index}")).unwrap(),
+                    command: Command::RenamePage {
+                        page_id: PageId::new("page").unwrap(),
+                        title: format!("Title {index}"),
+                    },
+                },
+                "edit",
+            )
+            .unwrap()
+            .update;
+        let update = Update {
+            history_epoch: 0,
+            message_id: ContentId::for_bytes(&bytes),
+            base_version_vector,
+            bytes,
+        };
+        fixture
+            .manager
+            .submit_update(&opened.connection, update.clone())
+            .await
+            .unwrap();
+        // The same session still receives only durable ACKs across two compactions.
+        assert_ack(&mut rx, &update.message_id).await;
+    }
+    let stored = fixture.store.load_graph(&graph_id).await.unwrap();
+    assert_eq!(stored.history_epoch, 0);
+    assert_eq!(stored.updates.len(), 9);
+    assert_eq!(fixture.store.checkpoint_count(&graph_id), 2);
+    fixture
+        .manager
+        .submit_update(&opened.connection, offline_update.clone())
+        .await
+        .unwrap();
+    assert_ack(&mut rx, &offline_update.message_id).await;
+    writer.import_remote(&offline_update.bytes).unwrap();
+    fixture.manager.disconnect(&opened.connection).await;
+    fixture.manager.evict(&graph_id).await;
+    let rejoined = fixture
+        .manager
+        .open(&graph_id, "offline", OWNER, 0, &offline.version_vector())
+        .await
+        .unwrap();
+    let WelcomePayload::Delta { update } = rejoined.welcome.payload else {
+        panic!("compaction must preserve delta sync")
+    };
+    offline.import_remote(&update).unwrap();
+    assert_eq!(
+        writer.fingerprint().unwrap(),
+        offline.fingerprint().unwrap()
+    );
 }

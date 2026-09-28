@@ -71,7 +71,10 @@ atomically adopts that checkpoint and records its provenance before
 replica remains writable when offline. `Welcome` carries small replacements
 inline and directs larger replacements to an authenticated HTTP download;
 `SyncAgent` verifies its checksum and uses the response's atomic epoch and
-version vector before asking the Worker to adopt it.
+version vector before asking the Worker to adopt it. Downloaded checkpoints
+must belong to the Welcome epoch and current transport. A previously based
+replica merges compatible catch-up, including large snapshots, into its existing
+core. An incompatible replacement pauses sync and preserves local editing.
 
 Editing, directory export, and deletion acquire the same repository-qualified
 graph lease. Editors may open read-only when another tab holds it; directory
@@ -353,9 +356,18 @@ technology. Deviations become visible. Remote editing always commits locally
 first; reconnect uses version-vector catch-up and then drains the durable outbox
 in order. Each outbox key is the lowercase SHA-256 of its exact update bytes, so
 retry and acknowledgement reuse repository identity instead of inventing a
-transport UUID. A server epoch replacement is handled inside the Worker: it validates
-the replacement checkpoint, rebases durable unacknowledged intent, atomically
-swaps IndexedDB Base+Tail, and only then publishes the new canonical core.
+transport UUID. Only initial bootstrap can replace IndexedDB Base+Tail. Ordinary
+catch-up imports retained history and publishes actual content mappings without
+resetting undo or editor identities. Local storage compaction retains causal
+history and pins outbox payloads until acknowledged.
+
+Transport lifetime is independent of the graph command queue. Each connection
+owns its inbound sequence and cancellable downloads; obsolete callbacks cannot
+apply queued graph changes or complete a replacement connection's handshake.
+Heartbeat and acknowledgement deadlines replace stalled sockets, even when the
+browser never finishes closing them. Canonical imports remain serialized with
+local commands. A based replica that requires history replacement pauses sync
+with a localized recovery explanation while remaining locally editable.
 Cursor and selection presence uses expiring protocol messages and is never
 written to Loro or IndexedDB. Core publications carry actual sequential text
 changes in canonical atom coordinates. Active content sessions use those changes

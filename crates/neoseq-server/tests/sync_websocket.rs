@@ -83,6 +83,14 @@ async fn authenticated_binary_websocket_syncs_and_acknowledges() {
     let welcome = receive_wire(&mut socket).await;
     assert!(matches!(welcome, Message::Welcome(_)));
 
+    let heartbeat = Message::Heartbeat { nonce: 42 };
+    socket
+        .send(WsMessage::Binary(encode(&heartbeat, 1024).unwrap().into()))
+        .await
+        .unwrap();
+    assert_eq!(receive_wire(&mut socket).await, heartbeat);
+    assert_eq!(fixture.store.update_count(&graph_id), 0);
+
     let (_, update) = client_update(&fixture.snapshot, 2, "create-a", "page-a", "A");
     let update_id = update.message_id.clone();
     socket
@@ -597,7 +605,9 @@ async fn seeded_graph_creation_atomically_installs_a_validated_checkpoint_and_is
     )
     .await;
     assert_eq!(downloaded.0, 200);
-    assert_eq!(downloaded.2, checkpoint);
+    let restored =
+        GraphCore::from_snapshot(GraphId::new(graph_id).unwrap(), 300, &downloaded.2).unwrap();
+    assert_eq!(restored.fingerprint().unwrap(), core.fingerprint().unwrap());
     assert_eq!(
         downloaded.1["x-neoseq-checkpoint-checksum"]
             .to_str()

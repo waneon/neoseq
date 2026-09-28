@@ -219,8 +219,8 @@ Its lifecycle is:
 3. establish a fresh local undo boundary at the recovered causal frontier;
 4. rebuild the RDF index from the validated Loro snapshot, then emit the initial view;
 5. accept local commands and remote imports;
-6. periodically install a shallow GC checkpoint for local-only history, or
-   adopt a server-authorized checkpoint when a remote history epoch changes;
+6. periodically compact storage with a shallow checkpoint for local-only graphs
+   or a retained-history snapshot for remote replicas, preserving the live core;
 7. flush pending persistence work on suspension/close.
 
 A successfully planned command is applied as one Loro transaction. The runtime

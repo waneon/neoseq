@@ -741,6 +741,7 @@
   "slash.repeatHint": "Schedule the next occurrence when completed",
   "slash.scheduledHint": "Set a scheduled date",
   "sync.connecting": "Connecting",
+  "sync.pausedHistory": "Server history changed. Your local edits are preserved. Export a copy from the graph menu before opening a fresh replica.",
   "sync.incompatible": "Sync upgrade required",
   "sync.live": "Live",
   "sync.notSynced": "Not synced",

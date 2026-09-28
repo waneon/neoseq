@@ -30,7 +30,7 @@ import type {
   SubscribeResponse,
 } from "../../src/generated/core-port";
 import { CORE_PORT_VERSION } from "../../src/generated/core-port";
-import { CorePortFailure, type SavedReceipt } from "../../src/core-worker";
+import { CorePortFailure, type SavedReceipt, type RemoteReceipt } from "../../src/core-worker";
 import { normalizeWasmFailure } from "../../src/core-port/wasm-failure";
 import type { Command } from "../../src/core-port/commands";
 import type { SessionPort } from "../../src/core-port/session";
@@ -287,6 +287,30 @@ export class WasmTestPort implements SessionPort {
     state.core.free();
     this.state = null;
     return { closed: true };
+  }
+
+  exportSnapshot(): Uint8Array<ArrayBuffer> {
+    return ownedBytes(this.requireOpen().core.exportSnapshot());
+  }
+
+  async importRemote(graphHandle: string, bytes: number[] | ArrayBuffer): Promise<RemoteReceipt> {
+    const state = this.requireState(graphHandle);
+    if (state.pending) fail("dirty_unsaved", "retry before importing", true);
+    const payload = new Uint8Array(bytes);
+    state.core.validateUpdate(payload);
+    const changes = JSON.parse(state.core.importUpdate(payload));
+    const local_sequence = (this.store.read(state.key)?.localSequence ?? 0) + 1;
+    const checksum = await sha256Hex(payload);
+    this.store.write(state.key, {
+      snapshot: ownedBytes(state.core.exportSnapshot()),
+      localSequence: local_sequence,
+    });
+    state.events.push({
+      cursor: state.nextCursor++,
+      source: "remote",
+      kind: { type: "remote_imported" },
+    });
+    return { status: "saved_locally", local_sequence, checksum, changes };
   }
 
   async retryPending(graphHandle: string): Promise<SavedReceipt> {

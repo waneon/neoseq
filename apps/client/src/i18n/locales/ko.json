@@ -741,6 +741,7 @@
   "slash.repeatHint": "완료하면 다음 일정을 생성",
   "slash.scheduledHint": "예정일 설정",
   "sync.connecting": "연결 중",
+  "sync.pausedHistory": "서버 이력이 변경되었습니다. 로컬 편집은 보존됩니다. 새 복제본을 열기 전에 그래프 메뉴에서 복사본을 내보내세요.",
   "sync.incompatible": "동기화 업그레이드 필요",
   "sync.live": "실시간 연결됨",
   "sync.notSynced": "동기화되지 않음",

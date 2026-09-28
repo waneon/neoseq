@@ -1,5 +1,5 @@
 import type { Message as SyncMessage, Welcome, Presence } from "../../generated/domain";
-import type { OutboxFrame, SyncState } from "../../core-worker";
+import { CorePortFailure, type OutboxFrame, type SyncState } from "../../core-worker";
 import type { RemoteGraphConnection } from "../../core-port/directory";
 import type { OutlineOwner } from "../../core-port/snapshot";
 import { SCHEMA_VERSION } from "../../generated/graph-schema";
@@ -12,7 +12,7 @@ export type RemoteSyncState =
   | { kind: "local" }
   | { kind: "pending"; count: number }
   | { kind: "synced" }
-  | { kind: "paused"; reason: "auth" | "revoked" | "incompatible" }
+  | { kind: "paused"; reason: "auth" | "revoked" | "incompatible" | "history" }
   | { kind: "error"; message: string };
 
 export type LiveState = "local" | "connecting" | "live" | "offline" | "paused";
@@ -42,11 +42,12 @@ export interface SyncAgentPort {
 }
 
 interface WelcomeTarget {
-  applyRemote(bytes: number[]): Promise<void>;
+  applyRemote(bytes: number[] | ArrayBuffer, current?: () => boolean): Promise<void>;
   replaceRemote(
     checkpoint: number[] | ArrayBuffer,
     historyEpoch: number,
     serverVersionVector: number[],
+    current?: () => boolean,
   ): Promise<void>;
 }
 
@@ -56,11 +57,10 @@ interface SyncAgentDelegate extends WelcomeTarget {
 
 const MAX_RECONNECT_MS = 30_000;
 const PRESENCE_TTL_MS = 10_000;
-const CLOSE_INVALID_MESSAGE = 4000;
-const CLOSE_RESYNC = 4001;
+const HEARTBEAT_MS = 10_000;
+const TRANSPORT_TIMEOUT_MS = 60_000;
 const CLOSE_PAUSED = 4002;
 const CLOSE_INCOMPATIBLE = 4003;
-const CLOSE_RETRY = 4004;
 const CLOSE_REPLACED = 4005;
 
 /** One remote graph, one reconnecting transport. Canonical graph state and the
@@ -75,6 +75,11 @@ export class SyncAgent {
   private incoming: Promise<void> = Promise.resolve();
   private outgoing: Promise<void> = Promise.resolve();
   private transportSessionId = "";
+  private transportAbort: AbortController | null = null;
+  private historyEpoch: number | null = null;
+  private lastReceived = 0;
+  private lastHeartbeat = 0;
+  private inFlightSince = 0;
   private presence = new Map<string, PeerPresence>();
   private presenceTimer: ReturnType<typeof setInterval> | null = null;
   private current: SyncAgentState = {
@@ -106,6 +111,7 @@ export class SyncAgent {
           this.connection.repository_id,
           this.connection.server_url,
         );
+        if (this.stopped) return;
         if (!auth) {
           this.patch({ sync: { kind: "paused", reason: "auth" }, live: "paused" });
           return;
@@ -131,8 +137,7 @@ export class SyncAgent {
     window.removeEventListener("neoseq:auth-changed", this.onAuthChanged);
     if (this.retryTimer) clearTimeout(this.retryTimer);
     if (this.presenceTimer) clearInterval(this.presenceTimer);
-    this.socket?.close(1000, "graph closed");
-    this.socket = null;
+    this.abandonSocket("graph closed");
   }
 
   /** Local durability only signals the transport; it never waits for it. */
@@ -177,7 +182,7 @@ export class SyncAgent {
         payload: [...payload],
       },
     });
-    socket.send(frame);
+    if (this.isCurrent(socket) && socket.readyState === WebSocket.OPEN) socket.send(frame);
   }
 
   private connect(): void {
@@ -198,22 +203,32 @@ export class SyncAgent {
     const socket = new WebSocket(url, [SUBPROTOCOL, `neoseq.auth.${base64Url(auth.token)}`]);
     socket.binaryType = "arraybuffer";
     this.socket = socket;
-    socket.onopen = () => void this.hello();
+    this.transportAbort = new AbortController();
+    this.incoming = Promise.resolve();
+    this.historyEpoch = null;
+    this.lastReceived = Date.now();
+    socket.onopen = () =>
+      void this.hello(socket).catch((error: unknown) => this.transportFailed(socket, error));
     socket.onmessage = (event) => {
+      if (!this.isCurrent(socket)) return;
+      this.lastReceived = Date.now();
       const frame = event.data as ArrayBuffer;
       this.incoming = this.incoming
-        .then(() => this.receive(frame))
-        .catch((error: unknown) => {
-          this.patch({ sync: { kind: "error", message: String(error) } });
-          socket.close(CLOSE_INVALID_MESSAGE, "invalid sync message");
-        });
+        .then(() => this.receive(socket, frame))
+        .catch((error: unknown) => this.transportFailed(socket, error));
     };
-    socket.onclose = () => {
-      if (this.socket !== socket) return;
-      this.socket = null;
-      this.welcomed = false;
-      this.inFlight = null;
-      if (!this.stopped && this.current.live !== "paused") this.scheduleReconnect();
+    socket.onclose = (event) => {
+      if (!this.isCurrent(socket)) return;
+      console.info("sync transport closed", { code: event.code, clean: event.wasClean });
+      this.transportAbort?.abort();
+      // Worker decoding can finish after the close event. Drain frames already
+      // received so a terminal server error can pause retries. The watchdog
+      // still bounds this wait, and a replacement transport invalidates it.
+      void this.incoming.then(() => {
+        if (!this.isCurrent(socket)) return;
+        this.abandonSocket("closed");
+        if (this.current.live !== "paused") this.scheduleReconnect();
+      });
     };
     socket.onerror = () => {
       // `close` owns retry and user-visible state; browser WebSocket errors do
@@ -221,31 +236,49 @@ export class SyncAgent {
     };
   }
 
-  private async hello(): Promise<void> {
+  private async hello(socket: WebSocket): Promise<void> {
+    const sessionId = this.transportSessionId;
     const state = await this.port.syncState(this.graphHandle);
+    if (!this.isCurrent(socket)) return;
+    this.historyEpoch = state.history_epoch;
     const frame = await this.port.encodeSyncMessage({
       Hello: {
         protocol: PROTOCOL_VERSION,
         schema: SCHEMA_VERSION,
         graph_id: this.graphId,
-        session_id: this.transportSessionId,
+        session_id: sessionId,
         history_epoch: state.history_epoch,
         has_server_base: state.has_server_base,
         version_vector: state.version_vector,
       },
     });
-    this.socket?.send(frame);
+    if (this.isCurrent(socket) && socket.readyState === WebSocket.OPEN) socket.send(frame);
   }
 
-  private async receive(frame: ArrayBuffer): Promise<void> {
+  private async receive(socket: WebSocket, frame: ArrayBuffer): Promise<void> {
+    if (!this.isCurrent(socket)) return;
     const message = await this.port.decodeSyncMessage(frame);
+    if (!this.isCurrent(socket)) return;
+    const current = () => this.isCurrent(socket);
     if ("Welcome" in message) {
       const welcome = message.Welcome;
-      await applyWelcomePayload(welcome, this.delegate, async () => {
-        const auth = readAuthSession(this.connection.repository_id);
-        if (!auth) throw new Error("checkpoint download requires authentication");
-        return downloadRemoteCheckpoint(this.connection.server_url, auth, this.graphId);
-      });
+      const signal = this.transportAbort!.signal;
+      await applyWelcomePayload(
+        welcome,
+        {
+          applyRemote: (bytes) => this.delegate.applyRemote(bytes, current),
+          replaceRemote: (bytes, epoch, vector) =>
+            this.delegate.replaceRemote(bytes, epoch, vector, current),
+        },
+        async () => {
+          const auth = readAuthSession(this.connection.repository_id);
+          if (!auth) throw new Error("checkpoint download requires authentication");
+          return downloadRemoteCheckpoint(this.connection.server_url, auth, this.graphId, signal);
+        },
+        current,
+      );
+      if (!current()) return;
+      this.historyEpoch = welcome.history_epoch;
       this.welcomed = true;
       this.retry = 0;
       this.patch({ live: "live" });
@@ -255,21 +288,27 @@ export class SyncAgent {
     if ("Ack" in message) {
       const ack = message.Ack;
       const messageId = ack.message_id;
+      if (ack.history_epoch !== this.historyEpoch || messageId !== this.inFlight) return;
       await this.port.acknowledgeOutbox(this.graphHandle, messageId);
+      if (!current()) return;
       if (this.inFlight === messageId) this.inFlight = null;
       await this.updateOutbox();
       return;
     }
     if ("Update" in message) {
-      await this.delegate.applyRemote(message.Update.bytes);
+      if (message.Update.history_epoch !== this.historyEpoch)
+        throw new Error("remote history changed");
+      await this.delegate.applyRemote(message.Update.bytes, current);
       return;
     }
+    if ("Heartbeat" in message) return;
     if ("Presence" in message) {
       this.receivePresence(message.Presence);
       return;
     }
     if ("ResyncRequired" in message) {
-      this.socket?.close(CLOSE_RESYNC, "resync required");
+      this.abandonSocket("resync required");
+      this.scheduleReconnect();
       return;
     }
     if ("Error" in message) {
@@ -284,7 +323,8 @@ export class SyncAgent {
         this.patch({ sync: { kind: "paused", reason: "incompatible" }, live: "paused" });
         this.socket?.close(CLOSE_INCOMPATIBLE, "incompatible sync protocol");
       } else if (message.Error.recoverable) {
-        this.socket?.close(CLOSE_RETRY, "retryable sync error");
+        this.abandonSocket("retryable sync error");
+        this.scheduleReconnect();
       } else {
         this.patch({ sync: { kind: "error", message: message.Error.diagnostic } });
       }
@@ -310,6 +350,7 @@ export class SyncAgent {
       return;
     }
     this.inFlight = next.message_id;
+    this.inFlightSince = Date.now();
     socket.send(next.frame);
   }
 
@@ -351,6 +392,26 @@ export class SyncAgent {
   }
 
   private maintainConnectivity(): void {
+    if (this.stopped || this.current.live === "paused") return;
+    const socket = this.socket;
+    const now = Date.now();
+    if (
+      socket &&
+      (now - this.lastReceived >= TRANSPORT_TIMEOUT_MS ||
+        (this.inFlight && now - this.inFlightSince >= TRANSPORT_TIMEOUT_MS))
+    ) {
+      this.transportFailed(socket, new Error("sync response timeout"));
+      return;
+    }
+    if (socket && this.welcomed && now - this.lastHeartbeat >= HEARTBEAT_MS) {
+      this.lastHeartbeat = now;
+      void this.port
+        .encodeSyncMessage({ Heartbeat: { nonce: now >>> 0 } })
+        .then((frame) => {
+          if (this.isCurrent(socket) && socket.readyState === WebSocket.OPEN) socket.send(frame);
+        })
+        .catch((error: unknown) => this.transportFailed(socket, error));
+    }
     if (!navigator.onLine) {
       if (this.socket || this.current.live !== "offline") {
         this.abandonSocket("offline");
@@ -364,6 +425,7 @@ export class SyncAgent {
   }
 
   private scheduleReconnect(): void {
+    if (this.stopped || this.current.live === "paused") return;
     // During backoff the graph is still locally usable. `connecting` is
     // reserved for an active transport attempt, so bootstrap-only commands
     // are not held indefinitely when the server is unavailable.
@@ -384,7 +446,24 @@ export class SyncAgent {
     this.delegate.changed(this.current);
   }
 
+  private isCurrent(socket: WebSocket): boolean {
+    return !this.stopped && this.socket === socket;
+  }
+
+  private transportFailed(socket: WebSocket, error: unknown): void {
+    if (!this.isCurrent(socket)) return;
+    this.abandonSocket("sync failed");
+    if (error instanceof CorePortFailure && error.detail.code === "resync_required") {
+      this.patch({ sync: { kind: "paused", reason: "history" }, live: "paused" });
+      return;
+    }
+    this.patch({ sync: { kind: "error", message: String(error) } });
+    this.scheduleReconnect();
+  }
+
   private abandonSocket(reason: string): void {
+    this.transportAbort?.abort();
+    this.transportAbort = null;
     const stale = this.socket;
     this.socket = null;
     this.welcomed = false;
@@ -398,6 +477,7 @@ export class SyncAgent {
   }
 
   private onOnline = () => {
+    if (this.stopped || this.current.live === "paused") return;
     if (this.retryTimer) {
       clearTimeout(this.retryTimer);
       this.retryTimer = null;
@@ -410,6 +490,7 @@ export class SyncAgent {
     this.connect();
   };
   private onOffline = () => {
+    if (this.stopped || this.current.live === "paused") return;
     this.abandonSocket("offline");
     this.scheduleReconnect();
   };
@@ -429,12 +510,20 @@ export async function applyWelcomePayload(
   welcome: Welcome,
   target: WelcomeTarget,
   downloadCheckpoint: () => Promise<RemoteCheckpoint>,
+  current: () => boolean = () => true,
 ): Promise<void> {
   const payload = welcome.payload;
-  if ("replace_download" in payload) {
+  if ("replace_download" in payload || "merge_download" in payload) {
     const downloaded = await downloadCheckpoint();
+    if (!current()) return;
+    if (downloaded.history_epoch !== welcome.history_epoch)
+      throw new Error("checkpoint history changed during download");
     if (checkpointBytes(downloaded.checkpoint) === 0) {
       throw new Error("replacement checkpoint is missing");
+    }
+    if ("merge_download" in payload) {
+      await target.applyRemote(downloaded.checkpoint);
+      return;
     }
     await target.replaceRemote(
       downloaded.checkpoint,

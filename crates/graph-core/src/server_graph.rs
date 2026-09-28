@@ -23,12 +23,12 @@ pub struct ServerGraph {
 #[must_use = "a prepared server update must be adopted after durable insertion or discarded"]
 pub struct PreparedServerUpdate {
     graph: ServerGraph,
-    gc_checkpoint_len: usize,
+    snapshot_len: usize,
 }
 
 impl PreparedServerUpdate {
-    pub fn gc_checkpoint_len(&self) -> usize {
-        self.gc_checkpoint_len
+    pub fn snapshot_len(&self) -> usize {
+        self.snapshot_len
     }
 
     pub fn into_graph(self) -> ServerGraph {
@@ -109,16 +109,13 @@ impl ServerGraph {
         }
         validate_causal_document(&candidate, &self.graph_id)?;
 
-        let frontiers = candidate.oplog_frontiers();
-        let gc_checkpoint_len = candidate
-            .export(ExportMode::shallow_snapshot(&frontiers))?
-            .len();
+        let snapshot_len = candidate.export(ExportMode::Snapshot)?.len();
         Ok(PreparedServerUpdate {
             graph: Self {
                 graph_id: self.graph_id.clone(),
                 doc: candidate,
             },
-            gc_checkpoint_len,
+            snapshot_len,
         })
     }
 }
@@ -267,11 +264,11 @@ mod tests {
         let candidate = room.prepare_update(&update).unwrap();
         assert_eq!(room.version_vector(), baseline_version);
         assert_ne!(room.version_vector(), writer.version_vector());
-        let measured_checkpoint_len = candidate.gc_checkpoint_len();
+        let measured_checkpoint_len = candidate.snapshot_len();
         room = candidate.into_graph();
         assert_eq!(room.version_vector(), writer.version_vector());
         assert_eq!(
-            room.export_gc_checkpoint().unwrap().len(),
+            room.export_snapshot().unwrap().len(),
             measured_checkpoint_len
         );
     }

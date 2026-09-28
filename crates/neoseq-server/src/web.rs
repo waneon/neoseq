@@ -1098,6 +1098,12 @@ async fn run_session(
                     }
                 };
                 let result = match message {
+                    Message::Heartbeat { nonce } => {
+                        if send_message(&mut sink, &state, &Message::Heartbeat { nonce }).await.is_err() {
+                            break;
+                        }
+                        Ok(())
+                    },
                     Message::Update(update) => {
                         if update_window.elapsed() >= Duration::from_secs(1) {
                             update_window = Instant::now();
@@ -1158,9 +1164,13 @@ where
     S: Sink<WsMessage> + Unpin,
 {
     let frame = encode(message, state.rooms.limits().max_frame_bytes as usize).map_err(|_| ())?;
-    sink.send(WsMessage::Binary(frame.into()))
-        .await
-        .map_err(|_| ())
+    timeout(
+        Duration::from_secs(30),
+        sink.send(WsMessage::Binary(frame.into())),
+    )
+    .await
+    .map_err(|_| ())?
+    .map_err(|_| ())
 }
 
 async fn send_error<S>(

@@ -778,6 +778,7 @@ export interface MessageArgumentMap {
   "sync.notSynced": undefined;
   "sync.offline": undefined;
   "sync.pausedAuth": undefined;
+  "sync.pausedHistory": undefined;
   "sync.pausedRevoked": undefined;
   "sync.pending": { readonly "count": number };
   "sync.synced": undefined;

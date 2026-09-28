@@ -503,7 +503,7 @@ async function persistPending(state: OpenState) {
 }
 
 async function maybeCompact(state: OpenState, force = false): Promise<void> {
-  if (state.pending || state.remote) return;
+  if (state.pending) return;
   const metadata = await state.repository.metadata(state.storageKey);
   const uncompacted = await state.repository.updatesAfter(
     state.storageKey,
@@ -521,10 +521,16 @@ async function maybeCompact(state: OpenState, force = false): Promise<void> {
     return;
   }
   const through = metadata.next_sequence - 1;
-  const checkpoint = ownedBuffer(state.core.exportGcCheckpoint());
+  const checkpoint = ownedBuffer(
+    state.remote ? state.core.exportSnapshot() : state.core.exportGcCheckpoint(),
+  );
   // Validate the exact bytes before the atomic pointer swap. Recovery never
   // has to discover that a maintenance checkpoint was malformed.
-  WasmGraphCore.fromSnapshot(state.graphId, BigInt(state.replicaId), new Uint8Array(checkpoint));
+  WasmGraphCore.fromSnapshot(
+    state.graphId,
+    BigInt(state.replicaId),
+    new Uint8Array(checkpoint),
+  ).free();
   await state.repository.installCheckpoint(
     state.storageKey,
     checkpoint,
@@ -576,21 +582,8 @@ async function closeGraph(request: CloseGraphRequest) {
   const state = requireState(request.graph_handle);
   if (state.pending)
     throw failure("dirty_unsaved", "close rejected while an update is not durable", true);
-  if (state.remote) {
-    // Remote history is retained until the server publishes a GC epoch.
-    const metadata = await state.repository.metadata(state.storageKey);
-    const through = metadata.next_sequence - 1;
-    const snapshot = ownedBuffer(state.core.exportSnapshot());
-    await state.repository.installCheckpoint(
-      state.storageKey,
-      snapshot,
-      through,
-      SCHEMA_VERSION,
-      now(),
-    );
-  } else {
-    await maybeCompact(state, true);
-  }
+  await maybeCompact(state, true);
+  state.core.free();
   states.delete(request.graph_handle);
   return { closed: true };
 }
@@ -798,6 +791,11 @@ async function syncImport(payload: { graph_handle: string; bytes: ArrayBuffer | 
   const changes = JSON.parse(state.core.importUpdate(bytes));
   push(state, "remote", { type: "remote_imported" });
   push(state, "remote", { type: "saved_locally", ...receipt });
+  try {
+    await maybeCompact(state);
+  } catch {
+    // Import is already durable; checkpoint maintenance can retry later.
+  }
   return { status: "saved_locally", ...receipt, changes };
 }
 
@@ -811,6 +809,12 @@ async function syncReplace(payload: {
   if (state.pending) {
     throw failure("dirty_unsaved", "save the local update before replacing history", true);
   }
+  // Only bootstrap may replace the replica. A based document owns offline
+  // operations, undo and UI drafts that cannot be reconstructed across GC.
+  const sync = await state.repository.syncState(state.storageKey);
+  if (sync.server_base || (await state.repository.countPending(state.storageKey)) > 0) {
+    throw failure("resync_required", "server history changed; local replica is preserved", false);
+  }
   const checkpoint = ownedBuffer(asUint8Array(payload.checkpoint));
   const serverVersionVector = ownedBuffer(asUint8Array(payload.server_version_vector));
   const candidate = WasmGraphCore.fromSnapshot(
@@ -818,30 +822,22 @@ async function syncReplace(payload: {
     BigInt(state.replicaId),
     new Uint8Array(checkpoint),
   );
-  // Replay only durable, unacknowledged intent onto the new Base. If any old
-  // update cannot be rebased, canonical state remains untouched and reconnect
-  // can be retried or surfaced as recovery-required.
-  const durableIntent = await state.repository.outbox(state.storageKey);
-  for (const record of durableIntent) {
-    candidate.importUpdate(new Uint8Array(record.payload));
-  }
   candidate.resetLocalHistory();
-  // With no durable local intent the replacement is exactly the server Base.
-  // Do not infer intent by diffing two shallow checkpoint representations:
-  // their internal frontiers can differ without any user-authored operation.
-  const rebasedTail =
-    durableIntent.length === 0
-      ? new ArrayBuffer(0)
-      : ownedBuffer(candidate.exportUpdatesSince(new Uint8Array(serverVersionVector)));
-  await state.repository.replaceHistory(
-    state.storageKey,
-    checkpoint,
-    payload.history_epoch,
-    serverVersionVector,
-    rebasedTail,
-    SCHEMA_VERSION,
-    now(),
-  );
+  try {
+    await state.repository.replaceHistory(
+      state.storageKey,
+      checkpoint,
+      payload.history_epoch,
+      serverVersionVector,
+      new ArrayBuffer(0),
+      SCHEMA_VERSION,
+      now(),
+    );
+  } catch (error) {
+    candidate.free();
+    throw error;
+  }
+  state.core.free();
   state.core = candidate;
   push(state, "remote", { type: "remote_imported" });
   return null;

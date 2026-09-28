@@ -89,7 +89,7 @@ export interface SessionPort extends CorePort {
   syncState?(graphHandle: string): Promise<SyncState>;
   nextSyncFrame?(graphHandle: string): Promise<OutboxFrame | null>;
   acknowledgeOutbox?(graphHandle: string, messageId: string): Promise<void>;
-  importRemote?(graphHandle: string, bytes: number[]): Promise<RemoteReceipt>;
+  importRemote?(graphHandle: string, bytes: number[] | ArrayBuffer): Promise<RemoteReceipt>;
   replaceRemote?(
     graphHandle: string,
     checkpoint: number[] | ArrayBuffer,
@@ -195,9 +195,9 @@ export class GraphSession {
           this.remote,
           syncPort,
           {
-            applyRemote: (bytes) => this.applyRemote(bytes),
-            replaceRemote: (checkpoint, historyEpoch, serverVersionVector) =>
-              this.replaceRemote(checkpoint, historyEpoch, serverVersionVector),
+            applyRemote: (bytes, current) => this.applyRemote(bytes, current),
+            replaceRemote: (checkpoint, historyEpoch, serverVersionVector, current) =>
+              this.replaceRemote(checkpoint, historyEpoch, serverVersionVector, current),
             changed: (sync) => this.patch(sync),
           },
         );
@@ -441,8 +441,9 @@ export class GraphSession {
     }
   }
 
-  private applyRemote(bytes: number[]): Promise<void> {
+  private applyRemote(bytes: number[] | ArrayBuffer, current = () => true): Promise<void> {
     const run = this.queue.then(async () => {
+      if (!current() || this.closeRequested) return;
       const importRemote = this.port.importRemote;
       if (!importRemote) throw new Error("remote import is unavailable");
       const receipt = await importRemote.call(this.port, this.handle, bytes);
@@ -456,8 +457,10 @@ export class GraphSession {
     checkpoint: number[] | ArrayBuffer,
     historyEpoch: number,
     serverVersionVector: number[],
+    current = () => true,
   ): Promise<void> {
     const run = this.queue.then(async () => {
+      if (!current() || this.closeRequested) return;
       const replaceRemote = this.port.replaceRemote;
       if (!replaceRemote) throw new Error("remote history replacement is unavailable");
       await replaceRemote.call(
@@ -640,7 +643,7 @@ function accessFor(
 type RequiredSyncPort = SessionPort &
   SyncAgentPort & {
     configureSync(graphHandle: string): Promise<void>;
-    importRemote(graphHandle: string, bytes: number[]): Promise<RemoteReceipt>;
+    importRemote(graphHandle: string, bytes: number[] | ArrayBuffer): Promise<RemoteReceipt>;
     replaceRemote(
       graphHandle: string,
       checkpoint: number[] | ArrayBuffer,

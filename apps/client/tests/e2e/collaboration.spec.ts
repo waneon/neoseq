@@ -163,3 +163,75 @@ test("revocation preserves the former member's local work while denying it to th
   await owner.expectOutline(expected);
   await expect(peer.page.getByTestId("sync-status")).toHaveAttribute("data-sync", "paused");
 });
+
+test("reconnecting during native Hangul composition merges a change to the same block", async ({
+  app: owner,
+  remote,
+}) => {
+  await createRemote(owner, remote, "Composition reconnect");
+  await owner.createPage("Writing");
+  await owner.startBlock("abcdef");
+  await invite(owner.page, remote.peer);
+  await expectSynced(owner.page);
+  const peer = await remote.newProfile();
+  await openRemote(peer, remote, remote.peer, "Composition reconnect", "Writing");
+  await peer.expectOutline(["abcdef"]);
+  await expectSynced(peer.page);
+  await peer.page.context().setOffline(true);
+  await expect(peer.page.getByTestId("live-status")).toHaveAttribute("data-live", "offline");
+  const input = peer.editors.first();
+  await input.click();
+  await input.press("Home");
+  for (let i = 0; i < 3; i++) await input.press("ArrowRight");
+  const ime = await peer.page.context().newCDPSession(peer.page);
+  await ime.send("Input.imeSetComposition", { text: "한", selectionStart: 1, selectionEnd: 1 });
+  await expect(input).toHaveValue("abc한def");
+  await owner.editBlock(0, "aXbcdef");
+  await expectSynced(owner.page);
+  await peer.page.context().setOffline(false);
+  await expect(peer.page.getByTestId("live-status")).toHaveAttribute("data-live", "live");
+  await expect(input).toHaveValue("abc한def");
+  await peer.saved(() => ime.send("Input.insertText", { text: "한" }));
+  await expect(input).toHaveValue("aXbc한def");
+  await expect
+    .poll(() => input.evaluate((node) => (node as HTMLTextAreaElement).selectionStart))
+    .toBe(5);
+  await peer.saved(async () => {
+    await ime.send("Input.insertText", { text: "글" });
+    await input.blur();
+  });
+  await owner.expectOutline(["aXbc한글def"]);
+  await peer.expectOutline(["aXbc한글def"]);
+  await expectSynced(peer.page);
+  await ime.detach();
+});
+
+test("checkpoint compaction keeps the active editor and WebSocket alive", async ({
+  app,
+  remote,
+}) => {
+  test.setTimeout(180_000);
+  let connections = 0;
+  let closes = 0;
+  app.page.on("websocket", (socket) => {
+    connections++;
+    socket.on("close", () => {
+      closes++;
+    });
+  });
+  await createRemote(app, remote, "Checkpoint writing");
+  await app.createPage("Writing");
+  await app.startBlock("Start");
+  await expectSynced(app.page);
+  const initialConnections = connections;
+  const initialCloses = closes;
+  for (let index = 0; index < 260; index++) await app.editBlock(0, `Revision ${index}`);
+  await expectSynced(app.page);
+  expect(connections).toBe(initialConnections);
+  expect(closes).toBe(initialCloses);
+  await app.appendBlock("Continued after compaction");
+  await expectSynced(app.page);
+  const fresh = await remote.newProfile();
+  await openRemote(fresh, remote, remote.owner, "Checkpoint writing", "Writing");
+  await fresh.expectOutline(["Revision 259", "Continued after compaction"]);
+});

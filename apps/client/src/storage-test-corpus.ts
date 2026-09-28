@@ -641,6 +641,7 @@ export async function runIndexedDbFaultCorpus() {
 }
 
 export async function runRemoteOutboxCorpus() {
+  await verifyRemoteCompaction();
   const graph = graphId("remote-outbox");
   const writer = new TestCoreWorker();
   const opened = await writer.openGraph(openRequest(graph, 271));
@@ -709,38 +710,16 @@ export async function runRemoteOutboxCorpus() {
   });
   const decoded = (await writer.decodeSyncMessage(encoded)) as { Update?: { message_id?: string } };
   assert(decoded.Update?.message_id === queued.message_id, "browser protocol codec drifted");
-  await writer.replaceRemote(
-    opened.graph_handle,
-    serverBase.checkpoint,
-    1,
-    serverBase.version_vector,
+  await expectCode(
+    writer.replaceRemote(opened.graph_handle, serverBase.checkpoint, 1, serverBase.version_vector),
+    "resync_required",
   );
-  const replaced = await writer.syncState(opened.graph_handle);
-  assert(replaced.history_epoch === 1, "server history epoch was not installed");
-  assert(replaced.has_server_base, "history replacement lost server Base provenance");
-  assert(replaced.pending === 1, "unacknowledged local intent was lost during rebase");
-  const rebaseUndo = await writer.execute({
-    graph_handle: opened.graph_handle,
-    command: {
-      graph_id: graph,
-      command_id: "post-rebase-undo",
-      command: { type: "undo" },
-    },
-    timeout_ms: 1_000,
-  });
-  assert(
-    rebaseUndo.save_status.status === "unchanged",
-    "history replacement exposed replayed intent as undoable",
-  );
-  const rebased = await writer.nextOutbox(opened.graph_handle);
-  assert(rebased?.history_epoch === 1, "rebased outbox retained a stale epoch");
-  assert(
-    rebased.message_id === (await sha256Hex(new Uint8Array(rebased.bytes))),
-    "history rebase did not derive its outbox key from the rebased Tail",
-  );
-  const replacedStats = await writer.storageStats(graph);
-  assert(replacedStats.update_count === 1, "rebased intent was not normalized to one tail row");
-  assert(replacedStats.outbox_bytes === 0, "rebased outbox duplicated its tail payload");
+  const preserved = await writer.syncState(opened.graph_handle);
+  assert(preserved.history_epoch === 0, "rejected replacement changed the history epoch");
+  assert(preserved.has_server_base, "rejected replacement lost server provenance");
+  assert(preserved.pending === 1, "rejected replacement lost offline work");
+  const retained = await writer.nextOutbox(opened.graph_handle);
+  assert(retained?.message_id === queued.message_id, "rejected replacement changed pending bytes");
   const imported = await writer.importRemote(opened.graph_handle, serverTail);
   assert(imported.status === "saved_locally", "remote import lost its durability receipt");
   assert(imported.changes.kind === "refresh", "remote import lost its authoritative publication");
@@ -766,7 +745,7 @@ export async function runRemoteOutboxCorpus() {
     (await restarted.syncState(reopened.graph_handle)).pending === 1,
     "restart lost unacknowledged outbox update",
   );
-  await restarted.acknowledgeOutbox(reopened.graph_handle, rebased.message_id);
+  await restarted.acknowledgeOutbox(reopened.graph_handle, queued.message_id);
   const acknowledged = await restarted.syncState(reopened.graph_handle);
   assert(acknowledged.pending === 0, "acknowledgement did not remove the outbox update");
   await restarted.closeGraph({ graph_handle: reopened.graph_handle });
@@ -887,4 +866,67 @@ export async function runRemoteOutboxCorpus() {
     acknowledged: true,
     corrupt_identity_rejected: true,
   };
+}
+
+async function verifyRemoteCompaction() {
+  const graph = graphId("remote-compaction");
+  const worker = new TestCoreWorker();
+  const opened = await worker.openGraph(openRequest(graph, 281));
+  const base = await worker.gcCheckpoint(opened.graph_handle);
+  await worker.configureSync(opened.graph_handle);
+  await worker.replaceRemote(opened.graph_handle, base.checkpoint, 0, base.version_vector);
+  const remote = await worker.fixtureUpdate(
+    graph,
+    base.checkpoint,
+    991,
+    ensurePage(graph, "other", "other"),
+  );
+  await worker.execute({
+    graph_handle: opened.graph_handle,
+    command: ensurePage(graph, "seed", "home"),
+    timeout_ms: 1_000,
+  });
+  for (let index = 0; index < 260; index++) {
+    await worker.execute({
+      graph_handle: opened.graph_handle,
+      command: renamePage(graph, `rename-${index}`, "home", `Home ${index}`),
+      timeout_ms: 1_000,
+    });
+  }
+  const state = await worker.syncState(opened.graph_handle);
+  const stats = await worker.storageStats(graph);
+  assert(
+    state.history_epoch === 0 && state.pending === 261,
+    "compaction changed the epoch or outbox",
+  );
+  assert(
+    stats.checkpoint_count === 2 && stats.compacted_through >= 256,
+    "remote replica did not compact",
+  );
+  // Every unacknowledged payload remains pinned even below both checkpoints.
+  let acknowledged = 0;
+  while (true) {
+    const next = await worker.nextOutbox(opened.graph_handle);
+    if (!next) break;
+    await worker.acknowledgeOutbox(opened.graph_handle, next.message_id);
+    acknowledged++;
+  }
+  assert(acknowledged === 261, "compaction dropped a pinned outbox payload");
+  assert(
+    (await worker.storageStats(graph)).update_count < 140,
+    "acknowledged old Tail was not reclaimed",
+  );
+  worker.terminate();
+  const restarted = new TestCoreWorker();
+  const reopened = await restarted.openGraph(openRequest(graph, 282));
+  await restarted.configureSync(reopened.graph_handle);
+  await restarted.importRemote(reopened.graph_handle, remote);
+  const read = await restarted.read({ graph_handle: reopened.graph_handle });
+  assert(
+    (read.summary as Snapshot).pages.length === 2,
+    "remote compaction lost offline mergeability",
+  );
+  await restarted.closeGraph({ graph_handle: reopened.graph_handle });
+  await restarted.deleteGraph(graph);
+  restarted.terminate();
 }

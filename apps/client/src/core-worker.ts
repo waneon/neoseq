@@ -226,8 +226,12 @@ export class CoreWorker implements CorePort {
     return this.request("sync_ack", { graph_handle: graphHandle, message_id: messageId });
   }
 
-  importRemote(graphHandle: string, bytes: number[]): Promise<RemoteReceipt> {
-    return this.request("sync_import", { graph_handle: graphHandle, bytes });
+  importRemote(graphHandle: string, bytes: number[] | ArrayBuffer): Promise<RemoteReceipt> {
+    return this.request(
+      "sync_import",
+      { graph_handle: graphHandle, bytes },
+      bytes instanceof ArrayBuffer ? [bytes] : [],
+    );
   }
 
   replaceRemote(
