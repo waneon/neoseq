@@ -96,9 +96,7 @@ export type QueryEditBinding =
   | { kind: "tags"; block: BlockRef };
 
 export type DirectBlockField =
-  | { kind: "content" }
-  | { kind: "property"; key: string }
-  | { kind: "tags" };
+  { kind: "content" } | { kind: "property"; key: string } | { kind: "tags" };
 
 interface EditOrigin {
   row: ResultViewRow;

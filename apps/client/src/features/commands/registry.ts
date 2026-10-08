@@ -12,14 +12,7 @@
 import type { ReactNode } from "react";
 
 export type CommandGroup =
-  | "Search"
-  | "Pages"
-  | "Tags"
-  | "Journal"
-  | "Graph"
-  | "Edit"
-  | "Block"
-  | "App";
+  "Search" | "Pages" | "Tags" | "Journal" | "Graph" | "Edit" | "Block" | "App";
 
 /** Groups in the order the palette renders them: navigation before action. */
 export const GROUP_ORDER: CommandGroup[] = [

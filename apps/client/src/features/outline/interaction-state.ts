@@ -65,9 +65,7 @@ export function overlayReducer(state: OutlineOverlay, action: OverlayAction): Ou
 
 export type VisibleDropTarget = DropTarget & { top: number };
 export type PointerGesture =
-  | { kind: "idle" }
-  | { kind: "selecting" }
-  | { kind: "dragging"; drop: VisibleDropTarget | null };
+  { kind: "idle" } | { kind: "selecting" } | { kind: "dragging"; drop: VisibleDropTarget | null };
 
 export type PointerGestureAction =
   | { type: "select" }

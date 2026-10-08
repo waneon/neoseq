@@ -75,10 +75,7 @@ export function buildSlashItems(message: MessageFunction): SlashItem[] {
       group: "status",
       label: message(
         `task.status.${status}` as
-          | "task.status.todo"
-          | "task.status.doing"
-          | "task.status.done"
-          | "task.status.cancelled",
+          "task.status.todo" | "task.status.doing" | "task.status.done" | "task.status.cancelled",
       ),
       aliases: STATUS_ALIASES[status] ?? [status],
       glyph: <TaskStatusGlyph status={status} />,
@@ -91,9 +88,7 @@ export function buildSlashItems(message: MessageFunction): SlashItem[] {
       group: "priority",
       label: message(
         `task.priority.${priority}` as
-          | "task.priority.low"
-          | "task.priority.medium"
-          | "task.priority.high",
+          "task.priority.low" | "task.priority.medium" | "task.priority.high",
       ),
       aliases: PRIORITY_ALIASES[priority] ?? [priority],
       glyph: <PriorityGlyph priority={priority} />,

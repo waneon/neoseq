@@ -12,12 +12,7 @@ import {
 const DATABASE = "neoseq-local-v1";
 
 export type FaultPoint =
-  | "append_before"
-  | "append_after"
-  | "checkpoint_before"
-  | "checkpoint_after"
-  | "abort"
-  | "quota";
+  "append_before" | "append_after" | "checkpoint_before" | "checkpoint_after" | "abort" | "quota";
 
 class FaultController implements PersistenceHooks {
   private fault?: FaultPoint;

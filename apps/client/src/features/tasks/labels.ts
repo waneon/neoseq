@@ -9,10 +9,7 @@ export function statusLabel(status: string, message: MessageFunction): string {
   if (!TASK_STATUSES.includes(status)) return status;
   return message(
     `task.status.${status}` as
-      | "task.status.todo"
-      | "task.status.doing"
-      | "task.status.done"
-      | "task.status.cancelled",
+      "task.status.todo" | "task.status.doing" | "task.status.done" | "task.status.cancelled",
   );
 }
 
@@ -20,9 +17,7 @@ export function priorityLabel(priority: string, message: MessageFunction): strin
   if (!TASK_PRIORITIES.includes(priority)) return priority;
   return message(
     `task.priority.${priority}` as
-      | "task.priority.low"
-      | "task.priority.medium"
-      | "task.priority.high",
+      "task.priority.low" | "task.priority.medium" | "task.priority.high",
   );
 }
 

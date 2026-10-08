@@ -19,13 +19,7 @@ import type { MessageKey } from "../../i18n";
 import { APPLE, MOD, isComposing } from "./keys";
 
 export type ShortcutId =
-  | "palette"
-  | "properties"
-  | "shortcuts"
-  | "sidebar"
-  | "settings"
-  | "undo"
-  | "redo";
+  "palette" | "properties" | "shortcuts" | "sidebar" | "settings" | "undo" | "redo";
 
 export const SHORTCUT_IDS: ShortcutId[] = [
   "palette",

@@ -25,9 +25,7 @@ import type {
 export function subjectLabel(subject: PlanSubject, message: MessageFunction): string {
   return message(
     `query.subject.${subject}` as
-      | "query.subject.block"
-      | "query.subject.page"
-      | "query.subject.tag",
+      "query.subject.block" | "query.subject.page" | "query.subject.tag",
   );
 }
 

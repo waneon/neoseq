@@ -76,8 +76,7 @@ type Drag =
   | null;
 
 type Drop =
-  | { kind: "tag"; group: string | null; beforeId: string | null }
-  | { kind: "group"; index: number };
+  { kind: "tag"; group: string | null; beforeId: string | null } | { kind: "group"; index: number };
 
 export function TagsView() {
   const session = useSession();
