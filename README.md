@@ -16,64 +16,31 @@ docker run -d --name neoseq \
   waneon/neoseq
 ```
 
-Open `http://<host>:8080` from any device on your network. Graphs created there
-stay in that browser until you connect the server: press `+` beside the
-**Local** tab, sign in, and create or import a graph in the account's tab. The
-same graph opened from another browser stays in sync.
+Open `http://<host>:8080` from any device on your network.
 
-The administration dashboard is on port `8081`. It creates accounts, resets
-passwords, and revokes sessions. The server starts with one administrator,
+The administration dashboard is on port `8081`. The server starts with one administrator,
 `admin` with the password `change-me-later`; reset that password before anyone
 else can reach the server.
 
 Persistent configuration, secret files, an external database, and a backup
 mount are shown in [`examples/compose.yaml`](examples/compose.yaml).
 
-### Backups
-
-The database is the server's only durable state. Write a logical backup into the
-separately mounted `/backups` volume:
-
-```sh
-docker exec neoseq neoseq-appliance backup /backups/neoseq-$(date +%F).dump
-```
-
-Restoring replaces the database and runs only against a stopped appliance.
-Start the image once with the same volumes, the confirmation variable, and the
-`restore` command:
-
-If you configured `PUID` and `PGID`, pass the same values to the restore container.
-
-```sh
-docker stop neoseq
-docker run --rm \
-  -v neoseq-data:/var/lib/neoseq -v neoseq-backups:/backups \
-  -e NEOSEQ_RESTORE_CONFIRM=replace-neoseq-data \
-  waneon/neoseq restore /backups/neoseq-2026-09-02.dump
-docker start neoseq
-```
-
 ## Development
 
-Enter the development shell with the following command. This also installs the
-locked pnpm workspace dependencies whenever the lockfile changes.
+Enter the development shell with the following command.
 
 ```sh
 devenv shell
 ```
 
-Format all maintained source, configuration, and documentation files with the
-Nix-pinned repository formatter:
+Format all maintained codes with the following command.
 
 ```sh
 treefmt
 ```
 
 Start the development Web client with Hot Module Replacement (HMR), then open
-`http://127.0.0.1:4173`. Frontend changes are applied automatically. After
-changing Rust code, rebuild the development Wasm bindings to trigger HMR.
-Development ports are fixed: client `4173`, dashboard `4174`, and sync server
-`8787`. Startup fails if a configured port is already in use.
+`http://127.0.0.1:4173`.
 
 ```sh
 # Start the development services and HMR-enabled Web client.
@@ -90,59 +57,6 @@ browser-backed tests.
 ```sh
 devenv test                    # portable verification gate
 devenv --profile browser test  # portable gate plus browser-backed tests
-```
-
-For focused browser work, start the isolated services and built previews, then
-select a project or scenario. `--repeat-each` repeats fresh tests without retries;
-`--workers` controls parallelism.
-
-```sh
-devenv --profile browser processes up -d \
-  e2e-neoseq-server e2e-neoseq-client e2e-neoseq-contracts
-devenv --profile browser shell -- env NEOSEQ_E2E_MANAGED_PREVIEW=1 \
-  pnpm --filter @neoseq/client exec playwright test \
-  --project desktop --grep "long pasted outline" --repeat-each 3 --workers 4
-
-# Stop the test server while PostgreSQL can still remove its temporary database.
-devenv --profile browser processes stop e2e-neoseq-server
-devenv --profile browser processes down
-```
-
-After changing frontend code, rebuild the preview artifacts with
-`devenv --profile browser tasks run neoseq-client:build-test neoseq-client:build-contracts`.
-See [browser verification](architectures/browser-testing.md) for the coverage
-matrix, production/contract boundaries, and failure reports.
-
-### Publish the Docker image
-
-With an `x86_64-linux` Nix builder available, a running Docker daemon, and Docker
-Hub credentials authorized to push `waneon/neoseq`, run:
-
-```sh
-devenv shell -- publish-docker
-```
-
-This builds the amd64 appliance and pushes `waneon/neoseq:<version>`, then
-`waneon/neoseq:latest`. The version comes from the built image's label, which is
-derived from `workspace.package.version` in `Cargo.toml`. Both tags reference the
-same image; a failed build or version push stops publication before `latest`.
-
-CI runs verification on every branch push and pull request. A separate release
-workflow publishes on stable version tag pushes such as `v0.3.0`. The tag must
-match the Cargo workspace, client, and dashboard versions.
-Prerelease tags do not publish. Configure the GitHub Actions variable
-`DOCKERHUB_USERNAME` and secret `DOCKERHUB_TOKEN` with a Docker Hub username and
-an access token authorized to push `waneon/neoseq`.
-
-## Performance benchmarks
-
-The dedicated benchmark workspace member has deterministic Criterion suites for
-index construction and refreshes, and representative shapes over 100,
-10,000, and 1,000,000 blocks.
-
-```sh
-# Run both benchmark suites.
-cargo bench -p neoseq-benchmarks
 ```
 
 ## License
