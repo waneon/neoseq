@@ -25,9 +25,7 @@ jobs:
           restore-prefixes-first-match: nix-${{ runner.os }}-
 
       - name: Install devenv
-        run: |
-          devenv_installable="$(jq -r '.nodes.nixpkgs.locked | "github:\(.owner)/\(.repo)/\(.rev)#devenv"' devenv.lock)"
-          nix profile add "$devenv_installable"
+        run: nix profile add nixpkgs#devenv
 
       - name: Run verification
         run: devenv test
