@@ -188,7 +188,9 @@ describe("linked reference pages", () => {
     });
     const harness = await mountReferencePages(async (request, offset) => {
       if (offset === 100) await gate;
-      return referenceFrame(request, offset, 1005);
+      // Four pages, the last one partial: enough to prove bounded paging past the
+      // row budget without rendering ten full pages on a slow runner.
+      return referenceFrame(request, offset, 305);
     });
     const references = screen.getByTestId("linked-references");
     const next = within(references).getByRole("button", { name: "Next", exact: true });
@@ -208,7 +210,7 @@ describe("linked reference pages", () => {
         "Entry 100",
       ),
     );
-    for (let offset = 200; offset <= 1000; offset += 100) {
+    for (let offset = 200; offset <= 300; offset += 100) {
       await userEvent.setup().click(next);
       await waitFor(() =>
         expect(within(references).getAllByTestId("linked-reference")[0]).toHaveTextContent(

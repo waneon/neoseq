@@ -17,6 +17,7 @@ import type {
   StorageCapabilitiesDto,
 } from "../generated/core-port";
 import { CORE_PORT_VERSION } from "../generated/core-port";
+import { trackActivity } from "../lib/activity";
 import {
   CorePortFailure,
   type OutboxFrame,
@@ -153,7 +154,7 @@ export class GraphSession {
   getState = (): SessionState => this.state;
 
   open(): Promise<void> {
-    if (!this.opening) this.opening = this.openNow();
+    if (!this.opening) this.opening = trackActivity(this.openNow());
     return this.opening;
   }
 
@@ -217,21 +218,16 @@ export class GraphSession {
    * resolves after the authoritative summary/outline state has been reconciled.
    */
   execute(command: Command): Promise<CommandResult> {
-    const tracked = this.queue.then(() => this.executeNow(command));
-    // Keep the queue alive after failures so later commands still run.
-    this.queue = tracked.catch(() => undefined);
-    return tracked;
+    return this.enqueue(() => this.executeNow(command));
   }
 
   /** Lowers an ephemeral edit only after earlier canonical changes are published. */
   executePrepared(prepare: () => Command | null): Promise<CommandResult | null> {
-    const tracked = this.queue.then(async () => {
+    return this.enqueue(async () => {
       await this.ensureCurrent();
       const command = prepare();
       return command ? this.executeNow(command) : null;
     });
-    this.queue = tracked.catch(() => undefined);
-    return tracked;
   }
 
   async refreshCapabilities(): Promise<void> {
@@ -245,9 +241,7 @@ export class GraphSession {
 
   hydrateOutline(owner: OutlineOwner): Promise<void> {
     if (this.state.hydratedOutlines.has(outlineOwnerKey(owner))) return Promise.resolve();
-    const run = this.queue.then(() => this.hydrateOutlineNow(owner));
-    this.queue = run.catch(() => undefined);
-    return run;
+    return this.enqueue(() => this.hydrateOutlineNow(owner));
   }
 
   hydratePage(pageId: string): Promise<void> {
@@ -266,9 +260,7 @@ export class GraphSession {
       (owner) => !this.state.hydratedOutlines.has(outlineOwnerKey(owner)),
     );
     if (missing.length === 0) return Promise.resolve();
-    const run = this.queue.then(() => this.hydrateOutlinesNow(missing));
-    this.queue = run.catch(() => undefined);
-    return run;
+    return this.enqueue(() => this.hydrateOutlinesNow(missing));
   }
 
   hydratePages(pageIds: readonly string[]): Promise<void> {
@@ -277,9 +269,7 @@ export class GraphSession {
 
   /** Retries the pending durable write after a storage failure. */
   retry(): Promise<void> {
-    const run = this.queue.then(() => this.retryNow());
-    this.queue = run.catch(() => undefined);
-    return run;
+    return this.enqueue(() => this.retryNow());
   }
 
   /** Executes against the published derived index after prior mutations settle. */
@@ -289,7 +279,7 @@ export class GraphSession {
 
   queryFrame(query: AuthoredQueryRequest): Promise<QueryFrame> {
     const request = structuredClone(query);
-    const run = this.queue.then(async () => {
+    return this.enqueue(async () => {
       await this.ensureCurrent();
       if (this.state.status !== "ready") {
         throw new CorePortFailure({
@@ -302,6 +292,14 @@ export class GraphSession {
       const response = await this.port.query({ graph_handle: this.handle, query: request });
       return { request, result: response.result, canonicalRevision };
     });
+  }
+
+  /**
+   * Serializes graph work behind everything queued before it. The work counts
+   * as application activity until it settles; failures do not stall the queue.
+   */
+  private enqueue<T>(work: () => Promise<T>): Promise<T> {
+    const run = trackActivity(this.queue.then(work));
     this.queue = run.catch(() => undefined);
     return run;
   }
@@ -442,15 +440,13 @@ export class GraphSession {
   }
 
   private applyRemote(bytes: number[] | ArrayBuffer, current = () => true): Promise<void> {
-    const run = this.queue.then(async () => {
+    return this.enqueue(async () => {
       if (!current() || this.closeRequested) return;
       const importRemote = this.port.importRemote;
       if (!importRemote) throw new Error("remote import is unavailable");
       const receipt = await importRemote.call(this.port, this.handle, bytes);
       await this.publishChanges(receipt.changes, this.state.save, null);
     });
-    this.queue = run.catch(() => undefined);
-    return run;
   }
 
   private replaceRemote(
@@ -459,7 +455,7 @@ export class GraphSession {
     serverVersionVector: number[],
     current = () => true,
   ): Promise<void> {
-    const run = this.queue.then(async () => {
+    return this.enqueue(async () => {
       if (!current() || this.closeRequested) return;
       const replaceRemote = this.port.replaceRemote;
       if (!replaceRemote) throw new Error("remote history replacement is unavailable");
@@ -474,8 +470,6 @@ export class GraphSession {
       const remoteReadonly = this.remote?.role === "viewer" || this.remote?.status === "read_only";
       this.patch(accessFor(remoteReadonly, this.lease?.mode ?? "readonly"));
     });
-    this.queue = run.catch(() => undefined);
-    return run;
   }
 
   private async hydrateOutlineNow(owner: OutlineOwner): Promise<void> {

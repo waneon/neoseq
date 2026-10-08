@@ -50,24 +50,25 @@ export class NeoseqApp {
     await this.page.getByTestId(`settings-tab-${section}`).click();
   }
 
-  /** Only for gestures guaranteed to change data; capture BEFORE the input. */
-  async saved(gesture: () => Promise<unknown>): Promise<void> {
-    const status = this.page.getByTestId("save-status");
-    await expect(status).toHaveAttribute("data-save", "saved");
-    const before = await status.getAttribute("data-save-sequence");
-    expect(before).not.toBeNull();
-    await gesture();
-    // Read state and revision together: the revision is absent during saving.
+  /**
+   * Performs a gesture, then waits until everything it started has settled and
+   * the graph is saved locally. The application registers work synchronously
+   * with the gesture that starts it and publishes `data-busy` on the document
+   * while any is outstanding (src/lib/activity.ts), so this holds whether the
+   * gesture saved once, several times, or not at all.
+   */
+  async saved(gesture?: () => Promise<unknown>): Promise<void> {
+    await gesture?.();
+    await this.settled();
+    await expect(this.page.getByTestId("save-status")).toHaveAttribute("data-save", "saved");
+  }
+
+  /** Waits until no application work is outstanding across two painted frames. */
+  async settled(): Promise<void> {
+    // Each evaluation waits in the page for the attribute to clear, so the
+    // poll only repeats across navigations or unusually long work.
     await expect
-      .poll(() =>
-        status.evaluate(
-          (node, previous) =>
-            node.getAttribute("data-save") === "saved" &&
-            node.getAttribute("data-save-sequence") !== null &&
-            node.getAttribute("data-save-sequence") !== previous,
-          before,
-        ),
-      )
+      .poll(() => this.page.evaluate(settledWithin, 5_000), { intervals: [0] })
       .toBe(true);
   }
 
@@ -125,4 +126,29 @@ export class NeoseqApp {
       }
     });
   }
+}
+
+/** Runs in the page: resolves true once `data-busy` is absent across two frames. */
+function settledWithin(budget: number): Promise<boolean> {
+  const root = document.documentElement;
+  return new Promise((resolve) => {
+    const deadline = setTimeout(() => {
+      observer.disconnect();
+      resolve(false);
+    }, budget);
+    const confirm = () =>
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          if (root.hasAttribute("data-busy")) return;
+          clearTimeout(deadline);
+          observer.disconnect();
+          resolve(true);
+        }),
+      );
+    const observer = new MutationObserver(() => {
+      if (!root.hasAttribute("data-busy")) confirm();
+    });
+    observer.observe(root, { attributes: true, attributeFilter: ["data-busy"] });
+    if (!root.hasAttribute("data-busy")) confirm();
+  });
 }

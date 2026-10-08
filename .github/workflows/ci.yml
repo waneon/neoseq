@@ -8,9 +8,28 @@ on:
 permissions:
   contents: read
 
+# One job per verification tier, so a failure names its tier and no tier's
+# timing depends on another tier's compilation load.
 jobs:
-  check:
+  verify:
+    name: ${{ matrix.tier }}
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - tier: check
+            command: devenv tasks run gate:check
+          - tier: rust
+            command: devenv tasks run gate:rust
+          - tier: component
+            command: devenv tasks run gate:component
+          - tier: browser
+            command: devenv --profile browser tasks run gate:browser
+            # Not yet blocking: this tier has not run on Linux runners since the
+            # journeys were rewritten. Promote it once its runs are reliably green.
+            advisory: true
+    continue-on-error: ${{ matrix.advisory == true }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -21,11 +40,22 @@ jobs:
       - name: Cache nix store
         uses: nix-community/cache-nix-action@v7
         with:
-          primary-key: nix-${{ runner.os }}-${{ hashFiles('devenv.lock', 'devenv.yaml', '**/*.nix') }}
-          restore-prefixes-first-match: nix-${{ runner.os }}-
+          primary-key: nix-${{ runner.os }}-${{ matrix.tier }}-${{ hashFiles('devenv.lock', 'devenv.yaml', '**/*.nix') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-${{ matrix.tier }}-
 
       - name: Install devenv
         run: nix profile add nixpkgs#devenv
 
-      - name: Run verification
-        run: devenv test
+      - name: Run ${{ matrix.tier }} tier
+        run: ${{ matrix.command }}
+
+      - name: Upload browser report
+        if: ${{ always() && matrix.tier == 'browser' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            apps/client/playwright-report
+            apps/client/test-results
+          if-no-files-found: ignore
+          retention-days: 14

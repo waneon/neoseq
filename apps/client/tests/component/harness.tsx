@@ -51,14 +51,16 @@ function queueQueryPublication(listener: () => void): void {
 function scheduleQueryPublications(): void {
   if (queryPublications.size > 0 || queuedQueryListeners.size === 0) return;
   const publication = Promise.resolve()
-    .then(async () => {
+    .then(() => {
       while (queuedQueryListeners.size > 0) {
         const listeners = [...queuedQueryListeners];
         queuedQueryListeners.clear();
-        // Publication itself is synchronous. Await React's returned thenable,
-        // without holding Testing Library's environment override across another
-        // userEvent/findBy scope that can start while React finishes flushing.
-        await act(() => {
+        // Publication is synchronous, so its act() scope flushes before it
+        // returns. Never await it: awaiting a synchronous act() makes React
+        // reopen its act queue on a later macrotask, and a waitFor/findBy that
+        // starts meanwhile (which turns the act environment off) then reports
+        // every update in that window as an unsupported act environment.
+        act(() => {
           for (const publish of listeners) publish();
         });
       }

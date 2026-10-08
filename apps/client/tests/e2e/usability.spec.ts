@@ -214,6 +214,8 @@ test("creation and navigation have usable keyboard and pointer dismissal routes"
 }) => {
   await page.goto("/");
   const trigger = page.getByTestId("new-graph");
+  // While the library loads, the action is shown disabled; a reader acts once it is offered.
+  await expect(trigger).toBeEnabled();
   await trigger.press("Enter");
   await expect(page.getByTestId("new-graph-name")).toBeFocused();
   await page.getByTestId("new-graph-name").fill("Cancelled draft");

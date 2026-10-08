@@ -161,6 +161,11 @@ export async function createInSelectedRepository(page: Page, name: string): Prom
   await page.getByTestId("create-graph").click();
   await expect(page.getByTestId("journal-title")).toBeVisible();
   await expectSynced(page);
+  // The first wait for the server's copy is a passing condition; its notice
+  // must leave with it rather than cover the page's controls.
+  await expect(
+    page.getByTestId("toast").filter({ hasText: "Waiting for the server’s copy" }),
+  ).toHaveCount(0);
 }
 
 export async function openRemote(

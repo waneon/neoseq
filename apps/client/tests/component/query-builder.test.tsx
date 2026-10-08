@@ -82,6 +82,15 @@ function storedDefinition(harness: Harness) {
   return document ? activeDefinition(document) : undefined;
 }
 
+/**
+ * The newest execution of an authored plan. Other mounted surfaces (references,
+ * standing questions) run their own raw queries on their own schedule, so the
+ * overall last request is not this query's.
+ */
+function lastBuiltQuery(harness: Harness) {
+  return harness.port.queryRequests.filter(({ query }) => query.kind === "built").at(-1)?.query;
+}
+
 function commandBridge(): CommandBridge {
   const blocks = createContextualHandlerRegistry<(key?: string) => void>();
   let pageProperties: ((key?: string) => void) | null = null;
@@ -760,7 +769,7 @@ describe("query result views", () => {
     expect(within(list).getAllByTestId("query-list-row")).toHaveLength(1);
     expect(list).toHaveTextContent("2");
     expect(list.querySelector(".query-block-content")).toBeNull();
-    expect(harness.port.queryRequests.at(-1)?.query).toMatchObject({
+    expect(lastBuiltQuery(harness)).toMatchObject({
       kind: "built",
       plan: { grain: "summary" },
     });
@@ -771,7 +780,7 @@ describe("query result views", () => {
         within(screen.getByTestId("query-list")).getAllByTestId("query-list-row"),
       ).toHaveLength(2),
     );
-    expect(harness.port.queryRequests.at(-1)?.query).toMatchObject({
+    expect(lastBuiltQuery(harness)).toMatchObject({
       kind: "built",
       plan: { grain: "entity" },
     });
@@ -879,7 +888,7 @@ describe("query result views", () => {
       plan: { version: QUERY_PLAN_VERSION, payload: JSON.stringify(summary) },
     });
     await waitFor(() =>
-      expect(harness.port.queryRequests.at(-1)?.query).toMatchObject({
+      expect(lastBuiltQuery(harness)).toMatchObject({
         kind: "built",
         plan: { grain: "summary" },
       }),
@@ -1660,7 +1669,7 @@ describe("query result views", () => {
       () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
     );
     await waitFor(() => {
-      const executed = harness.port.queryRequests.at(-1)?.query;
+      const executed = lastBuiltQuery(harness);
       expect(executed).toMatchObject({ kind: "built", plan: { grain: "entity" } });
       expect(executed).not.toHaveProperty("projection");
     });

@@ -17,11 +17,12 @@ The devenv configuration is composed around four developer-facing concerns:
 - one supervised development runtime; and
 - one verification graph, extended by the optional browser profile.
 
-The browser profile adds Playwright and its isolated collaboration processes.
+The browser profile adds Playwright's browsers and PostgreSQL tools.
 Database tests use the shared PostgreSQL service but own a temporary database
 per suite.
-Development and verification processes use fixed declared ports. Port conflicts
-fail startup; neither devenv nor the Web servers may silently select another port.
+Development processes use fixed declared ports; a conflict fails startup rather
+than silently selecting another port. Browser verification instead picks free
+ports per run and owns its servers, so concurrent runs never contend.
 
 `outputs.neoseq-client`, `outputs.neoseq-server`, and
 `outputs.neoseq-dashboard` own the deployable component artifacts.
@@ -84,17 +85,25 @@ named database.
 
 ## Verification
 
-`devenv test` runs the portable gate:
+Verification is split into tiers. Each is a devenv task that runs alone
+(`devenv tasks run gate:<tier>`) and as its own CI job, so a failure names its
+tier and no tier's timing depends on another tier's compilation load:
 
-- fixed-output Cargo and pnpm dependency hashes for all production outputs;
-- repository-wide formatting, strict Clippy, Rust workspace and PostgreSQL
-  integration tests, and dependency policy;
-- generated contract and locale drift checks;
-- TypeScript and component tests.
+- `gate:check`: formatting, generated contract and locale drift, TypeScript
+  (including browser test sources), strict Clippy, dependency policy, Node
+  licenses, and fixed-output dependency hashes;
+- `gate:rust`: Rust workspace and PostgreSQL integration tests;
+- `gate:component`: client and dashboard component tests;
+- `gate:browser` (browser profile): Playwright journeys and browser contracts.
+
+`devenv test` runs the first three; `devenv --profile browser test` runs all
+four.
 
 The component-test task depends on the development Wasm binding because its
 CorePort adapter runs the production graph core rather than a TypeScript domain
-double.
+double. The bindgen CLI is pinned to the `wasm-bindgen` version in `Cargo.lock`,
+for both the development binding and the production output, because the two
+must match exactly.
 
 Treefmt is the single formatting boundary. It delegates Rust, Nix, Web and
 document formats, TOML, and shell scripts to pinned language-native formatters.
@@ -128,67 +137,44 @@ ordinary branch or pull-request checks cannot publish. Tag runs share a
 concurrency group so publications do not overlap. Docker Hub credentials belong
 to GitHub Actions configuration, never the repository or Nix build inputs.
 
-`devenv --profile browser test` extends the portable gate with browser
-verification against two separately built artifacts. Product journeys use the
-normal client build and its production Worker. Adapter contracts and injected
-persistence faults use a separate test-mode build on another origin. A real
-collaboration server owns an isolated database on the managed PostgreSQL service.
-The [browser verification architecture](browser-testing.md) defines the coverage
-boundaries, isolation, and evidence expected from each suite.
-
-All browser artifacts finish building before process startup; readiness deadlines
-cover service startup, never compilation. The profile invokes Playwright in
-devenv's post-startup test hook, after port reservations are released and all
-services are ready. Each preview owns one fixed, strict port. The browser
-profile produces an HTML report, with traces and screenshots for failures;
-the default CI workflow runs only the portable gate.
+The browser profile supplies Playwright's browsers, fonts, and PostgreSQL tools;
+it does not orchestrate the run. Playwright builds and serves the product and
+test-mode artifacts and runs a collaboration server on a throwaway database, on
+ports chosen per run. The [browser verification architecture](browser-testing.md)
+defines the coverage boundaries, isolation, and evidence expected from each
+suite. In CI the browser tier is advisory until its runs on Linux runners are
+reliably green.
 
 ## Asynchronous verification
 
-Tests synchronize on observable state transitions, not elapsed wall-clock time.
-Local machines and CI runners differ in scheduling, CPU contention, and browser
-rendering latency; a fixed delay can conceal a missing causal edge locally and
-still expire before that edge in CI. Increasing delays, retries, or serializing
-the suite does not establish correctness.
+Tests synchronize on observable state, not elapsed wall-clock time. Local
+machines and CI runners differ in scheduling, CPU contention, and rendering
+latency, so whether a test passes must not depend on how fast the machine is.
 
-Every asynchronous interaction therefore proves the boundary it depends on:
+The application owns the answer to "has the reader's work settled?". It counts
+outstanding work in one place — unsaved editor input, debounced saves, and graph
+work queued or running in the core — and publishes `data-busy` on the document
+while any remains. Work is registered synchronously by the code that starts it.
+Browser journeys act, wait for the application to settle, and assert visible
+outcomes with retrying assertions; they do not encode which gesture saves or
+when. Where a test could only pass by waiting for something the reader cannot
+see, the application is fixed instead: input survives reconciliation, and
+controls stay stable under the pointer.
 
-- a durable mutation captures the saved revision before the user gesture,
-  observes a newer revision, and only then accepts the saved state;
-- optimistic rows and replaceable controls reach their canonical identity,
-  focus, and command-ready state before receiving subsequent input;
-- pointer selection begins mutation only after the complete click gesture, and
-  overlays capture geometry before a gesture can replace their DOM anchor;
-- derived views and geometry converge by polling their semantic result, with
-  stability requiring consecutive equal observations when no single completion
-  event exists;
-- finite UI transitions finish before an action that depends on their final
-  hit-testing or layout state.
-
-A component-test interaction owns every React update it starts. External stores
-therefore expose a finite completion boundary for application-owned work, and a
-fixture settles that work inside the same interaction that changed its input.
-Frame-scheduled overlay and focus transitions are likewise awaited at their
-frame boundary. React diagnostics for escaped, overlapping, or unawaited
-`act()` scopes fail the suite; suppressing them is not a verification strategy.
-
-An already-visible `saved` state is not evidence that a new mutation completed,
-and a visible element is not necessarily the reconciled element that will own
-the next input. Time-dependent product behavior uses controlled clocks in
-component tests. Browser retries are disabled because a second schedule cannot
-validate the first. Suite timeouts remain failure budgets only; arbitrary sleeps
-must not order test actions.
+Component tests run the real graph core with real timers. Their fixtures settle
+the work an interaction starts inside that interaction's `act()` scope. React
+diagnostics that the test code alone determines — overlapping or unawaited
+`act()` scopes — fail the suite. Diagnostics whose appearance depends on
+scheduling (an update settling just outside a scope) are reported but do not
+fail, because as failures they passed on workstations and failed on CI runners
+without any change in behavior. Time-dependent product behavior uses controlled
+clocks. Browser retries are disabled. Suite timeouts remain failure budgets
+only; arbitrary sleeps must not order test actions.
 
 Workspace tests cover the synchronization protocol and native/WebSocket
 convergence behavior. The database task depends on PostgreSQL readiness and
 runs the explicitly ignored schema, authorization, idempotency, and fault
 integration test against its own database.
-Portable checks and browser build prerequisites attach to the test entry point's
-preparation tasks. Network-dependent browser checks run in the subsequent test
-hook, after managed processes reach readiness. They must not start those
-processes from preparation tasks while devenv still holds port reservations.
-Component tests finish before Playwright runs, so browser load cannot starve
-component tests.
 
 Rust and browser adapter contracts cover synchronization, authorization,
 multi-tab identity, the durable outbox, and convergence. Component tests use

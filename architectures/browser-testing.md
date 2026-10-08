@@ -17,10 +17,9 @@ The suite has two artifacts and origins:
   exposes adapter corpus runners and persistence fault injection. These tests
   exercise recovery and durability without adding test hooks to product journeys.
 
-Remote collaboration uses the real synchronization service and PostgreSQL. Each
-run owns an isolated database, and each scenario owns its accounts and graph.
-Missing collaboration configuration is a setup failure, so a successful gate
-cannot silently omit the assembled remote path.
+Remote collaboration uses the real synchronization service on a throwaway
+PostgreSQL cluster owned by the run, and each scenario owns its accounts and
+graph.
 
 ## Coverage
 
@@ -64,41 +63,34 @@ auth/server tests. Chromium's native composition boundary is exercised, but an
 operating-system IME is not emulated. Native clipboard journeys use the pinned
 headless browser's process-local clipboard; headed runs are not the CI gate.
 
-Actions are ordered by their relevant observable result. A saved indicator that
-was already present before an edit cannot prove that edit was persisted. A
-derived result must contain the intended change, and durable outcomes must
-survive reopening. Tests do not use arbitrary sleeps or retry failed mutations.
-Playwright retries are disabled. CI repeats every scenario twice with fresh
-contexts, providing additional schedules without converting an earlier failure
-into success.
+Completion is the application's fact, not the test's inference. The client
+counts its outstanding work — unsaved editor input, debounced saves, and graph
+work queued or running in the core — and marks the document `data-busy` while
+any remains. Work is registered by the code path that starts it, so a gesture
+is busy before its handler returns. Journeys therefore act, wait until the
+application has settled, and assert visible outcomes with retrying assertions;
+they never need to know which gesture saves, how often, or after which
+debounce. Durable outcomes must survive reopening. Scheduled refreshes of
+derived views are not the reader's work and are observed through their visible
+result instead.
+
+When a journey can only pass by waiting on something the reader could not
+see, the defect is in the application: input must survive reconciliation and
+controls must stay stable under the pointer. Tests do not use arbitrary sleeps
+or retry failed mutations, and Playwright retries are disabled. CI repeats every
+scenario twice with fresh contexts.
 
 ## Execution and Evidence
 
-`devenv --profile browser test` is the shared local and CI gate. Build tasks
-produce the normal and instrumented artifacts before managed service startup.
-Playwright runs only after PostgreSQL, the isolated collaboration server, and
-both strict-port previews are ready. Compilation never consumes a readiness
-deadline. Direct Playwright runs own fresh previews and must satisfy the same
-collaboration prerequisites.
+Playwright owns a run end to end. Its web servers, started in order before any
+test, build the development Wasm core and both client artifacts, serve them, and
+run the synchronization server on a PostgreSQL cluster that listens only on a
+private socket. Ports are chosen per run, so concurrent runs in other checkouts
+never collide, and everything is removed when the run ends. The same command
+serves agents, local iteration, and CI:
+`devenv --profile browser shell -- pnpm --filter @neoseq/client exec playwright test`
+(add `--project`, `-g`, or file filters for focused runs).
 
-The HTML report records the executed scenarios on every CI run. Failed tests
-retain traces, screenshots, and assertion context. Suite and assertion timeouts
-are failure budgets, not synchronization mechanisms.
-
-## Audit Evidence
-
-The rewrite distinguishes three observed failure classes:
-
-- [September 2 service startup failure](https://github.com/waneon/neoseq/actions/runs/33630851608)
-  attempted browser startup while allocated ports were still reserved. The
-  post-startup lifecycle is retained to preserve its correction.
-- [August 25 browser interaction failure](https://github.com/waneon/neoseq/actions/runs/32826286528)
-  lost autocomplete options during a click. Journeys must observe the relevant
-  mutation and preserve ordinary browser actionability checks.
-- [September 6 component-test failure](https://github.com/waneon/neoseq/actions/runs/34032811899)
-  asserted a debounced query save before publication and stopped before
-  Playwright ran. Browser coverage does not replace deterministic component
-  scheduling tests.
-
-These historical failures identify boundaries to verify; they do not by
-themselves establish that the current checkout still contains those defects.
+The HTML report records the executed scenarios. Failed tests retain traces,
+screenshots, and assertion context. Suite and assertion timeouts are failure
+budgets, not synchronization mechanisms.

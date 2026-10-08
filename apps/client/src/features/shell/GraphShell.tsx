@@ -277,6 +277,7 @@ function ShellBody({
   const pageProperties = useRef<((key?: string) => void) | null>(null);
   const pageActions = useRef<PageActions | null>(null);
   const readonlyAnnounced = useRef<ReadonlyReason | null>(null);
+  const readonlyNotice = useRef<string | null>(null);
   const recoveryAnnounced = useRef(false);
 
   const readonly = state.mode === "readonly";
@@ -535,19 +536,28 @@ function ShellBody({
   // 12px label beside the save slot is easy to miss when the first thing you do
   // is start typing. Say it once, plainly — the permanent label in the top bar is
   // what carries the condition after the report has expired. Once really means
-  // once: a remount must not reopen a notice the user already closed.
+  // once: a remount must not reopen a notice the user already closed. The notice
+  // describes a present condition, so it leaves as soon as the condition does:
+  // a replica's first wait for the server's copy usually ends in moments, and a
+  // stale notice would sit over the page's controls for its whole duration.
   useEffect(() => {
     if (!readonlyReason || readonlyAnnounced.current === readonlyReason) return;
     readonlyAnnounced.current = readonlyReason;
     const copy = READONLY_COPY[readonlyReason];
-    notify.show({
+    const notice = notify.show({
       tone: "info",
       key: `readonly-${readonlyReason}`,
       duration: 12000,
       title: message(copy.title),
       detail: message(copy.detail),
     });
+    readonlyNotice.current = notice;
   }, [message, notify, readonlyReason]);
+  useEffect(() => {
+    if (readonlyReason || !readonlyNotice.current) return;
+    notify.dismiss(readonlyNotice.current);
+    readonlyNotice.current = null;
+  }, [notify, readonlyReason]);
 
   // Quarantined records are a fact about data the user cannot see from here, so
   // they are reported once rather than pinned above the writing surface. The

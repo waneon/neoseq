@@ -15,8 +15,9 @@ const SAVING_DELAY_MS = 600;
  * danger dot, the reason as plain visible text rather than a `title` attribute,
  * and the retry beside it.
  *
- * The element stays mounted with its `data-save` attribute in every state,
- * because durability is also the thing the rest of the app waits on.
+ * The element stays mounted with its `data-save` attribute in every state.
+ * Whether the reader's work has settled at all is a broader question answered
+ * by `lib/activity`, not by this indicator.
  */
 export function SaveStatus({ save, onRetry }: { save: SaveState; onRetry: () => void }) {
   const { message } = useI18n();
@@ -43,7 +44,6 @@ export function SaveStatus({ save, onRetry }: { save: SaveState; onRetry: () => 
       <output
         className="save-slot"
         data-save={save.kind}
-        data-save-sequence={save.kind === "saved" ? save.sequence : undefined}
         data-save-code={save.kind === "unsaved" ? save.code : undefined}
         data-testid="save-status"
         aria-live={save.kind === "unsaved" ? "assertive" : "off"}

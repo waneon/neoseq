@@ -3,6 +3,7 @@ import type { Command, InlineContent } from "../../../core-port/commands";
 import type { CommandResult } from "../../../generated/core-port";
 import type { GraphSession } from "../../../core-port/session";
 import { CorePortFailure } from "../../../core-worker";
+import { ActivityHold } from "../../../lib/activity";
 import {
   findBlock,
   findOutline,
@@ -132,6 +133,8 @@ export class ContentSessions {
   private readonly retryActions = new Map<BlockContentSession, readonly Command[]>();
   private readonly pending = new Map<BlockContentSession, number>();
   private readonly unavailable = new Map<BlockContentSession, string>();
+  /** Input that no submission has carried to the graph yet is unsettled work. */
+  private readonly unsavedInput = new ActivityHold();
   private readonly compositions = new Map<
     BlockContentSession,
     {
@@ -150,6 +153,7 @@ export class ContentSessions {
       const state = graph.getState();
       if (state.status === "closed") {
         unsubscribe();
+        this.unsavedInput.set(false);
         return;
       }
       if (revision === state.canonicalRevision) return;
@@ -369,6 +373,11 @@ export class ContentSessions {
     this.owners.set(outlineOwnerKey(owner), next);
     this.ownerRefs.set(outlineOwnerKey(owner), owner);
     this.revision += 1;
+    this.unsavedInput.set(
+      [...this.owners.values()].some((owned) =>
+        [...owned.values()].some((buffer) => !bufferIsClean(buffer)),
+      ),
+    );
     for (const listener of this.listeners) listener();
   }
 

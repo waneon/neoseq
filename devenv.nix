@@ -15,6 +15,8 @@ let
   };
   databaseUrl = "postgresql:///neoseq?host=${config.env.PGHOST}&port=${toString config.env.PGPORT}";
   databaseTest = "with-test-database cargo test -p neoseq-server --test postgres -- --ignored --nocapture";
+  # The bindgen CLI must match the `wasm-bindgen` version in Cargo.lock exactly.
+  wasmBindgen = pkgs.wasm-bindgen-cli_0_2_121;
   mkSource = pkgs.callPackage ./nix/libs/mk-source.nix { };
   dashboardOutput = pkgs.callPackage ./nix/outputs/neoseq-dashboard.nix {
     inherit mkSource;
@@ -23,6 +25,7 @@ let
   };
   clientOutput = pkgs.callPackage ./nix/outputs/neoseq-client.nix {
     inherit mkSource;
+    wasm-bindgen-cli = wasmBindgen;
     rustToolchain = config.languages.rust.toolchainPackage;
     nodejs = config.languages.javascript.package;
     pnpm = config.languages.javascript.pnpm.package;
@@ -47,7 +50,7 @@ in
 {
   packages = [
     pkgs.cargo-deny
-    pkgs.wasm-bindgen-cli
+    wasmBindgen
   ];
 
   languages = {
@@ -222,15 +225,7 @@ in
 
     "wasm:build-dev" = {
       description = "Build development Wasm bindings";
-      exec = ''
-        set -euo pipefail
-        cargo build --release --target wasm32-unknown-unknown -p platform-web
-        wasm-bindgen \
-          --target web \
-          --out-dir apps/client/src/wasm \
-          --out-name neoseq_core \
-          target/wasm32-unknown-unknown/release/platform_web.wasm
-      '';
+      exec = "scripts/build-wasm-dev.sh";
       after = [ "contracts:check" ];
     };
 
@@ -273,6 +268,11 @@ in
         "wasm:build-dev"
       ];
     };
+    "browser:check" = {
+      description = "Check browser test fixtures and scenarios";
+      exec = "${client} tsc -p tsconfig.browser.json --pretty false";
+      after = [ "wasm:build-dev" ];
+    };
     "frontend:test" = {
       description = "Run component tests";
       exec = ''
@@ -297,16 +297,39 @@ in
       '';
     };
 
+    # Verification tiers. Each runs alone (`devenv tasks run gate:<tier>`) and as
+    # its own CI job; `devenv test` runs them all. The browser profile adds
+    # `gate:browser`.
+    "gate:check" = {
+      description = "Static tier: formatting, generated files, types, lints, and dependency policy";
+      after = [
+        "browser:check"
+        "contracts:check"
+        "format:check"
+        "frontend:check"
+        "i18n:check"
+        "nix:hash-check"
+        "node:licenses"
+        "rust:clippy"
+        "rust:deny"
+      ];
+    };
+    "gate:rust" = {
+      description = "Rust tier: workspace and PostgreSQL integration tests";
+      after = [
+        "neoseq-server:postgres-test"
+        "rust:test"
+      ];
+    };
+    "gate:component" = {
+      description = "Component tier: client and dashboard component tests";
+      after = [ "frontend:test" ];
+    };
+
     "devenv:enterTest".after = [
-      "frontend:check"
-      "frontend:test"
-      "format:check"
-      "nix:hash-check"
-      "node:licenses"
-      "rust:clippy"
-      "rust:deny"
-      "rust:test"
-      "neoseq-server:postgres-test"
+      "gate:check"
+      "gate:component"
+      "gate:rust"
     ];
   };
 

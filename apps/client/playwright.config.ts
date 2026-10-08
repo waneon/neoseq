@@ -1,9 +1,35 @@
+import { execFileSync } from "node:child_process";
 import { defineConfig, devices } from "@playwright/test";
 
-const port = Number(process.env.NEOSEQ_PREVIEW_PORT ?? 14173);
-const contractPort = Number(process.env.NEOSEQ_CONTRACT_PORT ?? 14174);
+// Playwright owns every server a run needs: it builds fresh artifacts, serves
+// them, and runs a synchronization server on a throwaway database. Ports are
+// chosen per run, so concurrent runs (other checkouts or agents) never collide.
+// The config is evaluated again in each worker; the environment carries the
+// first evaluation's choices into them.
+function freePort(): number {
+  const script = `const s = require("node:net").createServer();
+s.listen(0, "127.0.0.1", () => { process.stdout.write(String(s.address().port)); s.close(); });`;
+  return Number(execFileSync(process.execPath, ["-e", script], { encoding: "utf8" }));
+}
+
+function runPort(name: string): number {
+  process.env[name] ??= String(freePort());
+  return Number(process.env[name]);
+}
+
+const port = runPort("NEOSEQ_E2E_PREVIEW_PORT");
+const contractPort = runPort("NEOSEQ_E2E_CONTRACT_PORT");
+const syncPort = runPort("NEOSEQ_E2E_SYNC_PORT");
 const origin = `http://127.0.0.1:${port}`;
 const contractOrigin = `http://127.0.0.1:${contractPort}`;
+const syncOrigin = `http://127.0.0.1:${syncPort}`;
+const adminPassword = (process.env.NEOSEQ_E2E_ADMIN_PASSWORD ??= "browser admin password");
+process.env.NEOSEQ_E2E_SYNC_ORIGIN = syncOrigin;
+
+// Build steps live inside the server commands because Playwright starts its
+// web servers, in order, before anything else runs. Timeouts below are budgets
+// for a cold build, not synchronization.
+const gracefulShutdown = { signal: "SIGTERM", timeout: 10_000 } as const;
 
 export default defineConfig({
   testDir: "./tests",
@@ -63,23 +89,35 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"], baseURL: contractOrigin },
     },
   ],
-  // devenv owns ready processes. Direct runs build fresh artifacts and refuse
-  // to borrow an unrelated development server.
-  webServer:
-    process.env.NEOSEQ_E2E_MANAGED_PREVIEW === "1"
-      ? undefined
-      : [
-          {
-            command: `pnpm vite build && pnpm vite preview --host 127.0.0.1 --port ${port} --strictPort`,
-            url: origin,
-            reuseExistingServer: false,
-            timeout: 120_000,
-          },
-          {
-            command: `pnpm vite build --mode test --outDir dist-contracts && pnpm vite preview --outDir dist-contracts --host 127.0.0.1 --port ${contractPort} --strictPort`,
-            url: contractOrigin,
-            reuseExistingServer: false,
-            timeout: 120_000,
-          },
-        ],
+  webServer: [
+    {
+      name: "product",
+      command: `../../scripts/build-wasm-dev.sh && pnpm vite build && pnpm vite preview --host 127.0.0.1 --port ${port} --strictPort`,
+      url: origin,
+      reuseExistingServer: false,
+      timeout: 600_000,
+      gracefulShutdown,
+    },
+    {
+      name: "contracts",
+      command: `pnpm vite build --mode test --outDir dist-contracts && pnpm vite preview --outDir dist-contracts --host 127.0.0.1 --port ${contractPort} --strictPort`,
+      url: contractOrigin,
+      reuseExistingServer: false,
+      timeout: 300_000,
+      gracefulShutdown,
+    },
+    {
+      name: "sync",
+      command: "../../scripts/e2e-sync-server.sh",
+      url: `${syncOrigin}/readyz`,
+      env: {
+        NEOSEQ_BIND: `127.0.0.1:${syncPort}`,
+        NEOSEQ_BOOTSTRAP_ADMIN_USERNAME: "e2e-admin",
+        NEOSEQ_BOOTSTRAP_ADMIN_PASSWORD: adminPassword,
+      },
+      reuseExistingServer: false,
+      timeout: 900_000,
+      gracefulShutdown,
+    },
+  ],
 });

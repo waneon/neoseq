@@ -85,6 +85,7 @@ import { answerLabel, columnLabel, fieldLabel } from "./labels";
 import { orderBlockRows, orderResultRows, type ListSortField } from "./ordering";
 import { queryResultsAreOpen, rememberQueryResultsOpen, useQueryConditions } from "./presentation";
 import { planSummary, summaryLabel, type QuerySummary } from "./summary";
+import { scheduleActivity } from "@/lib/activity";
 import { randomUUID } from "@/lib/crypto";
 
 const PLAN_SAVE_DEBOUNCE_MS = 600;
@@ -389,10 +390,8 @@ function QueryPanelSurface({
     if (!plan || !canEditDefinition || !shaped.current) return;
     const payload = encodePlan(plan);
     if (payload === storedPayload) return;
-    const timer = window.setTimeout(() => {
-      void saveDefinition.current(payload);
-    }, PLAN_SAVE_DEBOUNCE_MS);
-    return () => window.clearTimeout(timer);
+    const save = scheduleActivity(() => saveDefinition.current(payload), PLAN_SAVE_DEBOUNCE_MS);
+    return save.cancel;
   }, [
     canEditDefinition,
     activeView.id,
