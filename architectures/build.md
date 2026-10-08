@@ -18,8 +18,8 @@ The devenv configuration is composed around four developer-facing concerns:
 - one verification graph, extended by the optional browser profile.
 
 The browser profile adds Playwright's browsers and PostgreSQL tools.
-Database tests use the shared PostgreSQL service but own a temporary database
-per suite.
+Every database-backed run (`with-test-database`) starts its own throwaway
+PostgreSQL cluster on a private socket.
 Development processes use fixed declared ports; a conflict fails startup rather
 than silently selecting another port. Browser verification instead picks free
 ports per run and owns its servers, so concurrent runs never contend.
@@ -79,9 +79,7 @@ transactionally before readiness. On Linux, the all-in-one output combines this
 artifact with the two static sites, Caddy, `tini`, PostgreSQL 17, and the minimal
 runtime closure; build tools are not copied into the image.
 For local development, the supervised sync server waits for the persistent
-PostgreSQL service and exposes an HTTP readiness probe. Database-backed tests
-share the devenv-managed PostgreSQL service while each suite owns a uniquely
-named database.
+PostgreSQL service and exposes an HTTP readiness probe.
 
 ## Verification
 
@@ -97,7 +95,13 @@ tier and no tier's timing depends on another tier's compilation load:
 - `gate:browser` (browser profile): Playwright journeys and browser contracts.
 
 `devenv test` runs the first three; `devenv --profile browser test` runs all
-four.
+four. No tier depends on a supervised process.
+
+The inner loop is narrower: `verify-changed [base]` maps the paths changed since
+`base` (default `main`) to the tasks they can affect, runs component suites
+related to changed client sources (`vitest related`) and changed Playwright
+specs, and selects every tier for a path it cannot classify. Each component
+suite file stays small enough that the parallel run is not bounded by one file.
 
 The component-test task depends on the development Wasm binding because its
 CorePort adapter runs the production graph core rather than a TypeScript domain
@@ -163,18 +167,18 @@ controls stay stable under the pointer.
 
 Component tests run the real graph core with real timers. Their fixtures settle
 the work an interaction starts inside that interaction's `act()` scope. React
-diagnostics that the test code alone determines — overlapping or unawaited
-`act()` scopes — fail the suite. Diagnostics whose appearance depends on
-scheduling (an update settling just outside a scope) are reported but do not
-fail, because as failures they passed on workstations and failed on CI runners
+diagnostics that the test code alone determines — overlapping `act()` scopes or
+an unawaited async `act()` — fail the suite. Diagnostics whose appearance
+depends on scheduling (an update settling just outside a scope, or an `act()`
+that user-event starts inside another's flush) are reported but do not fail, because as failures they passed on workstations and failed on CI runners
 without any change in behavior. Time-dependent product behavior uses controlled
 clocks. Browser retries are disabled. Suite timeouts remain failure budgets
 only; arbitrary sleeps must not order test actions.
 
 Workspace tests cover the synchronization protocol and native/WebSocket
-convergence behavior. The database task depends on PostgreSQL readiness and
-runs the explicitly ignored schema, authorization, idempotency, and fault
-integration test against its own database.
+convergence behavior. They run under cargo-nextest inside a throwaway PostgreSQL
+cluster, which also admits the ignored schema, authorization, idempotency, and
+fault integration test. The workspace has no doctests.
 
 Rust and browser adapter contracts cover synchronization, authorization,
 multi-tab identity, the durable outbox, and convergence. Component tests use

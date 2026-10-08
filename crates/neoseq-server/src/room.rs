@@ -13,7 +13,6 @@ use thiserror::Error;
 use tokio::sync::{Mutex, OnceCell, mpsc};
 
 const SERVER_PEER_ID: u64 = u64::MAX - 1;
-const CHECKPOINT_TAIL_UPDATES: usize = 256;
 const CHECKPOINT_TAIL_BYTES: usize = 1024 * 1024;
 const INLINE_CHECKPOINT_FRAME_OVERHEAD: usize = 64 * 1024;
 
@@ -22,6 +21,8 @@ pub struct RoomConfig {
     pub limits: Limits,
     pub max_rooms: usize,
     pub max_sessions_per_room: usize,
+    /// Accepted updates after which a room compacts its Tail into a checkpoint.
+    pub checkpoint_tail_updates: usize,
 }
 
 impl Default for RoomConfig {
@@ -30,6 +31,7 @@ impl Default for RoomConfig {
             limits: Limits::default(),
             max_rooms: 1_024,
             max_sessions_per_room: 256,
+            checkpoint_tail_updates: 256,
         }
     }
 }
@@ -455,7 +457,7 @@ impl RoomManager {
             );
         }
         if matches!(outcome, CommitOutcome::Inserted { .. })
-            && (room.tail_updates >= CHECKPOINT_TAIL_UPDATES
+            && (room.tail_updates >= self.config.checkpoint_tail_updates
                 || room.tail_bytes >= CHECKPOINT_TAIL_BYTES)
         {
             // Compaction preserves causal history and live sessions. It follows

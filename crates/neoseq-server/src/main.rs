@@ -28,11 +28,21 @@ async fn serve(store: Arc<PgStore>) -> Result<(), Box<dyn std::error::Error>> {
     let bind = env::var("NEOSEQ_BIND").unwrap_or_else(|_| "127.0.0.1:8787".into());
     let address: SocketAddr = bind.parse()?;
     let metrics = Arc::new(Metrics::default());
+    let mut room_config = RoomConfig::default();
+    if let Ok(updates) = env::var("NEOSEQ_CHECKPOINT_TAIL_UPDATES") {
+        room_config.checkpoint_tail_updates = updates
+            .parse()
+            .ok()
+            .filter(|updates| *updates > 0)
+            .ok_or_else(|| {
+            io::Error::other("NEOSEQ_CHECKPOINT_TAIL_UPDATES must be a positive integer")
+        })?;
+    }
     let state = AppState::new(
         store,
         identity,
         metrics,
-        RoomConfig::default(),
+        room_config,
         4_096,
         Duration::from_secs(5),
     );

@@ -210,7 +210,7 @@ test("checkpoint compaction keeps the active editor and WebSocket alive", async 
   app,
   remote,
 }) => {
-  test.setTimeout(180_000);
+  const edits = remote.checkpointTailUpdates + 4;
   let connections = 0;
   let closes = 0;
   app.page.on("websocket", (socket) => {
@@ -225,7 +225,7 @@ test("checkpoint compaction keeps the active editor and WebSocket alive", async 
   await expectSynced(app.page);
   const initialConnections = connections;
   const initialCloses = closes;
-  for (let index = 0; index < 260; index++) await app.editBlock(0, `Revision ${index}`);
+  for (let index = 0; index < edits; index++) await app.editBlock(0, `Revision ${index}`);
   await expectSynced(app.page);
   expect(connections).toBe(initialConnections);
   expect(closes).toBe(initialCloses);
@@ -233,7 +233,7 @@ test("checkpoint compaction keeps the active editor and WebSocket alive", async 
   await expectSynced(app.page);
   const fresh = await remote.newProfile();
   await openRemote(fresh, remote, remote.owner, "Checkpoint writing", "Writing");
-  await fresh.expectOutline(["Revision 259", "Continued after compaction"]);
+  await fresh.expectOutline([`Revision ${edits - 1}`, "Continued after compaction"]);
 });
 
 test("document conversion merges offline edits and preserves identity on both replicas", async ({

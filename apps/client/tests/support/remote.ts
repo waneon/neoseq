@@ -20,6 +20,8 @@ interface RemoteGraph {
 
 interface RemoteServer {
   origin: string;
+  /** Accepted updates after which the server compacts a graph's checkpoint. */
+  checkpointTailUpdates: number;
   owner: RemoteAccount;
   peer: RemoteAccount;
   newProfile(): Promise<NeoseqApp>;
@@ -32,6 +34,7 @@ export const test = base.extend<{ remote: RemoteServer }>({
   remote: async ({ request, browser, baseURL, locale, timezoneId, viewport, colorScheme }, use) => {
     const origin = requiredEnvironment("NEOSEQ_E2E_SYNC_ORIGIN");
     const adminPassword = requiredEnvironment("NEOSEQ_E2E_ADMIN_PASSWORD");
+    const checkpointTailUpdates = Number(requiredEnvironment("NEOSEQ_E2E_CHECKPOINT_TAIL_UPDATES"));
     const admin = await login(request, origin, "e2e-admin", adminPassword, "admin");
     const adminHeaders = { authorization: `Bearer ${admin}` };
     const accounts: RemoteAccount[] = [];
@@ -66,6 +69,7 @@ export const test = base.extend<{ remote: RemoteServer }>({
       const peer = await provision("peer");
       await use({
         origin,
+        checkpointTailUpdates,
         owner,
         peer,
         catalog,

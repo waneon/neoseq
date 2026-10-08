@@ -25,6 +25,8 @@ const contractOrigin = `http://127.0.0.1:${contractPort}`;
 const syncOrigin = `http://127.0.0.1:${syncPort}`;
 const adminPassword = (process.env.NEOSEQ_E2E_ADMIN_PASSWORD ??= "browser admin password");
 process.env.NEOSEQ_E2E_SYNC_ORIGIN = syncOrigin;
+// A low threshold lets journeys reach checkpoint compaction in a few edits.
+process.env.NEOSEQ_E2E_CHECKPOINT_TAIL_UPDATES = "16";
 
 // Build steps live inside the server commands because Playwright starts its
 // web servers, in order, before anything else runs. Timeouts below are budgets
@@ -114,6 +116,7 @@ export default defineConfig({
         NEOSEQ_BIND: `127.0.0.1:${syncPort}`,
         NEOSEQ_BOOTSTRAP_ADMIN_USERNAME: "e2e-admin",
         NEOSEQ_BOOTSTRAP_ADMIN_PASSWORD: adminPassword,
+        NEOSEQ_CHECKPOINT_TAIL_UPDATES: process.env.NEOSEQ_E2E_CHECKPOINT_TAIL_UPDATES,
       },
       reuseExistingServer: false,
       timeout: 900_000,

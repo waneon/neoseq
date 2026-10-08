@@ -10,7 +10,9 @@
 
 ## Verification
 
-- Run the narrowest tier that covers the change: `devenv tasks run gate:check|gate:rust|gate:component`, or `devenv --profile browser shell -- pnpm --filter @neoseq/client exec playwright test [filters]`.
+- While iterating, run `devenv shell -- verify-changed`: it checks only what the changes since `main` can affect.
+- Otherwise run the narrowest tier that covers the change: `devenv tasks run gate:check|gate:rust|gate:component`, or `devenv --profile browser shell -- pnpm --filter @neoseq/client exec playwright test [filters]`.
+- Keep each component test file small; one long file bounds the whole parallel run.
 - Put a regression test in the lowest tier that can express it (Rust > component > browser journey).
 - In journeys, wait with `app.saved()` / `app.settled()`; never add sleeps or longer timeouts. If a journey can only pass by waiting for something invisible, fix the application.
 - A failure is yours until it reproduces on unmodified main; nondeterministic failures on main are reported and quarantined, not patched in passing.

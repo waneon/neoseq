@@ -11,7 +11,6 @@ let actTimingReports = 0;
 const actViolationDiagnostics = [
   "overlapping act() calls",
   "act(async () => ...) without await",
-  "`act` call was not awaited",
 ] as const;
 
 // Diagnostics that depend on scheduling. Application work runs on real timers,
@@ -20,9 +19,15 @@ const actViolationDiagnostics = [
 // failures they passed on fast workstations and failed on CI runners without
 // any change in behavior, so they are reported, never failed on. Assertions on
 // the settled result remain the evidence.
+//
+// "A component suspended … `act` call was not awaited" belongs here too: nothing
+// in the app suspends, and React also reports it when an act() starts inside
+// another act()'s flush, as user-event's act() does for a focus event that an
+// effect fires.
 const actTimingDiagnostics = [
   "was not wrapped in act",
   "The current testing environment is not configured to support act",
+  "`act` call was not awaited",
 ] as const;
 
 function formatConsoleArguments(args: unknown[]): string {

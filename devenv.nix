@@ -14,7 +14,6 @@ let
     server = config.processes.neoseq-server.ports.http.value;
   };
   databaseUrl = "postgresql:///neoseq?host=${config.env.PGHOST}&port=${toString config.env.PGPORT}";
-  databaseTest = "with-test-database cargo test -p neoseq-server --test postgres -- --ignored --nocapture";
   # The bindgen CLI must match the `wasm-bindgen` version in Cargo.lock exactly.
   wasmBindgen = pkgs.wasm-bindgen-cli_0_2_121;
   mkSource = pkgs.callPackage ./nix/libs/mk-source.nix { };
@@ -50,6 +49,7 @@ in
 {
   packages = [
     pkgs.cargo-deny
+    pkgs.cargo-nextest
     wasmBindgen
   ];
 
@@ -128,6 +128,8 @@ in
     };
   };
 
+  # The development server's database; tests create their own clusters
+  # (`with-test-database`).
   services.postgres = {
     enable = true;
     package = pkgs.postgresql_17;
@@ -180,12 +182,17 @@ in
   };
 
   scripts.with-test-database = {
-    description = "Run a command in an isolated temporary PostgreSQL database";
+    description = "Run a command against a throwaway PostgreSQL cluster";
     exec = ./scripts/with-test-database.sh;
     packages = [
       config.services.postgres.package
       pkgs.coreutils
     ];
+  };
+
+  scripts.verify-changed = {
+    description = "Verify only what changes since a base revision (default: main) can affect";
+    exec = ./scripts/verify-changed.sh;
   };
 
   scripts.publish-docker = {
@@ -235,8 +242,9 @@ in
       after = [ "contracts:check" ];
     };
     "rust:test" = {
-      description = "Test the Rust workspace";
-      exec = "cargo test --workspace --all-features";
+      description = "Test the Rust workspace, including PostgreSQL integration";
+      # The ignored tests need PostgreSQL; the workspace has no doctests.
+      exec = "with-test-database cargo nextest run --workspace --all-features --run-ignored all";
       after = [ "contracts:check" ];
     };
     "rust:deny" = {
@@ -248,12 +256,6 @@ in
     "node:licenses" = {
       description = "Check Node dependency licenses";
       exec = "node scripts/check-node-licenses.mjs";
-    };
-
-    "neoseq-server:postgres-test" = {
-      description = "Run PostgreSQL schema, persistence, and authorization tests";
-      exec = databaseTest;
-      after = [ "devenv:processes:postgres" ];
     };
 
     "frontend:check" = {
@@ -316,10 +318,7 @@ in
     };
     "gate:rust" = {
       description = "Rust tier: workspace and PostgreSQL integration tests";
-      after = [
-        "neoseq-server:postgres-test"
-        "rust:test"
-      ];
+      after = [ "rust:test" ];
     };
     "gate:component" = {
       description = "Component tier: client and dashboard component tests";

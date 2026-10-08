@@ -187,7 +187,9 @@ source of truth.
 ## Checkpoints and Retention
 
 Graph creation stores an initial verified checkpoint and rooms load that Base
-before its durable Tail. Storage compaction installs a snapshot containing all
+before its durable Tail. A room compacts after 256 accepted Tail updates or 1
+MiB (`NEOSEQ_CHECKPOINT_TAIL_UPDATES` overrides the count, which lets browser
+verification reach compaction quickly). Storage compaction installs a snapshot containing all
 retained causal history, copies covered content identities to compact receipts,
 advances the checkpoint pointer, and recomputes used bytes in one transaction.
 It retains the current Base, its immediate predecessor, and the Tail needed for

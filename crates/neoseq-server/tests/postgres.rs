@@ -17,7 +17,7 @@ use tokio_tungstenite::{
 };
 
 #[tokio::test]
-#[ignore = "requires PostgreSQL; run with devenv tasks run neoseq-server:postgres-test"]
+#[ignore = "requires PostgreSQL; run with devenv tasks run rust:test"]
 async fn postgres_schema_persistence_and_authorization() {
     let database_url = std::env::var("DATABASE_URL")
         .expect("DATABASE_URL must be provided by the PostgreSQL integration test fixture");

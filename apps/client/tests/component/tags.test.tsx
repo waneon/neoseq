@@ -805,8 +805,10 @@ describe("a tag's own page", () => {
     const { session, settle } = await mountTagPage();
 
     const start = await screen.findByTestId("outline-start");
+    // The tag's query lists blocks with the same editor label beside the outline.
+    const outline = start.closest<HTMLElement>(".outline-section")!;
     await settle(() => fireEvent.click(start));
-    const editor = await screen.findByLabelText("Block text");
+    const editor = await within(outline).findByLabelText("Block text");
     await settle(() => {
       fireEvent.change(editor, { target: { value: "Notes that belong to the tag" } });
       fireEvent.blur(editor);

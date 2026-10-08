@@ -1,35 +1,38 @@
 #!/usr/bin/env bash
+# Runs a command against its own throwaway PostgreSQL cluster. The cluster
+# listens only on a socket inside a private temporary directory, so concurrent
+# runs (other checkouts, other agents) never share a port or a database.
+# Everything is removed when the command exits.
 set -euo pipefail
 
 if (($# == 0)); then
   echo "usage: with-test-database <command> [argument ...]" >&2
   exit 64
 fi
-: "${PGHOST:?PGHOST must point to the managed PostgreSQL service}"
 
-database="neoseq_test_$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+# A short base keeps the socket path within the platform's length limit.
+cluster="$(mktemp -d /tmp/neoseq-db.XXXXXX)"
 child_pid=""
 
 # shellcheck disable=SC2329 # Invoked by the EXIT trap.
-drop_database() {
-  dropdb --if-exists --force --maintenance-db=postgres "$database" >/dev/null
-}
-
-# shellcheck disable=SC2329 # Invoked by the signal traps.
-terminate() {
+cleanup() {
   if [[ -n "$child_pid" ]]; then
     kill "$child_pid" 2>/dev/null || true
     wait "$child_pid" 2>/dev/null || true
-    child_pid=""
   fi
-  exit 143
+  pg_ctl --pgdata "$cluster/data" --mode immediate stop >/dev/null 2>&1 || true
+  rm -rf "$cluster"
 }
+trap cleanup EXIT
+trap 'exit 143' INT TERM
 
-createdb --maintenance-db=postgres "$database"
-trap drop_database EXIT
-trap terminate INT TERM
-export DATABASE_URL="postgresql:///$database?host=$PGHOST"
+initdb --pgdata "$cluster/data" --auth trust --username postgres --encoding UTF8 --no-locale \
+  --no-sync >/dev/null
+pg_ctl --pgdata "$cluster/data" --log "$cluster/postgres.log" --wait \
+  --options "-c listen_addresses='' -k $cluster -c fsync=off" start >/dev/null
+createdb --host "$cluster" --username postgres neoseq
 
+export DATABASE_URL="postgresql:///neoseq?host=$cluster&user=postgres"
 "$@" &
 child_pid="$!"
 set +e
