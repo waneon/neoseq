@@ -46,6 +46,15 @@ jobs:
       - name: Install devenv
         run: nix profile add nixpkgs#devenv
 
+      # Dependency builds per tier. The key reads the devenv toolchain, not the
+      # runner's; only main saves, so branches cannot evict its entries.
+      - name: Cache Rust builds
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.tier }}
+          cmd-format: devenv shell -- {0}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
       - name: Run ${{ matrix.tier }} tier
         run: ${{ matrix.command }}
 
