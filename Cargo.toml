@@ -37,7 +37,8 @@ ts-rs = { version = "12.0.1", features = [
   "no-serde-warnings",
 ] }
 url = "2.5"
-wasm-bindgen = "=0.2.121"
+# Exactly the `wasm-bindgen-cli` version in the locked nixpkgs.
+wasm-bindgen = "=0.2.127"
 zip = { version = "=8.6.0", default-features = false }
 
 [profile.wasm-release]

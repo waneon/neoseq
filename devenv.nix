@@ -14,8 +14,6 @@ let
     server = config.processes.neoseq-server.ports.http.value;
   };
   databaseUrl = "postgresql:///neoseq?host=${config.env.PGHOST}&port=${toString config.env.PGPORT}";
-  # The bindgen CLI must match the `wasm-bindgen` version in Cargo.lock exactly.
-  wasmBindgen = pkgs.wasm-bindgen-cli_0_2_121;
   mkSource = pkgs.callPackage ./nix/libs/mk-source.nix { };
   dashboardOutput = pkgs.callPackage ./nix/outputs/neoseq-dashboard.nix {
     inherit mkSource;
@@ -24,7 +22,6 @@ let
   };
   clientOutput = pkgs.callPackage ./nix/outputs/neoseq-client.nix {
     inherit mkSource;
-    wasm-bindgen-cli = wasmBindgen;
     rustToolchain = config.languages.rust.toolchainPackage;
     nodejs = config.languages.javascript.package;
     pnpm = config.languages.javascript.pnpm.package;
@@ -50,7 +47,7 @@ in
   packages = [
     pkgs.cargo-deny
     pkgs.cargo-nextest
-    wasmBindgen
+    pkgs.wasm-bindgen-cli
   ];
 
   languages = {
