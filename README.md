@@ -33,30 +33,30 @@ Enter the development shell with the following command.
 devenv shell
 ```
 
-Format all maintained codes with the following command.
+Format all maintained code with the following command.
 
 ```sh
-treefmt
+devenv shell -- treefmt
 ```
 
-Start the development Web client with Hot Module Replacement (HMR), then open
-`http://127.0.0.1:4173`.
+Start the development services, then open the client at `http://127.0.0.1:4173`
+(dashboard: `http://127.0.0.1:4174`; the local server's administrator is `admin`
+/ `change-me-later`).
 
 ```sh
-# Start the development services and HMR-enabled Web client.
 devenv up
-
-# In another development shell, rebuild Wasm after changing Rust code.
-devenv tasks run wasm:build-dev
+devenv tasks run wasm:build-dev   # in another shell, after changing Rust code
 ```
 
-Run the portable verification gate directly. The `browser` profile adds pinned
-Chromium and the isolated collaboration service, extending the same gate with
-browser-backed tests.
+Verify while iterating, by tier, or completely. The `browser` profile adds the
+browsers that Playwright needs; Playwright builds, serves, and synchronizes
+everything else itself.
 
 ```sh
-devenv test                    # portable verification gate
-devenv --profile browser test  # portable gate plus browser-backed tests
+devenv shell -- verify-changed                         # what changes since main can affect
+devenv tasks run gate:check|gate:rust|gate:component   # one tier
+devenv test                                            # every tier except the browser
+devenv --profile browser test                          # every tier
 ```
 
 ## License
