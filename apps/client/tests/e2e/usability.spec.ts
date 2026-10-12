@@ -75,6 +75,45 @@ test("touch writing tools preserve focus through structure changes and save on D
   await expect(app.block(1)).toHaveAttribute("aria-level", "1");
 });
 
+test("phone outlines read as a list while each row keeps a full touch handle", async ({
+  app,
+  page,
+  isMobile,
+}) => {
+  test.skip(!isMobile, "The touch handle and compact rhythm belong to phones.");
+  await app.createGraph("Compact rhythm");
+  await app.startBlock("First");
+  await app.appendBlock("Second");
+  await app.appendBlock("Third");
+  await page.keyboard.press("Escape");
+  const geometry = await app.rows.evaluateAll((rows) =>
+    rows.map((row) => {
+      const handle = row.querySelector(".outline-touch-handle")!.getBoundingClientRect();
+      const line = row.querySelector(".block-line:not([hidden]), textarea")!;
+      const lineBox = line.getBoundingClientRect();
+      const hit = document.elementFromPoint(
+        handle.left + handle.width / 2,
+        handle.top + handle.height / 2,
+      );
+      return {
+        top: row.getBoundingClientRect().top,
+        lineHeight: parseFloat(getComputedStyle(line).lineHeight) || lineBox.height,
+        handle: [handle.width, handle.height],
+        ownsCenter: row.querySelector(".outline-touch-handle")!.contains(hit),
+      };
+    }),
+  );
+  for (const [index, row] of geometry.entries()) {
+    expect(row.handle[0]).toBeGreaterThanOrEqual(44);
+    expect(row.handle[1]).toBeGreaterThanOrEqual(44);
+    expect(row.ownsCenter, `row ${index}`).toBe(true);
+    // Single lines sit closer together than a touch target is tall.
+    if (index > 0) {
+      expect(row.top - geometry[index - 1].top).toBeLessThanOrEqual(row.lineHeight + 8);
+    }
+  }
+});
+
 test("touch scrolling across block text keeps the outline unselected", async ({
   app,
   page,

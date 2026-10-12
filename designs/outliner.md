@@ -48,7 +48,8 @@ Touch swipes retain native scrolling and text selection; structural range and
 bullet dragging belong to mouse or pen gestures.
 
 Compact outlines use one touch target in the gutter: a visible fold control for
-parents and a block-actions mark for leaves. While writing, an accessory above
+parents and a block-actions mark for leaves. The target overhangs its row, so rows keep a
+reading rhythm only slightly looser than wrapped lines. While writing, an accessory above
 the keyboard provides Outdent, Indent, Block actions, and Done. Structural actions
 preserve the native caret; Done saves the draft and returns to reading and global
 navigation. These controls use the same outline actions and editing session as

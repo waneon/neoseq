@@ -911,14 +911,16 @@
 }
 
 @media (max-width: 840px) {
+  /* Rows keep a reading rhythm a little looser than wrapped lines; the 44px
+     touch handle overhangs its row rather than spacing the outline out. */
   .outline-section {
     --indent: 20px;
     --slot: 40px;
+    --touch-row-inset: 4px;
   }
 
   .outline-row {
-    --row-inset: 8px;
-    min-height: 44px;
+    --row-inset: var(--touch-row-inset);
   }
 
   .outline-toggle,
@@ -977,11 +979,11 @@
 
   .outline-placeholder,
   .outline-append {
-    padding-top: 8px;
+    padding-top: var(--touch-row-inset);
   }
 
   .outline-append::before {
-    top: calc(8px + var(--lh-md) / 2 - 1.5px);
+    top: calc(var(--touch-row-inset) + var(--lh-md) / 2 - 1.5px);
   }
 
   .mobile-editor-toolbar {
