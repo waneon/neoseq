@@ -33,7 +33,9 @@ baseline but not the writing surface.
 - **Healthy is silent.** Saving, syncing, and loading appear only past a flash
   threshold or when something needs attention.
 - **Stable geometry.** Content under the pointer or caret never moves because of
-  focus, hover, or arriving data.
+  focus, hover, selection, or arriving data. A control changes only its own
+  region: state never changes type metrics, marks and counts grow into free
+  space or ride a corner, and scroll gutters are reserved.
 - **One system in both modes.** Roles are semantic and complete in light and dark;
   reader-chosen color is limited to choices whose contrast is guaranteed.
 - **Accessibility and localization are constraints**, not polish.

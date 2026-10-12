@@ -91,7 +91,8 @@ the shared query grammar.
 Opening a graph is one column on the neutral canvas: the product mark and
 browser preferences, the Graphs heading with New graph, the graph list (name,
 role, creation, offline availability, and an actions menu), and a footer with
-Import and Connect a server. Locations become tabs above the list once more than
+Import and Connect a server that holds the window's foot, so switching
+locations moves only the list. Locations become tabs above the list once more than
 one exists; Local stays first and remote tabs name account and server. Quick
 catalog requests show no placeholder; a slow one reserves rows.
 

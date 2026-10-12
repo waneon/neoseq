@@ -11,6 +11,7 @@ import {
   repositoryTab,
   test,
 } from "../support/remote";
+import { shiftedBy } from "../support/stability";
 
 for (const persistent of [true, false]) {
   test(`${persistent ? "remembered" : "tab-scoped"} sign-in keeps the password out of storage and respects tab closure`, async ({
@@ -132,4 +133,42 @@ test("cancelling remote deletion preserves the graph and confirming removes it f
   await fresh.page.goto("/");
   await addRepository(fresh.page, remote.origin, remote.owner);
   await expect(fresh.page.getByTestId("picker-empty")).toBeVisible();
+});
+
+test("switching locations moves nothing but the list", async ({ app, remote }) => {
+  const page = app.page;
+  await createRemote(app, remote, "Remote notes");
+  await page.goto("/");
+  const local = page.getByRole("tab", { name: "Local", exact: true });
+  const server = repositoryTab(page, remote.origin, remote.owner);
+  for (const name of ["One", "Two", "Three", "Four"]) {
+    await local.click();
+    await page.getByTestId("new-graph").click();
+    await page.getByTestId("new-graph-name").fill(name);
+    await page.getByTestId("create-graph").click();
+    await expect(page.getByTestId("journal-title")).toBeVisible();
+    await page.goto("/");
+  }
+  const list = page.getByRole("tabpanel");
+  await page.evaluate(() => document.fonts.ready);
+  // Roomy, overflowing with the longer list, and phone-sized.
+  for (const size of [
+    { width: 1280, height: 720 },
+    { width: 1280, height: 400 },
+    { width: 390, height: 700 },
+  ]) {
+    await page.setViewportSize(size);
+    for (const tab of [local, server, local]) {
+      const moved = await shiftedBy(
+        page,
+        ".repository-panel, .picker-heading-actions",
+        async () => {
+          await tab.click();
+          await expect(tab).toHaveAttribute("aria-selected", "true");
+          await expect(list).toHaveAttribute("aria-busy", "false");
+        },
+      );
+      expect(moved, `${size.width}x${size.height}`).toEqual([]);
+    }
+  }
 });

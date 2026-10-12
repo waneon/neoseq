@@ -326,6 +326,26 @@
   color: var(--accent);
 }
 
+/* A result tool's count rides its corner instead of widening it, so its
+   neighbours and its open panel stay put as terms come and go. */
+.query-result-tools .query-tool {
+  position: relative;
+}
+
+.query-result-tools .query-tool-count {
+  position: absolute;
+  top: 0;
+  inset-inline-end: 0;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 9px;
+  line-height: 1;
+  pointer-events: none;
+}
+
 .query-header svg,
 .query-tool svg {
   width: 15px;

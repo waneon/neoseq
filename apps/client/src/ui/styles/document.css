@@ -295,6 +295,13 @@
     height: auto;
     margin: var(--sp-2) 0 0 -10px;
   }
+
+  /* The controls start the line here, so Today trails them rather than
+     pushing them aside when it appears. */
+  .journal-today.btn {
+    order: 1;
+    margin-inline: var(--sp-1) 0;
+  }
 }
 
 /* The journal continues below the day on screen. Each earlier day keeps the

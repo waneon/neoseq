@@ -75,6 +75,12 @@
   height: 12px;
 }
 
+/* The mark grows into the free side, so the label never moves under the
+   pointer: after a start-aligned name, before an end-aligned figure. */
+.directory-num .directory-sort {
+  flex-direction: row-reverse;
+}
+
 .directory-num {
   display: flex;
   justify-content: flex-end;
