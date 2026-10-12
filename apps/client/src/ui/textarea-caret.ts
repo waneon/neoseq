@@ -65,13 +65,15 @@ export function textareaCaretRect(
     height: "auto",
     left: "-100000px",
     overflow: "hidden",
-    overflowWrap: "break-word",
     pointerEvents: "none",
     position: "fixed",
     top: "0",
     visibility: "hidden",
-    whiteSpace: "pre-wrap",
   });
+  // A code editor does not wrap; prose does, as the textarea itself says.
+  const wraps = computed.whiteSpace !== "pre";
+  mirror.style.whiteSpace = wraps ? "pre-wrap" : "pre";
+  mirror.style.overflowWrap = wraps ? "break-word" : "normal";
   for (const property of COPIED_PROPERTIES) {
     mirror.style.setProperty(property, computed.getPropertyValue(property));
   }

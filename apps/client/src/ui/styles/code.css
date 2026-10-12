@@ -1,0 +1,200 @@
+/* A code block is an inset surface: numbered lines, highlighted text, and its
+   language at the corner. Reading and editing share every metric, because the
+   editor is a transparent textarea laid exactly over the highlighted text. */
+
+:root {
+  --code-lh: var(--lh-sm);
+  --code-pad-y: var(--sp-2);
+  --code-pad-x: var(--sp-3);
+  /* Space an outline code block keeps from its neighbours. */
+  --code-gap: var(--sp-1);
+  /* Line numbers keep this much clear of text scrolled beneath them; the text
+     starts the rest of its inset further in. */
+  --code-gutter-gap: var(--sp-2);
+  --code-text-start: calc(var(--code-pad-x) - var(--code-gutter-gap));
+}
+
+/* Shiki's token roles, realized from the foundation's syntax lightness. */
+.code-block {
+  --code-foreground: var(--ink);
+  --code-token-comment: var(--ink-3);
+  --code-token-punctuation: var(--ink-2);
+  --code-token-keyword: oklch(var(--syntax-l) var(--syntax-c) 305);
+  --code-token-string: oklch(var(--syntax-l) var(--syntax-c) 150);
+  --code-token-string-expression: oklch(var(--syntax-l) var(--syntax-c) 150);
+  --code-token-constant: oklch(var(--syntax-l) var(--syntax-c) 55);
+  --code-token-function: oklch(var(--syntax-l) var(--syntax-c) 250);
+  --code-token-parameter: oklch(var(--syntax-l) var(--syntax-c) 20);
+  --code-token-link: var(--accent);
+
+  position: relative;
+  display: flex;
+  max-width: 100%;
+  border-radius: var(--r-3);
+  background: var(--surface-1);
+  color: var(--code-foreground);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-normal);
+  line-height: var(--code-lh);
+  text-align: start;
+  /* The textarea and its highlighted copy must lay glyphs out identically. */
+  font-kerning: none;
+  font-variant-ligatures: none;
+  text-rendering: auto;
+}
+
+.code-gutter {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  min-width: calc(2ch + var(--code-pad-x) + var(--code-gutter-gap));
+  padding: var(--code-pad-y) var(--code-gutter-gap) var(--code-pad-y) var(--code-pad-x);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+  user-select: none;
+}
+
+.code-gutter > span {
+  height: var(--code-lh);
+}
+
+.code-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow: auto hidden;
+}
+
+/* Clips the editor's hidden fence lines without becoming a scroller, so caret
+   reveal can never shift the text against its highlighted copy. */
+.code-surface {
+  position: relative;
+  width: max-content;
+  min-width: max(100%, calc(var(--code-fence-width) + var(--code-text-start) + var(--code-pad-x)));
+  overflow: clip;
+}
+
+.code-text {
+  margin: 0;
+  padding: var(--code-pad-y) var(--code-pad-x) var(--code-pad-y) var(--code-text-start);
+  font: inherit;
+  white-space: pre;
+  tab-size: 4;
+}
+
+.code-text code {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+
+.code-line {
+  display: block;
+  min-height: var(--code-lh);
+}
+
+/* The language names itself at rest; it is a control only where the block is
+   edited as code. */
+.code-language {
+  position: absolute;
+  top: 0;
+  inset-inline-end: 0;
+  display: inline-flex;
+  align-items: center;
+  height: calc(var(--code-lh) + 2 * var(--code-pad-y));
+  padding: 0 var(--code-pad-x);
+  border-radius: 0 var(--r-3) 0 var(--r-2);
+  background: var(--surface-1);
+  color: var(--ink-3);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+.code-language[role="combobox"] {
+  gap: var(--sp-1);
+  width: auto;
+  min-height: 0;
+  border: 0;
+  background: var(--surface-1);
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.code-language[role="combobox"]:hover:not(:disabled),
+.code-language[role="combobox"][data-state="open"] {
+  background: var(--surface-1);
+  box-shadow: none;
+  color: var(--ink);
+}
+
+.code-language[role="combobox"]:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-inset);
+}
+
+.code-language[role="combobox"] svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* The editor holds the fence lines too; it starts one line above the surface so
+   those lines fall outside it, and its text is drawn by the copy beneath. */
+.code-surface > textarea.code-input {
+  position: absolute;
+  inset-inline: 0;
+  top: calc(-1 * var(--code-lh));
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: var(--code-pad-y) var(--code-pad-x) var(--code-pad-y) var(--code-text-start);
+  border: 0;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--ink);
+  font: inherit;
+  font-feature-settings: inherit;
+  font-kerning: inherit;
+  font-variant-ligatures: inherit;
+  text-rendering: inherit;
+  line-height: var(--code-lh);
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow: hidden;
+  tab-size: 4;
+  resize: none;
+}
+
+.code-surface > textarea.code-input::selection {
+  background: color-mix(in oklab, var(--accent) 26%, transparent);
+  color: transparent;
+}
+
+.code-surface > textarea.code-input:focus {
+  outline: none;
+}
+
+/* An outline code block spans the writing measure, and its bullet centers on
+   the first line of code. */
+.outline-code {
+  flex: 1 1 100%;
+  min-width: 0;
+  padding: var(--code-gap) var(--sp-1);
+}
+
+.block-row:has(> .block-body > .outline-code) {
+  --block-first-line-height: calc(var(--code-lh) + 2 * (var(--code-pad-y) + var(--code-gap)));
+}
+
+.block-row:has(> .block-body > .block-line > .block-markdown > .code-block:first-child) {
+  --block-first-line-height: calc(var(--code-lh) + 2 * var(--code-pad-y));
+}
+
+.block-markdown .code-block + *,
+.block-markdown * + .code-block {
+  margin-top: var(--sp-2);
+}

@@ -71,8 +71,10 @@ with the editor above it. A GFM task list item renders as an inert checkbox — 
 block's own task-status property remains the only representation of a task, and
 the projection never writes one.
 
-The profile, rather than the parser dependency, is the product contract. Math or
-syntax highlighting requires an explicit profile change. Graph references
+The profile, rather than the parser dependency, is the product contract. Math
+requires an explicit profile change. Fenced code renders as a code block with
+line numbers and syntax highlighting for the languages its fence names (see
+[code blocks](code-blocks.md)). Graph references
 follow the separate core/domain contract in
 [page references](page-references.md); the renderer never infers one from text.
 

@@ -115,6 +115,7 @@ Detailed contracts:
 - [Client application](architectures/clients.md)
 - [Repository-qualified graphs](architectures/repositories.md)
 - [Block Markdown rendering](architectures/markdown-rendering.md)
+- [Code blocks](architectures/code-blocks.md)
 - [Inline page references](architectures/page-references.md)
 - [Outline clipboard](architectures/clipboard.md)
 - [Undo/redo navigation](architectures/history-navigation.md)

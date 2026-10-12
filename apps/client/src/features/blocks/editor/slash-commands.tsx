@@ -14,6 +14,7 @@ import type { ReactNode } from "react";
 import {
   AlarmClockIcon,
   CalendarIcon,
+  CodeXmlIcon,
   ListTreeIcon,
   RepeatIcon,
   Settings2Icon,
@@ -36,12 +37,21 @@ type SlashAction =
   | { kind: "set"; key: string; value: PropertyValue }
   | { kind: "picker"; key?: string }
   /** Turns the block into a query and opens the builder on a starting plan. */
-  | { kind: "query" };
+  | { kind: "query" }
+  /** Turns the block's text into a code block and asks for its language. */
+  | { kind: "code" };
 
-export type SlashGroup = "status" | "priority" | "date" | "query" | "property";
+export type SlashGroup = "status" | "priority" | "date" | "query" | "code" | "property";
 
 /** Groups in the order the menu renders them. */
-export const SLASH_GROUP_ORDER: SlashGroup[] = ["status", "priority", "date", "query", "property"];
+export const SLASH_GROUP_ORDER: SlashGroup[] = [
+  "status",
+  "priority",
+  "date",
+  "query",
+  "code",
+  "property",
+];
 
 export interface SlashItem {
   id: string;
@@ -136,6 +146,15 @@ export function buildSlashItems(message: MessageFunction): SlashItem[] {
     aliases: ["query", "search", "filter", "find", "쿼리", "검색", "찾기", "필터"],
     glyph: <ListTreeIcon aria-hidden />,
     action: { kind: "query" },
+  });
+  items.push({
+    id: "code",
+    group: "code",
+    label: message("code.slashLabel"),
+    hint: message("code.slashHint"),
+    aliases: ["code", "codeblock", "snippet", "fence", "코드", "코드 블록"],
+    glyph: <CodeXmlIcon aria-hidden />,
+    action: { kind: "code" },
   });
   items.push({
     id: "property",

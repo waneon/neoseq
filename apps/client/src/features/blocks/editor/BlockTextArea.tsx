@@ -41,6 +41,8 @@ export interface BlockTextAreaProps extends Omit<
   contentSession?: BlockContentSession;
   /** False in a modal command mode: selection stays native, text insertion does not. */
   acceptsTextInput?: boolean;
+  /** Prose pairs brackets, quotes and backticks; code is typed as written. */
+  autoPair?: boolean;
   onValueChange(value: string, textarea: HTMLTextAreaElement, edit?: BlockTextEdit): void;
   /** Pair overtype can move the caret without changing text. */
   onPairSelection?(textarea: HTMLTextAreaElement): void;
@@ -79,6 +81,7 @@ export const BlockTextArea = forwardRef<HTMLTextAreaElement, BlockTextAreaProps>
       contentSession,
       value,
       acceptsTextInput = true,
+      autoPair = true,
       onValueChange,
       onPairSelection,
       onCompositionStart,
@@ -101,6 +104,7 @@ export const BlockTextArea = forwardRef<HTMLTextAreaElement, BlockTextAreaProps>
       autoClosers,
       value,
       acceptsTextInput,
+      autoPair,
       onValueChange,
       onPairSelection,
       readOnly,
@@ -109,6 +113,7 @@ export const BlockTextArea = forwardRef<HTMLTextAreaElement, BlockTextAreaProps>
       autoClosers,
       value,
       acceptsTextInput,
+      autoPair,
       onValueChange,
       onPairSelection,
       readOnly,
@@ -202,6 +207,7 @@ export const BlockTextArea = forwardRef<HTMLTextAreaElement, BlockTextAreaProps>
           return;
         }
 
+        if (!latest.current.autoPair) return;
         const direction = textarea.selectionDirection;
         const plan = planAutoPair({
           value: textarea.value,

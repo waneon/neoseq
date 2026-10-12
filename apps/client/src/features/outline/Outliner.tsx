@@ -31,8 +31,10 @@ import {
   ArrowDownIcon,
   ArrowUpIcon,
   ChevronDownIcon,
+  CodeXmlIcon,
   CopyIcon,
   CornerDownRightIcon,
+  FileCodeIcon,
   HashIcon,
   IndentDecreaseIcon,
   IndentIncreaseIcon,
@@ -123,6 +125,10 @@ import {
 import { useI18n, type MessageFunction, type MessageKey } from "../../i18n";
 import { useImmediateState, useLatest } from "../../lib/react";
 import { BlockMarkdown } from "../markdown/BlockMarkdown";
+import { CodeLanguageSelect } from "../code/CodeLanguageSelect";
+import { CodeView } from "../code/CodeView";
+import { indent, indentUnit, newline, type CodeEdit } from "../code/editing";
+import { codeFence, fencedSource, lengthenFence, withInfo } from "../code/fence";
 import { hasMarkdownSyntax } from "../markdown/profile";
 import { BlockBody, BlockRowFrame } from "../blocks/BlockPresentation";
 import { BlockTextArea } from "../blocks/editor/BlockTextArea";
@@ -211,7 +217,7 @@ const NO_PAGE_REFERENCES: readonly PageReferenceSpan[] = [];
  * autocomplete, a settings dialog — and the outline is not one of them.
  */
 const FLOATING_OVERLAY_SELECTOR =
-  '[data-slot="dropdown-menu-content"],[data-slot="dialog-content"],.ac-popover,.property-picker,.tag-picker,.slash-menu,.cmdk';
+  '[data-slot="dropdown-menu-content"],[data-slot="select-content"],[data-slot="dialog-content"],.ac-popover,.property-picker,.tag-picker,.slash-menu,.cmdk';
 /** Edge band that pulls the scroll container along during a drag. */
 const AUTOSCROLL_BAND_PX = 56;
 const AUTOSCROLL_MAX_PX = 18;
@@ -296,6 +302,13 @@ interface EditorContext {
   /** Rows the selection covers, passengers included — what a bulk verb will take. */
   selectionCount: number;
   presence: readonly PeerPresence[];
+  /** The code block being edited as its Markdown source, fences and all. */
+  sourceId: string | null;
+  /** The code block whose language list is open. */
+  languageFor: string | null;
+  toggleSource(row: OutlineRow): void;
+  setLanguage(row: OutlineRow, info: string): void;
+  openLanguage(id: string | null): void;
   activateBlock(
     id: string | null,
     caret: number | undefined,
@@ -429,6 +442,16 @@ export function Outliner({
   );
   const [focusedId, setFocusedId, focusedRef] = useImmediateState<string | null>(null);
   const [pressedSourceId, setPressedSourceId] = useState<string | null>(null);
+  const [sourceId, setSourceId] = useState<string | null>(null);
+  const [languageFor, setLanguageFor] = useState<string | null>(null);
+  const sourceIdRef = useLatest(sourceId);
+  /** Whether `value` is edited as code here: a code block not opened as source. */
+  const editsAsCode = (id: string, value: string) =>
+    sourceIdRef.current !== id && codeFence(value) !== null;
+  // Source editing is an act on one block; it ends when the caret leaves it.
+  useEffect(() => {
+    if (sourceId !== null && focusedId !== sourceId) setSourceId(null);
+  }, [focusedId, sourceId]);
   const revealSequence = useRef(0);
   const [navigationReveal, setNavigationReveal] = useState<NavigationRevealRequest | null>(null);
   const revealNavigationTarget = useCallback((id: string | null) => {
@@ -2219,6 +2242,31 @@ export function Outliner({
     presence: [...state.presence.values()].filter(
       (peer) => peer.owner !== undefined && sameOutlineOwner(peer.owner, owner),
     ),
+    sourceId,
+    languageFor,
+    toggleSource: (row) => {
+      const id = row.block.id;
+      const textarea = document.querySelector<HTMLTextAreaElement>(
+        `#row-${CSS.escape(id)} textarea`,
+      );
+      setSourceId((current) => (current === id ? null : id));
+      activateBlock(id, textarea?.selectionStart, "keyboard");
+    },
+    setLanguage: (row, info) => {
+      if (readonly) return;
+      const value = readDraft(row.block.id)?.markdown ?? row.block.markdown;
+      const fence = codeFence(value);
+      if (!fence || fence.info === info) return;
+      dispatchDraft({
+        type: "edit",
+        id: row.block.id,
+        value: withInfo(value, fence, info),
+        baselineIfAbsent: row.block.markdown,
+        autoClosers: [],
+      });
+      if (!isPendingId(row.block.id)) flushNow(row.block.id);
+    },
+    openLanguage: setLanguageFor,
     activateBlock,
     releaseFocus,
     publishSelection,
@@ -2300,6 +2348,22 @@ export function Outliner({
       const pickerAnchor = snapshotAnchor(completionAnchor(request));
       const value = readDraft(row.block.id)?.markdown ?? row.block.markdown;
       const { value: next, caret } = removeCompletionToken(value, request);
+      if (chosen.action.kind === "code") {
+        // The block's own text becomes the code; the language is asked next.
+        const source = fencedSource(next);
+        dispatchDraft({
+          type: "edit",
+          id: row.block.id,
+          value: source,
+          baselineIfAbsent: row.block.markdown,
+          autoClosers: [],
+        });
+        pendingCaret.current = codeFence(source)!.bodyEnd;
+        setSlashRequest(null);
+        setLanguageFor(row.block.id);
+        if (!isPendingId(row.block.id)) scheduleFlush(row.block.id);
+        return;
+      }
       dispatchDraft({
         type: "edit",
         id: row.block.id,
@@ -2486,7 +2550,8 @@ export function Outliner({
         autoClosers: nextClosers,
       });
       if (!composing.current) {
-        const completing = updateCompletions(row.block.id, value, textarea);
+        const completing =
+          !editsAsCode(row.block.id, value) && updateCompletions(row.block.id, value, textarea);
         if (completing) {
           const timer = flushTimers.current.get(row.block.id);
           if (timer) {
@@ -2510,7 +2575,8 @@ export function Outliner({
       composing.current = false;
       finishComposition();
       const value = readDraft(row.block.id)?.markdown ?? row.block.markdown;
-      if (!updateCompletions(row.block.id, value, textarea)) scheduleFlush(row.block.id);
+      if (editsAsCode(row.block.id, value) || !updateCompletions(row.block.id, value, textarea))
+        scheduleFlush(row.block.id);
     },
     onKeyDown: (row, event) => onKeyDown(editor, row, rowsRef.current, event, bindings),
     flushNow,
@@ -3730,6 +3796,7 @@ function onKeyDown(
       return;
     }
   }
+  if (handleCodeKey(editor, row, rows, event)) return;
   if (editor.keymap === "vim" && handleOutlineVim(editor, row, rows, event)) return;
   // Pending rows accept text and the core outline idioms (Enter, Tab)
   // until the insert is acknowledged; other structural keys are ignored.
@@ -3896,6 +3963,104 @@ function onKeyDown(
       editor.activateBlock(rows[position + 1].block.id, 0, "keyboard");
     }
   }
+}
+
+/**
+ * Keys inside a code block mean what they mean in a code editor: Enter breaks
+ * the line, Tab indents, and the fence lines are never reached. Shift+Enter
+ * leaves the code for a new block, and the first and last lines step to the
+ * neighbouring blocks as a line of writing does.
+ */
+function handleCodeKey(
+  editor: EditorContext,
+  row: OutlineRow,
+  rows: OutlineRow[],
+  event: KeyboardEvent<HTMLTextAreaElement>,
+): boolean {
+  if (editor.sourceId === row.block.id) return false;
+  if (editor.keymap === "vim" && editor.vim.state.mode !== "insert") return false;
+  const textarea = event.currentTarget;
+  const value = textarea.value;
+  const fence = codeFence(value);
+  if (!fence) return false;
+  const { selectionStart: start, selectionEnd: end } = textarea;
+  const collapsed = start === end;
+  const modified = event.metaKey || event.ctrlKey || event.altKey;
+  const apply = (edit: CodeEdit) => {
+    event.preventDefault();
+    if (editor.readonly) return true;
+    textarea.setRangeText(edit.insert, edit.from, edit.to, "end");
+    textarea.setSelectionRange(edit.selectionStart, edit.selectionEnd);
+    editor.onInput(row, textarea.value, textarea);
+    return true;
+  };
+
+  if (event.key === "Enter" && !modified) {
+    if (!event.shiftKey) return apply(newline(value, start, end));
+    event.preventDefault();
+    if (editor.readonly) return true;
+    textarea.setSelectionRange(value.length, value.length);
+    handleEnter(editor, row, textarea);
+    return true;
+  }
+  if (event.key === "Tab" && !modified) {
+    return apply(indent(value, start, end, indentUnit(fence.body), event.shiftKey));
+  }
+  if (
+    (event.metaKey || event.ctrlKey) &&
+    !event.altKey &&
+    !event.shiftKey &&
+    event.key.toLowerCase() === "a"
+  ) {
+    // The code first, then the block, as ⌘A widens in writing.
+    event.preventDefault();
+    if (start === fence.bodyStart && end === fence.bodyEnd) editor.selectOnly(row);
+    else textarea.setSelectionRange(fence.bodyStart, fence.bodyEnd);
+    return true;
+  }
+  if (event.key === "Backspace" && collapsed && start === fence.bodyStart) {
+    event.preventDefault();
+    // An empty code block unwraps into an empty line of writing.
+    if (fence.body === "" && !editor.readonly) {
+      textarea.setRangeText("", 0, value.length, "end");
+      editor.onInput(row, "", textarea);
+    }
+    return true;
+  }
+  if (event.key === "Delete" && collapsed && start === fence.bodyEnd) {
+    event.preventDefault();
+    return true;
+  }
+  if (
+    !event.shiftKey &&
+    collapsed &&
+    ((event.key === "ArrowLeft" && start === fence.bodyStart) ||
+      (event.key === "ArrowRight" && start === fence.bodyEnd))
+  ) {
+    event.preventDefault();
+    return true;
+  }
+  if ((event.key === "ArrowUp" || event.key === "ArrowDown") && !modified) {
+    const up = event.key === "ArrowUp";
+    const atEdge = up
+      ? !value.slice(fence.bodyStart, start).includes("\n")
+      : !value.slice(end, fence.bodyEnd).includes("\n");
+    if (!atEdge) return false;
+    event.preventDefault();
+    if (event.shiftKey) {
+      if (up) textarea.setSelectionRange(fence.bodyStart, end, "backward");
+      else textarea.setSelectionRange(start, fence.bodyEnd, "forward");
+      return true;
+    }
+    if (isPendingId(row.block.id)) return true;
+    const target = rows[rowIndexOf(rows, row.block.id) + (up ? -1 : 1)];
+    if (target) {
+      editor.flushNow(row.block.id);
+      editor.activateBlock(target.block.id, up ? undefined : 0, "keyboard");
+    }
+    return true;
+  }
+  return false;
 }
 
 function handleOutlineVim(
@@ -4156,6 +4321,8 @@ type BlockRowActions = Pick<
   | "publishSelection"
   | "releaseFocus"
   | "toggleCollapse"
+  | "setLanguage"
+  | "openLanguage"
 >;
 
 interface BlockRowProps {
@@ -4170,6 +4337,9 @@ interface BlockRowProps {
   autoClosers: readonly AutoCloserMarker[];
   focused: boolean;
   retainSource: boolean;
+  /** A code block opened as its Markdown source. */
+  sourceMode: boolean;
+  languageOpen: boolean;
   selected: boolean;
   revealed: boolean;
   highlightToken?: string;
@@ -4205,6 +4375,8 @@ function blockRowProps(
   return {
     autoClosers: editor.autoClosersOf(row.block.id),
     focused,
+    sourceMode: editor.sourceId === row.block.id,
+    languageOpen: editor.languageFor === row.block.id,
     selected: editor.covered.has(row.block.id),
     revealed: editor.revealed.has(row.block.id),
     highlightToken:
@@ -4261,7 +4433,15 @@ function BlockRow({
   const taskPriority = stringValue(row.block.properties, TASK_PRIORITY_KEY);
   const tags = row.block.tags;
   const selected = view.selected;
+  const fence = useMemo(
+    () => (view.sourceMode ? null : codeFence(value)),
+    [value, view.sourceMode],
+  );
+  const codeMode = fence !== null;
+  /** The caret's offset into the code, kept for focus returning from the language list. */
+  const codeCaret = useRef<number | null>(null);
   const previewMarkdown =
+    !codeMode &&
     !isFocused &&
     !view.retainSource &&
     !pending &&
@@ -4270,7 +4450,7 @@ function BlockRow({
   // task marks either.
   const marks = pending ? 0 : Number(taskStatus !== undefined) + Number(taskPriority !== undefined);
 
-  useTextAreaSize(textareaRef, value, previewMarkdown);
+  useTextAreaSize(textareaRef, value, previewMarkdown, undefined, codeMode ? "code" : "text");
 
   useLayoutEffect(() => {
     if (!isFocused) return;
@@ -4288,15 +4468,116 @@ function BlockRow({
     keepingPageStill(textarea, () => {
       textarea.focus({ preventScroll: true });
       const caret = actions.current.pendingCaret.current;
-      if (caret !== null) {
-        const offset = Math.min(caret, textarea.value.length);
-        textarea.setSelectionRange(offset, offset);
-        actions.current.pendingCaret.current = null;
-      } else {
-        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
-      }
+      actions.current.pendingCaret.current = null;
+      let offset = Math.min(caret ?? textarea.value.length, textarea.value.length);
+      // Switching between code and source remounts the editor in place.
+      const code = codeMode ? codeFence(textarea.value) : null;
+      if (code) offset = Math.min(Math.max(offset, code.bodyStart), code.bodyEnd);
+      textarea.setSelectionRange(offset, offset);
     });
-  }, [isFocused, actions.current.pendingCaret]);
+  }, [isFocused, actions.current.pendingCaret, codeMode]);
+
+  /** Keeps a code block's selection inside the code, off its hidden fence lines. */
+  const keepInCode = (textarea: HTMLTextAreaElement) => {
+    const code = codeFence(textarea.value);
+    if (!code) return;
+    const clamp = (offset: number) => Math.min(Math.max(offset, code.bodyStart), code.bodyEnd);
+    const start = clamp(textarea.selectionStart);
+    const end = clamp(textarea.selectionEnd);
+    if (start !== textarea.selectionStart || end !== textarea.selectionEnd) {
+      textarea.setSelectionRange(start, end, textarea.selectionDirection);
+    }
+    codeCaret.current = textarea.selectionStart - code.bodyStart;
+  };
+
+  const textArea = (
+    <BlockTextArea
+      ref={textareaRef}
+      className={codeMode ? "outline-input code-input" : "block-line outline-input"}
+      rows={1}
+      value={value}
+      placeholder={
+        !codeMode && value === "" && queryDocument(row.block.properties) !== undefined
+          ? message("query.caption")
+          : undefined
+      }
+      autoClosers={view.autoClosers}
+      contentSession={content}
+      data-block-editor
+      hidden={previewMarkdown}
+      // The browser's spell checker has no idea what a graph is. It underlines
+      // page names, tags, property keys and code as mistakes, which in a
+      // document made of short lines means a page of red — and it cannot be
+      // right about text this product has no language for. The implementation
+      // boundary in DESIGN.md cuts the other way here: this is native where
+      // native is wrong.
+      spellCheck={false}
+      tabIndex={previewMarkdown ? -1 : undefined}
+      readOnly={view.readonly}
+      acceptsTextInput={view.keymap !== "vim" || view.vimMode === "insert"}
+      autoPair={!codeMode}
+      aria-readonly={view.readonly ? true : undefined}
+      data-vim-mode={view.keymap === "vim" ? view.vimMode : undefined}
+      aria-label={message("outline.blockText")}
+      aria-controls={view.controls}
+      aria-activedescendant={view.activeDescendant}
+      dir="auto"
+      // A press marks itself before the browser focuses what it landed on,
+      // so the entrance below is read rather than guessed. Both readers of
+      // the mark clear it: the gesture it belongs to is over by then, and a
+      // mark left standing would tell the next keyboard arrival it was a
+      // press.
+      onPointerDown={actions.current.activationEntrance.beginPointer}
+      onPointerUp={actions.current.activationEntrance.completePointer}
+      onPointerCancel={actions.current.activationEntrance.completePointer}
+      onFocus={() => {
+        const method = actions.current.activationEntrance.focusMethod();
+        if (!isFocused) {
+          actions.current.activateBlock(row.block.id, -1, method);
+        }
+        if (textareaRef.current)
+          actions.current.publishSelection(row.block.id, textareaRef.current);
+      }}
+      onClick={() => {
+        actions.current.activationEntrance.completePointer();
+        actions.current.activateBlock(row.block.id, undefined, "pointer");
+      }}
+      onSelect={(event) => {
+        if (codeMode) keepInCode(event.currentTarget);
+        actions.current.publishSelection(row.block.id, event.currentTarget);
+      }}
+      onBlur={() => {
+        actions.current.flushNow(row.block.id);
+        actions.current.releaseFocus(row.block.id);
+      }}
+      onValueChange={(next, textarea, edit) => {
+        // A line that would close the fence lengthens both fences instead.
+        const grown = codeMode ? lengthenFence(next) : null;
+        if (!grown) {
+          actions.current.onInput(row, next, textarea, edit);
+          return;
+        }
+        const { selectionStart, selectionEnd } = textarea;
+        textarea.value = grown.source;
+        textarea.setSelectionRange(selectionStart + grown.added, selectionEnd + grown.added);
+        actions.current.onInput(row, grown.source, textarea);
+      }}
+      onPairSelection={(textarea) => actions.current.publishSelection(row.block.id, textarea)}
+      onCompositionStart={() => actions.current.onCompositionStart(row)}
+      onCompositionEnd={(event) => actions.current.onCompositionEnd(row, event.currentTarget)}
+      onKeyDown={(event) => actions.current.onKeyDown(row, event)}
+      onPaste={(event) => {
+        const decoded = decodeOutlineClipboard(event.clipboardData);
+        if (decoded.kind === "text" || view.readonly || pending || codeMode) return;
+        event.preventDefault();
+        if (decoded.kind === "fragment") {
+          actions.current.pasteFragment(row, decoded.fragment);
+        } else {
+          actions.current.pasteOutline(row, decoded.items);
+        }
+      }}
+    />
+  );
 
   return (
     <BlockRowFrame
@@ -4420,79 +4701,38 @@ function BlockRow({
             )}
           </span>
         )}
-        <BlockTextArea
-          ref={textareaRef}
-          className="block-line outline-input"
-          rows={1}
-          value={value}
-          placeholder={
-            value === "" && queryDocument(row.block.properties) !== undefined
-              ? message("query.caption")
-              : undefined
-          }
-          autoClosers={view.autoClosers}
-          contentSession={content}
-          data-block-editor
-          hidden={previewMarkdown}
-          // The browser's spell checker has no idea what a graph is. It underlines
-          // page names, tags, property keys and code as mistakes, which in a
-          // document made of short lines means a page of red — and it cannot be
-          // right about text this product has no language for. The implementation
-          // boundary in DESIGN.md cuts the other way here: this is native where
-          // native is wrong.
-          spellCheck={false}
-          tabIndex={previewMarkdown ? -1 : undefined}
-          readOnly={view.readonly}
-          acceptsTextInput={view.keymap !== "vim" || view.vimMode === "insert"}
-          aria-readonly={view.readonly ? true : undefined}
-          data-vim-mode={view.keymap === "vim" ? view.vimMode : undefined}
-          aria-label={message("outline.blockText")}
-          aria-controls={view.controls}
-          aria-activedescendant={view.activeDescendant}
-          dir="auto"
-          // A press marks itself before the browser focuses what it landed on,
-          // so the entrance below is read rather than guessed. Both readers of
-          // the mark clear it: the gesture it belongs to is over by then, and a
-          // mark left standing would tell the next keyboard arrival it was a
-          // press.
-          onPointerDown={actions.current.activationEntrance.beginPointer}
-          onPointerUp={actions.current.activationEntrance.completePointer}
-          onPointerCancel={actions.current.activationEntrance.completePointer}
-          onFocus={() => {
-            const method = actions.current.activationEntrance.focusMethod();
-            if (!isFocused) {
-              actions.current.activateBlock(row.block.id, -1, method);
-            }
-            if (textareaRef.current)
-              actions.current.publishSelection(row.block.id, textareaRef.current);
-          }}
-          onClick={() => {
-            actions.current.activationEntrance.completePointer();
-            actions.current.activateBlock(row.block.id, undefined, "pointer");
-          }}
-          onSelect={(event) => actions.current.publishSelection(row.block.id, event.currentTarget)}
-          onBlur={() => {
-            actions.current.flushNow(row.block.id);
-            actions.current.releaseFocus(row.block.id);
-          }}
-          onValueChange={(next, textarea, edit) =>
-            actions.current.onInput(row, next, textarea, edit)
-          }
-          onPairSelection={(textarea) => actions.current.publishSelection(row.block.id, textarea)}
-          onCompositionStart={() => actions.current.onCompositionStart(row)}
-          onCompositionEnd={(event) => actions.current.onCompositionEnd(row, event.currentTarget)}
-          onKeyDown={(event) => actions.current.onKeyDown(row, event)}
-          onPaste={(event) => {
-            const decoded = decodeOutlineClipboard(event.clipboardData);
-            if (decoded.kind === "text" || view.readonly || pending) return;
-            event.preventDefault();
-            if (decoded.kind === "fragment") {
-              actions.current.pasteFragment(row, decoded.fragment);
-            } else {
-              actions.current.pasteOutline(row, decoded.items);
-            }
-          }}
-        />
+        {fence ? (
+          <div className="block-line outline-code">
+            <CodeView
+              code={fence.body}
+              info={fence.info}
+              fenceWidth={Math.max(fence.bodyStart - 1, value.length - fence.bodyEnd - 1)}
+              editor={textArea}
+              language={
+                <CodeLanguageSelect
+                  info={fence.info}
+                  disabled={view.readonly}
+                  open={view.languageOpen}
+                  onOpenChange={(open) => actions.current.openLanguage(open ? row.block.id : null)}
+                  onCloseAutoFocus={(event) => {
+                    const textarea = textareaRef.current;
+                    if (!isFocused || !textarea) return;
+                    event.preventDefault();
+                    textarea.focus({ preventScroll: true });
+                    const code = codeFence(textarea.value);
+                    if (!code) return;
+                    const offset =
+                      code.bodyStart + Math.min(codeCaret.current ?? Infinity, code.body.length);
+                    textarea.setSelectionRange(offset, offset);
+                  }}
+                  onChange={(info) => actions.current.setLanguage(row, info)}
+                />
+              }
+            />
+          </div>
+        ) : (
+          textArea
+        )}
         {previewMarkdown && (
           <BlockMarkdown
             markdown={value}
@@ -4650,6 +4890,30 @@ function BlockMenu({
               <HashIcon aria-hidden />
               {message("outline.tags")}
             </DropdownMenuItem>
+            {codeFence(editor.draftOf(row)) && (
+              <>
+                <DropdownMenuSeparator />
+                {editor.sourceId !== row.block.id && (
+                  <DropdownMenuItem
+                    data-testid="menu-code-language"
+                    disabled={editor.readonly}
+                    onSelect={() => editor.openLanguage(row.block.id)}
+                  >
+                    <CodeXmlIcon aria-hidden />
+                    {message("code.changeLanguage")}
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem
+                  data-testid="menu-code-source"
+                  onSelect={() => editor.toggleSource(row)}
+                >
+                  <FileCodeIcon aria-hidden />
+                  {message(
+                    editor.sourceId === row.block.id ? "code.editAsCode" : "code.editAsMarkdown",
+                  )}
+                </DropdownMenuItem>
+              </>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem disabled={editor.readonly} onSelect={() => editor.menu.addChild(row)}>
               <CornerDownRightIcon aria-hidden />

@@ -588,26 +588,6 @@
   font-weight: var(--weight-normal);
 }
 
-.block-markdown pre {
-  max-width: 100%;
-  padding: var(--sp-3) var(--sp-4);
-  border-radius: var(--r-3);
-  background: var(--surface-1);
-  overflow-x: auto;
-  color: var(--ink);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  line-height: var(--lh-sm);
-  white-space: pre;
-}
-
-.block-markdown pre code {
-  padding: 0;
-  border-radius: 0;
-  background: transparent;
-  font: inherit;
-}
-
 .block-markdown blockquote {
   padding-inline-start: var(--sp-3);
   box-shadow: inset 2px 0 0 var(--line-strong);

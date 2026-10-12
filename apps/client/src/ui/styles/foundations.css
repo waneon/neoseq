@@ -34,6 +34,9 @@
 
   --quiet-l: 0.5;
   --quiet-c: 0.12;
+  /* Syntax hues share one lightness and chroma per mode. */
+  --syntax-l: 0.47;
+  --syntax-c: 0.16;
   --accent-quiet: oklch(var(--quiet-l) var(--quiet-c) var(--accent-h));
 
   --danger: oklch(0.53 0.19 27);
@@ -243,6 +246,8 @@
     --on-accent: oklch(0.17 0.008 270);
     --quiet-l: 0.76;
     --quiet-c: 0.1;
+    --syntax-l: 0.8;
+    --syntax-c: 0.11;
     --accent-quiet: oklch(var(--quiet-l) var(--quiet-c) var(--accent-h));
 
     --danger: oklch(0.71 0.155 27);
@@ -299,6 +304,8 @@
   --on-accent: oklch(0.17 0.008 270);
   --quiet-l: 0.76;
   --quiet-c: 0.1;
+  --syntax-l: 0.8;
+  --syntax-c: 0.11;
   --accent-quiet: oklch(var(--quiet-l) var(--quiet-c) var(--accent-h));
 
   --danger: oklch(0.71 0.155 27);

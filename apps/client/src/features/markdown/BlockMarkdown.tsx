@@ -8,12 +8,13 @@ import {
   type PointerEvent,
   type ReactNode,
 } from "react";
-import Markdown, { type Components } from "react-markdown";
+import Markdown, { type Components, type ExtraProps } from "react-markdown";
 import { Link, useParams } from "react-router";
 import rehypeSanitize from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { cn } from "../../lib/utils";
+import { CodeView } from "../code/CodeView";
 import { sourceOffsetFromPoint } from "./caret";
 import { markdownSanitizeSchema, markdownUrlTransform } from "./profile";
 import type { MarkdownActivationMethod } from "../blocks/editor/activation";
@@ -56,6 +57,25 @@ function InertImage({ alt }: { alt?: string }) {
 }
 
 const PAGE_REFERENCE_HREF = "#neoseq-page:";
+
+type HastNode = NonNullable<ExtraProps["node"]>["children"][number];
+
+function textOf(node: HastNode): string {
+  if (node.type === "text") return node.value;
+  return "children" in node ? node.children.map(textOf).join("") : "";
+}
+
+/** Fenced code reads as a code block; its fence's first word names the language. */
+function FencedCode({ node, children }: { node?: ExtraProps["node"]; children?: ReactNode }) {
+  const code = node?.children[0];
+  if (code?.type !== "element" || code.tagName !== "code") return <pre>{children}</pre>;
+  const classes = code.properties.className;
+  const language = (Array.isArray(classes) ? classes : [])
+    .map(String)
+    .find((name) => name.startsWith("language-"))
+    ?.slice("language-".length);
+  return <CodeView code={textOf(code).replace(/\n$/u, "")} info={language ?? ""} />;
+}
 
 function SafeLink({
   href,
@@ -138,6 +158,7 @@ const blockComponents: Components = {
       <table>{children}</table>
     </div>
   ),
+  pre: FencedCode,
   a: ({ href, children }) => <SafeLink href={href}>{children}</SafeLink>,
   img: ({ alt }) => <InertImage alt={alt} />,
 };

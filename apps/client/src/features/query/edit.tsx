@@ -80,6 +80,7 @@ import {
   type ContentBuffer,
 } from "../blocks/editor/content-buffer";
 import { buildSlashItems, filterSlashItems, type SlashItem } from "../blocks/editor/slash-commands";
+import { fencedSource } from "../code/fence";
 import { BlockMarkdown } from "../markdown/BlockMarkdown";
 import { hasMarkdownSyntax } from "../markdown/profile";
 import { priorityLabel, statusLabel } from "../tasks/labels";
@@ -630,6 +631,11 @@ export function useQueryResultEditor({
         }
         if (item.action.kind === "query") {
           await commit(false, next, createQueryCommand(owner));
+          return;
+        }
+        if (item.action.kind === "code") {
+          // A result row edits prose; the code block itself is edited in its outline.
+          await commit(true, fencedSource(next));
           return;
         }
         const commandPrefix =

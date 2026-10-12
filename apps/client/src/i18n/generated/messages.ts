@@ -28,6 +28,13 @@ export interface MessageArgumentMap {
   "accent.teal": undefined;
   "accent.violet": undefined;
   "app.title": undefined;
+  "code.changeLanguage": undefined;
+  "code.editAsCode": undefined;
+  "code.editAsMarkdown": undefined;
+  "code.language": undefined;
+  "code.plainText": undefined;
+  "code.slashHint": undefined;
+  "code.slashLabel": undefined;
   "commands.appearance": { readonly "theme": string | number };
   "commands.appearanceHint": { readonly "theme": string | number };
   "commands.blockHint": undefined;
@@ -742,6 +749,7 @@ export interface MessageArgumentMap {
   "shortcuts.undo": undefined;
   "shortcuts.writing": undefined;
   "slash.deadlineHint": undefined;
+  "slash.group.code": undefined;
   "slash.group.date": undefined;
   "slash.group.priority": undefined;
   "slash.group.property": undefined;
