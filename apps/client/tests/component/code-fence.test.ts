@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { indent, indentUnit, newline } from "../../src/features/code/editing";
+import { planAutoPair } from "../../src/features/blocks/editor/auto-pair";
+import {
+  closeLine,
+  indent,
+  indentUnit,
+  newline,
+  outdentBackspace,
+} from "../../src/features/code/editing";
 import { codeFence, fencedSource, lengthenFence, withInfo } from "../../src/features/code/fence";
 import { codeLanguage } from "../../src/features/code/languages";
 
@@ -54,14 +61,44 @@ describe("code languages", () => {
 });
 
 describe("code editing", () => {
-  it("keeps indentation on a new line", () => {
-    expect(newline("  if x:", 7, 7)).toEqual({
-      from: 7,
-      to: 7,
-      insert: "\n  ",
-      selectionStart: 10,
-      selectionEnd: 10,
+  it("keeps indentation on a new line and deepens it after an opener", () => {
+    expect(newline("  x = 1", 7, 7, "  ")).toMatchObject({ insert: "\n  ", selectionStart: 10 });
+    expect(newline("  if x:", 7, 7, "  ")).toMatchObject({ insert: "\n    ", selectionStart: 12 });
+    expect(newline("f(", 2, 2, "    ")).toMatchObject({ insert: "\n    ", selectionStart: 7 });
+    // Between a pair the closer takes its own line at the outer indentation.
+    expect(newline("  {}", 3, 3, "  ")).toEqual({
+      from: 3,
+      to: 3,
+      insert: "\n    \n  ",
+      selectionStart: 8,
+      selectionEnd: 8,
     });
+  });
+
+  it("returns a closer to its opener's indentation and backspaces by indent stops", () => {
+    expect(closeLine("{\n    ", 6, "}", "  ")).toMatchObject({ insert: "  }", selectionStart: 5 });
+    expect(closeLine("{\n  x", 5, "}", "  ")).toBeNull();
+    expect(closeLine("{\n  }", 4, "}", "  ")).toBeNull();
+    expect(outdentBackspace("      x", 6, "    ")).toMatchObject({ from: 4, to: 6 });
+    expect(outdentBackspace("    x", 4, "    ")).toMatchObject({ from: 0, to: 4 });
+    expect(outdentBackspace("  a ", 4, "  ")).toBeNull();
+  });
+
+  it("pairs in code but types a run of quotes whole", () => {
+    const type = (value: string, data: string, code: boolean) =>
+      planAutoPair({
+        value,
+        start: value.length,
+        end: value.length,
+        direction: "none",
+        inputType: "insertText",
+        data,
+        isComposing: false,
+        code,
+      });
+    expect(type("x = ", "(", true)).toMatchObject({ insert: "()" });
+    expect(type("``", "`", true)).toBeNull();
+    expect(type("``", "`", false)).toMatchObject({ insert: "``" });
   });
 
   it("uses the body's own indent unit", () => {

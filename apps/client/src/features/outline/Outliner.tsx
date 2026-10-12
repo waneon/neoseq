@@ -125,9 +125,16 @@ import {
 import { useI18n, type MessageFunction, type MessageKey } from "../../i18n";
 import { useImmediateState, useLatest } from "../../lib/react";
 import { BlockMarkdown } from "../markdown/BlockMarkdown";
-import { CodeLanguageSelect } from "../code/CodeLanguageSelect";
+import { CodeLanguagePicker } from "../code/CodeLanguagePicker";
 import { CodeView } from "../code/CodeView";
-import { indent, indentUnit, newline, type CodeEdit } from "../code/editing";
+import {
+  closeLine,
+  indent,
+  indentUnit,
+  newline,
+  outdentBackspace,
+  type CodeEdit,
+} from "../code/editing";
 import { codeFence, fencedSource, lengthenFence, withInfo } from "../code/fence";
 import { hasMarkdownSyntax } from "../markdown/profile";
 import { BlockBody, BlockRowFrame } from "../blocks/BlockPresentation";
@@ -3995,8 +4002,9 @@ function handleCodeKey(
     return true;
   };
 
+  const unit = indentUnit(fence.body);
   if (event.key === "Enter" && !modified) {
-    if (!event.shiftKey) return apply(newline(value, start, end));
+    if (!event.shiftKey) return apply(newline(value, start, end, unit));
     event.preventDefault();
     if (editor.readonly) return true;
     textarea.setSelectionRange(value.length, value.length);
@@ -4004,7 +4012,11 @@ function handleCodeKey(
     return true;
   }
   if (event.key === "Tab" && !modified) {
-    return apply(indent(value, start, end, indentUnit(fence.body), event.shiftKey));
+    return apply(indent(value, start, end, unit, event.shiftKey));
+  }
+  if ((event.key === "}" || event.key === "]" || event.key === ")") && !modified && collapsed) {
+    const closing = closeLine(value, start, event.key, unit);
+    if (closing) return apply(closing);
   }
   if (
     (event.metaKey || event.ctrlKey) &&
@@ -4017,6 +4029,10 @@ function handleCodeKey(
     if (start === fence.bodyStart && end === fence.bodyEnd) editor.selectOnly(row);
     else textarea.setSelectionRange(fence.bodyStart, fence.bodyEnd);
     return true;
+  }
+  if (event.key === "Backspace" && collapsed && start > fence.bodyStart && !modified) {
+    const outdent = outdentBackspace(value, start, unit);
+    if (outdent) return apply(outdent);
   }
   if (event.key === "Backspace" && collapsed && start === fence.bodyStart) {
     event.preventDefault();
@@ -4450,7 +4466,8 @@ function BlockRow({
   // task marks either.
   const marks = pending ? 0 : Number(taskStatus !== undefined) + Number(taskPriority !== undefined);
 
-  useTextAreaSize(textareaRef, value, previewMarkdown, undefined, codeMode ? "code" : "text");
+  // A code editor takes its height from the lines it covers.
+  useTextAreaSize(textareaRef, value, previewMarkdown || codeMode);
 
   useLayoutEffect(() => {
     if (!isFocused) return;
@@ -4515,7 +4532,7 @@ function BlockRow({
       tabIndex={previewMarkdown ? -1 : undefined}
       readOnly={view.readonly}
       acceptsTextInput={view.keymap !== "vim" || view.vimMode === "insert"}
-      autoPair={!codeMode}
+      pairing={codeMode ? "code" : "prose"}
       aria-readonly={view.readonly ? true : undefined}
       data-vim-mode={view.keymap === "vim" ? view.vimMode : undefined}
       aria-label={message("outline.blockText")}
@@ -4706,26 +4723,28 @@ function BlockRow({
             <CodeView
               code={fence.body}
               info={fence.info}
-              fenceWidth={Math.max(fence.bodyStart - 1, value.length - fence.bodyEnd - 1)}
               editor={textArea}
               language={
-                <CodeLanguageSelect
+                <CodeLanguagePicker
                   info={fence.info}
                   disabled={view.readonly}
                   open={view.languageOpen}
                   onOpenChange={(open) => actions.current.openLanguage(open ? row.block.id : null)}
-                  onCloseAutoFocus={(event) => {
-                    const textarea = textareaRef.current;
-                    if (!isFocused || !textarea) return;
-                    event.preventDefault();
-                    textarea.focus({ preventScroll: true });
-                    const code = codeFence(textarea.value);
-                    if (!code) return;
-                    const offset =
-                      code.bodyStart + Math.min(codeCaret.current ?? Infinity, code.body.length);
-                    textarea.setSelectionRange(offset, offset);
+                  returnFocus={() => (isFocused ? textareaRef.current : null)}
+                  onChange={(info) => {
+                    actions.current.setLanguage(row, info);
+                    if (!isFocused) return;
+                    // The caret returns to where it was in the code, which the
+                    // rewritten opening line moved.
+                    requestAnimationFrame(() => {
+                      const textarea = textareaRef.current;
+                      const code = textarea && codeFence(textarea.value);
+                      if (!textarea || !code) return;
+                      const offset =
+                        code.bodyStart + Math.min(codeCaret.current ?? Infinity, code.body.length);
+                      textarea.setSelectionRange(offset, offset);
+                    });
                   }}
-                  onChange={(info) => actions.current.setLanguage(row, info)}
                 />
               }
             />

@@ -33,8 +33,10 @@ export interface MessageArgumentMap {
   "code.editAsMarkdown": undefined;
   "code.language": undefined;
   "code.plainText": undefined;
+  "code.searchLanguages": undefined;
   "code.slashHint": undefined;
   "code.slashLabel": undefined;
+  "code.useLanguage": { readonly "name": string | number };
   "commands.appearance": { readonly "theme": string | number };
   "commands.appearanceHint": { readonly "theme": string | number };
   "commands.blockHint": undefined;

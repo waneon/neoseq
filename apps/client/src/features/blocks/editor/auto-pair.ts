@@ -12,6 +12,8 @@ export interface AutoPairInput {
   inputType: string;
   data: string | null;
   isComposing: boolean;
+  /** Code types runs such as ``` and """ whole: a quote after its twin opens no pair. */
+  code?: boolean;
 }
 
 export interface TextEditPlan {
@@ -266,6 +268,7 @@ export function planAutoPair(input: AutoPairInput): TextEditPlan | null {
   // would grow a surprising second delimiter.
   if (isEscaped(value, start)) return null;
   if (SYMMETRIC.has(typed) && !canOpenSymmetric(value, start, end)) return null;
+  if (input.code && SYMMETRIC.has(typed) && previousPoint(value, start) === typed) return null;
 
   return {
     from: start,

@@ -2,6 +2,10 @@ import { test, expect } from "../support/fixtures";
 
 const FENCE = "```";
 
+function languageSearch(page: import("@playwright/test").Page) {
+  return page.getByRole("combobox", { name: "Search languages", exact: true });
+}
+
 /** The block's canonical Markdown, read through its source view. */
 async function sourceOf(app: import("../support/app").NeoseqApp, index: number) {
   await app.block(index).getByTestId("block-bullet").click({ button: "right" });
@@ -19,24 +23,27 @@ test("a code block is written as code and stored as a fence", async ({ app, page
   const code = app.editors.first();
   await code.pressSequentially("/code");
   await page.keyboard.press("Enter");
-  // The language is asked for at once; typing finds it.
-  await expect(page.getByRole("option", { name: "Plain text" })).toBeFocused();
-  await page.keyboard.type("Rust");
-  await expect(page.getByRole("option", { name: "Rust" })).toBeFocused();
+  // The language is asked for at once; typing searches for it.
+  await expect(languageSearch(page)).toBeFocused();
+  await page.keyboard.type("rs");
+  await expect(page.getByRole("option").first()).toHaveText("Rust");
   await page.keyboard.press("Enter");
   await expect(code).toBeFocused();
 
+  // Brackets and quotes pair, Enter between braces opens an indented line, and
+  // the closer stays at the opener's indentation.
   await app.saved(async () => {
     await page.keyboard.type("fn main() {");
     await page.keyboard.press("Enter");
-    await page.keyboard.press("Tab");
-    await page.keyboard.type('println!("hi");');
-    await page.keyboard.press("Enter");
-    await page.keyboard.press("Shift+Tab");
-    await page.keyboard.type("}");
+    await page.keyboard.type('println!("hi');
   });
   const block = page.locator(".outline-code .code-block");
-  await expect(block.locator(".code-gutter > span")).toHaveText(["1", "2", "3"]);
+  await expect(block.locator(".code-number")).toHaveText(["1", "2", "3"]);
+  await app.saved(async () => {
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.type(";");
+  });
   await expect(block.getByTestId("code-language")).toHaveText("Rust");
 
   // Shift+Enter leaves the code for a new line of writing.
@@ -67,7 +74,7 @@ test("the caret lands on the code it is placed on and never on a fence", async (
   for (const word of ["answer", "log"]) {
     // Press the third glyph of the word as the highlighted copy draws it.
     const point = await page.evaluate((target) => {
-      const text = document.querySelector(".outline-code .code-text")!;
+      const text = document.querySelector(".outline-code .code-surface")!;
       const walker = document.createTreeWalker(text, NodeFilter.SHOW_TEXT);
       for (let node = walker.nextNode(); node; node = walker.nextNode()) {
         const at = node.textContent!.indexOf(target);
@@ -108,16 +115,16 @@ test("code keeps its fences when it contains one, and unwraps when emptied", asy
   const code = app.editors.first();
   await code.pressSequentially("/code");
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("option", { name: "Plain text" })).toBeFocused();
+  await expect(languageSearch(page)).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(code).toBeFocused();
   await app.saved(async () => {
-    await page.keyboard.type("A fence:");
+    await page.keyboard.type("A fence");
     await page.keyboard.press("Enter");
     await page.keyboard.type(FENCE);
   });
   await expect(page.locator(".outline-code")).toHaveCount(1);
-  expect(await code.inputValue()).toBe(`${"`".repeat(4)}\nA fence:\n${FENCE}\n${"`".repeat(4)}`);
+  expect(await code.inputValue()).toBe(`${"`".repeat(4)}\nA fence\n${FENCE}\n${"`".repeat(4)}`);
 
   await app.saved(async () => {
     await code.press("ControlOrMeta+a");
@@ -136,7 +143,7 @@ test("a fence inside writing reads as highlighted code", async ({ app, page }) =
   const block = page.getByTestId("block-markdown").locator(".code-block");
   await expect(block).toHaveAttribute("data-highlighted", "true");
   await expect(block.locator(".code-language")).toHaveText("Python");
-  await expect(block.locator(".code-gutter > span")).toHaveText(["1"]);
+  await expect(block.locator(".code-number")).toHaveText(["1"]);
 });
 
 test("the block menu reaches the language and the source", async ({ app, page }) => {
@@ -149,10 +156,60 @@ test("the block menu reaches the language and the source", async ({ app, page })
   });
   await app.block(0).getByTestId("block-bullet").click({ button: "right" });
   await page.getByTestId("menu-code-language").click();
-  await expect(page.getByRole("option", { name: "Plain text" })).toBeFocused();
+  await expect(languageSearch(page)).toBeFocused();
   await page.keyboard.type("SQL");
-  await expect(page.getByRole("option", { name: "SQL" })).toBeFocused();
   await app.saved(() => page.keyboard.press("Enter"));
   await expect(page.getByTestId("code-language")).toHaveText("SQL");
   expect(await sourceOf(app, 0)).toBe(`${FENCE}sql\nSELECT 1;\n${FENCE}`);
+
+  // A name outside the list is written as typed and read as plain text.
+  await page.getByTestId("code-language").click();
+  await languageSearch(page).fill("brainfuck");
+  await expect(page.getByRole("option")).toHaveText(["Use “brainfuck”"]);
+  await app.saved(() => page.keyboard.press("Enter"));
+  await expect(page.getByTestId("code-language")).toHaveText("brainfuck");
+});
+
+test("long lines wrap beside their number and keep the caret on its glyph", async ({
+  app,
+  page,
+}) => {
+  await app.createGraph("Code notes");
+  await app.createPage("Snippets");
+  await app.startBlock("");
+  const code = app.editors.first();
+  const long = `const total = ${"value + ".repeat(30)}1;`;
+  await app.saved(async () => {
+    await code.fill(`${FENCE}js\n${long}\nnext();\n${FENCE}`);
+    await code.blur();
+  });
+  const surface = page.locator(".outline-code .code-surface");
+  const geometry = await surface.evaluate((element) => {
+    const [first, second] = [...element.querySelectorAll(".code-line")];
+    const numbers = [...element.querySelectorAll(".code-number")];
+    const lh = parseFloat(getComputedStyle(element).lineHeight);
+    return {
+      overflow: element.scrollWidth - element.clientWidth,
+      rows: first.getBoundingClientRect().height / lh,
+      numberTop: numbers[1].getBoundingClientRect().top,
+      secondTop: second.getBoundingClientRect().top,
+    };
+  });
+  expect(geometry.overflow).toBe(0);
+  expect(geometry.rows).toBeGreaterThan(1);
+  expect(geometry.numberTop).toBe(geometry.secondTop);
+
+  // Press the last glyph of the wrapped line: the caret lands at its end.
+  const end = await surface.evaluate((element) => {
+    const line = element.querySelector(".code-line")!;
+    const range = document.createRange();
+    range.selectNodeContents(line);
+    const rects = [...range.getClientRects()];
+    const last = rects[rects.length - 1];
+    return { x: last.right - 2, y: last.top + last.height / 2 };
+  });
+  await page.mouse.click(end.x, end.y);
+  const value = await code.inputValue();
+  const caret = await code.evaluate((textarea: HTMLTextAreaElement) => textarea.selectionStart);
+  expect(caret).toBe(value.indexOf(long) + long.length);
 });

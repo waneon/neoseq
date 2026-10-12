@@ -41,8 +41,8 @@ export interface BlockTextAreaProps extends Omit<
   contentSession?: BlockContentSession;
   /** False in a modal command mode: selection stays native, text insertion does not. */
   acceptsTextInput?: boolean;
-  /** Prose pairs brackets, quotes and backticks; code is typed as written. */
-  autoPair?: boolean;
+  /** Code types runs of a quote whole; prose pairs each one. */
+  pairing?: "prose" | "code";
   onValueChange(value: string, textarea: HTMLTextAreaElement, edit?: BlockTextEdit): void;
   /** Pair overtype can move the caret without changing text. */
   onPairSelection?(textarea: HTMLTextAreaElement): void;
@@ -81,7 +81,7 @@ export const BlockTextArea = forwardRef<HTMLTextAreaElement, BlockTextAreaProps>
       contentSession,
       value,
       acceptsTextInput = true,
-      autoPair = true,
+      pairing = "prose",
       onValueChange,
       onPairSelection,
       onCompositionStart,
@@ -104,7 +104,7 @@ export const BlockTextArea = forwardRef<HTMLTextAreaElement, BlockTextAreaProps>
       autoClosers,
       value,
       acceptsTextInput,
-      autoPair,
+      pairing,
       onValueChange,
       onPairSelection,
       readOnly,
@@ -113,7 +113,7 @@ export const BlockTextArea = forwardRef<HTMLTextAreaElement, BlockTextAreaProps>
       autoClosers,
       value,
       acceptsTextInput,
-      autoPair,
+      pairing,
       onValueChange,
       onPairSelection,
       readOnly,
@@ -207,7 +207,6 @@ export const BlockTextArea = forwardRef<HTMLTextAreaElement, BlockTextAreaProps>
           return;
         }
 
-        if (!latest.current.autoPair) return;
         const direction = textarea.selectionDirection;
         const plan = planAutoPair({
           value: textarea.value,
@@ -217,6 +216,7 @@ export const BlockTextArea = forwardRef<HTMLTextAreaElement, BlockTextAreaProps>
           inputType: event.inputType,
           data: event.data,
           isComposing: event.isComposing,
+          code: latest.current.pairing === "code",
         });
         if (!plan || !event.cancelable) return;
 

@@ -25,13 +25,56 @@ function lineStart(value: string, offset: number): number {
   return value.lastIndexOf("\n", offset - 1) + 1;
 }
 
-/** A line break that keeps the current line's indentation. */
-export function newline(value: string, start: number, end: number): CodeEdit {
+const CLOSER: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
+
+/**
+ * A line break that keeps the current line's indentation, and goes one unit
+ * deeper after an opening bracket or a line-ending colon. Between a bracket
+ * pair the closer moves to its own line at the outer indentation.
+ */
+export function newline(value: string, start: number, end: number, unit: string): CodeEdit {
   const from = lineStart(value, start);
-  const indent = /^[ \t]*/u.exec(value.slice(from, start))![0];
-  const insert = `\n${indent}`;
-  const caret = start + insert.length;
+  const before = value.slice(from, start);
+  const indent = /^[ \t]*/u.exec(before)![0];
+  const last = before.trimEnd().at(-1) ?? "";
+  const opens = CLOSER[last] !== undefined || last === ":";
+  const inner = `\n${indent}${opens ? unit : ""}`;
+  const insert =
+    CLOSER[last] !== undefined && value[end] === CLOSER[last] ? `${inner}\n${indent}` : inner;
+  const caret = start + inner.length;
   return { from: start, to: end, insert, selectionStart: caret, selectionEnd: caret };
+}
+
+/** A closer typed on a blank line returns it to the opener's indentation. */
+export function closeLine(
+  value: string,
+  start: number,
+  closer: string,
+  unit: string,
+): CodeEdit | null {
+  const from = lineStart(value, start);
+  const indent = value.slice(from, start);
+  if (!/^[ \t]+$/u.test(indent) || value[start] === closer) return null;
+  const outdented = indent.startsWith("\t") ? indent.slice(1) : indent.slice(unit.length);
+  const insert = `${outdented}${closer}`;
+  const caret = from + insert.length;
+  return { from, to: start, insert, selectionStart: caret, selectionEnd: caret };
+}
+
+/** Backspace in space indentation removes back to the previous indent stop. */
+export function outdentBackspace(value: string, start: number, unit: string): CodeEdit | null {
+  if (unit === "\t") return null;
+  const from = lineStart(value, start);
+  const indent = value.slice(from, start);
+  if (indent.length === 0 || !/^ +$/u.test(indent)) return null;
+  const remove = ((indent.length - 1) % unit.length) + 1;
+  return {
+    from: start - remove,
+    to: start,
+    insert: "",
+    selectionStart: start - remove,
+    selectionEnd: start - remove,
+  };
 }
 
 /**

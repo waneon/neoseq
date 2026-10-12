@@ -40,9 +40,6 @@ export function MenuSelect({
   disabled = false,
   className,
   testId,
-  open,
-  onOpenChange,
-  onCloseAutoFocus,
 }: {
   value: string;
   options: readonly MenuSelectOption[];
@@ -54,26 +51,16 @@ export function MenuSelect({
   disabled?: boolean;
   className?: string;
   testId?: string;
-  /** Controlled when another surface opens the list on the trigger's behalf. */
-  open?: boolean;
-  onOpenChange?: (open: boolean) => void;
-  onCloseAutoFocus?: (event: Event) => void;
 }) {
   const selected = options.find((option) => option.value === value);
   const text = selected?.label ?? placeholder ?? "";
 
   return (
-    <Select
-      value={selected?.value ?? ""}
-      onValueChange={onValueChange}
-      disabled={disabled}
-      open={open}
-      onOpenChange={onOpenChange}
-    >
+    <Select value={selected?.value ?? ""} onValueChange={onValueChange} disabled={disabled}>
       <SelectTrigger className={className} aria-label={label} data-testid={testId}>
         <SelectValue placeholder={text} />
       </SelectTrigger>
-      <SelectContent align="start" aria-label={label} onCloseAutoFocus={onCloseAutoFocus}>
+      <SelectContent align="start" aria-label={label}>
         {options.map((option) => (
           <SelectItem key={option.value} value={option.value}>
             {option.label}

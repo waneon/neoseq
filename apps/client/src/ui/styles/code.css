@@ -1,17 +1,15 @@
-/* A code block is an inset surface: numbered lines, highlighted text, and its
-   language at the corner. Reading and editing share every metric, because the
-   editor is a transparent textarea laid exactly over the highlighted text. */
+/* A code block is an inset surface: its language, numbered lines, and wrapped,
+   highlighted text. Reading and editing share every metric, because the editor
+   is a transparent textarea laid exactly over the highlighted text. */
 
 :root {
   --code-lh: var(--lh-sm);
   --code-pad-y: var(--sp-2);
   --code-pad-x: var(--sp-3);
+  --code-header-h: calc(var(--lh-xs) + 2 * var(--sp-1));
   /* Space an outline code block keeps from its neighbours. */
   --code-gap: var(--sp-1);
-  /* Line numbers keep this much clear of text scrolled beneath them; the text
-     starts the rest of its inset further in. */
-  --code-gutter-gap: var(--sp-2);
-  --code-text-start: calc(var(--code-pad-x) - var(--code-gutter-gap));
+  --code-gutter-gap: var(--sp-3);
 }
 
 /* Shiki's token roles, realized from the foundation's syntax lightness. */
@@ -27,8 +25,6 @@
   --code-token-parameter: oklch(var(--syntax-l) var(--syntax-c) 20);
   --code-token-link: var(--accent);
 
-  position: relative;
-  display: flex;
   max-width: 100%;
   border-radius: var(--r-3);
   background: var(--surface-1);
@@ -44,114 +40,105 @@
   text-rendering: auto;
 }
 
-.code-gutter {
+/* The language names itself at the head of the block; it is a control only
+   where the block is edited as code. */
+.code-header {
   display: flex;
-  flex: none;
-  flex-direction: column;
-  min-width: calc(2ch + var(--code-pad-x) + var(--code-gutter-gap));
-  padding: var(--code-pad-y) var(--code-gutter-gap) var(--code-pad-y) var(--code-pad-x);
-  color: var(--ink-3);
-  font-variant-numeric: tabular-nums;
-  text-align: end;
-  user-select: none;
+  align-items: center;
+  justify-content: flex-end;
+  height: var(--code-header-h);
+  padding-inline: var(--code-pad-x) var(--sp-1);
 }
 
-.code-gutter > span {
-  height: var(--code-lh);
-}
-
-.code-scroll {
-  flex: 1;
-  min-width: 0;
-  overflow: auto hidden;
-}
-
-/* Clips the editor's hidden fence lines without becoming a scroller, so caret
-   reveal can never shift the text against its highlighted copy. */
-.code-surface {
-  position: relative;
-  width: max-content;
-  min-width: max(100%, calc(var(--code-fence-width) + var(--code-text-start) + var(--code-pad-x)));
-  overflow: clip;
-}
-
-.code-text {
-  margin: 0;
-  padding: var(--code-pad-y) var(--code-pad-x) var(--code-pad-y) var(--code-text-start);
-  font: inherit;
-  white-space: pre;
-  tab-size: 4;
-}
-
-.code-text code {
-  padding: 0;
-  border-radius: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-}
-
-.code-line {
-  display: block;
-  min-height: var(--code-lh);
-}
-
-/* The language names itself at rest; it is a control only where the block is
-   edited as code. */
 .code-language {
-  position: absolute;
-  top: 0;
-  inset-inline-end: 0;
   display: inline-flex;
   align-items: center;
-  height: calc(var(--code-lh) + 2 * var(--code-pad-y));
-  padding: 0 var(--code-pad-x);
-  border-radius: 0 var(--r-3) 0 var(--r-2);
-  background: var(--surface-1);
+  gap: var(--sp-1);
+  height: var(--code-header-h);
+  padding: 0 var(--sp-2);
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
   color: var(--ink-3);
   font-family: var(--font-sans);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
 }
 
-.code-language[role="combobox"] {
-  gap: var(--sp-1);
-  width: auto;
-  min-height: 0;
-  border: 0;
-  background: var(--surface-1);
-  box-shadow: none;
+button.code-language {
   cursor: pointer;
 }
 
-.code-language[role="combobox"]:hover:not(:disabled),
-.code-language[role="combobox"][data-state="open"] {
-  background: var(--surface-1);
-  box-shadow: none;
+button.code-language:hover:not(:disabled),
+button.code-language[aria-expanded="true"] {
   color: var(--ink);
 }
 
-.code-language[role="combobox"]:focus-visible {
+button.code-language:focus-visible {
   outline: none;
   box-shadow: var(--focus-inset);
 }
 
-.code-language[role="combobox"] svg {
+button.code-language svg {
   width: 12px;
   height: 12px;
 }
 
-/* The editor holds the fence lines too; it starts one line above the surface so
-   those lines fall outside it, and its text is drawn by the copy beneath. */
+/* Each line is a row beside its number, so a wrapped line keeps its number on
+   its first row. The surface clips the editor's hidden fence lines. */
+.code-surface {
+  position: relative;
+  display: grid;
+  grid-template-columns: max(2ch, var(--code-number-width)) minmax(0, 1fr);
+  column-gap: var(--code-gutter-gap);
+  margin: 0;
+  padding: var(--code-pad-y) var(--code-pad-x);
+  overflow: clip;
+  font: inherit;
+  tab-size: 4;
+}
+
+.code-header + .code-surface {
+  padding-top: 0;
+}
+
+.code-surface > code {
+  display: contents;
+}
+
+.code-number {
+  grid-column: 1;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+  user-select: none;
+}
+
+.code-line,
+.code-surface > textarea.code-input {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.code-line {
+  grid-column: 2;
+  min-height: var(--code-lh);
+}
+
+/* The editor covers the text column and one fence line beyond each end, which
+   the surface clips; its own text is drawn by the copy beneath. */
 .code-surface > textarea.code-input {
   position: absolute;
-  inset-inline: 0;
-  top: calc(-1 * var(--code-lh));
-  width: 100%;
+  grid-column: 2;
+  grid-row: 1 / span var(--code-line-count);
+  inset: calc(-1 * var(--code-lh)) 0;
+  width: auto;
+  height: auto;
   min-width: 0;
   min-height: 0;
   margin: 0;
-  padding: var(--code-pad-y) var(--code-pad-x) var(--code-pad-y) var(--code-text-start);
+  padding: 0;
   border: 0;
   background: transparent;
   color: transparent;
@@ -162,8 +149,6 @@
   font-variant-ligatures: inherit;
   text-rendering: inherit;
   line-height: var(--code-lh);
-  white-space: pre;
-  overflow-wrap: normal;
   overflow: hidden;
   tab-size: 4;
   resize: none;
@@ -178,6 +163,44 @@
   outline: none;
 }
 
+.code-language-menu {
+  width: 240px;
+}
+
+.code-language-search {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-1);
+  padding: 0 var(--sp-2);
+  border-radius: var(--r-2);
+  background: var(--surface-1);
+}
+
+.code-language-search:focus-within {
+  box-shadow: var(--focus-inset);
+}
+
+.code-language-search > svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--ink-3);
+}
+
+.code-language-search input {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
 /* An outline code block spans the writing measure, and its bullet centers on
    the first line of code. */
 .outline-code {
@@ -187,11 +210,17 @@
 }
 
 .block-row:has(> .block-body > .outline-code) {
-  --block-first-line-height: calc(var(--code-lh) + 2 * (var(--code-pad-y) + var(--code-gap)));
+  --block-first-line-height: calc(var(--code-lh) + 2 * (var(--code-gap) + var(--code-header-h)));
 }
 
 .block-row:has(> .block-body > .block-line > .block-markdown > .code-block:first-child) {
   --block-first-line-height: calc(var(--code-lh) + 2 * var(--code-pad-y));
+}
+
+.block-row:has(
+  > .block-body > .block-line > .block-markdown > .code-block:first-child > .code-header
+) {
+  --block-first-line-height: calc(var(--code-lh) + 2 * var(--code-header-h));
 }
 
 .block-markdown .code-block + *,

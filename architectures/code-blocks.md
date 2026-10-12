@@ -12,29 +12,35 @@ ordinary Markdown and loses nothing. No domain or CRDT schema knows the concept.
 ## Editing
 
 A code block is edited by the same native textarea and content session as any
-block, holding the full source. The textarea is laid transparently over a
-highlighted copy of the code with identical metrics, and starts one line above
-the visible surface so the fence lines fall outside its clip. Selection is kept
-between the fences, so drafts, IME, history, remote mapping, and Vim keep their
-existing paths and offsets.
+block, holding the full source. The textarea covers the text column of a
+highlighted copy with identical metrics and wrapping, and extends one line
+beyond each end so the fence lines fall outside the surface's clip. Selection
+is kept between the fences, so drafts, IME, history, remote mapping, and Vim
+keep their existing paths and offsets.
 
-Inside the code, Enter breaks the line with its indentation, Tab and Shift+Tab
-indent by the code's own unit, ⌘A selects the code before the block, and the
-first and last lines step to neighbouring blocks. Shift+Enter leaves for a new
-block, and Backspace in an empty code block unwraps it. Completions and
-auto-pairing are off. A typed line that would close the fence lengthens both
-fences instead, so the block stays code.
+Inside the code, Enter keeps the line's indentation and deepens it after an
+opening bracket or a line-ending colon, splitting a bracket pair around the new
+line. A closer typed on a blank line returns to the opener's indentation, and
+Backspace in space indentation removes back to the previous stop. Tab and
+Shift+Tab indent by the code's own unit, ⌘A selects the code before the block,
+and the first and last lines step to neighbouring blocks. Shift+Enter leaves for
+a new block, and Backspace in an empty code block unwraps it. Brackets and quotes
+pair as in prose, except that a quote typed after its twin opens no pair, so a
+typed fence or triple quote arrives whole. Completions are off. A typed line that
+would close the fence lengthens both fences instead, so the block stays code.
 
-`/code` turns the block's text into a code block and opens its language list;
-the block menu also opens that list and switches the block to its Markdown
-source, a session state that ends when the caret leaves the block.
+`/code` turns the block's text into a code block and opens its language search;
+the block menu also opens it and switches the block to its Markdown source, a
+session state that ends when the caret leaves the block. A searched name outside
+the list can be written as typed.
 
 ## Rendering
 
-`CodeView` draws line numbers, tokens, and the language for both editing and
-reading; fenced code inside a Markdown projection uses it as well. Lines do not
-wrap; the code scrolls horizontally inside its block. Shiki's JavaScript engine
-tokenizes with a CSS-variable theme whose roles the foundation realizes per
-mode, without weight or slant so glyph advances match the textarea. Grammars
-are a curated list in `features/code/languages`, each a lazy chunk that the
-service worker precaches; other languages render as plain text.
+`CodeView` draws the language, line numbers, and tokens for both editing and
+reading; fenced code inside a Markdown projection uses it as well. Each line is
+a grid row beside its number, so long lines wrap and keep their number on their
+first row. Shiki's JavaScript engine tokenizes with a CSS-variable theme whose
+roles the foundation realizes per mode, without weight or slant so glyph
+advances match the textarea. Grammars are a curated list in
+`features/code/languages`, each a lazy chunk that the service worker precaches;
+other languages render as plain text.
