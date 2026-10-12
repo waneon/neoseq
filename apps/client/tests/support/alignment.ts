@@ -90,3 +90,26 @@ export function misalignedRows(page: Page): Promise<string[]> {
     return [...reports];
   });
 }
+
+/** The box of what a glyph or icon actually paints: text glyphs or SVG strokes. */
+export function inkBox(page: Page, selector: string) {
+  return page.evaluate((selector) => {
+    const element = document.querySelector(selector);
+    if (!element) return null;
+    const shapes = element.querySelectorAll("path, line, polyline, polygon, circle, rect");
+    let rects: DOMRect[];
+    if (shapes.length > 0) {
+      rects = [...shapes].map((shape) => shape.getBoundingClientRect());
+    } else {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      rects = [range.getBoundingClientRect()];
+    }
+    const round = (value: number) => Math.round(value * 4) / 4;
+    const left = round(Math.min(...rects.map((rect) => rect.left)));
+    const right = round(Math.max(...rects.map((rect) => rect.right)));
+    const top = Math.min(...rects.map((rect) => rect.top));
+    const bottom = Math.max(...rects.map((rect) => rect.bottom));
+    return { left, right, middle: round((top + bottom) / 2) };
+  }, selector);
+}

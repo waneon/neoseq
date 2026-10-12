@@ -1,5 +1,6 @@
+import { devices } from "@playwright/test";
 import { test, expect } from "../support/fixtures";
-import { misalignedRows } from "../support/alignment";
+import { inkBox, misalignedRows } from "../support/alignment";
 
 test("block metadata and mixed query values retain one vertical center", async ({ app, page }) => {
   await app.createGraph("Aligned writing");
@@ -151,4 +152,60 @@ test("every single-line row centers its text and marks on one line", async ({ ap
   await audit("library");
 
   expect(misaligned).toEqual([]);
+});
+
+test("settings header centers Close on the title and mirrors its edge", async ({ app, page }) => {
+  await app.createGraph("Framed settings");
+  await app.settings("journal");
+  const surface = ".settings-dialog-surface";
+  for (const size of [
+    { width: 1280, height: 720 },
+    { width: 650, height: 800 },
+  ]) {
+    await page.setViewportSize(size);
+    const frame = (await page.locator(surface).boundingBox())!;
+    const title = (await inkBox(page, `${surface} [data-slot="dialog-title"]`))!;
+    const close = (await inkBox(page, `${surface} [data-slot="dialog-close"] svg`))!;
+    const label = (await inkBox(page, `${surface} .settings-group h3`))!;
+    expect(close.middle, `${size.width}px`).toBe(title.middle);
+    expect(frame.x + frame.width - close.right, `${size.width}px`).toBe(title.left - frame.x);
+    expect(label.left, `${size.width}px`).toBe(title.left);
+  }
+});
+
+test.describe("on a phone", () => {
+  const { defaultBrowserType: _, ...phone } = devices["Pixel 7"];
+  test.use(phone);
+
+  test("settings chrome meets the edges its content starts on", async ({ app, page }) => {
+    await app.createGraph("Phone settings");
+    await app.sidebar();
+    await page.getByTestId("open-settings").click();
+    await expect(page.getByTestId("settings-dialog")).toBeVisible();
+    const surface = ".settings-dialog-surface";
+    const title = await inkBox(page, `${surface} [data-slot="dialog-title"]`);
+    const close = await inkBox(page, `${surface} [data-slot="dialog-close"] svg`);
+    const card = await page.locator(`${surface} .settings-group-links`).first().boundingBox();
+    const edges = { start: card!.x, end: card!.x + card!.width };
+    expect(close!.middle).toBe(title!.middle);
+    expect(close!.right).toBe(edges.end);
+    expect(title!.left).toBe(edges.start);
+    for (const label of await page.locator(`${surface} .settings-group h3`).all()) {
+      expect((await label.boundingBox())!.x).toBe(edges.start);
+    }
+    // Inside a card, the chevron's strokes mirror the icon tile's inset.
+    const tile = await page.locator(`${surface} .settings-tab-icon`).first().boundingBox();
+    const chevron = await inkBox(page, `${surface} .settings-tab-chevron`);
+    expect(edges.end - 1 - chevron!.right).toBe(tile!.x - edges.start - 1);
+
+    await page.getByTestId("settings-tab-journal").click();
+    await app.settled();
+    // The page slides in; it is measured where it comes to rest.
+    await expect
+      .poll(() => inkBox(page, `${surface} .settings-page-header h2`))
+      .toMatchObject({ left: edges.start });
+    const back = await inkBox(page, `${surface} .settings-back svg`);
+    expect(back!.left).toBe(edges.start);
+    expect(back!.middle).toBe(close!.middle);
+  });
 });

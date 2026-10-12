@@ -69,7 +69,7 @@ function DialogContent({
               className={cn(buttonClass("secondary", "icon"), "absolute")}
               aria-label={closeLabel}
             >
-              <XIcon className="size-3.5" />
+              <XIcon className="size-[var(--dialog-close-icon,0.875rem)]" />
             </DialogPrimitive.Close>
           )}
         </DialogPrimitive.Content>

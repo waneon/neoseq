@@ -117,7 +117,9 @@ and one global scrollbar language serves every scrolling surface.
 An alignment frame owns the center of its values. Inline glyphs and nested
 controls must not introduce competing baselines, target heights, or local
 vertical offsets. Interface icon strokes retain one visible weight across icon
-box sizes; hosts choose the box, while the foundation owns the stroke.
+box sizes; hosts choose the box, while the foundation owns the stroke. A surface
+has one content edge per side: titles, labels, and cards start on it, and an
+edge control is placed by its visible strokes, not its touch box.
 
 ## Motion
 
