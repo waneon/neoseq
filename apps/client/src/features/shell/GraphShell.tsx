@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -418,6 +419,19 @@ function ShellBody({
       })
       .slice(0, 8);
   }, [pages, starred, state.snapshot, visits]);
+
+  // A navigation opens its destination at the top, including choosing the place
+  // already on screen; one scroller serves every document, so nothing else
+  // resets it. Changing only the query (settings) keeps the reader's place.
+  const arrived = useRef(location);
+  useLayoutEffect(() => {
+    const previous = arrived.current;
+    arrived.current = location;
+    if (previous.key === location.key) return;
+    if (previous.pathname === location.pathname && previous.search !== location.search) return;
+    for (const scroller of document.querySelectorAll("#page-content .page-scroll"))
+      scroller.scrollTop = 0;
+  }, [location]);
 
   const [documentSlot, setDocumentSlot] = useState<HTMLElement | null>(null);
   const scrolledTitle = useScrolledTitle(location.pathname);

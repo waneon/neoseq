@@ -118,4 +118,27 @@ test("the continuous journal keeps the reading position while earlier days load"
     previous = top;
   }
   await expect(page.getByTestId("journal-day")).toHaveCount(12);
+
+  // A day's title opens that day at the top, not where the stream was read.
+  const top = () => scroller.evaluate((element) => element.scrollTop);
+  const calendar = page.getByTestId("journal-calendar-trigger");
+  const day = page.getByTestId("journal-day").nth(2);
+  const date = await day.locator("time").getAttribute("datetime");
+  await day.getByRole("link").click();
+  await expect(calendar).toHaveAttribute("data-date", date!);
+  await expect.poll(top).toBe(0);
+
+  // Journal returns to today at the top, including from today's own stream.
+  const journalLink = page
+    .getByTestId("sidebar")
+    .getByRole("link", { name: "Journal", exact: true });
+  for (const route of [`journal/${date}`, "journal"]) {
+    await expect(page).toHaveURL(new RegExp(`${route}$`));
+    await page.mouse.move(640, 400);
+    await page.mouse.wheel(0, 1500);
+    await expect.poll(top).toBeGreaterThan(0);
+    await journalLink.click();
+    await expect(calendar).toHaveAttribute("data-date", "2026-09-07");
+    await expect.poll(top).toBe(0);
+  }
 });
