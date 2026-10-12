@@ -1619,6 +1619,7 @@ version = "0.5.1"
 dependencies = [
  "criterion",
  "domain",
+ "graph-core",
  "query",
 ]
 

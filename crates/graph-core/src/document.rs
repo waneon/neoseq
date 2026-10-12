@@ -11,7 +11,9 @@ use domain::{
     QueryViewId, TagId, validate_property, validate_property_shape,
 };
 use loro::{
-    Container, LoroDoc, LoroMap, LoroText, LoroTree, LoroValue, TextDelta, ValueOrContainer,
+    Container, Index, LoroDoc, LoroMap, LoroText, LoroTree, LoroValue, TextDelta, TreeExternalDiff,
+    TreeID, ValueOrContainer,
+    event::{ContainerDiff, Diff, DiffEvent},
 };
 use std::collections::BTreeSet;
 
@@ -53,9 +55,163 @@ pub(crate) enum StoredPlanState {
 /// `GraphCore`, not to this causal boundary.
 pub(crate) fn validate_causal_document(doc: &LoroDoc, graph_id: &GraphId) -> Result<(), CoreError> {
     validate_metadata(doc, graph_id)?;
+    let ids = document_ids(doc)?;
+    for home in HOMES {
+        let records = doc.get_map(home);
+        for raw_id in records.keys() {
+            validate_document(home, &raw_id, &records, &ids, true)?;
+        }
+    }
+    validate_graph_settings(doc)
+}
 
+/// The containers an imported update changed, as validation units. A change
+/// that does not fit a unit asks for the whole document to be validated.
+#[derive(Debug, Default)]
+pub(crate) struct CausalChanges {
+    full: bool,
+    metadata: bool,
+    settings: bool,
+    /// Documents whose record-level fields changed: names, properties, kinds.
+    headers: BTreeSet<(&'static str, String)>,
+    /// Documents to validate completely: new, or with a replaced outline.
+    documents: BTreeSet<(&'static str, String)>,
+    /// Blocks created or edited, by document.
+    blocks: BTreeSet<(&'static str, String, TreeID)>,
+}
+
+impl CausalChanges {
+    /// (whole document, headers, documents, blocks) — for tests.
+    #[cfg(test)]
+    pub(crate) fn scope(&self) -> (bool, usize, usize, usize) {
+        (
+            self.full,
+            self.headers.len(),
+            self.documents.len(),
+            self.blocks.len(),
+        )
+    }
+
+    pub(crate) fn record(&mut self, event: &DiffEvent<'_>) {
+        for change in &event.events {
+            if !self.full && !self.classify(change) {
+                self.full = true;
+            }
+        }
+    }
+
+    /// Returns false for a change no unit covers.
+    fn classify(&mut self, change: &ContainerDiff<'_>) -> bool {
+        if change.is_unknown {
+            return false;
+        }
+        let key = |index: usize| match change.path.get(index) {
+            Some((_, Index::Key(key))) => Some(key.to_string()),
+            _ => None,
+        };
+        let Some(root) = key(0) else {
+            return false;
+        };
+        match root.as_str() {
+            "meta" => self.metadata = true,
+            "graph_settings" => self.settings = true,
+            _ => {
+                let Some(home) = HOMES.into_iter().find(|home| *home == root) else {
+                    return false;
+                };
+                let Some(id) = key(1) else {
+                    // The home map itself: documents added, replaced, or removed.
+                    let Diff::Map(delta) = &change.diff else {
+                        return false;
+                    };
+                    for (id, value) in &delta.updated {
+                        if value.is_none() {
+                            return false;
+                        }
+                        self.documents.insert((home, id.to_string()));
+                    }
+                    return true;
+                };
+                match (key(2).as_deref(), change.path.get(3)) {
+                    (None, _) => {
+                        self.documents.insert((home, id));
+                    }
+                    (Some("outline"), None) => {
+                        // The tree itself: blocks created, moved, or deleted.
+                        let Diff::Tree(diff) = &change.diff else {
+                            return false;
+                        };
+                        for item in &diff.diff {
+                            if matches!(item.action, TreeExternalDiff::Create { .. }) {
+                                self.blocks.insert((home, id.clone(), item.target));
+                            }
+                        }
+                    }
+                    (Some("outline"), Some((_, Index::Node(node)))) => {
+                        self.blocks.insert((home, id, *node));
+                    }
+                    (Some("outline"), Some(_)) => return false,
+                    (Some(_), _) => {
+                        self.headers.insert((home, id));
+                    }
+                }
+            }
+        }
+        true
+    }
+}
+
+/// Validates what an update changed, given a document that was valid before it.
+/// Equivalent to [`validate_causal_document`] for every change it can classify.
+pub(crate) fn validate_causal_changes(
+    doc: &LoroDoc,
+    graph_id: &GraphId,
+    changes: &CausalChanges,
+) -> Result<(), CoreError> {
+    if changes.full {
+        return validate_causal_document(doc, graph_id);
+    }
+    if changes.metadata {
+        validate_metadata(doc, graph_id)?;
+    }
+    if changes.settings {
+        validate_graph_settings(doc)?;
+    }
+    if changes.headers.is_empty() && changes.documents.is_empty() && changes.blocks.is_empty() {
+        return Ok(());
+    }
+    let ids = document_ids(doc)?;
+    for (home, raw_id) in &changes.documents {
+        let records = doc.get_map(*home);
+        validate_document(home, raw_id, &records, &ids, true)?;
+    }
+    for (home, raw_id) in &changes.headers {
+        if changes.documents.contains(&(*home, raw_id.clone())) {
+            continue;
+        }
+        validate_document(home, raw_id, &doc.get_map(*home), &ids, false)?;
+    }
+    for (home, raw_id, node) in &changes.blocks {
+        if changes.documents.contains(&(*home, raw_id.clone())) {
+            continue;
+        }
+        let record = required_map(
+            doc.get_map(*home).get(raw_id),
+            &format!("document {raw_id}"),
+        )?;
+        let outline = required_child_tree(&record, "outline", &format!("{home} {raw_id} outline"))?;
+        let owner = format!("{}:{raw_id}", if *home == "tags" { "tag" } else { "page" });
+        validate_outline_node(&outline, *node, &ids, &owner)?;
+    }
+    Ok(())
+}
+
+const HOMES: [&str; 3] = ["entities", "pages", "tags"];
+
+/// Every document ID, each in exactly one storage home.
+fn document_ids(doc: &LoroDoc) -> Result<BTreeSet<PageId>, CoreError> {
     let mut ids = BTreeSet::new();
-    for home in ["entities", "pages", "tags"] {
+    for home in HOMES {
         for raw in doc.get_map(home).keys() {
             let id =
                 PageId::new(raw.to_string()).map_err(|_| invalid("invalid document ID".into()))?;
@@ -66,24 +222,54 @@ pub(crate) fn validate_causal_document(doc: &LoroDoc, graph_id: &GraphId) -> Res
             }
         }
     }
-    validate_pages(&doc.get_map("pages"), &ids)?;
-    validate_pages(&doc.get_map("entities"), &ids)?;
-    validate_tags(&doc.get_map("tags"), &ids)?;
-    let mut bad_kind = false;
-    crate::entities::all(doc).for_each(|_, value| {
-        if let ValueOrContainer::Container(Container::Map(record)) = value {
-            if let Some(value) = record.get("kind") {
-                bad_kind |= !matches!(value, ValueOrContainer::Value(LoroValue::String(value)) if value.as_ref() == "page" || value.as_ref() == "tag");
-            }
-            if let Some(value) = record.get("defaults") {
-                bad_kind |= required_map(Some(value), "document defaults").and_then(|bag| validate_property_bag(&bag, "document defaults")).is_err();
-            }
+    Ok(ids)
+}
+
+/// One document record; `with_outline` also validates every block.
+fn validate_document(
+    home: &str,
+    raw_id: &str,
+    records: &LoroMap,
+    ids: &BTreeSet<PageId>,
+    with_outline: bool,
+) -> Result<(), CoreError> {
+    let (outline, owner) = if home == "tags" {
+        let tag_id = TagId::new(raw_id.to_string())
+            .map_err(|_| invalid(format!("tag id is invalid: {raw_id}")))?;
+        let tag = required_map(records.get(raw_id), &format!("tag {tag_id}"))?;
+        validate_entity_fields(&tag)?;
+        (validate_tag_header(&tag_id, &tag)?, format!("tag:{tag_id}"))
+    } else {
+        let page_id = PageId::new(raw_id.to_string())
+            .map_err(|_| invalid(format!("page id is invalid: {raw_id}")))?;
+        let page = required_map(records.get(raw_id), &format!("page {page_id}"))?;
+        validate_entity_fields(&page)?;
+        (
+            validate_page_header(&page_id, &page)?,
+            format!("page:{page_id}"),
+        )
+    };
+    if with_outline {
+        for node in outline.nodes() {
+            validate_outline_node(&outline, node, ids, &owner)?;
         }
-    });
-    if bad_kind {
+    }
+    Ok(())
+}
+
+/// The kind register and defaults any home may carry after a conversion.
+fn validate_entity_fields(record: &LoroMap) -> Result<(), CoreError> {
+    if let Some(value) = record.get("kind")
+        && !matches!(value, ValueOrContainer::Value(LoroValue::String(value)) if value.as_ref() == "page" || value.as_ref() == "tag")
+    {
         return Err(invalid("invalid document kind or defaults".into()));
     }
-    validate_graph_settings(doc)
+    if let Some(value) = record.get("defaults") {
+        required_map(Some(value), "document defaults")
+            .and_then(|bag| validate_property_bag(&bag, "document defaults"))
+            .map_err(|_| invalid("invalid document kind or defaults".into()))?;
+    }
+    Ok(())
 }
 
 fn validate_metadata(doc: &LoroDoc, graph_id: &GraphId) -> Result<(), CoreError> {
@@ -100,103 +286,86 @@ fn validate_metadata(doc: &LoroDoc, graph_id: &GraphId) -> Result<(), CoreError>
     Ok(())
 }
 
-fn validate_pages(pages: &LoroMap, page_ids: &BTreeSet<PageId>) -> Result<(), CoreError> {
-    for raw_id in pages.keys() {
-        let page_id = PageId::new(raw_id.to_string())
-            .map_err(|_| invalid(format!("page id is invalid: {raw_id}")))?;
-        let page = required_map(pages.get(&raw_id), &format!("page {page_id}"))?;
-        let root = required_child_map(&page, "root", &format!("page {page_id} root"))?;
-        let title = required_child_text(&root, "content", &format!("page {page_id} title"))?;
-        let properties =
-            required_child_map(&root, "properties", &format!("page {page_id} properties"))?;
-        let tag_refs =
-            required_child_map(&root, "tag_refs", &format!("page {page_id} tag references"))?;
-        validate_tag_references(&tag_refs, &format!("page {page_id}"))?;
-        validate_property_bag(&properties, &format!("page {page_id} properties"))?;
-        let deleted = validate_lifecycle(&properties, true, &format!("page {page_id}"))?;
+/// A page record without its blocks; returns its outline.
+fn validate_page_header(page_id: &PageId, page: &LoroMap) -> Result<LoroTree, CoreError> {
+    let root = required_child_map(page, "root", &format!("page {page_id} root"))?;
+    let title = required_child_text(&root, "content", &format!("page {page_id} title"))?;
+    let properties =
+        required_child_map(&root, "properties", &format!("page {page_id} properties"))?;
+    let tag_refs =
+        required_child_map(&root, "tag_refs", &format!("page {page_id} tag references"))?;
+    validate_tag_references(&tag_refs, &format!("page {page_id}"))?;
+    validate_property_bag(&properties, &format!("page {page_id} properties"))?;
+    let deleted = validate_lifecycle(&properties, true, &format!("page {page_id}"))?;
 
-        let kind = validate_single_string_property(
-            &properties,
-            "builtin.page-kind",
-            true,
-            &format!("page {page_id}"),
-        )?
-        .expect("required property was validated");
-        if kind != "regular" && kind != "journal" {
-            return Err(invalid(format!("page {page_id} kind is invalid")));
-        }
-        validate_entity_name(
-            &title.to_string(),
-            "page",
-            !deleted && kind == "regular",
-            false,
-        )?;
-
-        let outline = required_child_tree(&page, "outline", &format!("page {page_id} outline"))?;
-        validate_outline(&outline, page_ids, &format!("page:{page_id}"))?;
+    let kind = validate_single_string_property(
+        &properties,
+        "builtin.page-kind",
+        true,
+        &format!("page {page_id}"),
+    )?
+    .expect("required property was validated");
+    if kind != "regular" && kind != "journal" {
+        return Err(invalid(format!("page {page_id} kind is invalid")));
     }
-    Ok(())
+    validate_entity_name(
+        &title.to_string(),
+        "page",
+        !deleted && kind == "regular",
+        false,
+    )?;
+    required_child_tree(page, "outline", &format!("page {page_id} outline"))
 }
 
-fn validate_tags(tags: &LoroMap, page_ids: &BTreeSet<PageId>) -> Result<(), CoreError> {
-    for raw_id in tags.keys() {
-        let tag_id = TagId::new(raw_id.to_string())
-            .map_err(|_| invalid(format!("tag id is invalid: {raw_id}")))?;
-        let tag = required_map(tags.get(&raw_id), &format!("tag {tag_id}"))?;
-        let name = map_string(&tag, "name")
-            .ok_or_else(|| invalid(format!("tag {tag_id} name is missing or invalid")))?;
-        let properties =
-            required_child_map(&tag, "properties", &format!("tag {tag_id} properties"))?;
-        let defaults = required_child_map(&tag, "defaults", &format!("tag {tag_id} defaults"))?;
-        validate_property_bag(&properties, &format!("tag {tag_id} properties"))?;
-        validate_property_bag(&defaults, &format!("tag {tag_id} defaults"))?;
-        let deleted = validate_lifecycle(&properties, true, &format!("tag {tag_id}"))?;
-        validate_entity_name(&name, "tag", !deleted, true)?;
-
-        let outline = required_child_tree(&tag, "outline", &format!("tag {tag_id} outline"))?;
-        validate_outline(&outline, page_ids, &format!("tag:{tag_id}"))?;
-    }
-    Ok(())
+/// A tag record without its blocks; returns its outline.
+fn validate_tag_header(tag_id: &TagId, tag: &LoroMap) -> Result<LoroTree, CoreError> {
+    let name = map_string(tag, "name")
+        .ok_or_else(|| invalid(format!("tag {tag_id} name is missing or invalid")))?;
+    let properties = required_child_map(tag, "properties", &format!("tag {tag_id} properties"))?;
+    let defaults = required_child_map(tag, "defaults", &format!("tag {tag_id} defaults"))?;
+    validate_property_bag(&properties, &format!("tag {tag_id} properties"))?;
+    validate_property_bag(&defaults, &format!("tag {tag_id} defaults"))?;
+    let deleted = validate_lifecycle(&properties, true, &format!("tag {tag_id}"))?;
+    validate_entity_name(&name, "tag", !deleted, true)?;
+    required_child_tree(tag, "outline", &format!("tag {tag_id} outline"))
 }
 
-fn validate_outline(
+fn validate_outline_node(
     outline: &LoroTree,
+    node: TreeID,
     page_ids: &BTreeSet<PageId>,
     owner: &str,
 ) -> Result<(), CoreError> {
-    for node in outline.nodes() {
-        let block_id = node.to_string();
-        let meta = outline.get_meta(node)?;
-        // Shallow snapshots can retain a deleted tree identity after its
-        // metadata has been collected. A live node must always have metadata;
-        // any attempted resurrection is validated again before admission.
-        if meta.is_empty() && outline.is_node_deleted(&node)? {
-            continue;
-        }
-        let content = required_child_text(
-            &meta,
-            "content",
-            &format!("{owner}: block {block_id} content"),
-        )?;
-        let properties = required_child_map(
-            &meta,
-            "properties",
-            &format!("{owner}: block {block_id} properties"),
-        )?;
-        let tag_refs = required_child_map(
-            &meta,
-            "tag_refs",
-            &format!("{owner}: block {block_id} tag references"),
-        )?;
-        validate_property_bag(
-            &properties,
-            &format!("{owner}: block {block_id} properties"),
-        )?;
-        validate_lifecycle(&properties, false, &format!("{owner}: block {block_id}"))?;
-        validate_tag_references(&tag_refs, &format!("{owner}: block {block_id}"))?;
-        validate_inline_page_references(&content, page_ids, owner)?;
+    let block_id = node.to_string();
+    let meta = outline.get_meta(node)?;
+    // Shallow snapshots can retain a deleted tree identity after its
+    // metadata has been collected. A live node must always have metadata;
+    // any attempted resurrection is validated again before admission.
+    if meta.is_empty() && outline.is_node_deleted(&node)? {
+        return Ok(());
     }
-    Ok(())
+    let content = required_child_text(
+        &meta,
+        "content",
+        &format!("{owner}: block {block_id} content"),
+    )?;
+    let properties = required_child_map(
+        &meta,
+        "properties",
+        &format!("{owner}: block {block_id} properties"),
+    )?;
+    let tag_refs = required_child_map(
+        &meta,
+        "tag_refs",
+        &format!("{owner}: block {block_id} tag references"),
+    )?;
+    validate_property_bag(
+        &properties,
+        &format!("{owner}: block {block_id} properties"),
+    )?;
+    validate_lifecycle(&properties, false, &format!("{owner}: block {block_id}"))?;
+    validate_tag_references(&tag_refs, &format!("{owner}: block {block_id}"))?;
+    validate_inline_page_references(&content, page_ids, owner)
 }
 
 fn validate_tag_references(tag_refs: &LoroMap, owner: &str) -> Result<(), CoreError> {

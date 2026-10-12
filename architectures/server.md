@@ -130,7 +130,10 @@ JSON/postcard field name remains `message_id` for the cross-language contract.
    based replica pauses client synchronization while preserving its local work.
    Only an unbased replica installs an initial checkpoint.
 4. For every client update, enforce limits and prepare a validated candidate on
-   a temporary fork of the room document.
+   a temporary fork of the room document. Validation covers only the entities,
+   headers, and outline nodes the import changed; a change it cannot attribute
+   falls back to the whole document. The quota is checked against an estimate:
+   the last checkpoint's exact size plus twice the encoded Tail.
 5. Persist the exact validated bytes transactionally, then adopt the prepared
    candidate only when a new durable record was inserted.
 6. Acknowledge only after commit, then broadcast to other sessions.

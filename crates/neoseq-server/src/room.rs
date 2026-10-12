@@ -66,6 +66,8 @@ struct Room {
     graph: ServerGraph,
     cursor: u64,
     history_epoch: u64,
+    /// Encoded size of the last checkpoint; the base of the quota estimate.
+    checkpoint_bytes: usize,
     tail_updates: usize,
     tail_bytes: usize,
     sessions: HashMap<String, SessionState>,
@@ -334,6 +336,7 @@ impl RoomManager {
             graph,
             cursor: durable.latest_cursor(),
             history_epoch,
+            checkpoint_bytes: durable.checkpoint.snapshot.len(),
             tail_updates,
             tail_bytes,
             sessions: HashMap::new(),
@@ -375,13 +378,19 @@ impl RoomManager {
         }
         ServerGraph::validate_version_vector(&update.base_version_vector)
             .map_err(|_| RoomError::InvalidVersionVector)?;
+        // The reconstructed size is exact at each checkpoint; between them each
+        // update counts twice its encoded size, which over-approximates its
+        // share of a snapshot without re-encoding the whole document.
+        let estimated = room
+            .checkpoint_bytes
+            .saturating_add(2 * (room.tail_bytes + update.bytes.len()));
+        if estimated > self.config.limits.max_decompressed_bytes as usize {
+            return Err(StoreError::QuotaExceeded.into());
+        }
         let candidate = room
             .graph
             .prepare_update(&update.bytes)
             .map_err(|_| RoomError::InvalidUpdate)?;
-        if candidate.snapshot_len() > self.config.limits.max_decompressed_bytes as usize {
-            return Err(StoreError::QuotaExceeded.into());
-        }
 
         let outcome = match self
             .store
@@ -497,6 +506,7 @@ impl RoomManager {
                 &version_vector,
             )
             .await?;
+        room.checkpoint_bytes = snapshot.len();
         room.tail_updates = 0;
         room.tail_bytes = 0;
         tracing::info!(

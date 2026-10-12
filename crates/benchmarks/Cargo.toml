@@ -9,6 +9,7 @@ autobenches = false
 
 [dependencies]
 domain = { path = "../domain" }
+graph-core = { path = "../graph-core" }
 query = { path = "../query" }
 
 [dev-dependencies]
@@ -20,4 +21,8 @@ harness = false
 
 [[bench]]
 name = "query"
+harness = false
+
+[[bench]]
+name = "sync"
 harness = false

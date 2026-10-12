@@ -6,10 +6,11 @@
 
 use crate::{
     core::{CoreError, configure_inline_content, new_document},
-    document::validate_causal_document,
+    document::{CausalChanges, validate_causal_changes, validate_causal_document},
 };
 use domain::GraphId;
 use loro::{ExportMode, LoroDoc, VersionVector};
+use std::sync::{Arc, Mutex};
 
 /// The document state required by a durable synchronization room.
 pub struct ServerGraph {
@@ -23,14 +24,9 @@ pub struct ServerGraph {
 #[must_use = "a prepared server update must be adopted after durable insertion or discarded"]
 pub struct PreparedServerUpdate {
     graph: ServerGraph,
-    snapshot_len: usize,
 }
 
 impl PreparedServerUpdate {
-    pub fn snapshot_len(&self) -> usize {
-        self.snapshot_len
-    }
-
     pub fn into_graph(self) -> ServerGraph {
         self.graph
     }
@@ -98,26 +94,42 @@ impl ServerGraph {
     }
 
     /// Imports an untrusted update exactly once on a deep fork and returns an
-    /// immutable candidate for durable-before-adopt room semantics.
+    /// immutable candidate for durable-before-adopt room semantics. Only what the
+    /// update changed is validated, so admission cost follows the update rather
+    /// than the graph; the room was valid before it.
     pub fn prepare_update(&self, update: &[u8]) -> Result<PreparedServerUpdate, CoreError> {
         let candidate = self.doc.fork();
         configure_inline_content(&candidate);
         candidate.set_peer_id(self.doc.peer_id())?;
-        let status = candidate.import(update)?;
-        if status.pending.is_some() {
-            return Err(CoreError::MissingDependencies);
-        }
-        validate_causal_document(&candidate, &self.graph_id)?;
-
-        let snapshot_len = candidate.export(ExportMode::Snapshot)?.len();
+        let changes = import_recording(&candidate, update)?;
+        validate_causal_changes(&candidate, &self.graph_id, &changes)?;
         Ok(PreparedServerUpdate {
             graph: Self {
                 graph_id: self.graph_id.clone(),
                 doc: candidate,
             },
-            snapshot_len,
         })
     }
+}
+
+/// Imports an update and records which containers it changed.
+fn import_recording(doc: &LoroDoc, update: &[u8]) -> Result<CausalChanges, CoreError> {
+    let changes = Arc::new(Mutex::new(CausalChanges::default()));
+    let recorder = Arc::clone(&changes);
+    let subscription = doc.subscribe_root(Arc::new(move |event| {
+        recorder
+            .lock()
+            .expect("change recorder is not poisoned")
+            .record(&event);
+    }));
+    let status = doc.import(update)?;
+    subscription.unsubscribe();
+    if status.pending.is_some() {
+        return Err(CoreError::MissingDependencies);
+    }
+    Ok(std::mem::take(
+        &mut *changes.lock().expect("change recorder is not poisoned"),
+    ))
 }
 
 #[cfg(test)]
@@ -264,13 +276,8 @@ mod tests {
         let candidate = room.prepare_update(&update).unwrap();
         assert_eq!(room.version_vector(), baseline_version);
         assert_ne!(room.version_vector(), writer.version_vector());
-        let measured_checkpoint_len = candidate.snapshot_len();
         room = candidate.into_graph();
         assert_eq!(room.version_vector(), writer.version_vector());
-        assert_eq!(
-            room.export_snapshot().unwrap().len(),
-            measured_checkpoint_len
-        );
     }
 
     #[test]
@@ -351,5 +358,310 @@ mod tests {
         let mut recovery = ServerGraph::from_checkpoint(graph_id(), 32, &checkpoint).unwrap();
         recovery.stage_recovery_update(&update).unwrap();
         assert!(recovery.finish_recovery().is_err());
+    }
+
+    mod change_scoped_admission {
+        use super::super::import_recording;
+        use super::*;
+        use crate::document::{PAGE_REFERENCE_CHAR, PAGE_REFERENCE_MARK};
+        use domain::{
+            BlockId, EntityId, EntityKind, InlineContent, LocalDate, OutlineItem, OutlineOwner,
+            PropertyKey, PropertyOwner, PropertyValue, TagId,
+        };
+        use loro::{LoroText, LoroTree, TreeParentId};
+
+        struct Session {
+            writer: GraphCore,
+            room: ServerGraph,
+            sequence: u32,
+        }
+
+        impl Session {
+            fn new() -> Self {
+                let writer = GraphCore::new(graph_id(), 1, "t0").unwrap();
+                let checkpoint = writer.export_gc_checkpoint().unwrap();
+                let room = ServerGraph::from_checkpoint(graph_id(), 2, &checkpoint).unwrap();
+                Self {
+                    writer,
+                    room,
+                    sequence: 0,
+                }
+            }
+
+            /// Runs a command, admits its update, and checks the admitted state
+            /// against the whole-document contract.
+            fn run(&mut self, command: Command) -> (bool, usize, usize, usize) {
+                self.sequence += 1;
+                let update = self
+                    .writer
+                    .execute(
+                        CommandEnvelope {
+                            graph_id: graph_id(),
+                            command_id: CommandId::new(format!("c{}", self.sequence)).unwrap(),
+                            command,
+                        },
+                        "t1",
+                    )
+                    .unwrap()
+                    .update;
+                let probe = self.room.doc.fork();
+                let scope = import_recording(&probe, &update).unwrap().scope();
+                let candidate = self.room.prepare_update(&update).unwrap();
+                validate_causal_document(&candidate.graph.doc, &graph_id()).unwrap();
+                self.room = candidate.into_graph();
+                scope
+            }
+
+            fn page(&self) -> LoroMap {
+                match self.room.doc.get_map("entities").get("page") {
+                    Some(ValueOrContainer::Container(Container::Map(record))) => record,
+                    _ => panic!("page record is missing"),
+                }
+            }
+
+            /// A raw update from another replica, and whether a full
+            /// validation of its result would accept it.
+            fn forge(&self, edit: impl FnOnce(&LoroDoc)) -> (Vec<u8>, bool) {
+                let doc = self.room.doc.fork();
+                configure_inline_content(&doc);
+                doc.set_peer_id(99).unwrap();
+                let baseline = doc.oplog_vv();
+                edit(&doc);
+                doc.commit();
+                let update = doc.export(ExportMode::updates(&baseline)).unwrap();
+                let full = validate_causal_document(&doc, &graph_id()).is_ok();
+                (update, full)
+            }
+        }
+
+        fn outline(record: &LoroMap) -> LoroTree {
+            match record.get("outline") {
+                Some(ValueOrContainer::Container(Container::Tree(tree))) => tree,
+                _ => panic!("outline is missing"),
+            }
+        }
+
+        fn first_block(record: &LoroMap) -> LoroMap {
+            let tree = outline(record);
+            tree.get_meta(tree.roots()[0]).unwrap()
+        }
+
+        fn child_map(map: &LoroMap, key: &str) -> LoroMap {
+            match map.get(key) {
+                Some(ValueOrContainer::Container(Container::Map(map))) => map,
+                _ => panic!("{key} is missing"),
+            }
+        }
+
+        fn child_text(map: &LoroMap, key: &str) -> LoroText {
+            match map.get(key) {
+                Some(ValueOrContainer::Container(Container::Text(text))) => text,
+                _ => panic!("{key} is missing"),
+            }
+        }
+
+        fn seeded() -> (Session, OutlineOwner, BlockId) {
+            let mut session = Session::new();
+            let page = PageId::new("page").unwrap();
+            let owner = OutlineOwner::Page { id: page.clone() };
+            session.run(Command::EnsurePage {
+                page_id: page.clone(),
+                title: "Page".into(),
+            });
+            session.run(Command::InsertOutline {
+                owner: owner.clone(),
+                parent: None,
+                index: 0,
+                replace: None,
+                items: (0..4)
+                    .map(|index| OutlineItem {
+                        depth: usize::from(index > 1),
+                        markdown: format!("block {index}"),
+                    })
+                    .collect(),
+            });
+            let block = session.writer.page_snapshot(&page).unwrap().blocks[0]
+                .id
+                .clone();
+            (session, owner, block)
+        }
+
+        #[test]
+        fn ordinary_edits_validate_only_what_they_touch() {
+            let (mut session, owner, block) = seeded();
+            let page = PageId::new("page").unwrap();
+
+            // Typing is one block.
+            assert_eq!(
+                session.run(Command::SpliceMarkdown {
+                    owner: owner.clone(),
+                    block_id: block.clone(),
+                    index: 0,
+                    delete: 0,
+                    insert: "x".into(),
+                }),
+                (false, 0, 0, 1)
+            );
+
+            session.run(Command::EnsurePage {
+                page_id: PageId::new("other").unwrap(),
+                title: "Other".into(),
+            });
+            session.run(Command::SpliceBlockContent {
+                owner: owner.clone(),
+                block_id: block.clone(),
+                index: 0,
+                delete: 0,
+                insert: vec![InlineContent::PageReference {
+                    page_id: PageId::new("other").unwrap(),
+                }],
+            });
+            session.run(Command::SetProperty {
+                owner: PropertyOwner::Block {
+                    owner: owner.clone(),
+                    id: block.clone(),
+                },
+                key: PropertyKey::new("builtin.task-status").unwrap(),
+                value: PropertyValue::String("todo".into()),
+            });
+            let tag = TagId::new("tag").unwrap();
+            session.run(Command::EnsureTag {
+                tag_id: tag.clone(),
+                name: "Tag".into(),
+            });
+            session.run(Command::AddTag {
+                entity: EntityId::Block {
+                    owner: owner.clone(),
+                    id: block.clone(),
+                },
+                tag_id: tag,
+            });
+            let second = session.writer.page_snapshot(&page).unwrap().blocks[1]
+                .id
+                .clone();
+            session.run(Command::IndentBlocks {
+                owner: owner.clone(),
+                block_ids: vec![second.clone()],
+            });
+            session.run(Command::DeleteBlocks {
+                owner,
+                block_ids: vec![second],
+            });
+            session.run(Command::RenamePage {
+                page_id: page,
+                title: "Renamed".into(),
+            });
+            session.run(Command::EnsureJournal {
+                date: LocalDate::new("2026-10-12").unwrap(),
+            });
+            session.run(Command::SetEntityKind {
+                id: PageId::new("other").unwrap(),
+                kind: EntityKind::Tag,
+            });
+        }
+
+        #[test]
+        fn malformed_updates_are_rejected_as_a_full_validation_would() {
+            let (session, _, _) = seeded();
+            type Edit = Box<dyn FnOnce(&LoroDoc, &LoroMap)>;
+            let cases: Vec<(&str, Edit)> = vec![
+                (
+                    "dangling page reference",
+                    Box::new(|_, page| {
+                        let content = child_text(&first_block(page), "content");
+                        content.insert(0, &PAGE_REFERENCE_CHAR.to_string()).unwrap();
+                        content
+                            .mark(0..1, PAGE_REFERENCE_MARK, "missing-page")
+                            .unwrap();
+                    }),
+                ),
+                (
+                    "malformed block property",
+                    Box::new(|_, page| {
+                        let properties = child_map(&first_block(page), "properties");
+                        let field = properties
+                            .insert_container("user.broken", LoroMap::new())
+                            .unwrap();
+                        field.insert("shape", "not json").unwrap();
+                    }),
+                ),
+                (
+                    "block without content",
+                    Box::new(|_, page| {
+                        let tree = outline(page);
+                        let node = tree.create(TreeParentId::Root).unwrap();
+                        tree.get_meta(node).unwrap().insert("stray", true).unwrap();
+                    }),
+                ),
+                (
+                    "reserved atom in a title",
+                    Box::new(|_, page| {
+                        let title = child_text(&child_map(page, "root"), "content");
+                        title.insert(0, &PAGE_REFERENCE_CHAR.to_string()).unwrap();
+                    }),
+                ),
+                (
+                    "another graph's identity",
+                    Box::new(|doc, _| {
+                        doc.get_map("meta").insert("graph_id", "elsewhere").unwrap();
+                    }),
+                ),
+                (
+                    "document without a root",
+                    Box::new(|doc, _| {
+                        doc.get_map("entities")
+                            .insert_container("broken", LoroMap::new())
+                            .unwrap();
+                    }),
+                ),
+                (
+                    "document in two homes",
+                    Box::new(|doc, _| {
+                        doc.get_map("pages")
+                            .insert_container("page", LoroMap::new())
+                            .unwrap();
+                    }),
+                ),
+                (
+                    "removed document",
+                    Box::new(|doc, _| {
+                        doc.get_map("entities").delete("page").unwrap();
+                    }),
+                ),
+                (
+                    "invalid lifecycle on a block",
+                    Box::new(|_, page| {
+                        child_map(&first_block(page), "properties")
+                            .delete("builtin.created-at")
+                            .unwrap();
+                    }),
+                ),
+            ];
+            for (name, edit) in cases {
+                let page = session.page();
+                let (update, full) = session.forge(move |doc| {
+                    let record = match doc.get_map("entities").get("page") {
+                        Some(ValueOrContainer::Container(Container::Map(record))) => record,
+                        _ => panic!("page record is missing"),
+                    };
+                    drop(page);
+                    edit(doc, &record);
+                });
+                let accepted = session.room.prepare_update(&update).is_ok();
+                assert_eq!(
+                    accepted, full,
+                    "{name}: change-scoped admission disagrees with full validation"
+                );
+                let scope = import_recording(&session.room.doc.fork(), &update)
+                    .unwrap()
+                    .scope();
+                match name {
+                    // Removing a document is outside every unit; the whole
+                    // document decides, and nothing references this one.
+                    "removed document" => assert!(scope.0 && accepted, "{name}"),
+                    _ => assert!(!scope.0 && !accepted, "{name}: {scope:?}"),
+                }
+            }
+        }
     }
 }
