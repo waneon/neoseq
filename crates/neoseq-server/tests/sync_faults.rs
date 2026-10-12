@@ -97,14 +97,9 @@ async fn ambiguous_post_commit_failure_is_durable_but_never_acknowledged_early()
 }
 
 #[tokio::test]
-async fn durable_duplicate_discards_the_unadopted_candidate() {
+async fn durable_duplicate_is_acknowledged_and_kept() {
     let fixture = fixture(RoomConfig::default());
     let graph_id = GraphId::new(GRAPH).unwrap();
-    let base_fingerprint =
-        graph_core::GraphCore::from_snapshot(graph_id.clone(), 90, &fixture.snapshot)
-            .unwrap()
-            .fingerprint()
-            .unwrap();
     let (client, update) = client_update(&fixture.snapshot, 2, "create-a", "page-a", "A");
     let update_id = update.message_id.clone();
     let mut opened = fixture
@@ -116,8 +111,8 @@ async fn durable_duplicate_discards_the_unadopted_candidate() {
     let mut receiver = opened.take_outbound();
 
     // Simulate another process durably receiving the update while this
-    // disposable room still holds the preceding baseline. The retry prepares
-    // an advanced candidate, but the duplicate outcome must not adopt it.
+    // disposable room still holds the preceding baseline. The room may keep
+    // what it admitted: those operations are durable.
     let committed = fixture
         .store
         .commit_update(&graph_id, OWNER, &update.message_id, &update.bytes)
@@ -141,10 +136,7 @@ async fn durable_duplicate_discards_the_unadopted_candidate() {
         .unwrap()
         .fingerprint()
         .unwrap();
-    assert_eq!(live_fingerprint, base_fingerprint);
-    assert_ne!(live_fingerprint, client.fingerprint().unwrap());
-
-    // Reconstructing from durable state does include the committed update.
+    assert_eq!(live_fingerprint, client.fingerprint().unwrap());
     assert_eq!(
         room_fingerprint(&fixture.manager, &graph_id, OWNER).await,
         client.fingerprint().unwrap()
@@ -379,4 +371,64 @@ async fn new_server_manager_reconstructs_all_acknowledged_updates() {
         room_fingerprint(&restarted, &graph_id, OWNER).await,
         client.fingerprint().unwrap()
     );
+}
+
+#[tokio::test]
+async fn rejected_update_leaves_no_trace_in_the_live_room() {
+    let fixture = fixture(RoomConfig::default());
+    let graph_id = GraphId::new(GRAPH).unwrap();
+    let (mut client, first) = client_update(&fixture.snapshot, 2, "create-a", "page-a", "A");
+    let first_id = first.message_id.clone();
+    let expected = client.fingerprint().unwrap();
+    // Depends on `first`: imported alone, Loro parks it until `first` arrives.
+    let bytes = client
+        .execute(
+            domain::CommandEnvelope {
+                graph_id: graph_id.clone(),
+                command_id: domain::CommandId::new("create-b").unwrap(),
+                command: domain::Command::EnsurePage {
+                    page_id: domain::PageId::new("page-b").unwrap(),
+                    title: "B".into(),
+                },
+            },
+            "client-edit",
+        )
+        .unwrap()
+        .update;
+    let dependent = sync_protocol::Update {
+        history_epoch: 0,
+        message_id: sync_protocol::ContentId::for_bytes(&bytes),
+        base_version_vector: first.base_version_vector.clone(),
+        bytes,
+    };
+    let mut owner = fixture
+        .manager
+        .open(&graph_id, "owner", OWNER, 0, &fixture.base_version)
+        .await
+        .unwrap()
+        .connection;
+    let mut owner_rx = owner.take_outbound();
+    let mut peer = fixture
+        .manager
+        .open(&graph_id, "peer", PEER, 0, &fixture.base_version)
+        .await
+        .unwrap()
+        .connection;
+    let mut peer_rx = peer.take_outbound();
+
+    assert!(matches!(
+        fixture.manager.submit_update(&owner, dependent).await,
+        Err(RoomError::InvalidUpdate)
+    ));
+    fixture.manager.submit_update(&owner, first).await.unwrap();
+    assert_ack(&mut owner_rx, &first_id).await;
+    assert_update(&mut peer_rx, &first_id).await;
+    assert_eq!(fixture.store.update_count(&graph_id), 1);
+    let live = fixture
+        .manager
+        .export_checkpoint(&graph_id, OWNER)
+        .await
+        .unwrap();
+    let room = graph_core::GraphCore::from_snapshot(graph_id, 9, &live.bytes).unwrap();
+    assert_eq!(room.fingerprint().unwrap(), expected);
 }

@@ -18,17 +18,17 @@ pub struct ServerGraph {
     doc: LoroDoc,
 }
 
-/// An update imported and validated on an isolated candidate document.
-///
-/// The candidate is adopted only after the exact update bytes are durable.
-#[must_use = "a prepared server update must be adopted after durable insertion or discarded"]
-pub struct PreparedServerUpdate {
-    graph: ServerGraph,
-}
-
-impl PreparedServerUpdate {
-    pub fn into_graph(self) -> ServerGraph {
-        self.graph
+/// A deep copy; it costs a snapshot round trip of the whole document.
+impl Clone for ServerGraph {
+    fn clone(&self) -> Self {
+        let doc = self.doc.fork();
+        configure_inline_content(&doc);
+        doc.set_peer_id(self.doc.peer_id())
+            .expect("a fork accepts its origin's peer ID");
+        Self {
+            graph_id: self.graph_id.clone(),
+            doc,
+        }
     }
 }
 
@@ -93,22 +93,13 @@ impl ServerGraph {
         Ok(self.doc.export(ExportMode::Snapshot)?)
     }
 
-    /// Imports an untrusted update exactly once on a deep fork and returns an
-    /// immutable candidate for durable-before-adopt room semantics. Only what the
-    /// update changed is validated, so admission cost follows the update rather
-    /// than the graph; the room was valid before it.
-    pub fn prepare_update(&self, update: &[u8]) -> Result<PreparedServerUpdate, CoreError> {
-        let candidate = self.doc.fork();
-        configure_inline_content(&candidate);
-        candidate.set_peer_id(self.doc.peer_id())?;
-        let changes = import_recording(&candidate, update)?;
-        validate_causal_changes(&candidate, &self.graph_id, &changes)?;
-        Ok(PreparedServerUpdate {
-            graph: Self {
-                graph_id: self.graph_id.clone(),
-                doc: candidate,
-            },
-        })
+    /// Imports an untrusted update and validates only what it changed; the
+    /// graph was valid before it, so admission cost follows the update rather
+    /// than the graph. Loro cannot retract imported operations: after an error
+    /// this graph may hold rejected state and must be discarded.
+    pub fn admit_update(&mut self, update: &[u8]) -> Result<(), CoreError> {
+        let changes = import_recording(&self.doc, update)?;
+        validate_causal_changes(&self.doc, &self.graph_id, &changes)
     }
 }
 
@@ -272,11 +263,8 @@ mod tests {
             .unwrap()
             .update;
 
-        let baseline_version = room.version_vector();
-        let candidate = room.prepare_update(&update).unwrap();
-        assert_eq!(room.version_vector(), baseline_version);
         assert_ne!(room.version_vector(), writer.version_vector());
-        room = candidate.into_graph();
+        room.admit_update(&update).unwrap();
         assert_eq!(room.version_vector(), writer.version_vector());
     }
 
@@ -309,12 +297,11 @@ mod tests {
             Some(encoded.clone())
         );
 
-        let room = ServerGraph::from_checkpoint(graph_id(), 14, &checkpoint).unwrap();
+        let mut room = ServerGraph::from_checkpoint(graph_id(), 14, &checkpoint).unwrap();
         let update = update_with_plan_state(&checkpoint, 15, &encoded);
         let baseline = room.version_vector();
-        let accepted = room.prepare_update(&update).unwrap().into_graph();
-        assert_eq!(room.version_vector(), baseline);
-        assert_ne!(accepted.version_vector(), baseline);
+        room.admit_update(&update).unwrap();
+        assert_ne!(room.version_vector(), baseline);
     }
 
     #[test]
@@ -347,13 +334,11 @@ mod tests {
     }
 
     #[test]
-    fn malformed_plan_update_is_rejected_before_adoption_and_after_recovery() {
+    fn malformed_plan_update_is_rejected_on_admission_and_after_recovery() {
         let checkpoint = query_checkpoint();
         let update = update_with_plan_state(&checkpoint, 30, "{");
-        let room = ServerGraph::from_checkpoint(graph_id(), 31, &checkpoint).unwrap();
-        let baseline = room.version_vector();
-        assert!(room.prepare_update(&update).is_err());
-        assert_eq!(room.version_vector(), baseline);
+        let mut room = ServerGraph::from_checkpoint(graph_id(), 31, &checkpoint).unwrap();
+        assert!(room.admit_update(&update).is_err());
 
         let mut recovery = ServerGraph::from_checkpoint(graph_id(), 32, &checkpoint).unwrap();
         recovery.stage_recovery_update(&update).unwrap();
@@ -406,9 +391,8 @@ mod tests {
                     .update;
                 let probe = self.room.doc.fork();
                 let scope = import_recording(&probe, &update).unwrap().scope();
-                let candidate = self.room.prepare_update(&update).unwrap();
-                validate_causal_document(&candidate.graph.doc, &graph_id()).unwrap();
-                self.room = candidate.into_graph();
+                self.room.admit_update(&update).unwrap();
+                validate_causal_document(&self.room.doc, &graph_id()).unwrap();
                 scope
             }
 
@@ -566,6 +550,14 @@ mod tests {
             type Edit = Box<dyn FnOnce(&LoroDoc, &LoroMap)>;
             let cases: Vec<(&str, Edit)> = vec![
                 (
+                    "document in a second home",
+                    Box::new(|doc, _| {
+                        doc.get_map("pages")
+                            .insert_container("page", LoroMap::new())
+                            .unwrap();
+                    }),
+                ),
+                (
                     "dangling page reference",
                     Box::new(|_, page| {
                         let content = child_text(&first_block(page), "content");
@@ -647,7 +639,9 @@ mod tests {
                     drop(page);
                     edit(doc, &record);
                 });
-                let accepted = session.room.prepare_update(&update).is_ok();
+                // A rejection leaves its operations behind; each case gets its own room.
+                let mut room = session.room.clone();
+                let accepted = room.admit_update(&update).is_ok();
                 assert_eq!(
                     accepted, full,
                     "{name}: change-scoped admission disagrees with full validation"

@@ -296,6 +296,19 @@ impl RoomManager {
     }
 
     async fn reconstruct(&self, graph_id: &GraphId) -> Result<Arc<Mutex<Room>>, RoomError> {
+        let room = self.load_room(graph_id).await?;
+        self.metrics.room_opened();
+        tracing::info!(
+            graph_id = telemetry_id(graph_id.as_str()),
+            cursor = room.cursor,
+            tail_updates = room.tail_updates,
+            "graph room reconstructed"
+        );
+        Ok(Arc::new(Mutex::new(room)))
+    }
+
+    /// Builds a session-less room from the durable checkpoint and Tail.
+    async fn load_room(&self, graph_id: &GraphId) -> Result<Room, RoomError> {
         let durable = self.store.load_graph(graph_id).await?;
         if !domain::supports_document_schema(durable.schema_version) {
             return Err(RoomError::UnsupportedSchema);
@@ -324,15 +337,7 @@ impl RoomManager {
             .iter()
             .map(|update| update.bytes.len())
             .sum();
-        self.metrics.room_opened();
-        let graph_log_id = telemetry_id(graph_id.as_str());
-        tracing::info!(
-            graph_id = graph_log_id,
-            cursor = durable.latest_cursor(),
-            tail_updates = durable.updates.len(),
-            "graph room reconstructed"
-        );
-        Ok(Arc::new(Mutex::new(Room {
+        Ok(Room {
             graph,
             cursor: durable.latest_cursor(),
             history_epoch,
@@ -341,7 +346,36 @@ impl RoomManager {
             tail_bytes,
             sessions: HashMap::new(),
             valid: true,
-        })))
+        })
+    }
+
+    /// Replaces a document that admitted rejected operations with its durable
+    /// state, keeping sessions. Nothing else saw it: the room lock is held.
+    async fn restore(&self, graph_id: &GraphId, room: &mut Room) -> Result<(), RoomError> {
+        let restored = match self.load_room(graph_id).await {
+            Ok(restored)
+                if restored.cursor == room.cursor
+                    && restored.history_epoch == room.history_epoch =>
+            {
+                Ok(restored)
+            }
+            Ok(_) => Err(RoomError::ReconnectRequired),
+            Err(error) => Err(error),
+        };
+        match restored {
+            Ok(restored) => {
+                let sessions = std::mem::take(&mut room.sessions);
+                *room = Room {
+                    sessions,
+                    ..restored
+                };
+                Ok(())
+            }
+            Err(error) => {
+                invalidate_room(room, ErrorCode::StorageUnavailable);
+                Err(error)
+            }
+        }
     }
 
     pub async fn submit_update(
@@ -387,10 +421,14 @@ impl RoomManager {
         if estimated > self.config.limits.max_decompressed_bytes as usize {
             return Err(StoreError::QuotaExceeded.into());
         }
-        let candidate = room
-            .graph
-            .prepare_update(&update.bytes)
-            .map_err(|_| RoomError::InvalidUpdate)?;
+        if room.graph.admit_update(&update.bytes).is_err() {
+            if let Err(error) = self.restore(&connection.graph_id, &mut room).await {
+                drop(room);
+                self.evict(&connection.graph_id).await;
+                return Err(error);
+            }
+            return Err(RoomError::InvalidUpdate);
+        }
 
         let outcome = match self
             .store
@@ -413,7 +451,6 @@ impl RoomManager {
 
         let server_cursor = outcome.cursor();
         if let CommitOutcome::Inserted { cursor } = outcome {
-            room.graph = candidate.into_graph();
             room.cursor = cursor;
             room.tail_updates += 1;
             room.tail_bytes += update.bytes.len();

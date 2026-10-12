@@ -1139,6 +1139,8 @@ async fn run_session(
                             | RoomError::ReconnectRequired
                             | RoomError::StaleHistory
                             | RoomError::SlowConsumer
+                            // A rejection costs the room a durable reload.
+                            | RoomError::InvalidUpdate
                     ) {
                         break;
                     }

@@ -16,12 +16,12 @@ pub use core::{
     CoreError, CoreExecution, GraphChangeSet, GraphCore, SCHEMA_VERSION, empty_version_vector,
 };
 
-/// Server-only remote-update preparation and disposable baseline adoption.
+/// Server-only remote-update admission and disposable baseline adoption.
 ///
 /// Client runtimes should use [`GraphCore::import_remote`] so their local undo
 /// history remains attached to the live document.
 pub mod server {
-    pub use crate::server_graph::{PreparedServerUpdate, ServerGraph};
+    pub use crate::server_graph::ServerGraph;
 }
 pub use domain::SemanticEvent;
 pub use persistence::{

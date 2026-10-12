@@ -129,21 +129,21 @@ JSON/postcard field name remains `message_id` for the cross-language contract.
    delta exceeds the live frame budget. A replacement request for a previously
    based replica pauses client synchronization while preserving its local work.
    Only an unbased replica installs an initial checkpoint.
-4. For every client update, enforce limits and prepare a validated candidate on
-   a temporary fork of the room document. Validation covers only the entities,
+4. For every client update, enforce limits, then import it into the room
+   document and validate it there. Validation covers only the entities,
    headers, and outline nodes the import changed; a change it cannot attribute
    falls back to the whole document. The quota is checked against an estimate:
    the last checkpoint's exact size plus twice the encoded Tail.
-5. Persist the exact validated bytes transactionally, then adopt the prepared
-   candidate only when a new durable record was inserted.
+5. Persist the exact validated bytes transactionally.
 6. Acknowledge only after commit, then broadcast to other sessions.
 7. On reconnect, repeat version-vector reconciliation; no correctness depends on
    having observed all broadcasts.
 
-If database commit fails, or reports a duplicate receipt, the candidate is
-discarded and the live room remains unchanged. Adoption is an ownership transfer
-of already-validated state, so there is no second import failure boundary after
-commit.
+Loro cannot retract imported operations, so a rejected update leaves the room
+document dirty. The room, still locked, reloads its durable state and keeps its
+sessions; the sender is disconnected, since each rejection costs that reload. If
+database commit fails, the room is discarded and its sessions resynchronize. A
+duplicate receipt is already durable, so the room keeps it.
 
 The service periodically re-checks authorization for long-lived connections and
 closes revoked sessions.

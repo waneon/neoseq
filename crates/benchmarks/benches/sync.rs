@@ -5,12 +5,16 @@ use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use domain::{Command, CommandEnvelope, CommandId, GraphId, OutlineItem, OutlineOwner, PageId};
 use graph_core::{GraphCore, server::ServerGraph};
 use std::hint::black_box;
+use std::time::{Duration, Instant};
 
 const BLOCKS_PER_PAGE: usize = 100;
+/// Admission consumes its update, so each iteration admits the next keystroke;
+/// the room restarts from a copy when the chain runs out.
+const KEYSTROKES: usize = 1_000;
 
 struct Fixture {
     server: ServerGraph,
-    update: Vec<u8>,
+    updates: Vec<Vec<u8>>,
 }
 
 fn fixture(block_count: usize) -> Fixture {
@@ -66,36 +70,53 @@ fn fixture(block_count: usize) -> Fixture {
     let block_id = writer.page_snapshot(&page_id).expect("page reads").blocks[0]
         .id
         .clone();
-    let update = run(
-        &mut writer,
-        Command::SpliceMarkdown {
-            owner: OutlineOwner::Page { id: page_id },
-            block_id,
-            index: 0,
-            delete: 0,
-            insert: "x".into(),
-        },
-    )
-    .update;
-    Fixture { server, update }
+    let updates = (0..KEYSTROKES)
+        .map(|index| {
+            run(
+                &mut writer,
+                Command::SpliceMarkdown {
+                    owner: OutlineOwner::Page {
+                        id: page_id.clone(),
+                    },
+                    block_id: block_id.clone(),
+                    index,
+                    delete: 0,
+                    insert: "x".into(),
+                },
+            )
+            .update
+        })
+        .collect();
+    Fixture { server, updates }
 }
 
-fn bench_prepare_update(criterion: &mut Criterion) {
-    let mut group = criterion.benchmark_group("sync/prepare_update");
+fn bench_admit_update(criterion: &mut Criterion) {
+    let mut group = criterion.benchmark_group("sync/admit_update");
     group.sample_size(10);
     for block_count in [1_000, 10_000, 50_000] {
         let fixture = fixture(block_count);
+        let mut room = fixture.server.clone();
+        let mut next = 0;
         group.bench_function(BenchmarkId::from_parameter(block_count), |bencher| {
-            bencher.iter_with_large_drop(|| {
-                fixture
-                    .server
-                    .prepare_update(black_box(&fixture.update))
-                    .expect("update admits")
+            bencher.iter_custom(|iterations| {
+                let mut elapsed = Duration::ZERO;
+                for _ in 0..iterations {
+                    if next == fixture.updates.len() {
+                        room = fixture.server.clone();
+                        next = 0;
+                    }
+                    let started = Instant::now();
+                    room.admit_update(black_box(&fixture.updates[next]))
+                        .expect("update admits");
+                    elapsed += started.elapsed();
+                    next += 1;
+                }
+                elapsed
             });
         });
     }
     group.finish();
 }
 
-criterion_group!(benches, bench_prepare_update);
+criterion_group!(benches, bench_admit_update);
 criterion_main!(benches);

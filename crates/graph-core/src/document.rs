@@ -55,11 +55,11 @@ pub(crate) enum StoredPlanState {
 /// `GraphCore`, not to this causal boundary.
 pub(crate) fn validate_causal_document(doc: &LoroDoc, graph_id: &GraphId) -> Result<(), CoreError> {
     validate_metadata(doc, graph_id)?;
-    let ids = document_ids(doc)?;
-    for home in HOMES {
-        let records = doc.get_map(home);
+    let homes = Homes::new(doc);
+    for (home, records) in HOMES.iter().zip(&homes.0) {
         for raw_id in records.keys() {
-            validate_document(home, &raw_id, &records, &ids, true)?;
+            homes.require_single(&raw_id)?;
+            validate_document(home, &raw_id, records, &homes, true)?;
         }
     }
     validate_graph_settings(doc)
@@ -180,16 +180,18 @@ pub(crate) fn validate_causal_changes(
     if changes.headers.is_empty() && changes.documents.is_empty() && changes.blocks.is_empty() {
         return Ok(());
     }
-    let ids = document_ids(doc)?;
+    // The room was valid before, so only a document this update added can
+    // share its ID with another home or have broken a reference.
+    let homes = Homes::new(doc);
     for (home, raw_id) in &changes.documents {
-        let records = doc.get_map(*home);
-        validate_document(home, raw_id, &records, &ids, true)?;
+        homes.require_single(raw_id)?;
+        validate_document(home, raw_id, &doc.get_map(*home), &homes, true)?;
     }
     for (home, raw_id) in &changes.headers {
         if changes.documents.contains(&(*home, raw_id.clone())) {
             continue;
         }
-        validate_document(home, raw_id, &doc.get_map(*home), &ids, false)?;
+        validate_document(home, raw_id, &doc.get_map(*home), &homes, false)?;
     }
     for (home, raw_id, node) in &changes.blocks {
         if changes.documents.contains(&(*home, raw_id.clone())) {
@@ -201,28 +203,41 @@ pub(crate) fn validate_causal_changes(
         )?;
         let outline = required_child_tree(&record, "outline", &format!("{home} {raw_id} outline"))?;
         let owner = format!("{}:{raw_id}", if *home == "tags" { "tag" } else { "page" });
-        validate_outline_node(&outline, *node, &ids, &owner)?;
+        validate_outline_node(&outline, *node, &homes, &owner)?;
     }
     Ok(())
 }
 
 const HOMES: [&str; 3] = ["entities", "pages", "tags"];
 
-/// Every document ID, each in exactly one storage home.
-fn document_ids(doc: &LoroDoc) -> Result<BTreeSet<PageId>, CoreError> {
-    let mut ids = BTreeSet::new();
-    for home in HOMES {
-        for raw in doc.get_map(home).keys() {
-            let id =
-                PageId::new(raw.to_string()).map_err(|_| invalid("invalid document ID".into()))?;
-            if !ids.insert(id) {
-                return Err(invalid(
-                    "document ID appears in multiple storage homes".into(),
-                ));
-            }
-        }
+/// The storage homes, answering document lookups in place.
+struct Homes([LoroMap; 3]);
+
+impl Homes {
+    fn new(doc: &LoroDoc) -> Self {
+        Self(HOMES.map(|home| doc.get_map(home)))
     }
-    Ok(ids)
+
+    fn contains(&self, id: &PageId) -> bool {
+        self.0
+            .iter()
+            .any(|records| records.get(id.as_str()).is_some())
+    }
+
+    /// A document ID lives in exactly one storage home.
+    fn require_single(&self, raw_id: &str) -> Result<(), CoreError> {
+        let homes = self
+            .0
+            .iter()
+            .filter(|records| records.get(raw_id).is_some())
+            .count();
+        if homes > 1 {
+            return Err(invalid(
+                "document ID appears in multiple storage homes".into(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// One document record; `with_outline` also validates every block.
@@ -230,7 +245,7 @@ fn validate_document(
     home: &str,
     raw_id: &str,
     records: &LoroMap,
-    ids: &BTreeSet<PageId>,
+    homes: &Homes,
     with_outline: bool,
 ) -> Result<(), CoreError> {
     let (outline, owner) = if home == "tags" {
@@ -251,7 +266,7 @@ fn validate_document(
     };
     if with_outline {
         for node in outline.nodes() {
-            validate_outline_node(&outline, node, ids, &owner)?;
+            validate_outline_node(&outline, node, homes, &owner)?;
         }
     }
     Ok(())
@@ -333,7 +348,7 @@ fn validate_tag_header(tag_id: &TagId, tag: &LoroMap) -> Result<LoroTree, CoreEr
 fn validate_outline_node(
     outline: &LoroTree,
     node: TreeID,
-    page_ids: &BTreeSet<PageId>,
+    homes: &Homes,
     owner: &str,
 ) -> Result<(), CoreError> {
     let block_id = node.to_string();
@@ -365,7 +380,7 @@ fn validate_outline_node(
     )?;
     validate_lifecycle(&properties, false, &format!("{owner}: block {block_id}"))?;
     validate_tag_references(&tag_refs, &format!("{owner}: block {block_id}"))?;
-    validate_inline_page_references(&content, page_ids, owner)
+    validate_inline_page_references(&content, homes, owner)
 }
 
 fn validate_tag_references(tag_refs: &LoroMap, owner: &str) -> Result<(), CoreError> {
@@ -384,7 +399,7 @@ fn validate_tag_references(tag_refs: &LoroMap, owner: &str) -> Result<(), CoreEr
 
 fn validate_inline_page_references(
     text: &LoroText,
-    page_ids: &BTreeSet<PageId>,
+    homes: &Homes,
     owner: &str,
 ) -> Result<(), CoreError> {
     for segment in text.to_delta() {
@@ -401,7 +416,7 @@ fn validate_inline_page_references(
                 let page_id = PageId::new(raw.as_ref()).map_err(|_| {
                     invalid(format!("{owner}: page reference has an invalid identity"))
                 })?;
-                if !page_ids.contains(&page_id)
+                if !homes.contains(&page_id)
                     || insert
                         .chars()
                         .any(|character| character != PAGE_REFERENCE_CHAR)
