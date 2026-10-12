@@ -1142,12 +1142,14 @@ impl GraphCore {
             } => NormalizedTransition::structural(
                 self.lower_split_block(owner, block_id, *index, *placement)?,
             ),
-            Command::MergeBlockBackward { owner, block_id } => {
-                NormalizedTransition::structural(PrimitiveOp::MergeBlockBackward {
-                    owner: owner.clone(),
-                    plan: Box::new(self.plan_merge_block_backward(owner, block_id)?),
-                })
-            }
+            Command::MergeBlockBackward {
+                owner,
+                block_id,
+                target,
+            } => NormalizedTransition::structural(PrimitiveOp::MergeBlockBackward {
+                owner: owner.clone(),
+                plan: Box::new(self.plan_merge_block_backward(owner, block_id, target.as_ref())?),
+            }),
             Command::MoveBlocks {
                 block_ids,
                 owner,

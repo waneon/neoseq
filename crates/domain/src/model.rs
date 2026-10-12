@@ -166,6 +166,11 @@ pub enum Command {
     MergeBlockBackward {
         owner: OutlineOwner,
         block_id: BlockId,
+        /// The block on the line above: the previous sibling or a block on its
+        /// last-child chain. Absent means the previous sibling.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "typescript", ts(optional))]
+        target: Option<BlockId>,
     },
     InsertOutline {
         owner: OutlineOwner,

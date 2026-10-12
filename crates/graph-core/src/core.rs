@@ -4523,6 +4523,7 @@ mod tests {
                             Command::MergeBlockBackward {
                                 owner,
                                 block_id: source.clone(),
+                                target: None,
                             },
                         ],
                     },
@@ -6513,6 +6514,7 @@ mod tests {
                 Command::MergeBlockBackward {
                     owner: OutlineOwner::Page { id: page() },
                     block_id: source.clone(),
+                    target: None,
                 },
             ),
             "t6",
@@ -6579,6 +6581,7 @@ mod tests {
                     Command::MergeBlockBackward {
                         owner: OutlineOwner::Page { id: page() },
                         block_id: first,
+                        target: None,
                     },
                 ),
                 "t3",
@@ -7723,6 +7726,91 @@ mod tests {
         assert_eq!(
             shape(&core.page_snapshot(&page()).unwrap().blocks),
             "a,b(x,c),d"
+        );
+    }
+
+    #[test]
+    fn merge_backward_joins_the_line_above_on_the_last_child_chain() {
+        fn shape(blocks: &[BlockSnapshot]) -> String {
+            blocks
+                .iter()
+                .map(|block| {
+                    if block.children.is_empty() {
+                        block.markdown.clone()
+                    } else {
+                        format!("{}({})", block.markdown, shape(&block.children))
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(",")
+        }
+        let owner = OutlineOwner::Page { id: page() };
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let ids = ["a", "b", "c", "e", "f"]
+            .into_iter()
+            .enumerate()
+            .map(|(index, text)| insert_root(&mut core, text, &page(), index, text))
+            .collect::<Vec<_>>();
+        let [_, b, c, e, f] = ids.as_slice() else {
+            unreachable!()
+        };
+        for (id, block_ids) in [
+            ("indent-children", vec![b.clone(), c.clone()]),
+            ("indent-f", vec![f.clone()]),
+        ] {
+            core.execute(
+                envelope(
+                    id,
+                    Command::IndentBlocks {
+                        owner: owner.clone(),
+                        block_ids,
+                    },
+                ),
+                "t2",
+            )
+            .unwrap();
+        }
+        let before = core.page_snapshot(&page()).unwrap();
+        assert_eq!(shape(&before.blocks), "a(b,c),e(f)");
+
+        // Only the previous sibling or its last-child chain is the line above.
+        let rejected = core.execute(
+            envelope(
+                "merge-into-b",
+                Command::MergeBlockBackward {
+                    owner: owner.clone(),
+                    block_id: e.clone(),
+                    target: Some(b.clone()),
+                },
+            ),
+            "t3",
+        );
+        assert!(matches!(rejected, Err(CoreError::InvalidHierarchy(_))));
+        assert_eq!(core.page_snapshot(&page()).unwrap(), before);
+
+        core.execute(
+            envelope(
+                "merge-into-c",
+                Command::MergeBlockBackward {
+                    owner,
+                    block_id: e.clone(),
+                    target: Some(c.clone()),
+                },
+            ),
+            "t4",
+        )
+        .unwrap();
+        assert_eq!(
+            shape(&core.page_snapshot(&page()).unwrap().blocks),
+            "a(b,ce(f))"
+        );
+        // Undo restores the source as a new tree node with the same content.
+        core.execute(envelope("undo-merge", Command::Undo), "t5")
+            .unwrap();
+        assert_eq!(
+            shape(&core.page_snapshot(&page()).unwrap().blocks),
+            "a(b,c),e(f)"
         );
     }
 

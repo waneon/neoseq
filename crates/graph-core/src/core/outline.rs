@@ -396,10 +396,13 @@ impl GraphCore {
         })
     }
 
+    /// Merges a block into the line above it: the previous sibling, or a block on
+    /// that sibling's last-child chain when its descendants are shown.
     pub(super) fn plan_merge_block_backward(
         &self,
         owner: &OutlineOwner,
         block_id: &BlockId,
+        requested: Option<&BlockId>,
     ) -> Result<MergePlan, CoreError> {
         let before = self.outline_state(owner)?;
         let parent = before
@@ -415,12 +418,24 @@ impl GraphCore {
             .iter()
             .position(|candidate| candidate == block_id)
             .ok_or_else(|| CoreError::BlockNotFound(block_id.clone()))?;
-        let target = position
+        let mut target = position
             .checked_sub(1)
             .map(|target| siblings[target].clone())
             .ok_or_else(|| {
                 CoreError::InvalidHierarchy("first sibling cannot merge backward".into())
             })?;
+        if let Some(requested) = requested {
+            while &target != requested {
+                target = before
+                    .children
+                    .get(&Some(target))
+                    .and_then(|children| children.last())
+                    .cloned()
+                    .ok_or_else(|| {
+                        CoreError::InvalidHierarchy("merge target is not the line above".into())
+                    })?;
+            }
+        }
         let combined_bytes = self
             .block_text(owner, &target)?
             .to_string()

@@ -227,7 +227,8 @@ the temporary identity atomically; rejection removes the whole projection. Pendi
 operations may chain, and queued structural intents replay in order after IDs
 resolve.
 
-Backspace at canonical offset zero merges with the previous sibling. Its pending
+Backspace at canonical offset zero merges with the line above: the previous
+sibling, or its last shown descendant when its children are expanded. Its pending
 operation projects the combined target and hidden source together, moves focus to
 the join, and serializes raced typing after the canonical merge. A first child
 outdents instead; the first root is unchanged. Merge rejection restores both rows

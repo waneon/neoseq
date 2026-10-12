@@ -1066,6 +1066,7 @@ export function Outliner({
           type: "merge_block_backward",
           owner: ownerRef.current,
           block_id: head.sourceId,
+          target: head.targetId,
         })
         .catch(retainAppliedResult)
         .then(() => {
@@ -2581,9 +2582,8 @@ export function Outliner({
     mergeBackward: (row, allRows, textarea, inputMethod) => {
       if (preparingMerge.current) return;
       if (readDraftState().pendingOperations.length > 0 && !isPendingId(row.block.id)) return;
-      const target = allRows.find(
-        (candidate) => candidate.parentId === row.parentId && candidate.index === row.index - 1,
-      );
+      // The line above: the previous sibling, or its last shown descendant.
+      const target = row.index > 0 ? allRows[rowIndexOf(allRows, row.block.id) - 1] : undefined;
       if (!target || (!isPendingId(row.block.id) && isPendingId(target.block.id))) return;
       const dirty = [target.block.id, row.block.id].filter((id) => {
         const buffer = readDraftState().buffers.get(id);

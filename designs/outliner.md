@@ -41,7 +41,8 @@ not add a row fill. Block selection forms a continuous ribbon over the visible
 range; descendants traveling with an ancestor are passengers, not extra selected
 roots. Copy produces portable Markdown, and structural operations remain one
 undoable intent. Outdenting a block keeps the run it introduced: the siblings
-that followed it become its last children. Drag shows a destination seam before
+that followed it become its last children. Backspace at the start of a block
+joins it to the line above, which may be a descendant of the previous sibling. Drag shows a destination seam before
 committing; keyboard movement follows the same ordering rules.
 Touch swipes retain native scrolling and text selection; structural range and
 bullet dragging belong to mouse or pen gestures.

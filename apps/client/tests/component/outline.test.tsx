@@ -1531,6 +1531,46 @@ describe("outliner keyboard commands", () => {
     });
   });
 
+  it("joins Backspace with the line above the caret", async () => {
+    const { session, settle } = await mountOutline(["A", "B", "C", "", ""]);
+    const owner = { kind: "page", id: "home" } as const;
+    const ids = () =>
+      findPage(session.getState().snapshot, "home")!.blocks.map((block) => block.id);
+    const [, b, c] = ids();
+    await settle(() => session.execute({ type: "indent_blocks", owner, block_ids: [b, c] }));
+    await waitFor(() =>
+      expect(screen.getAllByRole("treeitem")[2]).toHaveAttribute("aria-level", "2"),
+    );
+    const user = userEvent.setup();
+
+    // A expanded: the line above the empty block is C.
+    await user.click(screen.getAllByLabelText("Block text")[3]);
+    await user.keyboard("{Backspace}");
+    await waitFor(() => expect(screen.getAllByLabelText("Block text")).toHaveLength(4));
+    const lastChild = screen.getAllByLabelText("Block text")[2] as HTMLTextAreaElement;
+    expect(lastChild).toHaveValue("C");
+    expect(lastChild).toHaveFocus();
+    expect(lastChild.selectionStart).toBe(1);
+    await waitFor(() =>
+      expect(
+        findPage(session.getState().snapshot, "home")!.blocks.map((block) => block.markdown),
+      ).toEqual(["A", ""]),
+    );
+
+    // A collapsed: the line above is A itself.
+    await user.click(screen.getAllByRole("button", { name: "Collapse" })[0]);
+    await waitFor(() => expect(screen.getAllByLabelText("Block text")).toHaveLength(2));
+    await user.click(screen.getAllByLabelText("Block text")[1]);
+    await user.keyboard("{Backspace}");
+    await waitFor(() => expect(screen.getAllByLabelText("Block text")).toHaveLength(1));
+    expect(screen.getByLabelText("Block text")).toHaveFocus();
+    await waitFor(() =>
+      expect(
+        findPage(session.getState().snapshot, "home")!.blocks.map((block) => block.children.length),
+      ).toEqual([2]),
+    );
+  });
+
   it("undo and redo run through the core command path", async () => {
     const { session } = await mountOutline(["alpha"]);
     const user = userEvent.setup();
