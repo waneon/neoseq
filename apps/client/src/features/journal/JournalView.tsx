@@ -3,26 +3,20 @@
 // by its builtin.journal-date property, so identity stays with the core (deterministic
 // PageId), not with the client.
 
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  type ReactNode,
-  type RefObject,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { useNavigate, useParams } from "react-router";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { Button } from "@/ui/shadcn/button";
 import { findJournalPage, outlineOwnerKey } from "../../core-port/snapshot";
 import { useToday } from "../time/use-local-clock";
-import { addDays } from "../../entities/calendar";
+import { addDays, dayDifference } from "../../entities/calendar";
 import { useI18n } from "../../i18n";
 import { isValidLocalDate } from "../../entities/calendar";
 import { useNotify } from "../notify/context";
 import { DocumentHeader, PageBody, Tombstone } from "../page/PageView";
 import { JournalCalendar } from "./JournalCalendar";
 import { JournalQueries } from "./JournalQueries";
+import { JournalDays } from "./JournalDays";
 import { useSession, useSessionSelector } from "../shell/session-context";
 import { graphPath } from "../graphs/routing";
 
@@ -46,6 +40,7 @@ export function JournalView() {
   const previousToday = useRef(today);
   const ensured = useRef<string | null>(null);
   const calendarTrigger = useRef<HTMLButtonElement>(null);
+  const [placeholderScroll, setPlaceholderScroll] = useState<HTMLElement | null>(null);
   const previousTrigger = useRef<HTMLButtonElement>(null);
   const nextTrigger = useRef<HTMLButtonElement>(null);
   const navigationFocus = useRef<{
@@ -132,46 +127,50 @@ export function JournalView() {
   // they would answer about now and caption themselves as if they were about
   // March. Today's journal is the only day they are true on.
   const foot = date === today ? <JournalQueries /> : null;
+  const tail = (scrollElement: HTMLElement | null) => (
+    <JournalDays before={date} today={today} scrollElement={scrollElement} />
+  );
 
-  // Date navigation stays visible; its popup owns date entry and focus return.
-  const header = (menu: ReactNode, onContextMenu: (event: React.MouseEvent) => void) => (
+  const distance = dayDifference(date, today);
+  const header = (onContextMenu: (event: React.MouseEvent) => void) => (
     <DocumentHeader
-      kind="journal"
+      name={formatJournalDate(date)}
       onContextMenu={onContextMenu}
+      caption={
+        <span data-testid="journal-distance">
+          {message("journal.distance", {
+            direction: distance === 0 ? "today" : distance < 0 ? "past" : "future",
+            count: Math.abs(distance),
+          })}
+        </span>
+      }
       actions={
-        <>
-          {date === today ? (
-            <span className="today-pill" data-current="true">
+        <div className="journal-nav" role="group" aria-label={message("shell.journal")}>
+          {date !== today && (
+            <Button variant="ghost" className="journal-today" onClick={() => go(today)}>
               {message("journal.today")}
-            </span>
-          ) : (
-            <button className="today-pill" onClick={() => go(today)}>
-              {message("journal.today")}
-            </button>
+            </Button>
           )}
-          <div className="date-stepper" role="group" aria-label={message("shell.journal")}>
-            <Button
-              size="icon"
-              disabled={date === "0001-01-01"}
-              ref={previousTrigger}
-              aria-label={message("journal.previousDay")}
-              onClick={() => go(addDays(date, -1), previousTrigger)}
-            >
-              <ChevronLeftIcon aria-hidden />
-            </Button>
-            <JournalCalendar date={date} today={today} onSelect={go} trigger={calendarTrigger} />
-            <Button
-              size="icon"
-              disabled={date === "9999-12-31"}
-              ref={nextTrigger}
-              aria-label={message("journal.nextDay")}
-              onClick={() => go(addDays(date, 1), nextTrigger)}
-            >
-              <ChevronRightIcon aria-hidden />
-            </Button>
-          </div>
-          {menu}
-        </>
+          <Button
+            size="icon"
+            disabled={date === "0001-01-01"}
+            ref={previousTrigger}
+            aria-label={message("journal.previousDay")}
+            onClick={() => go(addDays(date, -1), previousTrigger)}
+          >
+            <ChevronLeftIcon aria-hidden />
+          </Button>
+          <JournalCalendar date={date} onSelect={go} trigger={calendarTrigger} />
+          <Button
+            size="icon"
+            disabled={date === "9999-12-31"}
+            ref={nextTrigger}
+            aria-label={message("journal.nextDay")}
+            onClick={() => go(addDays(date, 1), nextTrigger)}
+          >
+            <ChevronRightIcon aria-hidden />
+          </Button>
+        </div>
       }
     >
       <h1 data-testid="journal-title">
@@ -182,9 +181,9 @@ export function JournalView() {
 
   if (!page) {
     return (
-      <div className="page-scroll">
+      <div className="page-scroll" ref={setPlaceholderScroll}>
         <article className="page-body">
-          {header(null, (event) => event.preventDefault())}
+          {header((event) => event.preventDefault())}
           <p className="page-note" aria-busy={state.mode !== "readonly"}>
             {state.mode === "readonly"
               ? message("journal.emptyReadonly")
@@ -193,10 +192,11 @@ export function JournalView() {
           {/* A read-only graph may never get today's page written at all, and the
               answers do not depend on one existing. */}
           {foot}
+          {tail(placeholderScroll)}
         </article>
       </div>
     );
   }
 
-  return <PageBody page={page} header={header} foot={foot} />;
+  return <PageBody page={page} header={header} foot={foot} tail={tail} />;
 }

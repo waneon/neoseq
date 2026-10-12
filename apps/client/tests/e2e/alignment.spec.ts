@@ -1,4 +1,5 @@
 import { test, expect } from "../support/fixtures";
+import { misalignedRows } from "../support/alignment";
 
 test("block metadata and mixed query values retain one vertical center", async ({ app, page }) => {
   await app.createGraph("Aligned writing");
@@ -86,4 +87,68 @@ test("block metadata and mixed query values retain one vertical center", async (
       )
       .toBe(true);
   }
+});
+
+test("every single-line row centers its text and marks on one line", async ({ app, page }) => {
+  const misaligned: string[] = [];
+  const audit = async (surface: string) => {
+    for (const row of await misalignedRows(page)) misaligned.push(`${surface} › ${row}`);
+  };
+
+  await app.createGraph("Centered rows");
+  await page.getByRole("button", { name: "Previous day" }).click();
+  await app.startBlock("Yesterday's thought");
+  await page.getByRole("button", { name: "Today", exact: true }).click();
+  await app.startBlock("Today's thought");
+  await app.appendBlock("A nested idea");
+  await app.editors.last().press("Tab");
+  await app.settled();
+  await audit("journal");
+
+  await app.createPage("Plans");
+  await app.startBlock("Write the abstract");
+  await app.block(0).getByTestId("block-bullet").click({ button: "right" });
+  await page.getByTestId("menu-tags").click();
+  const tags = page.getByTestId("tag-picker");
+  await tags.getByTestId("tag-autocomplete").fill("Paper");
+  await app.saved(() => tags.getByRole("option", { name: /Create tag/ }).click());
+  await audit("tag picker");
+  await page.keyboard.press("Escape");
+  await app.block(0).getByTestId("block-bullet").click({ button: "right" });
+  await audit("block menu");
+  await page.getByTestId("menu-properties").click();
+  await audit("property picker");
+  const properties = page.getByTestId("property-picker");
+  await properties.getByRole("option", { name: "Status", exact: true }).click();
+  await app.saved(() => properties.getByRole("option", { name: "To-do", exact: true }).click());
+  await audit("page");
+  await page.getByTestId("page-actions-trigger").click();
+  await audit("page menu");
+  await page.keyboard.press("Escape");
+
+  await page.getByTestId("open-palette").click();
+  await page.getByTestId("command-input").fill("p");
+  await audit("palette");
+  await page.keyboard.press("Escape");
+
+  await page.getByTestId("nav-pages").click();
+  await audit("pages");
+  await page.getByTestId("nav-tags").click();
+  await audit("tags");
+  await page.getByTestId("tag-row-link").first().click();
+  await page.getByTestId("tag-defaults-toggle").click();
+  await audit("tag");
+
+  await page.getByTestId("open-settings").click();
+  for (const section of ["appearance", "journal", "tasks", "keyboard", "graph"]) {
+    await page.getByTestId(`settings-tab-${section}`).click();
+    await audit(`settings ${section}`);
+  }
+  await page.keyboard.press("Escape");
+
+  await page.goto("/");
+  await expect(page.getByTestId("graph-list")).toBeVisible();
+  await audit("library");
+
+  expect(misaligned).toEqual([]);
 });

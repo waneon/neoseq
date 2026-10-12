@@ -4,8 +4,11 @@ import { expect, type Locator, type Page } from "@playwright/test";
 export class NeoseqApp {
   constructor(readonly page: Page) {}
 
+  /** Rows of the document on screen; a journal's earlier days follow it. */
   get rows(): Locator {
-    return this.page.getByTestId("outline-row");
+    return this.page.locator(
+      '[data-testid="outline-row"]:not([data-testid="journal-day"] [data-testid="outline-row"])',
+    );
   }
   get editors(): Locator {
     return this.rows.getByRole("textbox", { name: "Block text", exact: true, includeHidden: true });
@@ -36,6 +39,7 @@ export class NeoseqApp {
     await this.page.getByTestId("new-page").click();
     const input = this.page.getByTestId("page-title");
     await expect(input).toHaveValue("Untitled");
+    await expect(input).toBeFocused();
     await this.saved(async () => {
       await input.fill(title);
       await input.press("Enter");

@@ -131,7 +131,6 @@ export function buildCommands(input: CommandInputs): Command[] {
       group: "Pages",
       label: title,
       keywords: ["open page", "go to"],
-      hint: message("commands.hintPage"),
       icon: <FileTextIcon aria-hidden />,
       pointerRoute: message("shell.pages"),
       run: () => navigate(graphPath(repositoryId, graphId, `p/${page.id}`)),
@@ -144,7 +143,6 @@ export function buildCommands(input: CommandInputs): Command[] {
       group: "Tags",
       label: `#${tag.name}`,
       keywords: ["open tag", "go to"],
-      hint: message("commands.hintTag"),
       icon: <HashIcon aria-hidden />,
       pointerRoute: message("shell.tags"),
       run: () => navigate(graphPath(repositoryId, graphId, `t/${tag.id}`)),
@@ -153,7 +151,7 @@ export function buildCommands(input: CommandInputs): Command[] {
 
   commands.push({
     id: "new-page",
-    group: "Pages",
+    group: "Graph",
     label: message("commands.label.newPage"),
     keywords: ["create", "add page"],
     icon: <PlusIcon aria-hidden />,
@@ -165,7 +163,7 @@ export function buildCommands(input: CommandInputs): Command[] {
   commands.push(
     {
       id: "page-info",
-      group: "Pages",
+      group: "Graph",
       label: message("commands.label.pageInfo"),
       keywords: ["details", "created", "updated"],
       icon: <InfoIcon aria-hidden />,
@@ -177,7 +175,7 @@ export function buildCommands(input: CommandInputs): Command[] {
     },
     {
       id: "delete-page",
-      group: "Pages",
+      group: "Graph",
       label: message("commands.label.deletePage"),
       keywords: ["remove page", "trash"],
       icon: <Trash2Icon aria-hidden />,

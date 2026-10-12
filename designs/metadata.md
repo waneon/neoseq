@@ -45,9 +45,10 @@ persistent title/action control.
 
 ## Tag References and Identity
 
-A tag beneath a block is a reference. Its name navigates to the tag; an adjacent,
-independently named remove control detaches membership. Read-only surfaces retain
-navigation. A missing tag becomes a tombstone rather than promising navigation.
+A tag on a block is a reference at the end of its first line. Its name
+navigates to the tag; an adjacent, independently named remove control appears on
+hover and focus and detaches membership; touch removes through the block's tag
+picker. Read-only surfaces retain navigation. A missing tag becomes a tombstone rather than promising navigation.
 The membership picker shows applied tags and a searchable list of available tags
 with their marks and groups. Adding a tag leaves the picker ready for another;
 creating a tag and applying it is one command intent.
@@ -57,7 +58,7 @@ familiar tag sign or one user-selected glyph. It stays glyph-like across the rai
 directory, references, and tag header. Color uses the bounded hue family from the
 [visual foundation](foundations.md).
 
-The mark and a labeled Customize action open the same identity editor. A preview
+The mark and the Customize control open the same identity editor. A preview
 shows the draft beside the tag name. Mark, color, and group form one draft: Done
 applies them as one undoable change, while dismissal discards them. Group entry
 supports existing choices and a new name in an anchored suggestion list that never
@@ -78,32 +79,32 @@ group, including tags outside the current search.
 
 ## Tag Directory and Tag Page
 
-The directory is a searchable library. A stable header holds creation, the title,
-and a total. Search and group filters narrow the list together. Rows give the tag
-name the primary reading edge, place default-property context beneath it, and
-align usage counts under a named column. Menus remain visible. Identity, navigation,
-and actions are sibling controls, never nested interactive targets.
+The tag library shares the place-directory frame (see
+[Shell and Navigation](shell-and-navigation.md)): title and total, a filter
+field, group filters, and rows that give the name the reading edge, place
+default-property context beneath it, and align usage counts under a named
+column. Identity, navigation, and actions are sibling controls, never nested
+interactive targets.
 
-Empty and unmatched lists have distinct next actions. Creating a tag uses a focused
-dialog with a name, optional group, explicit submit and cancel, and inline duplicate
-or failure feedback. Successful creation returns to the complete directory; failed
-submission preserves the draft.
+Empty and unmatched lists state the fact and offer the next action. Creating a
+tag uses a focused dialog with a name, optional group, explicit submit and
+cancel, and inline duplicate or failure feedback. Successful creation returns to
+the complete directory; failed submission preserves the draft.
 
-A tag page shares the document header language: a route back to Tags, visible
-customization and menu actions, then the full-width title and group. Connected
-content is the primary collection. Default properties occupy a compact disclosure
-with a count and a persistent Add action. Expanded defaults use key/value rows and
-explain that applying a tag copies missing values rather than maintaining a live
-inheritance relationship. Notes have their own named outline section, followed by
-references. Disclosure is session state and never changes the graph.
+A tag page begins with its mark and name; its group is the caption. Favourite,
+Customize, and the tag menu live in the top bar. Default properties follow as one
+quiet line with a count and an Add action; expanded, they become key/value rows
+and explain that applying a tag copies missing values rather than maintaining a
+live inheritance. Tagged content is the primary collection, followed by the
+tag's notes and references. Disclosure is session state and never changes the
+graph.
 
 Page and tag menus offer conversion in place; journals do not. A tag remains a
 normal link target, and `[[...]]` completion searches both kinds. When a `#...`
-name belongs to a regular page, completion explicitly offers conversion and
-application instead of creating another document. Turning tag behavior off
-preserves existing chips, defaults, and copied values. Old links navigate to the
-current document surface. Conflicting names are shown with links to each document
-and resolved by renaming, never by an automatic merge.
+name belongs to a regular page, completion offers conversion and application
+instead of creating another document. Turning tag behavior off preserves
+existing chips, defaults, and copied values. Conflicting names are shown with
+links to each document and resolved by renaming, never by an automatic merge.
 
 ## Tasks
 

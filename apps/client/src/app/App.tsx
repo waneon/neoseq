@@ -6,6 +6,7 @@ import { GraphPicker } from "../features/graphs/GraphPicker";
 import { GraphShell } from "../features/shell/GraphShell";
 import { JournalView } from "../features/journal/JournalView";
 import { PageView } from "../features/page/PageView";
+import { PagesView } from "../features/pages/PagesView";
 import { TagsView } from "../features/tags/TagsView";
 import { TagView } from "../features/tags/TagView";
 
@@ -21,6 +22,7 @@ const router = createHashRouter([
       { index: true, element: <Navigate to="journal" replace /> },
       { path: "journal", element: <JournalView /> },
       { path: "journal/:date", element: <JournalView /> },
+      { path: "pages", element: <PagesView /> },
       { path: "tags", element: <TagsView /> },
       { path: "t/:tagId", element: <TagView /> },
       { path: "p/:pageId", element: <PageView /> },
@@ -33,6 +35,7 @@ const router = createHashRouter([
       { index: true, element: <Navigate to="journal" replace /> },
       { path: "journal", element: <JournalView /> },
       { path: "journal/:date", element: <JournalView /> },
+      { path: "pages", element: <PagesView /> },
       { path: "tags", element: <TagsView /> },
       { path: "t/:tagId", element: <TagView /> },
       { path: "p/:pageId", element: <PageView /> },

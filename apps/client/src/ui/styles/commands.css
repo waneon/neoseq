@@ -1,10 +1,10 @@
-/* Search stays in a stable frame while its result list changes. */
+/* Search stays in a stable frame while its result list changes. One line per
+   result: what it is, then where it lives. */
 .cmdk-backdrop {
   position: fixed;
   inset: 0;
   z-index: var(--z-palette);
   background: var(--scrim);
-  backdrop-filter: blur(var(--scrim-blur));
   animation: ns-fade-in 100ms var(--ease-out) both;
 }
 
@@ -15,7 +15,7 @@
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding: min(16vh, 128px) var(--sp-5) var(--sp-5);
+  padding: min(14vh, 112px) var(--sp-5) var(--sp-5);
   pointer-events: none;
 }
 
@@ -23,8 +23,8 @@
   pointer-events: auto;
   display: flex;
   flex-direction: column;
-  width: min(640px, 100%);
-  height: min(560px, 76dvh);
+  width: min(600px, 100%);
+  height: min(480px, 72dvh);
   border-radius: var(--r-4);
   background: var(--overlay);
   box-shadow: var(--e3);
@@ -34,17 +34,17 @@
 .cmdk-input-row {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--sp-3);
   flex: none;
-  min-height: 68px;
-  padding: 0 20px;
+  min-height: 52px;
+  padding: 0 var(--sp-4);
   border-bottom: 1px solid var(--line);
 }
 
 .cmdk-search-icon {
   flex: none;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   color: var(--ink-3);
 }
 
@@ -71,16 +71,14 @@
 }
 
 .cmdk-close {
-  width: 30px;
-  height: 30px;
-  margin-inline-end: -4px;
+  display: none;
 }
 
 .cmdk-results {
   flex: 1;
   min-height: 0;
   margin: 0;
-  padding: 8px;
+  padding: var(--sp-1) var(--sp-2) var(--sp-2);
   list-style: none;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -88,20 +86,16 @@
 }
 
 .cmdk-group-title {
-  padding: 18px 12px 8px;
-}
-
-.cmdk-results > li:first-child > .cmdk-group-title {
-  padding-top: 8px;
+  padding: var(--sp-3) var(--sp-2) var(--sp-1);
 }
 
 .cmdk-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--sp-3);
   position: relative;
-  min-height: 48px;
-  padding: 8px 12px;
+  min-height: 36px;
+  padding: 0 var(--sp-2);
   border-radius: var(--r-2);
   color: var(--ink);
   font-size: var(--text-sm);
@@ -115,47 +109,52 @@
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 20px;
+  width: 18px;
   color: var(--ink-3);
 }
 
-.cmdk-row-icon svg {
+.cmdk-row-icon svg,
+.cmdk-row-icon .tag-mark {
   width: var(--icon-lg);
   height: var(--icon-lg);
 }
 
 .cmdk-row-copy {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: baseline;
+  gap: var(--sp-2);
   flex: 1;
   min-width: 0;
 }
 
-.cmdk-row .label,
-.cmdk-row .hint {
+.cmdk-row .label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .cmdk-row .hint {
+  flex: 0 1000 auto;
+  min-width: 4ch;
+  margin-inline-start: auto;
+  overflow: hidden;
   color: var(--ink-3);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cmdk-row > .kbd {
   flex: none;
-  margin-inline-start: 12px;
 }
 
 .cmdk-row[data-active="true"] {
   background: var(--surface-2);
 }
 
-.cmdk-row[data-active="true"] .cmdk-row-icon,
-.cmdk-row[data-active="true"] .hint {
+.cmdk-row[data-active="true"] .cmdk-row-icon {
   color: var(--ink-2);
 }
 
@@ -165,43 +164,11 @@
 }
 
 .cmdk-empty {
-  display: grid;
-  place-items: center;
-  min-height: 180px;
-  padding: 32px;
+  padding: var(--sp-5) var(--sp-2);
   color: var(--ink-3);
   font-size: var(--text-sm);
   line-height: var(--lh-sm);
-  text-align: center;
   overflow-wrap: anywhere;
-}
-
-.cmdk-footer {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  flex: none;
-  min-height: 42px;
-  padding: 8px 20px;
-  border-top: 1px solid var(--line);
-  background: var(--surface-1);
-  color: var(--ink-3);
-  font-size: 11px;
-  line-height: var(--lh-xs);
-}
-
-.cmdk-hint {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.cmdk-hint:last-child {
-  margin-inline-start: auto;
-}
-
-.cmdk-footer .kbd {
-  background: var(--overlay);
 }
 
 @media (max-width: 600px) {
@@ -217,47 +184,27 @@
   }
 
   .cmdk-input-row {
-    min-height: 72px;
-    padding: env(safe-area-inset-top) 16px 0;
-    gap: 12px;
+    min-height: 60px;
+    padding: env(safe-area-inset-top) var(--sp-2) 0 var(--sp-4);
   }
 
-  .cmdk-input {
-    font-size: 16px;
-  }
-
-  .cmdk-close {
-    width: 44px;
-    height: 44px;
-    margin-inline-end: -8px;
-  }
-
-  .cmdk-results {
-    padding-bottom: max(8px, env(safe-area-inset-bottom));
-  }
-
-  .cmdk-row {
-    min-height: 52px;
-  }
-
-  .cmdk-row > .kbd,
-  .cmdk-footer {
+  .cmdk-row > .kbd {
     display: none;
   }
 }
 
-@media (hover: none) {
+@media (max-width: 600px), (hover: none) {
   .cmdk-close {
+    display: inline-flex;
     min-width: 44px;
     min-height: 44px;
   }
 
   .cmdk-row {
-    min-height: 52px;
+    min-height: 48px;
   }
 
-  .cmdk-row > .kbd,
-  .cmdk-footer {
+  .cmdk-row > .kbd {
     display: none;
   }
 }

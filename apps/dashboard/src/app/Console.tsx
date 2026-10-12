@@ -95,10 +95,7 @@ export function Console({
 
       <main className="console-main">
         <div className="console-heading">
-          <div>
-            <h1>{message("accounts.title")}</h1>
-            <p>{message("accounts.lede")}</p>
-          </div>
+          <h1>{message("accounts.title")}</h1>
           <dl className="summary" aria-label={message("accounts.summary.label")}>
             <div>
               <dt>{message("accounts.summary.total")}</dt>

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "../lib/utils";
 import { useTextAreaSize } from "./textarea-size";
 
@@ -8,6 +8,7 @@ export function EditableTitle({
   testId,
   className,
   readonly,
+  autoSelect = false,
   validate = () => true,
   onCommit,
   onError,
@@ -17,6 +18,8 @@ export function EditableTitle({
   testId: string;
   className?: string;
   readonly: boolean;
+  /** Focuses the title with its text selected, for a document just created. */
+  autoSelect?: boolean;
   validate?: (value: string) => boolean;
   onCommit: (value: string) => Promise<void>;
   onError: (error: unknown) => void;
@@ -28,6 +31,12 @@ export function EditableTitle({
   // second event a no-op while the visible draft remains until the canonical
   // value has caught up.
   const pending = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!autoSelect || readonly) return;
+    textarea.current?.focus();
+    textarea.current?.select();
+  }, [autoSelect, readonly]);
 
   const commit = () => {
     const raw = pending.current;

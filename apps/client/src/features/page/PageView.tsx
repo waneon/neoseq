@@ -1,16 +1,7 @@
 import { EntityKindMenuItem } from "./EntityKindMenuItem";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Link, Navigate, useParams } from "react-router";
-import {
-  CalendarDaysIcon,
-  FileTextIcon,
-  InfoIcon,
-  MoreHorizontalIcon,
-  Settings2Icon,
-  StarIcon,
-  StarOffIcon,
-  Trash2Icon,
-} from "lucide-react";
+import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router";
+import { InfoIcon, MoreHorizontalIcon, Settings2Icon, Trash2Icon } from "lucide-react";
 import type { PageSnapshot } from "../../core-port/snapshot";
 import {
   findPage,
@@ -21,8 +12,6 @@ import {
   queryDocument,
   stringValue,
 } from "../../core-port/snapshot";
-import { FAVOURITE_KEY, isFavourite } from "../../entities/favourites";
-import { isGenericProperty } from "../../entities/properties";
 import { Outliner } from "../outline/Outliner";
 import { PageProperties } from "../properties/PageProperties";
 import { AutoHeight } from "../../ui/auto-height";
@@ -48,6 +37,8 @@ import { graphPath } from "../graphs/routing";
 import { LOCAL_REPOSITORY_ID } from "../repositories/directory";
 import { writeClipboardText } from "@/lib/clipboard";
 import { LinkedReferences } from "../references/LinkedReferences";
+import { DocumentChrome } from "../shell/document-chrome";
+import { FavouriteToggle } from "./FavouriteToggle";
 import { QueryPanel } from "../query/QueryPanel";
 
 export function PageView() {
@@ -135,20 +126,23 @@ export function PageBody({
   page,
   header,
   foot,
+  tail,
 }: {
   page: PageSnapshot;
-  /**
-   * The journal shares page actions and supplies its own date navigation.
-   */
-  header?: (menu: ReactNode, onContextMenu: (event: React.MouseEvent) => void) => ReactNode;
+  /** The journal supplies its own header with date navigation. */
+  header?: (onContextMenu: (event: React.MouseEvent) => void) => ReactNode;
   /**
    * A second body under the writing — today's standing queries, and nothing else
    * so far. It goes *after* the append zone, so the region under the last block
    * keeps the whole of its reach as the add-a-block affordance.
    */
   foot?: ReactNode;
+  /** Content that continues the document past its references, such as earlier days. */
+  tail?: (scrollElement: HTMLElement | null) => ReactNode;
 }) {
-  const { message } = useI18n();
+  const { formatJournalDate } = useI18n();
+  const day = journalDate(page);
+  const documentName = day ? formatJournalDate(day) : pageTitle(page);
   const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null);
   const [propertyPicker, setPropertyPicker] = useState<{ trigger: HTMLElement | null } | null>(
     null,
@@ -164,42 +158,24 @@ export function PageBody({
     setMenuOpen(true);
   };
 
-  const menu = (
-    <>
-      {!page.properties.some((property) => isGenericProperty(property.key)) && (
-        <Button
-          variant="ghost"
-          className="document-properties-action"
-          aria-label={message("page.properties")}
-          title={message("page.properties")}
-          aria-expanded={propsOpen}
-          data-testid="page-properties-trigger"
-          onClick={(event) => setPropertyPicker({ trigger: event.currentTarget })}
-        >
-          <Settings2Icon aria-hidden />
-          <span>{message("properties.title")}</span>
-        </Button>
-      )}
-      <PageMenu
-        page={page}
-        open={menuOpen}
-        onOpenChange={setMenuOpen}
-        onOpenProperties={() => setPropsOpen(true)}
-      />
-    </>
-  );
-
   return (
     <div className="page-scroll" ref={setScrollElement}>
       <article className="page-body enter-fade-view" key={page.id}>
+        <DocumentChrome>
+          {pageKind(page) !== "journal" && (
+            <FavouriteToggle entity={page} owner={{ kind: "page", id: page.id }} />
+          )}
+          <PageMenu
+            page={page}
+            open={menuOpen}
+            onOpenChange={setMenuOpen}
+            onOpenProperties={() => setPropsOpen(true)}
+          />
+        </DocumentChrome>
         {header ? (
-          header(menu, openMenu)
+          header(openMenu)
         ) : (
-          <DocumentHeader
-            kind={pageKind(page) === "journal" ? "journal" : "page"}
-            actions={menu}
-            onContextMenu={openMenu}
-          >
+          <DocumentHeader name={documentName} onContextMenu={openMenu}>
             <PageTitle page={page} />
           </DocumentHeader>
         )}
@@ -219,35 +195,34 @@ export function PageBody({
         />
         {foot}
         <LinkedReferences key={page.id} owner={{ kind: "page", id: page.id }} />
+        {tail?.(scrollElement)}
       </article>
     </div>
   );
 }
 
-/** A document's identity and navigation sit above the writing's own text axis. */
+/** The title owns the header; a document may add trailing controls and a caption. */
 export function DocumentHeader({
-  kind,
+  name,
   actions,
+  caption,
   children,
   onContextMenu,
 }: {
-  kind: "page" | "journal";
-  actions: ReactNode;
+  /** What the top bar calls this document once its header scrolls away. */
+  name: string;
+  actions?: ReactNode;
+  caption?: ReactNode;
   children: ReactNode;
   onContextMenu: (event: React.MouseEvent) => void;
 }) {
-  const { message } = useI18n();
-  const Icon = kind === "journal" ? CalendarDaysIcon : FileTextIcon;
   return (
-    <header className={`document-header ${kind}-header`} onContextMenu={onContextMenu}>
-      <div className="document-toolbar">
-        <span className="document-eyebrow">
-          <Icon aria-hidden />
-          {message(kind === "journal" ? "shell.journal" : "common.page")}
-        </span>
-        <div className="title-actions">{actions}</div>
+    <header className="document-header" data-scroll-title={name} onContextMenu={onContextMenu}>
+      <div className="title-row">
+        {children}
+        {actions && <div className="title-actions">{actions}</div>}
       </div>
-      <div className="title-row">{children}</div>
+      {caption && <p className="document-caption">{caption}</p>}
     </header>
   );
 }
@@ -281,6 +256,13 @@ function PageTitle({ page }: { page: PageSnapshot }) {
   const authoritative = pageTitle(page);
   const isJournal = pageKind(page) === "journal";
   const { message, formatJournalDate } = useI18n();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const naming = (location.state as { name?: boolean } | null)?.name === true;
+  useEffect(() => {
+    // Naming is the first act on a new page, once; Back later returns to reading.
+    if (naming) void navigate(location.pathname, { replace: true, state: null });
+  }, [location.pathname, naming, navigate]);
 
   if (isJournal) {
     // A journal page's shared title is its ISO day. Reached through /journal the
@@ -297,6 +279,7 @@ function PageTitle({ page }: { page: PageSnapshot }) {
       label={message("page.title")}
       testId="page-title"
       readonly={readonly}
+      autoSelect={naming}
       onCommit={(title) =>
         session.execute({ type: "rename_page", page_id: page.id, title }).then(() => undefined)
       }
@@ -325,9 +308,6 @@ function PageMenu({
   const { message } = useI18n();
   const isJournal = pageKind(page) === "journal";
   const [dialog, setDialog] = useState<"info" | "delete" | null>(null);
-  const starred = isFavourite(page);
-  const owner = { kind: "page", id: page.id } as const;
-
   // The palette reaches the same two verbs. Registering them here keeps the
   // menu the single owner of what they do.
   useEffect(() => {
@@ -358,28 +338,6 @@ function PageMenu({
               <Shortcut binding={bindings.properties} plain />
             </DropdownMenuShortcut>
           </DropdownMenuItem>
-          {!readonly && (
-            <DropdownMenuItem
-              data-testid="menu-page-favourite"
-              onSelect={() => {
-                void session
-                  .execute(
-                    starred
-                      ? { type: "remove_property", owner, key: FAVOURITE_KEY }
-                      : {
-                          type: "set_property",
-                          owner,
-                          key: FAVOURITE_KEY,
-                          value: { type: "checkbox", value: true },
-                        },
-                  )
-                  .catch((error: unknown) => notify.failure(message("failure.favourite"), error));
-              }}
-            >
-              {starred ? <StarOffIcon aria-hidden /> : <StarIcon aria-hidden />}
-              {message(starred ? "favourites.remove" : "favourites.add")}
-            </DropdownMenuItem>
-          )}
           <DropdownMenuItem data-testid="menu-page-info" onSelect={() => setDialog("info")}>
             <InfoIcon aria-hidden />
             {message("page.info")}

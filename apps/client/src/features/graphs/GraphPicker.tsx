@@ -1,9 +1,6 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 import {
-  ArrowRightIcon,
-  BookOpenIcon,
-  ChevronRightIcon,
   CloudIcon,
   DownloadIcon,
   HardDriveIcon,
@@ -80,20 +77,7 @@ type GraphDialog =
 const CREATED = { day: "numeric", month: "short", year: "numeric" } as const;
 const SELECTED_REPOSITORY_KEY = "neoseq.selected-repository.v1";
 
-const COMPACT_PICKER = "(max-width: 700px)";
-
-function subscribePickerLayout(listener: () => void) {
-  const query = window.matchMedia(COMPACT_PICKER);
-  query.addEventListener("change", listener);
-  return () => query.removeEventListener("change", listener);
-}
-
-function isCompactPicker() {
-  return window.matchMedia(COMPACT_PICKER).matches;
-}
-
 export function GraphPicker() {
-  const compact = useSyncExternalStore(subscribePickerLayout, isCompactPicker);
   const { message, formatInstant, direction } = useI18n();
   const notify = useNotify();
   const navigate = useNavigate();
@@ -228,6 +212,42 @@ export function GraphPicker() {
     setDialog({ kind: "create" });
   };
 
+  const repositoryMenu = remote && (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          size="icon"
+          variant="ghost"
+          aria-label={message("repository.actions")}
+          data-testid="repository-actions"
+        >
+          <MoreHorizontalIcon aria-hidden />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuGroup>
+          <DropdownMenuItem
+            disabled={importing || !readAuthSession(remote.id)}
+            onSelect={() => signOut(remote)}
+          >
+            <LogOutIcon aria-hidden />
+            {message("repository.signOut")}
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuItem
+            variant="destructive"
+            disabled={importing}
+            onSelect={() => setDialog({ kind: "forget", repository: remote })}
+          >
+            {message("repository.forget")}
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
   return (
     <main className="picker picker-startup">
       <div className="picker-inner">
@@ -238,60 +258,51 @@ export function GraphPicker() {
           <StartupPreferences />
         </header>
 
-        <div className="picker-intro">
-          <h1>{message("graph.yourGraphs")}</h1>
-        </div>
-
         <Tabs
           className="picker-library"
-          orientation={compact ? "horizontal" : "vertical"}
+          orientation="horizontal"
           dir={direction}
           value={selected?.id}
           onValueChange={chooseRepository}
         >
-          <aside className="picker-locations">
-            <p className="picker-section-label">{message("startup.locations")}</p>
-            <TabsList aria-label={message("repository.tabsLabel")}>
-              {repositories.map((repository) => (
-                <TabsTrigger
-                  key={repository.id}
-                  value={repository.id}
-                  disabled={importing}
-                  aria-label={repositoryLabel(repository, message("repository.local"))}
-                  title={repositoryLabel(repository, message("repository.local"))}
-                >
-                  {repository.kind === "local" ? (
-                    <HardDriveIcon aria-hidden />
-                  ) : (
-                    <CloudIcon aria-hidden />
-                  )}
-                  <span className="picker-location-text">
-                    <span>
-                      {repository.kind === "local"
-                        ? message("repository.local")
-                        : repository.username}
-                    </span>
-                    <small>
-                      {repository.kind === "local"
-                        ? message("startup.thisBrowser")
-                        : new URL(repository.origin).host}
-                    </small>
-                  </span>
-                  <ChevronRightIcon className="picker-location-current" aria-hidden />
-                </TabsTrigger>
-              ))}
-            </TabsList>
-            <Button
-              variant="ghost"
-              className="picker-connect"
-              data-testid="add-repository"
-              disabled={importing}
-              onClick={() => setDialog({ kind: "repository" })}
-            >
-              <PlusIcon aria-hidden />
-              {message("startup.connectServer")}
-            </Button>
-          </aside>
+          <div className="picker-heading">
+            <h1>{message("graph.yourGraphs")}</h1>
+            <div className="picker-heading-actions">
+              {repositoryMenu}
+              {!empty && (
+                <Button onClick={startCreating} disabled={!canCreate} data-testid="new-graph">
+                  <PlusIcon aria-hidden />
+                  {message("startup.newGraph")}
+                </Button>
+              )}
+            </div>
+          </div>
+          {/* Locations appear once there is more than one to choose between. */}
+          <TabsList
+            className="picker-locations"
+            aria-label={message("repository.tabsLabel")}
+            hidden={repositories.length < 2}
+          >
+            {repositories.map((repository) => (
+              <TabsTrigger
+                key={repository.id}
+                value={repository.id}
+                disabled={importing}
+                aria-label={repositoryLabel(repository, message("repository.local"))}
+                title={repositoryLabel(repository, message("repository.local"))}
+              >
+                {repository.kind === "local" ? (
+                  <HardDriveIcon aria-hidden />
+                ) : (
+                  <CloudIcon aria-hidden />
+                )}
+                <span>
+                  {repository.kind === "local" ? message("repository.local") : repository.username}
+                </span>
+                {repository.kind === "remote" && <small>{new URL(repository.origin).host}</small>}
+              </TabsTrigger>
+            ))}
+          </TabsList>
 
           {selected && (
             <TabsContent
@@ -299,168 +310,107 @@ export function GraphPicker() {
               value={selected.id}
               aria-busy={initialLoading || catalog.refreshing || importing}
             >
-              <header className="picker-catalog-header">
-                <div className="picker-catalog-heading">
-                  <h2>{remote ? remote.username : message("startup.onThisDevice")}</h2>
-                  <p>{remote ? new URL(remote.origin).host : message("startup.localDetail")}</p>
+              {catalog.status === "failed" && (
+                <div className="picker-catalog-message">
+                  <Callout tone="danger">
+                    {remote
+                      ? message("repository.unreachable", { host: new URL(remote.origin).host })
+                      : message("repository.listFailed", {
+                          detail: message("error.storageCorrupt"),
+                        })}
+                  </Callout>
+                  <Button variant="secondary" onClick={refreshSelected}>
+                    {message("common.retry")}
+                  </Button>
                 </div>
-                <div className="picker-catalog-actions">
-                  {!empty && (
-                    <Button onClick={startCreating} disabled={!canCreate} data-testid="new-graph">
-                      <PlusIcon aria-hidden />
-                      {message("startup.newGraph")}
-                    </Button>
-                  )}
-                  {remote && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          aria-label={message("repository.actions")}
-                          data-testid="repository-actions"
-                        >
-                          <MoreHorizontalIcon aria-hidden />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuGroup>
-                          <DropdownMenuItem
-                            disabled={importing || !readAuthSession(remote.id)}
-                            onSelect={() => signOut(remote)}
-                          >
-                            <LogOutIcon aria-hidden />
-                            {message("repository.signOut")}
-                          </DropdownMenuItem>
-                        </DropdownMenuGroup>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuGroup>
-                          <DropdownMenuItem
-                            variant="destructive"
-                            disabled={importing}
-                            onSelect={() => setDialog({ kind: "forget", repository: remote })}
-                          >
-                            {message("repository.forget")}
-                          </DropdownMenuItem>
-                        </DropdownMenuGroup>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
+              )}
+              {catalog.status === "auth" && remote && (
+                <div className="picker-empty picker-auth">
+                  <p>{message("repository.signInRequired")}</p>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setDialog({ kind: "repository", repository: remote })}
+                  >
+                    {message("graph.signIn")}
+                  </Button>
                 </div>
-              </header>
-
-              <div className="picker-catalog-body">
-                {catalog.status === "failed" && (
-                  <div className="picker-catalog-message">
-                    <Callout tone="danger">
-                      {remote
-                        ? message("repository.unreachable", { host: new URL(remote.origin).host })
-                        : message("repository.listFailed", {
-                            detail: message("error.storageCorrupt"),
-                          })}
-                    </Callout>
-                    <Button variant="secondary" onClick={refreshSelected}>
-                      {message("common.retry")}
-                    </Button>
-                  </div>
-                )}
-                {catalog.status === "auth" && remote && (
-                  <div className="picker-empty picker-auth">
-                    <span className="picker-empty-icon">
-                      <CloudIcon aria-hidden />
-                    </span>
-                    <h3>{message("startup.reconnect")}</h3>
-                    <p>{message("repository.signInRequired")}</p>
-                    <Button
-                      variant="secondary"
-                      onClick={() => setDialog({ kind: "repository", repository: remote })}
-                    >
-                      {message("graph.signIn")}
-                      <ArrowRightIcon aria-hidden />
-                    </Button>
-                  </div>
-                )}
-                {catalog.status === "ready" && catalog.stale && (
-                  <Callout>{message("repository.cachedOnly")}</Callout>
-                )}
-                {initialLoading && catalog.graphs.length === 0 && (
-                  <GraphListSkeleton label={message("repository.loading")} />
-                )}
-                {empty && (
-                  <div className="picker-empty" data-testid="picker-empty">
-                    <span className="picker-empty-icon">
-                      <BookOpenIcon aria-hidden />
-                    </span>
-                    <h3>{message("startup.emptyTitle")}</h3>
-                    <p>{message("startup.emptyDetail")}</p>
-                    <Button onClick={startCreating} disabled={!canCreate} data-testid="new-graph">
-                      <PlusIcon aria-hidden />
-                      {message("startup.firstGraph")}
-                    </Button>
-                  </div>
-                )}
-                {catalog.graphs.length > 0 && (
-                  <GraphList
-                    graphs={catalog.graphs}
-                    exporting={exporting}
-                    formatDate={(date) => formatInstant(date, configuredTimezone(), CREATED)}
-                    onOpen={openGraph}
-                    onExport={(graph) => {
-                      setExporting(graph.id);
-                      void exportGraphArchive(graph.repository_id, graph.id, graph.name)
-                        .then((bytes) => downloadArchive(bytes, graph.name))
-                        .catch((cause: unknown) =>
-                          notify.failure(
-                            message("failure.exportGraph", { name: graph.name }),
-                            cause,
-                          ),
-                        )
-                        .finally(() => setExporting(null));
-                    }}
-                    onRename={(graph) => setDialog({ kind: "rename", graph })}
-                    onDelete={(graph) => setDialog({ kind: "delete", graph })}
-                    onDeleteServer={(graph) => setDialog({ kind: "delete", graph, server: true })}
-                  />
-                )}
-              </div>
-
-              <footer className="picker-catalog-footer">
-                <Button
-                  variant="ghost"
-                  disabled={!canCreate}
-                  onClick={() => archiveInput.current?.click()}
-                  data-testid="import-graph"
-                >
-                  <UploadIcon aria-hidden />
-                  {importing ? message("graph.importing") : message("startup.import")}
-                </Button>
-                <input
-                  ref={archiveInput}
-                  className="sr-only"
-                  type="file"
-                  accept=".neoseq,application/vnd.neoseq.graph+zip"
-                  tabIndex={-1}
-                  aria-hidden
-                  data-testid="import-graph-file"
-                  onChange={(event) => {
-                    const input = event.currentTarget;
-                    const file = input.files?.[0];
-                    if (!file) return;
-                    void importArchive(file).finally(() => {
-                      input.value = "";
-                    });
+              )}
+              {catalog.status === "ready" && catalog.stale && (
+                <Callout>{message("repository.cachedOnly")}</Callout>
+              )}
+              {initialLoading && catalog.graphs.length === 0 && (
+                <GraphListSkeleton label={message("repository.loading")} />
+              )}
+              {empty && (
+                <div className="picker-empty" data-testid="picker-empty">
+                  <p>{message(remote ? "repository.remoteEmpty" : "startup.emptyDetail")}</p>
+                  <Button onClick={startCreating} disabled={!canCreate} data-testid="new-graph">
+                    <PlusIcon aria-hidden />
+                    {message("startup.firstGraph")}
+                  </Button>
+                </div>
+              )}
+              {catalog.graphs.length > 0 && (
+                <GraphList
+                  graphs={catalog.graphs}
+                  exporting={exporting}
+                  formatDate={(date) => formatInstant(date, configuredTimezone(), CREATED)}
+                  onOpen={openGraph}
+                  onExport={(graph) => {
+                    setExporting(graph.id);
+                    void exportGraphArchive(graph.repository_id, graph.id, graph.name)
+                      .then((bytes) => downloadArchive(bytes, graph.name))
+                      .catch((cause: unknown) =>
+                        notify.failure(message("failure.exportGraph", { name: graph.name }), cause),
+                      )
+                      .finally(() => setExporting(null));
                   }}
+                  onRename={(graph) => setDialog({ kind: "rename", graph })}
+                  onDelete={(graph) => setDialog({ kind: "delete", graph })}
+                  onDeleteServer={(graph) => setDialog({ kind: "delete", graph, server: true })}
                 />
-              </footer>
+              )}
             </TabsContent>
           )}
         </Tabs>
-        <p className="picker-footnote">
-          {remote ? <CloudIcon aria-hidden /> : <HardDriveIcon aria-hidden />}
-          {remote
-            ? message("repository.remoteLede", { account: remote.username })
-            : message("graph.lede")}
-        </p>
+
+        <footer className="picker-footer">
+          <Button
+            variant="ghost"
+            disabled={!canCreate}
+            onClick={() => archiveInput.current?.click()}
+            data-testid="import-graph"
+          >
+            <UploadIcon aria-hidden />
+            {importing ? message("graph.importing") : message("startup.import")}
+          </Button>
+          <input
+            ref={archiveInput}
+            className="sr-only"
+            type="file"
+            accept=".neoseq,application/vnd.neoseq.graph+zip"
+            tabIndex={-1}
+            aria-hidden
+            data-testid="import-graph-file"
+            onChange={(event) => {
+              const input = event.currentTarget;
+              const file = input.files?.[0];
+              if (!file) return;
+              void importArchive(file).finally(() => {
+                input.value = "";
+              });
+            }}
+          />
+          <Button
+            variant="ghost"
+            data-testid="add-repository"
+            disabled={importing}
+            onClick={() => setDialog({ kind: "repository" })}
+          >
+            <CloudIcon aria-hidden />
+            {message("startup.connectServer")}
+          </Button>
+        </footer>
       </div>
 
       {dialog?.kind === "create" && (
@@ -499,10 +449,7 @@ export function GraphPicker() {
                 {message("common.cancel")}
               </Button>
               <Button type="submit" disabled={creating} data-testid="create-graph">
-                {creating
-                  ? message("repository.creating")
-                  : message(remote ? "graph.createRemote" : "graph.createLocal")}
-                <ArrowRightIcon aria-hidden />
+                {creating ? message("repository.creating") : message("common.create")}
               </Button>
             </div>
           </form>
@@ -607,9 +554,6 @@ function GraphList({
               onClick={() => onOpen(graph)}
               data-testid={`open-graph-${graph.name}`}
             >
-              <span className="graph-card-avatar" aria-hidden>
-                {[...graph.name.trim()][0] ?? "·"}
-              </span>
               <span className="graph-card-text">
                 <span className="name">{graph.name}</span>
                 <span className="meta">
@@ -620,7 +564,6 @@ function GraphList({
                   )}
                 </span>
               </span>
-              <ArrowRightIcon className="graph-card-arrow" aria-hidden />
             </button>
             {actions && (
               <div className="graph-actions">

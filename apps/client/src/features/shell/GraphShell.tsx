@@ -13,13 +13,16 @@ import {
   Outlet,
   useLocation,
   useNavigate,
+  useNavigationType,
   useParams,
   useSearchParams,
 } from "react-router";
 import {
   CalendarDaysIcon,
-  ChevronRightIcon,
-  ChevronsUpDownIcon,
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  ChevronDownIcon,
+  CloudIcon,
   FileTextIcon,
   HashIcon,
   KeyboardIcon,
@@ -29,6 +32,8 @@ import {
   PlusIcon,
   SearchIcon,
   SettingsIcon,
+  SquarePenIcon,
+  TextIcon,
   XIcon,
 } from "lucide-react";
 import { clearTestHook, createCoreWorker, injectStorageFault } from "virtual:neoseq-worker-factory";
@@ -40,7 +45,14 @@ import {
   renameGraph,
   subscribeGraphDirectory,
 } from "../../core-port/directory";
-import { findTag, isDeleted, pageKind, pageTitle } from "../../core-port/snapshot";
+import {
+  findTag,
+  isDeleted,
+  journalDate,
+  pageKind,
+  pageTitle,
+  type TagSnapshot,
+} from "../../core-port/snapshot";
 import {
   FAVOURITE_ORDER_KEY,
   favouriteKey,
@@ -49,7 +61,7 @@ import {
   type Favourite,
 } from "../../entities/favourites";
 import { TagMark } from "../tags/TagIdentity";
-import { LogoMark, Wordmark } from "../../ui/brand";
+import { LogoMark } from "../../ui/brand";
 import { Input } from "@/ui/shadcn/input";
 import { Button } from "@/ui/shadcn/button";
 import { Kbd } from "@/ui/kbd";
@@ -100,8 +112,9 @@ import { SaveStatus } from "./SaveStatus";
 import { CollaborationStatus } from "./CollaborationStatus";
 import { RemoteMembersDialog } from "../sync/RemoteMembersDialog";
 import { useI18n, type MessageFunction } from "../../i18n";
-import { useProgressiveItems } from "../../lib/progressive";
 import { HistoryProvider, useHistoryActions } from "../history/context";
+import { DocumentChromeSlot } from "./document-chrome";
+import { useRecentVisits, useVisitRecorder } from "./recent";
 import { randomUUID } from "@/lib/crypto";
 
 // Three reasons a graph opens read-only, each with its own remedy. Saying
@@ -130,6 +143,10 @@ declare global {
 }
 
 const RAIL_KEY = "neoseq.rail";
+
+type RecentEntry =
+  | { kind: "page"; id: string; name: string }
+  | { kind: "tag"; id: string; name: string; tag: TagSnapshot };
 
 type ShellOverlay = "palette" | "shortcuts" | "members" | null;
 
@@ -323,7 +340,10 @@ function ShellBody({
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
-      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+      // Return focus only if nothing the drawer opened has claimed it.
+      const owner = document.activeElement;
+      const unclaimed = !owner || owner === document.body || drawer.contains(owner);
+      if (unclaimed && previous instanceof HTMLElement && previous.isConnected) previous.focus();
     };
   }, [sidebarOpen, onCloseSidebar]);
 
@@ -357,6 +377,7 @@ function ShellBody({
   }, [searchParams, setSearchParams]);
 
   const currentPage = /\/p\/([^/]+)$/.exec(location.pathname)?.[1];
+  const currentTag = /\/t\/([^/]+)$/.exec(location.pathname)?.[1];
   const pages = useMemo(
     () =>
       state.snapshot.pages
@@ -364,7 +385,6 @@ function ShellBody({
         .sort((left, right) => compare(pageTitle(left), pageTitle(right))),
     [compare, state.snapshot],
   );
-  const pageWindow = useProgressiveItems(pages, (page) => page.id, 100, currentPage);
 
   const tags = useMemo(
     () => [...state.snapshot.tags].sort((left, right) => compare(left.name, right.name)),
@@ -372,6 +392,35 @@ function ShellBody({
   );
 
   const starred = useMemo(() => favourites(state.snapshot, compare), [compare, state.snapshot]);
+
+  const visitScope = `${repositoryId}:${graphId}`;
+  useVisitRecorder(
+    visitScope,
+    currentPage
+      ? { kind: "page", id: decodeURIComponent(currentPage) }
+      : currentTag
+        ? { kind: "tag", id: decodeURIComponent(currentTag) }
+        : null,
+  );
+  const visits = useRecentVisits(visitScope);
+  // Favourites already have a place in the rail; recent lists only the rest.
+  const recent = useMemo((): RecentEntry[] => {
+    const kept = new Set(starred.map((entry) => entry.id));
+    return visits
+      .filter((visit) => !kept.has(visit.id))
+      .flatMap((visit): RecentEntry[] => {
+        if (visit.kind === "page") {
+          const page = pages.find((candidate) => candidate.id === visit.id);
+          return page ? [{ kind: "page" as const, id: page.id, name: pageTitle(page) }] : [];
+        }
+        const tag = findTag(state.snapshot, visit.id);
+        return tag ? [{ kind: "tag" as const, id: tag.id, name: tag.name, tag }] : [];
+      })
+      .slice(0, 8);
+  }, [pages, starred, state.snapshot, visits]);
+
+  const [documentSlot, setDocumentSlot] = useState<HTMLElement | null>(null);
+  const scrolledTitle = useScrolledTitle(location.pathname);
 
   const createPage = useCallback(
     async (title?: string) => {
@@ -391,10 +440,18 @@ function ShellBody({
         notify.failure(message("failure.createPage", { name: pageName }), error);
         return;
       }
-      navigate(graphPath(repositoryId, graphId, `p/${pageId}`));
+      // An untitled page is named first: its title opens selected, which an
+      // inert document behind the drawer would refuse.
+      onCloseSidebar();
+      navigate(graphPath(repositoryId, graphId, `p/${pageId}`), {
+        state: title === undefined ? { name: true } : undefined,
+      });
     },
-    [graphId, message, navigate, notify, pages, readonly, repositoryId, session],
+    [graphId, message, navigate, notify, onCloseSidebar, readonly, repositoryId, session],
   );
+
+  const createPageRef = useRef(createPage);
+  createPageRef.current = createPage;
 
   const toggleRail = useCallback(() => {
     setRailCollapsed((collapsed) => {
@@ -413,6 +470,7 @@ function ShellBody({
       openPalette: () => setOverlay("palette"),
       openShortcuts: () => setOverlay("shortcuts"),
       openSettings,
+      createPage: () => void createPageRef.current(),
       registerBlockProperties: (handler) => {
         const release = blockProperties.current.register(handler);
         refreshCommandContext();
@@ -581,7 +639,6 @@ function ShellBody({
   const today = useToday();
   const journalMatch = /\/journal(?:\/(\d{4}-\d{2}-\d{2}))?$/.exec(location.pathname);
   const currentDate = journalMatch ? (journalMatch[1] ?? today) : null;
-  const currentTag = /\/t\/([^/]+)$/.exec(location.pathname)?.[1];
   // Query-dependent rows: a date the user typed, and — when nothing matches — a
   // page to create, so the list is never a dead end.
   const dynamic = useCallback(
@@ -632,16 +689,17 @@ function ShellBody({
     ],
   );
 
+  // Page and tag names are already matched by the palette's own catalog, so
+  // the graph search contributes the blocks, each placed by its document.
   const searchGraph = useCallback(
     async (needle: string): Promise<PaletteCommand[]> => {
       const result = await session.query({
         kind: "raw_sparql",
         language: "sparql-1.1/neoseq-v1",
         source: `PREFIX neo: <urn:neoseq:vocab:v1:>
-SELECT ?entity ?content WHERE {
-  { ?entity a neo:Page; neo:content ?content. }
-  UNION
-  { ?entity a neo:Block; neo:content ?content. }
+SELECT ?entity ?content ?owner WHERE {
+  ?entity a neo:Block; neo:content ?content.
+  OPTIONAL { ?entity neo:owner ?owner }
   FILTER(neo:matchesText(?content, ?needle))
 } ORDER BY ?content LIMIT 20`,
         bindings: {
@@ -653,25 +711,32 @@ SELECT ?entity ?content WHERE {
         },
       });
       if (result.kind !== "select") return [];
+      const placeName = (owner: { kind: string; id: string }): string => {
+        if (owner.kind === "tag") return `#${findTag(state.snapshot, owner.id)?.name ?? owner.id}`;
+        const page = state.snapshot.pages.find((candidate) => candidate.id === owner.id);
+        if (!page) return owner.id;
+        const day = journalDate(page);
+        return day ? formatJournalDate(day) : pageTitle(page);
+      };
       return result.rows.flatMap((row, index) => {
         const entity = row.entity;
         const content = literalText(row.content);
         if (entity?.kind !== "iri" || !entity.entity) return [];
-        const isBlock = entity.entity.kind === "block";
+        const owner = row.owner?.kind === "iri" ? row.owner.entity : undefined;
         return [
           {
             id: `search-${index}-${entity.value}`,
             group: "Search" as const,
             label: content || entity.entity.id,
-            hint: isBlock ? message("commands.blockHint") : message("commands.hintPage"),
-            icon: <SearchIcon aria-hidden />,
+            hint: owner ? placeName(owner) : undefined,
+            icon: <TextIcon aria-hidden />,
             pointerRoute: message("shell.search"),
             run: () => history.open(entity.entity!),
           },
         ];
       });
     },
-    [history, message, session],
+    [formatJournalDate, history, message, session, state.snapshot],
   );
 
   // A calm, delayed loader (rather than a full-bleed card) prevents the
@@ -695,18 +760,6 @@ SELECT ?entity ?content WHERE {
       </main>
     );
   }
-
-  const contextTitle = currentDate
-    ? formatJournalDate(currentDate)
-    : currentPage
-      ? pages.find((page) => page.id === currentPage)
-        ? pageTitle(pages.find((page) => page.id === currentPage)!)
-        : message("common.page")
-      : currentTag
-        ? `#${findTag(state.snapshot, decodeURIComponent(currentTag))?.name ?? currentTag}`
-        : location.pathname.endsWith("/tags")
-          ? message("shell.tags")
-          : name;
 
   const commands = buildCommands({
     pages,
@@ -771,28 +824,6 @@ SELECT ?entity ?content WHERE {
           }}
         >
           <div className="rail-head">
-            <div className="rail-masthead">
-              <p className="rail-brand" data-testid="brand">
-                <Wordmark name={message("app.title")} />
-              </p>
-              <Button
-                size="icon"
-                className="rail-collapse"
-                aria-label={message("commands.label.hideSidebar")}
-                aria-keyshortcuts={formatBinding(bindings.sidebar)}
-                onClick={toggleRail}
-              >
-                <PanelLeftIcon aria-hidden />
-              </Button>
-              <Button
-                size="icon"
-                className="drawer-close"
-                aria-label={message("shell.closeMenu")}
-                onClick={onCloseSidebar}
-              >
-                <XIcon aria-hidden />
-              </Button>
-            </div>
             <GraphSwitcher
               repositoryId={repositoryId}
               graphId={graphId}
@@ -802,32 +833,63 @@ SELECT ?entity ?content WHERE {
               onManageMembers={() => setOverlay("members")}
               onExit={onExit}
             />
+            <Button
+              size="icon"
+              className="rail-collapse"
+              aria-label={message("commands.label.hideSidebar")}
+              aria-keyshortcuts={formatBinding(bindings.sidebar)}
+              onClick={toggleRail}
+            >
+              <PanelLeftIcon aria-hidden />
+            </Button>
+            <Button
+              size="icon"
+              className="drawer-close"
+              aria-label={message("shell.closeMenu")}
+              onClick={onCloseSidebar}
+            >
+              <XIcon aria-hidden />
+            </Button>
           </div>
-          <button
-            className="rail-search"
-            onClick={() => setOverlay("palette")}
-            aria-label={message("commands.searchLabel")}
-            aria-keyshortcuts={formatBinding(bindings.palette)}
-            data-testid="open-palette"
-          >
-            <SearchIcon aria-hidden />
-            <span className="nav-label">{message("shell.search")}</span>
-            <Shortcut binding={bindings.palette} />
-          </button>
-          <button
-            className="rail-create"
-            disabled={readonly}
-            onClick={() => void createPage()}
-            data-testid="new-page"
-          >
-            <PlusIcon aria-hidden />
-            <span>{message("shell.newPage")}</span>
-          </button>
+          <div className="rail-actions">
+            <button
+              className="rail-action"
+              onClick={() => setOverlay("palette")}
+              aria-label={message("commands.searchLabel")}
+              aria-keyshortcuts={formatBinding(bindings.palette)}
+              data-testid="open-palette"
+            >
+              <SearchIcon aria-hidden />
+              <span className="nav-label">{message("shell.search")}</span>
+              <Shortcut binding={bindings.palette} plain />
+            </button>
+            <button
+              className="rail-action"
+              disabled={readonly}
+              onClick={() => void createPage()}
+              data-testid="new-page"
+            >
+              <SquarePenIcon aria-hidden />
+              <span className="nav-label">{message("shell.newPage")}</span>
+            </button>
+          </div>
           <div className="rail-navigation">
             <div className="shell-nav">
               <NavLink className="shell-nav-item" to={graphPath(repositoryId, graphId, "journal")}>
                 <CalendarDaysIcon aria-hidden />
                 <span className="nav-label">{message("shell.journal")}</span>
+              </NavLink>
+              <NavLink
+                className="shell-nav-item"
+                to={graphPath(repositoryId, graphId, "pages")}
+                end
+                data-testid="nav-pages"
+              >
+                <FileTextIcon aria-hidden />
+                <span className="nav-label">{message("shell.pages")}</span>
+                <span className="nav-count" aria-hidden>
+                  {pages.length}
+                </span>
               </NavLink>
               <NavLink
                 className="shell-nav-item"
@@ -837,16 +899,15 @@ SELECT ?entity ?content WHERE {
               >
                 <HashIcon aria-hidden />
                 <span className="nav-label">{message("shell.tags")}</span>
+                <span className="nav-count" aria-hidden>
+                  {tags.length}
+                </span>
               </NavLink>
             </div>
-            {/* Nothing when nothing is starred: an empty heading is a promise the
-              rail has not been asked to keep
-              (designs/interaction.md § Feedback and System State). */}
+            {/* An empty section is a heading with nothing under it; it is absent. */}
             {starred.length > 0 && (
-              <>
-                <div className="rail-group">
-                  <h2>{message("shell.favourites")}</h2>
-                </div>
+              <section className="rail-section" aria-labelledby="rail-favourites">
+                <h2 id="rail-favourites">{message("shell.favourites")}</h2>
                 <FavouriteRail
                   repositoryId={repositoryId}
                   graphId={graphId}
@@ -856,48 +917,36 @@ SELECT ?entity ?content WHERE {
                   notify={notify}
                   message={message}
                 />
-              </>
+              </section>
             )}
-            <div className="rail-group">
-              <h2>{message("shell.pages")}</h2>
-              <span className="rail-count" aria-hidden>
-                {pages.length}
-              </span>
-            </div>
-            <div className="shell-nav" data-testid="page-list">
-              {pages.length === 0 && <p className="rail-note">{message("shell.noPages")}</p>}
-              {pageWindow.items.map((page) => (
-                // The rail is 248px wide and a page name is as long as somebody
-                // made it, so the label ellipsises — and an ellipsis with no way to
-                // read the rest is a name the reader cannot check.
-                <NavLink
-                  key={page.id}
-                  className="shell-nav-item"
-                  to={graphPath(repositoryId, graphId, `p/${page.id}`)}
-                  title={pageTitle(page)}
-                >
-                  <FileTextIcon aria-hidden />
-                  <span className="nav-label">{pageTitle(page)}</span>
-                </NavLink>
-              ))}
-              {pageWindow.remaining > 0 && (
-                <button
-                  type="button"
-                  className="shell-nav-item rail-more"
-                  onClick={pageWindow.showMore}
-                >
-                  {message("shell.showMorePages", {
-                    count: Math.min(pageWindow.remaining, 100),
-                  })}
-                </button>
-              )}
-            </div>
+            {recent.length > 0 && (
+              <section className="rail-section" aria-labelledby="rail-recent">
+                <h2 id="rail-recent">{message("shell.recent")}</h2>
+                <div className="shell-nav" data-testid="recent-list">
+                  {recent.map((entry) => (
+                    <NavLink
+                      key={entry.id}
+                      className="shell-nav-item"
+                      to={graphPath(
+                        repositoryId,
+                        graphId,
+                        `${entry.kind === "page" ? "p" : "t"}/${entry.id}`,
+                      )}
+                      title={entry.name}
+                    >
+                      {entry.kind === "page" ? (
+                        <FileTextIcon aria-hidden />
+                      ) : (
+                        <TagMark tag={entry.tag} />
+                      )}
+                      <span className="nav-label">{entry.name}</span>
+                    </NavLink>
+                  ))}
+                </div>
+              </section>
+            )}
           </div>
           <div className="rail-footer">
-            <button className="shell-nav-item" onClick={() => setOverlay("shortcuts")}>
-              <KeyboardIcon aria-hidden />
-              <span className="nav-label">{message("commands.label.keyboardShortcuts")}</span>
-            </button>
             <button
               className="shell-nav-item"
               onClick={() => openSettings()}
@@ -907,43 +956,52 @@ SELECT ?entity ?content WHERE {
               <SettingsIcon aria-hidden />
               <span className="nav-label">{message("shell.settings")}</span>
             </button>
-          </div>
-        </nav>
-        <main className="shell-main" inert={sidebarOpen || undefined}>
-          <header className="shell-topbar">
-            <div className="mobile-workspace">
-              <LogoMark />
-              <span>{name}</span>
-            </div>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   size="icon"
-                  className="rail-toggle"
-                  aria-label={message("shell.showSidebar")}
-                  aria-keyshortcuts={formatBinding(bindings.sidebar)}
-                  onClick={toggleRail}
+                  className="rail-help"
+                  aria-label={message("commands.label.keyboardShortcuts")}
+                  aria-keyshortcuts={formatBinding(bindings.shortcuts)}
+                  onClick={() => setOverlay("shortcuts")}
                 >
-                  <PanelLeftIcon />
+                  <KeyboardIcon aria-hidden />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                {message("shell.showSidebar")} · {formatBinding(bindings.sidebar)}
+                {message("commands.label.keyboardShortcuts")}
+                <Shortcut binding={bindings.shortcuts} plain />
               </TooltipContent>
             </Tooltip>
-            <div className="topbar-location">
-              <span className="topbar-workspace">{name}</span>
-              <ChevronRightIcon className="topbar-separator" aria-hidden />
-              {currentDate ? (
-                <CalendarDaysIcon aria-hidden />
-              ) : currentTag || location.pathname.endsWith("/tags") ? (
-                <HashIcon aria-hidden />
-              ) : (
-                <FileTextIcon aria-hidden />
-              )}
-              <span className="topbar-title">{contextTitle}</span>
+          </div>
+        </nav>
+        <main className="shell-main" inert={sidebarOpen || undefined}>
+          <header className="shell-topbar" data-titled={scrolledTitle !== null || undefined}>
+            <div className="topbar-start">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    className="rail-toggle"
+                    aria-label={message("shell.showSidebar")}
+                    aria-keyshortcuts={formatBinding(bindings.sidebar)}
+                    onClick={toggleRail}
+                  >
+                    <PanelLeftIcon aria-hidden />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {message("shell.showSidebar")}
+                  <Shortcut binding={bindings.sidebar} plain />
+                </TooltipContent>
+              </Tooltip>
+              <span className="mobile-workspace">{name}</span>
+              <BrowserHistory />
+              <span className="topbar-title" aria-hidden={scrolledTitle === null}>
+                {scrolledTitle}
+              </span>
             </div>
-            <div className="topbar-right">
+            <div className="topbar-end">
               <SessionSaveStatus />
               <SessionCollaborationStatus />
               {readonlyReason && (
@@ -951,32 +1009,17 @@ SELECT ?entity ?content WHERE {
                   {message(READONLY_COPY[readonlyReason].label)}
                 </span>
               )}
+              <div className="topbar-document" ref={setDocumentSlot} />
               <div className="topbar-history">
                 <HistoryControls commands={commands} />
               </div>
-              <Button
-                size="icon"
-                className="topbar-search"
-                aria-label={message("commands.searchLabel")}
-                onClick={() => setOverlay("palette")}
-              >
-                <SearchIcon aria-hidden />
-              </Button>
-              <Button
-                size="icon"
-                className="mobile-create"
-                aria-label={message("shell.newPage")}
-                disabled={readonly}
-                onClick={() => void createPage()}
-                data-testid="mobile-new-page"
-              >
-                <PlusIcon aria-hidden />
-              </Button>
             </div>
           </header>
           <div className="shell-content" id="page-content">
-            <DocumentNameConflicts />
-            <Outlet />
+            <DocumentChromeSlot.Provider value={documentSlot}>
+              <DocumentNameConflicts />
+              <Outlet />
+            </DocumentChromeSlot.Provider>
           </div>
           <nav className="mobile-navigation" aria-label={message("shell.mobile.navigation")}>
             <NavLink to={graphPath(repositoryId, graphId, "journal")}>
@@ -992,20 +1035,26 @@ SELECT ?entity ?content WHERE {
               <SearchIcon aria-hidden />
               <span>{message("shell.search")}</span>
             </button>
-            <Link
-              to={graphPath(repositoryId, graphId, "tags")}
-              aria-current={currentTag || location.pathname.endsWith("/tags") ? "page" : undefined}
+            <button
+              type="button"
+              disabled={readonly}
+              onClick={() => void createPage()}
+              data-testid="mobile-new-page"
             >
-              <HashIcon aria-hidden />
-              <span>{message("shell.tags")}</span>
-            </Link>
+              <SquarePenIcon aria-hidden />
+              <span>{message("shell.mobile.write")}</span>
+            </button>
             <button
               type="button"
               className="shell-toggle"
               aria-label={sidebarOpen ? message("shell.closeMenu") : message("shell.openMenu")}
               aria-expanded={sidebarOpen}
               aria-controls="graph-navigation"
-              data-current={currentPage !== undefined}
+              data-current={
+                currentPage !== undefined ||
+                currentTag !== undefined ||
+                /\/(?:tags|pages)$/.test(location.pathname)
+              }
               onClick={onToggleSidebar}
             >
               <LibraryIcon aria-hidden />
@@ -1041,6 +1090,69 @@ SELECT ?entity ?content WHERE {
       )}
     </CommandContext.Provider>
   );
+}
+
+/** Browser history within the app; the router records each entry's index. */
+function BrowserHistory() {
+  const { message } = useI18n();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const type = useNavigationType();
+  const index = (window.history.state as { idx?: number } | null)?.idx ?? 0;
+  const furthest = useRef({ key: location.key, index });
+  if (furthest.current.key !== location.key) {
+    // A push discards the forward entries; traversal and replacement keep them.
+    furthest.current = {
+      key: location.key,
+      index: type === "PUSH" ? index : Math.max(furthest.current.index, index),
+    };
+  }
+  return (
+    <div className="topbar-browse">
+      <Button
+        size="icon"
+        aria-label={message("shell.back")}
+        disabled={index === 0}
+        onClick={() => void navigate(-1)}
+      >
+        <ArrowLeftIcon aria-hidden />
+      </Button>
+      <Button
+        size="icon"
+        aria-label={message("shell.forward")}
+        disabled={index >= furthest.current.index}
+        onClick={() => void navigate(1)}
+      >
+        <ArrowRightIcon aria-hidden />
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * The name of the document header the reader has scrolled past, so the bar can
+ * say where they are; a continuous journal changes it day by day.
+ */
+function useScrolledTitle(route: string): string | null {
+  const [title, setTitle] = useState<string | null>(null);
+  useEffect(() => {
+    setTitle(null);
+    const onScroll = (event: Event) => {
+      const scroller = event.target;
+      if (!(scroller instanceof HTMLElement) || !scroller.classList.contains("page-scroll")) return;
+      const top = scroller.getBoundingClientRect().top + 8;
+      let current: string | null = null;
+      for (const header of scroller.querySelectorAll<HTMLElement>("[data-scroll-title]")) {
+        const box = header.getBoundingClientRect();
+        if (box.top > top) break;
+        current = box.bottom < top ? (header.dataset.scrollTitle ?? null) : null;
+      }
+      setTitle(current);
+    };
+    document.addEventListener("scroll", onScroll, { capture: true, passive: true });
+    return () => document.removeEventListener("scroll", onScroll, { capture: true });
+  }, [route]);
+  return title;
 }
 
 function SessionSaveStatus() {
@@ -1307,17 +1419,15 @@ function GraphSwitcher({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="rail-switcher" data-testid="graph-switcher">
-          <span className="rail-avatar" aria-hidden>
-            {[...name.trim()][0] ?? "·"}
-          </span>
-          <span className="rail-workspace">
-            <span className="name">{name}</span>
-            <span className="rail-workspace-kind">
-              {message(remote ? "shell.sharedGraph" : "shell.localGraph")}
-            </span>
-          </span>
-          <ChevronsUpDownIcon aria-hidden />
+        <button
+          className="rail-switcher"
+          data-testid="graph-switcher"
+          aria-label={message(remote ? "shell.sharedGraphNamed" : "shell.graphNamed", { name })}
+        >
+          <LogoMark className="rail-switcher-mark" />
+          <span className="name">{name}</span>
+          {remote && <CloudIcon className="rail-switcher-remote" aria-hidden />}
+          <ChevronDownIcon className="rail-switcher-chevron" aria-hidden />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">

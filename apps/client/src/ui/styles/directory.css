@@ -1,0 +1,157 @@
+/* Directories list the graph's places. Rows read as a quiet table: the name
+   carries the left edge and figures align under their column. */
+.directory .document-header .title-row {
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.directory .document-header h1 {
+  flex: none;
+}
+
+.directory-total {
+  color: var(--ink-3);
+  font-size: var(--text-lg);
+  line-height: var(--lh-lg);
+  font-variant-numeric: tabular-nums;
+}
+
+.directory .search-field {
+  margin-bottom: var(--sp-4);
+}
+
+.directory-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.directory-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px 120px;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: 40px;
+  border-bottom: 1px solid var(--line);
+}
+
+.directory-head {
+  min-height: 32px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+.directory-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+  margin-inline: -6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--r-1);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: var(--weight-medium);
+}
+
+.directory-sort:hover,
+.directory-sort[data-active] {
+  color: var(--ink);
+}
+
+.directory-sort:hover {
+  background: var(--surface-2);
+}
+
+.directory-sort:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-inset);
+}
+
+.directory-sort svg {
+  width: 12px;
+  height: 12px;
+}
+
+.directory-num {
+  display: flex;
+  justify-content: flex-end;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.directory-name {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.directory-name a {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  min-height: 40px;
+  color: var(--ink);
+  font-size: var(--text-md);
+  text-decoration: none;
+}
+
+.directory-name a > svg {
+  flex: none;
+  width: var(--icon);
+  height: var(--icon);
+  color: var(--ink-3);
+}
+
+.directory-name a > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.directory-name a:hover > span {
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
+}
+
+.directory-name a:focus-visible {
+  outline: none;
+  border-radius: var(--r-1);
+  box-shadow: var(--focus-inset);
+}
+
+.directory-favourite {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  color: var(--caution);
+  fill: currentColor;
+}
+
+.directory-empty {
+  margin: var(--sp-5) 0;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+@media (max-width: 600px) {
+  .directory-row {
+    grid-template-columns: minmax(0, 1fr) 48px;
+  }
+
+  .directory-date {
+    display: none;
+  }
+
+  .directory-name a {
+    min-height: 48px;
+  }
+}

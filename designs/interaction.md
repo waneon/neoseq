@@ -91,9 +91,10 @@ The command palette participates in that modal lifecycle, including handoff from
 a closing menu. Its result list retains active descendants while native Tab
 cycles through the search field and close action.
 The palette keeps a stable search header and result frame near the top of the
-desktop viewport. Primary labels receive the available measure; supplementary
-context sits below them and shortcuts form a separate trailing column. On touch
-screens, generous rows and a persistent close action replace keyboard hints.
+desktop viewport. Each result is one line: its label takes the measure, its
+place or hint trails it, and a shortcut forms the last column. Pickers and the
+palette state no keyboard legend; their keys are the platform's. On touch
+screens, generous rows and a persistent close action apply.
 
 Anchored surfaces prefer the available vertical side and constrain themselves to
 the room there. A field may prefer the upper side to keep its editor’s submit actions

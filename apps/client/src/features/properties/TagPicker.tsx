@@ -288,7 +288,6 @@ export function TagPicker({
               ))
             )}
           </div>
-          <footer className="tag-picker-footer">{message("tags.pickerHint")}</footer>
         </>
       )}
     </AnchoredPanel>

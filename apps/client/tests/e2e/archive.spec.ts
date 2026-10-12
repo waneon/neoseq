@@ -63,6 +63,8 @@ test("a supported legacy archive migrates into a durable independent graph", asy
     );
   await expect(page.getByTestId("journal-title")).toBeVisible();
   expect(page.url()).not.toContain("schema-six-fixture");
+  await app.sidebar();
+  await page.getByTestId("nav-pages").click();
   await page.getByRole("link", { name: "Schema six notes", exact: true }).click();
   await expect(page.getByTestId("page-title")).toHaveValue("Schema six notes");
   await expect(app.editors.last()).toHaveValue("Nested note");

@@ -125,21 +125,18 @@ const SETTINGS_GROUPS = [
       {
         id: "appearance",
         label: "settings.appearance",
-        description: "settings.appearanceIntro",
         mobileDescription: "settings.mobileAppearance",
         icon: PaletteIcon,
       },
       {
         id: "language",
         label: "language.label",
-        description: "settings.languageDescription",
         mobileDescription: "settings.mobileLanguage",
         icon: LanguagesIcon,
       },
       {
         id: "journal",
         label: "settings.journal",
-        description: "settings.journalDescription",
         mobileDescription: "settings.mobileJournal",
         icon: CalendarIcon,
       },
@@ -153,14 +150,12 @@ const SETTINGS_GROUPS = [
       {
         id: "keyboard",
         label: "settings.keyboard",
-        description: "settings.keyboardDescription",
         mobileDescription: "settings.mobileKeyboard",
         icon: KeyboardIcon,
       },
       {
         id: "storage",
         label: "settings.storage",
-        description: "settings.storageDescription",
         mobileDescription: "settings.mobileStorage",
         icon: HardDriveIcon,
       },
@@ -172,7 +167,6 @@ const SETTINGS_GROUPS = [
       {
         id: "graph",
         label: "settings.graph",
-        description: "settings.graphDescription",
         mobileDescription: "settings.mobileGraph",
         icon: DatabaseIcon,
       },
@@ -186,7 +180,6 @@ const SETTINGS_GROUPS = [
       {
         id: "danger",
         label: "settings.danger",
-        description: "settings.dangerDescription",
         mobileDescription: "settings.mobileDanger",
         icon: Trash2Icon,
       },
@@ -310,10 +303,6 @@ export function SettingsDialog({
                 </div>
               </div>
             ))}
-            <p className="settings-nav-note">
-              <MonitorIcon aria-hidden />
-              {message("settings.preferencesHint")}
-            </p>
           </nav>
         )}
         {!showIndex && (
@@ -328,7 +317,7 @@ export function SettingsDialog({
               <h2 id={heading} ref={pageHeading} tabIndex={compact ? -1 : undefined}>
                 {message(active.label)}
               </h2>
-              <p>{message(active.description)}</p>
+              {"description" in active && <p>{message(active.description)}</p>}
             </header>
             <div className="settings-page-content">
               {activeSection === "appearance" && <AppearanceSection />}
@@ -412,13 +401,6 @@ function LanguageSection() {
         />
       </div>
       {preference === "system" && <p>{message("settings.languageSystemDescription")}</p>}
-      <div className="settings-reading-preview">
-        <span className="settings-preview-label">
-          <LanguagesIcon aria-hidden />
-          {message("settings.preview")}
-        </span>
-        <p>{message("settings.languagePreview")}</p>
-      </div>
     </section>
   );
 }
@@ -441,13 +423,6 @@ function JournalSection() {
 
   return (
     <>
-      <div className="settings-reading-preview">
-        <span className="settings-preview-label">
-          <CalendarIcon aria-hidden />
-          {message("settings.preview")}
-        </span>
-        <p data-testid="settings-journal-preview">{example(journalDateFormat)}</p>
-      </div>
       <section className="settings-section">
         <h3>{message("settings.dateFormat")}</h3>
         <div className="field">

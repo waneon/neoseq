@@ -788,11 +788,6 @@
   content: "☑ ";
 }
 
-.markdown-compact-link {
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
 .markdown-compact-break {
   color: var(--ink-3);
   letter-spacing: 0.12em;
@@ -1046,4 +1041,10 @@
     background: var(--accent-tint);
     color: var(--accent);
   }
+}
+
+/* A query block's own line is its caption; empty, it says so. */
+.outline-input::placeholder {
+  color: var(--ink-3);
+  opacity: 1;
 }

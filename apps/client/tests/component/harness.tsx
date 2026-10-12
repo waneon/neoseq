@@ -26,6 +26,7 @@ import { SessionContext } from "../../src/features/shell/session-context";
 import { JournalView } from "../../src/features/journal/JournalView";
 import { PageView } from "../../src/features/page/PageView";
 import { TagsView } from "../../src/features/tags/TagsView";
+import { PagesView } from "../../src/features/pages/PagesView";
 import { TagView } from "../../src/features/tags/TagView";
 import {
   CommandContext,
@@ -188,6 +189,7 @@ export async function mountAt(initialPath: string, custom?: ReactElement): Promi
         children: [
           { path: "journal", element: custom ?? <JournalView /> },
           { path: "journal/:date", element: custom ?? <JournalView /> },
+          { path: "pages", element: custom ?? <PagesView /> },
           { path: "tags", element: custom ?? <TagsView /> },
           { path: "t/:tagId", element: custom ?? <TagView /> },
           { path: "p/:pageId", element: custom ?? <PageView /> },

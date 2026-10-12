@@ -1051,41 +1051,114 @@ function QueryPanelSurface({
     >
       <div className="query-header">
         <div className="query-heading">
-          <SearchIcon className="query-heading-icon" aria-hidden />
-          <div className="query-heading-text">
-            <span className="query-title" data-testid={title ? "query-title" : undefined}>
-              {title || summary.lead}
-            </span>
-            {!editing && summary.detail && (
-              <span className="query-summary" title={summary.detail}>
-                {summary.detail}
-              </span>
-            )}
-          </div>
-        </div>
-        <div className="query-header-actions">
-          {plan && (
-            <Button
-              variant="ghost"
-              className="query-tool query-filter-trigger"
+          <span className="query-title" data-testid={title ? "query-title" : undefined}>
+            {title || summary.lead}
+          </span>
+          {plan ? (
+            <button
+              type="button"
+              className="query-question"
               aria-disabled={savingConditions || undefined}
               aria-expanded={editing}
               aria-controls={editing ? builderId : undefined}
-              aria-label={message("query.conditions")}
               title={summaryLabel(summary)}
               data-testid="query-conditions-trigger"
               onClick={toggleEditing}
             >
               <ListFilterIcon aria-hidden />
-              <span>{message("query.conditions")}</span>
-              {conditionCount > 0 && <span className="query-tool-count">{conditionCount}</span>}
+              <span className="query-question-text">
+                {summary.detail ?? message("query.conditions")}
+              </span>
+              {conditionCount > 1 && <span className="query-tool-count">{conditionCount}</span>}
               {editing ? (
                 <ChevronUpIcon className="query-tool-chevron" aria-hidden />
               ) : (
                 <ChevronDownIcon className="query-tool-chevron" aria-hidden />
               )}
-            </Button>
+            </button>
+          ) : (
+            summary.detail && (
+              <span className="query-summary" title={summary.detail}>
+                {summary.detail}
+              </span>
+            )
           )}
+        </div>
+        <div className="query-header-actions">
+          {resultCanCollapse ? (
+            <button
+              type="button"
+              className="query-disclosure"
+              aria-expanded={resultsOpen}
+              aria-controls={outputId}
+              aria-label={message(resultsOpen ? "query.collapseResults" : "query.expandResults", {
+                result: [title, resultLabel].filter(Boolean).join(" · "),
+              })}
+              aria-busy={loading || undefined}
+              data-testid="query-disclosure"
+              onPointerDown={() => resultEditor.preserveDraftForPresentationChange()}
+              onClick={() => void toggleResults()}
+            >
+              {resultsOpen ? <ChevronDownIcon aria-hidden /> : <ChevronRightIcon aria-hidden />}
+              <span
+                className="query-count"
+                data-state={error ? "error" : undefined}
+                data-testid="query-count"
+              >
+                {resultLabel}
+              </span>
+            </button>
+          ) : (
+            <span className="query-disclosure" data-testid="query-disclosure">
+              <span
+                className="query-count"
+                data-static
+                data-testid="query-count"
+                aria-busy={loading || undefined}
+              >
+                {resultLabel}
+              </span>
+            </span>
+          )}
+          <div className="query-result-tools">
+            {choosesColumns && <QueryColumnsControl choices={choices} onToggle={toggleColumn} />}
+            {sortOptions.length > 0 && (
+              <QuerySortControl
+                options={sortOptions}
+                sorts={sortEntries}
+                onChange={setSortEntries}
+              />
+            )}
+            {canEditCurrentView && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    className="query-tool query-layout-trigger"
+                    aria-label={message("query.displayOf", {
+                      layout: message(
+                        activeView.kind === "table" ? "query.viewTable" : "query.viewList",
+                      ),
+                    })}
+                    data-testid="query-view-trigger"
+                    data-view={activeView.kind}
+                    onPointerDown={() => resultEditor.preserveDraftForPresentationChange()}
+                  >
+                    {activeView.kind === "table" ? (
+                      <Table2Icon aria-hidden />
+                    ) : (
+                      <ListIcon aria-hidden />
+                    )}
+                    <span>
+                      {message(activeView.kind === "table" ? "query.viewTable" : "query.viewList")}
+                    </span>
+                    <ChevronDownIcon className="query-tool-chevron" aria-hidden />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">{layoutItems}</DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -1155,79 +1228,6 @@ function QueryPanelSurface({
           <code>{source}</code>
         </pre>
       )}
-
-      <div className="query-toolbar">
-        {resultCanCollapse ? (
-          <button
-            type="button"
-            className="query-disclosure"
-            aria-expanded={resultsOpen}
-            aria-controls={outputId}
-            aria-label={message(resultsOpen ? "query.collapseResults" : "query.expandResults", {
-              result: [title, resultLabel].filter(Boolean).join(" · "),
-            })}
-            aria-busy={loading || undefined}
-            data-testid="query-disclosure"
-            onPointerDown={() => resultEditor.preserveDraftForPresentationChange()}
-            onClick={() => void toggleResults()}
-          >
-            {resultsOpen ? <ChevronDownIcon aria-hidden /> : <ChevronRightIcon aria-hidden />}
-            <span
-              className="query-count"
-              data-state={error ? "error" : undefined}
-              data-testid="query-count"
-            >
-              {resultLabel}
-            </span>
-          </button>
-        ) : (
-          <span className="query-disclosure" data-testid="query-disclosure">
-            <span
-              className="query-count"
-              data-static
-              data-testid="query-count"
-              aria-busy={loading || undefined}
-            >
-              {resultLabel}
-            </span>
-          </span>
-        )}
-        <div className="query-result-tools">
-          {choosesColumns && <QueryColumnsControl choices={choices} onToggle={toggleColumn} />}
-          {sortOptions.length > 0 && (
-            <QuerySortControl options={sortOptions} sorts={sortEntries} onChange={setSortEntries} />
-          )}
-          {canEditCurrentView && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  className="query-tool query-layout-trigger"
-                  aria-label={message("query.displayOf", {
-                    layout: message(
-                      activeView.kind === "table" ? "query.viewTable" : "query.viewList",
-                    ),
-                  })}
-                  data-testid="query-view-trigger"
-                  data-view={activeView.kind}
-                  onPointerDown={() => resultEditor.preserveDraftForPresentationChange()}
-                >
-                  {activeView.kind === "table" ? (
-                    <Table2Icon aria-hidden />
-                  ) : (
-                    <ListIcon aria-hidden />
-                  )}
-                  <span>
-                    {message(activeView.kind === "table" ? "query.viewTable" : "query.viewList")}
-                  </span>
-                  <ChevronDownIcon className="query-tool-chevron" aria-hidden />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">{layoutItems}</DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </div>
-      </div>
 
       <div
         id={outputId}

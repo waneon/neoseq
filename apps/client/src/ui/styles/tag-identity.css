@@ -517,14 +517,6 @@
   text-align: center;
 }
 
-.tag-picker-footer {
-  flex: none;
-  padding: var(--sp-2) var(--sp-4);
-  border-top: 1px solid var(--line);
-  color: var(--ink-3);
-  font-size: var(--text-xs);
-}
-
 @media (max-width: 600px), (hover: none) {
   .tag-identity-editor .tag-mark-option,
   .tag-group-options button,
@@ -561,10 +553,6 @@
   .tag-identity-editor .tag-mark-field {
     width: 44px;
     height: 44px;
-  }
-
-  .tag-picker-footer {
-    display: none;
   }
 }
 

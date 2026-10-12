@@ -50,7 +50,6 @@ import type { Anchor } from "@/ui/anchored";
 import { AnchoredPanel } from "@/ui/anchored-panel";
 import { Button } from "@/ui/shadcn/button";
 import { Input } from "@/ui/shadcn/input";
-import { Kbd } from "@/ui/kbd";
 import {
   Autocomplete,
   SearchField,
@@ -589,7 +588,7 @@ export function PropertyPicker({
         <Button
           variant="ghost"
           size="icon"
-          aria-label={message("properties.closeHint")}
+          aria-label={message("common.close")}
           disabled={committing}
           onClick={close}
         >
@@ -728,20 +727,6 @@ export function PropertyPicker({
             {readonly && (
               <span className="property-picker-readonly">{message("properties.readonly")}</span>
             )}
-          </div>
-          <div className="property-picker-keyboard" aria-hidden="true">
-            <span>
-              <Kbd parts={["↑", "↓"]} />
-              <span>{message("properties.navigationHint")}</span>
-            </span>
-            <span>
-              <Kbd parts={["⏎"]} />
-              <span>{message("properties.selectHint")}</span>
-            </span>
-            <span>
-              <Kbd parts={["esc"]} />
-              <span>{message("properties.closeHint")}</span>
-            </span>
           </div>
         </>
       )}

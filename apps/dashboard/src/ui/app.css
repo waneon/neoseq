@@ -36,19 +36,19 @@
      contrast table in designs/foundations.md § Modes and Contrast is measured
      for these exact values, and an app that restates them approximately would
      be claiming a guarantee it had not verified. */
-  --canvas: oklch(1 0 0);
-  --surface-1: oklch(0.981 0.003 264);
-  --surface-2: oklch(0.958 0.005 264);
-  --surface-3: oklch(0.931 0.007 264);
+  --canvas: oklch(0.994 0.002 95);
+  --surface-1: oklch(0.975 0.003 95);
+  --surface-2: oklch(0.952 0.004 95);
+  --surface-3: oklch(0.925 0.005 95);
   --overlay: oklch(1 0 0);
   /* "Lighter than any ground a control sits on", in both modes — which is why a
      raised control cannot simply be painted `--canvas`. */
   --raised: oklch(1 0 0);
-  --raised-hover: oklch(0.981 0.003 264);
+  --raised-hover: oklch(0.982 0.002 95);
 
-  --ink: oklch(0.235 0.014 264);
-  --ink-2: oklch(0.462 0.014 264);
-  --ink-3: oklch(0.548 0.013 264);
+  --ink: oklch(0.255 0.008 270);
+  --ink-2: oklch(0.45 0.01 270);
+  --ink-3: oklch(0.545 0.009 270);
   --brand-ink: #4f44c5;
 
   /* ── Iris ──
@@ -59,10 +59,10 @@
      contrast-safe forever. Lightness and chroma stay declared rather than
      inlined so the hue remains a single point of change if that ever alters. */
   --accent-h: 277;
-  --accent-l: 0.535;
-  --accent-c: 0.208;
+  --accent-l: 0.52;
+  --accent-c: 0.15;
   --accent: oklch(var(--accent-l) var(--accent-c) var(--accent-h));
-  --accent-hover: oklch(0.472 0.203 var(--accent-h));
+  --accent-hover: oklch(0.46 0.15 var(--accent-h));
   --accent-soft: color-mix(in oklab, var(--accent) 12%, transparent);
   --on-accent: oklch(1 0 0);
 
@@ -216,22 +216,22 @@
    CSS-only. They must stay identical. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --canvas: oklch(0.207 0.007 264);
-    --surface-1: oklch(0.242 0.008 264);
-    --surface-2: oklch(0.278 0.009 264);
-    --surface-3: oklch(0.318 0.011 264);
-    --overlay: oklch(0.253 0.009 264);
-    --raised: oklch(0.3 0.01 264);
-    --raised-hover: oklch(0.34 0.011 264);
+    --canvas: oklch(0.205 0.004 270);
+    --surface-1: oklch(0.232 0.005 270);
+    --surface-2: oklch(0.265 0.006 270);
+    --surface-3: oklch(0.3 0.007 270);
+    --overlay: oklch(0.245 0.006 270);
+    --raised: oklch(0.27 0.006 270);
+    --raised-hover: oklch(0.3 0.007 270);
 
-    --ink: oklch(0.955 0.004 264);
-    --ink-2: oklch(0.762 0.011 264);
-    --ink-3: oklch(0.632 0.013 264);
+    --ink: oklch(0.94 0.003 270);
+    --ink-2: oklch(0.76 0.008 270);
+    --ink-3: oklch(0.64 0.009 270);
     --brand-ink: #9b91ff;
 
-    --accent-l: 0.705;
-    --accent-c: 0.185;
-    --accent-hover: oklch(0.775 0.155 var(--accent-h));
+    --accent-l: 0.74;
+    --accent-c: 0.13;
+    --accent-hover: oklch(0.8 0.13 var(--accent-h));
     --accent-soft: color-mix(in oklab, var(--accent) 20%, transparent);
     --on-accent: oklch(0.17 0.008 264);
 
@@ -261,22 +261,22 @@
 }
 
 :root[data-theme="dark"] {
-  --canvas: oklch(0.207 0.007 264);
-  --surface-1: oklch(0.242 0.008 264);
-  --surface-2: oklch(0.278 0.009 264);
-  --surface-3: oklch(0.318 0.011 264);
-  --overlay: oklch(0.253 0.009 264);
-  --raised: oklch(0.3 0.01 264);
-  --raised-hover: oklch(0.34 0.011 264);
+  --canvas: oklch(0.205 0.004 270);
+  --surface-1: oklch(0.232 0.005 270);
+  --surface-2: oklch(0.265 0.006 270);
+  --surface-3: oklch(0.3 0.007 270);
+  --overlay: oklch(0.245 0.006 270);
+  --raised: oklch(0.27 0.006 270);
+  --raised-hover: oklch(0.3 0.007 270);
 
-  --ink: oklch(0.955 0.004 264);
-  --ink-2: oklch(0.762 0.011 264);
-  --ink-3: oklch(0.632 0.013 264);
+  --ink: oklch(0.94 0.003 270);
+  --ink-2: oklch(0.76 0.008 270);
+  --ink-3: oklch(0.64 0.009 270);
   --brand-ink: #9b91ff;
 
-  --accent-l: 0.705;
-  --accent-c: 0.185;
-  --accent-hover: oklch(0.775 0.155 var(--accent-h));
+  --accent-l: 0.74;
+  --accent-c: 0.13;
+  --accent-hover: oklch(0.8 0.13 var(--accent-h));
   --accent-soft: color-mix(in oklab, var(--accent) 20%, transparent);
   --on-accent: oklch(0.17 0.008 264);
 

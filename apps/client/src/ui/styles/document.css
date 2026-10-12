@@ -1,4 +1,4 @@
-/* Documents share one generous measure and a quiet editorial header. */
+/* Documents share one reading measure; the title is the whole header. */
 .page-scroll {
   flex: 1;
   min-height: 0;
@@ -12,44 +12,17 @@
   width: 100%;
   max-width: calc(var(--measure) + var(--gutter) * 2);
   margin: 0 auto;
-  padding: 44px var(--gutter) 0;
+  padding: var(--sp-6) var(--gutter) 0;
 }
 
 .document-header {
-  padding-bottom: 26px;
-  border-bottom: 1px solid var(--line);
-}
-
-.document-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-3);
-  min-height: 32px;
-  margin-bottom: 22px;
-}
-
-.document-eyebrow {
-  display: inline-flex;
-  align-items: center;
-  flex: none;
-  gap: var(--sp-2);
-  color: var(--ink-3);
-  font-size: var(--text-xs);
-  line-height: var(--lh-xs);
-  font-weight: var(--weight-medium);
-  letter-spacing: 0.035em;
-}
-
-.document-eyebrow svg {
-  width: var(--icon-lg);
-  height: var(--icon-lg);
+  margin-bottom: var(--sp-4);
 }
 
 .title-row {
   display: flex;
-  align-items: center;
-  gap: var(--sp-2);
+  align-items: flex-start;
+  gap: var(--sp-3);
   min-height: var(--title-row-h);
   overflow-wrap: anywhere;
 }
@@ -66,7 +39,7 @@
   font-size: var(--text-title);
   line-height: var(--lh-title);
   letter-spacing: var(--track-xl);
-  font-weight: 600;
+  font-weight: 650;
   word-break: keep-all;
   overflow-wrap: anywhere;
 }
@@ -74,10 +47,9 @@
 .page-title {
   display: block;
   width: 100%;
-  margin: 0 calc(var(--sp-2) * -1);
-  padding: 0 var(--sp-2);
+  margin: 0;
+  padding: 0;
   border: none;
-  border-radius: var(--r-2);
   background: none;
   font-family: inherit;
   caret-color: var(--accent);
@@ -85,102 +57,56 @@
   resize: none;
   overflow: hidden;
   overflow-wrap: anywhere;
-  transition: background-color var(--dur-press) var(--ease-out);
-}
-
-.page-title:hover:not(:read-only):not(:focus) {
-  background: var(--surface-1);
 }
 
 .page-title:focus {
   outline: none;
-  background: none;
+}
+
+.page-title::placeholder {
+  color: var(--ink-3);
 }
 
 .title-actions {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
   flex: none;
+  height: var(--lh-title);
 }
 
-.document-toolbar [data-testid="page-actions-trigger"] {
-  width: 32px;
-  height: 32px;
+.document-caption {
+  margin: var(--sp-1) 0 0;
   color: var(--ink-3);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
 }
 
-.document-properties-action {
-  height: 32px;
-  padding: 0 var(--sp-2);
-  color: var(--ink-3);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-normal);
-}
-
-.document-properties-action svg {
-  width: 14px;
-  height: 14px;
-}
-
-/* Day navigation is always present; the date gets the entire title measure. */
-.date-stepper {
+/* Day navigation sits beside the date; Today appears only away from today. */
+.journal-nav {
   display: flex;
   align-items: center;
-  flex: none;
-  height: 32px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-2);
-  background: var(--canvas);
-  overflow: hidden;
+  gap: 2px;
 }
 
-.date-stepper .icon-btn {
-  width: 32px;
-  height: 100%;
-  border-radius: 0;
-  color: var(--ink-2);
+.journal-nav .icon-btn {
+  color: var(--ink-3);
 }
 
-.date-stepper .icon-btn + .icon-btn {
-  border-inline-start: 1px solid var(--line);
-}
-
-.date-stepper .icon-btn svg {
-  width: 14px;
-  height: 14px;
-}
-
-.today-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  height: 28px;
-  padding: 0 10px;
-  border: none;
-  border-radius: var(--r-full);
-  background: var(--accent-tint);
+.journal-today.btn {
+  height: var(--icon-btn);
+  margin-inline-end: var(--sp-1);
+  padding: 0 var(--sp-2);
   color: var(--accent);
-  --tone: var(--accent);
-  font: inherit;
-  font-size: var(--text-xs);
-  line-height: var(--lh-xs);
+  font-size: var(--text-sm);
   font-weight: var(--weight-medium);
-  transition: background-color var(--dur-press) var(--ease-out);
 }
 
-button.today-pill:hover {
-  background: var(--accent-soft);
+.favourite-toggle[aria-pressed="true"] {
+  color: var(--caution);
 }
 
-.today-pill[data-current="true"]::before {
-  content: "";
-  width: 5px;
-  height: 5px;
-  margin-inline-end: 6px;
-  border-radius: var(--r-full);
-  background: currentColor;
+.favourite-toggle[aria-pressed="true"] svg {
+  fill: currentColor;
 }
 
 .page-note {
@@ -246,10 +172,15 @@ button.today-pill:hover {
   margin-top: var(--sp-1);
 }
 
+/* The open control shares the first line's box, so its mark sits on that line. */
+.linked-reference-block > .icon-btn {
+  height: var(--lh-md);
+}
+
 .linked-reference-block > .block-markdown {
   min-width: 0;
   flex: 1;
-  padding: var(--sp-1) 0;
+  line-height: var(--lh-md);
   overflow-wrap: anywhere;
 }
 
@@ -260,7 +191,7 @@ button.today-pill:hover {
   margin-bottom: var(--sp-7);
 }
 
-.page-body:has(> .journal-queries) {
+.page-body:has(> :is(.journal-queries, .journal-days)) {
   --append-h: min(12vh, 96px);
 }
 
@@ -313,15 +244,6 @@ button.today-pill:hover {
   overflow-y: auto;
 }
 
-.journal-calendar-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-2);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-}
-
 .journal-calendar-jump {
   display: flex;
   gap: var(--sp-2);
@@ -347,98 +269,67 @@ button.today-pill:hover {
   }
 
   .page-body {
-    --text-title: 30px;
-    --lh-title: 39px;
-    --gutter: 20px;
-    padding-top: 24px;
+    padding-top: var(--sp-3);
   }
 
-  .document-header {
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-    padding-bottom: 18px;
-  }
-
-  .document-header > .title-row {
-    order: -1;
-  }
-
-  .document-toolbar {
-    gap: var(--sp-2);
-    margin-bottom: 0;
-  }
-
-  .document-eyebrow {
-    gap: 6px;
-  }
-
-  .title-actions {
-    gap: 4px;
-    margin-inline-start: auto;
-  }
-
-  .journal-header .document-eyebrow {
-    display: none;
-  }
-
-  .journal-header .title-actions {
-    width: 100%;
-  }
-
-  .date-stepper {
+  .journal-nav .icon-btn,
+  .journal-today.btn {
+    min-width: 44px;
     height: 44px;
-    margin-inline-end: auto;
-    border: 0;
-    background: var(--surface-1);
-    border-radius: var(--r-3);
-  }
-
-  .date-stepper .icon-btn {
-    width: 40px;
-  }
-
-  .date-stepper .icon-btn + .icon-btn {
-    border: 0;
-  }
-
-  .date-stepper .icon-btn svg {
-    width: 18px;
-    height: 18px;
-  }
-
-  .today-pill {
-    height: 44px;
-    padding-inline: 12px;
-    margin-inline-end: 4px;
-    border-radius: var(--r-3);
-  }
-
-  .document-properties-action,
-  .document-toolbar [data-testid="page-actions-trigger"] {
-    width: 44px;
-    height: 44px;
-    padding: 0;
-  }
-
-  .document-properties-action svg {
-    width: 18px;
-    height: 18px;
-  }
-
-  .document-properties-action > span {
-    display: none;
   }
 }
 
-@media (max-width: 360px) {
-  .page-body {
-    --gutter: 16px;
+/* On a phone the date leads; its distance and the day controls follow. */
+@media (max-width: 600px) {
+  .document-header:has(.journal-nav) {
+    display: flex;
+    flex-direction: column;
   }
-  .title-actions {
-    gap: 0;
+
+  .document-header:has(.journal-nav) > .title-row {
+    display: contents;
   }
-  .today-pill {
-    padding-inline: 8px;
+
+  .document-header:has(.journal-nav) .title-actions {
+    order: 1;
+    height: auto;
+    margin: var(--sp-2) 0 0 -10px;
   }
+}
+
+/* The journal continues below the day on screen. Each earlier day keeps the
+   title scale, so scrolling reads as one journal rather than a list of links. */
+.journal-day {
+  --append-h: var(--sp-4);
+  margin-top: var(--sp-7);
+}
+
+.journal-day-title {
+  margin: 0;
+  font-size: var(--text-title);
+  line-height: var(--lh-title);
+  letter-spacing: var(--track-xl);
+  font-weight: 650;
+}
+
+.journal-day-title a {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.journal-day-title a:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 6px;
+}
+
+.journal-day-title a:focus-visible {
+  outline: none;
+  border-radius: var(--r-2);
+  box-shadow: var(--focus-inset);
+}
+
+.journal-days-end {
+  height: 1px;
 }

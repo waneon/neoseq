@@ -184,8 +184,10 @@ export async function openRemote(
   await app.page.getByTestId(`open-graph-${graphName}`).click();
   await expectSynced(app.page);
   if (pageTitle) {
+    await app.sidebar();
+    await app.page.getByTestId("nav-pages").click();
     await app.page
-      .getByTestId("page-list")
+      .getByTestId("pages-directory")
       .getByRole("link", { name: pageTitle, exact: true })
       .click();
     await expect(app.page.getByTestId("page-title")).toHaveValue(pageTitle);

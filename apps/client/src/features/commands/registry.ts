@@ -16,10 +16,10 @@ export type CommandGroup =
 
 /** Groups in the order the palette renders them: navigation before action. */
 export const GROUP_ORDER: CommandGroup[] = [
-  "Search",
   "Pages",
   "Tags",
   "Journal",
+  "Search",
   "Block",
   "Edit",
   "Graph",
@@ -64,21 +64,27 @@ export function fuzzyScore(text: string, query: string): number | null {
   if (at === 0) return 1000 - text.length;
   if (at > 0) return 700 - at - text.length / 10;
 
-  // Scattered subsequence, rewarding matches that land on word starts.
+  // Scattered subsequence anchored at a word start, so "pp" finds "Project
+  // plan" but "cache" does not find "Appearance: match the system".
   let index = 0;
   let score = 300;
   let previous = -1;
   for (const character of needle) {
-    const found = haystack.indexOf(character, index);
-    if (found < 0) return null;
-    if (found === 0 || haystack[found - 1] === " " || haystack[found - 1] === ".") {
-      score += 8;
+    let found = haystack.indexOf(character, index);
+    while (previous < 0 && found >= 0 && !wordStart(haystack, found)) {
+      found = haystack.indexOf(character, found + 1);
     }
-    if (previous >= 0 && found === previous + 1) score += 4;
+    if (found < 0) return null;
+    if (wordStart(haystack, found)) score += 8;
+    if (found === previous + 1) score += 4;
     previous = found;
     index = found + 1;
   }
   return score - text.length / 10;
+}
+
+function wordStart(text: string, at: number): boolean {
+  return at === 0 || /[\s.:/·_-]/.test(text[at - 1]);
 }
 
 /** Best score across a command's label and keywords. */

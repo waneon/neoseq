@@ -90,3 +90,32 @@ test("graph deletion requires confirmation and preserves the other graph", async
   await page.getByTestId("open-graph-Keep").click();
   await app.expectOutline(["Keep this note"]);
 });
+
+test("the continuous journal keeps the reading position while earlier days load", async ({
+  app,
+  page,
+}) => {
+  await app.createGraph("Long journal");
+  const journal = page.url().replace(/journal.*$/, "journal");
+  // More days than the first two batches, so later ones load after scrolling.
+  for (let day = 1; day <= 12; day++) {
+    const date = new Date(Date.UTC(2026, 8, 7 - day)).toISOString().slice(0, 10);
+    await page.goto(`${journal}/${date}`);
+    await app.startBlock(`Entry for ${date}`);
+    for (let line = 1; line < 3; line++) await app.appendBlock(`${date} line ${line}`);
+  }
+  await page.goto(journal);
+  await expect(page.getByTestId("journal-day").first()).toBeVisible();
+
+  const scroller = page.locator(".page-scroll");
+  await page.mouse.move(640, 400);
+  let previous = 0;
+  for (let step = 0; step < 60; step++) {
+    await page.mouse.wheel(0, 300);
+    await page.waitForTimeout(50);
+    const top = await scroller.evaluate((element) => element.scrollTop);
+    expect(top, `scroll position after step ${step}`).toBeGreaterThanOrEqual(previous - 1);
+    previous = top;
+  }
+  await expect(page.getByTestId("journal-day")).toHaveCount(12);
+});

@@ -1,22 +1,12 @@
 import { EntityKindMenuItem } from "../page/EntityKindMenuItem";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { Link, Navigate, useNavigate, useParams } from "react-router";
-import {
-  FolderIcon,
-  InfoIcon,
-  MoreHorizontalIcon,
-  Settings2Icon,
-  StarIcon,
-  StarOffIcon,
-  TagsIcon,
-  Trash2Icon,
-} from "lucide-react";
+import { Navigate, useNavigate, useParams } from "react-router";
+import { FolderIcon, InfoIcon, MoreHorizontalIcon, PaletteIcon, Trash2Icon } from "lucide-react";
 import type { TagSnapshot } from "../../core-port/snapshot";
 import { findTag, outlineOwnerKey, queryDocument, stringValue } from "../../core-port/snapshot";
 import { canonicalEntityName, namedDocuments } from "../../entities/names";
 import { configuredTimezone } from "../../entities/journal";
 import { tagPlan } from "../../entities/query-plan";
-import { FAVOURITE_KEY, isFavourite } from "../../entities/favourites";
 import { tagGroup } from "../../entities/tag-identity";
 import { useI18n } from "../../i18n";
 import { graphPath } from "../graphs/routing";
@@ -34,7 +24,9 @@ import {
 } from "@/ui/shadcn/dropdown-menu";
 import { useNotify } from "../notify/context";
 import { Outliner } from "../outline/Outliner";
-import { Tombstone } from "../page/PageView";
+import { DocumentHeader, Tombstone } from "../page/PageView";
+import { FavouriteToggle } from "../page/FavouriteToggle";
+import { DocumentChrome } from "../shell/document-chrome";
 import { PropertyPicker } from "../properties/PropertyPicker";
 import { QueryPanel } from "../query/QueryPanel";
 import { useSession, useSessionSelector } from "../shell/session-context";
@@ -107,7 +99,6 @@ export function TagView() {
 }
 
 function TagBody({ tag, graphId }: { tag: TagSnapshot; graphId: string }) {
-  const { repositoryId = LOCAL_REPOSITORY_ID } = useParams();
   const { message } = useI18n();
   const readonly = useSessionSelector((state) => state.mode === "readonly");
   const [picker, setPicker] = useState<{ key?: string; anchor: HTMLElement | null } | null>(null);
@@ -121,61 +112,52 @@ function TagBody({ tag, graphId }: { tag: TagSnapshot; graphId: string }) {
   return (
     <div className="page-scroll" ref={setScrollElement}>
       <article className="page-body tag-body enter-fade-view">
-        <header
-          className="document-header tag-header"
+        <DocumentChrome>
+          <FavouriteToggle entity={tag} owner={{ kind: "tag", tag_id: tag.id }} />
+          {!readonly && (
+            <Button
+              size="icon"
+              data-testid="tag-customize-trigger"
+              aria-label={message("tags.customizeNamed", { name: tag.name })}
+              title={message("tags.customizeNamed", { name: tag.name })}
+              aria-haspopup="dialog"
+              onClick={(event) => setIdentityAt(event.currentTarget)}
+            >
+              <PaletteIcon aria-hidden />
+            </Button>
+          )}
+          <TagMenu
+            tag={tag}
+            graphId={graphId}
+            open={menuOpen}
+            onOpenChange={setMenuOpen}
+            onCustomize={setIdentityAt}
+          />
+        </DocumentChrome>
+        <DocumentHeader
+          name={`#${tag.name}`}
           onContextMenu={(event) => {
             event.preventDefault();
             setMenuOpen(true);
           }}
+          caption={
+            group && (
+              <span className="tag-page-group" data-testid="tag-page-group">
+                <FolderIcon aria-hidden />
+                {group}
+              </span>
+            )
+          }
         >
-          <div className="document-toolbar">
-            <Link
-              className="document-eyebrow tag-directory-link"
-              to={graphPath(repositoryId, graphId, "tags")}
-            >
-              <TagsIcon aria-hidden />
-              {message("tags.title")}
-            </Link>
-            <div className="title-actions">
-              {!readonly && (
-                <Button
-                  variant="ghost"
-                  className="tag-customize-action"
-                  data-testid="tag-customize-trigger"
-                  aria-label={message("tags.customizeNamed", { name: tag.name })}
-                  aria-haspopup="dialog"
-                  onClick={(event) => setIdentityAt(event.currentTarget)}
-                >
-                  <Settings2Icon aria-hidden />
-                  <span>{message("tags.customize")}</span>
-                </Button>
-              )}
-              <TagMenu
-                tag={tag}
-                graphId={graphId}
-                open={menuOpen}
-                onOpenChange={setMenuOpen}
-                onCustomize={setIdentityAt}
-              />
-            </div>
-          </div>
-          <div className="title-row tag-title-row">
-            <span className="tag-title-mark">
-              <TagMark
-                tag={tag}
-                size="lg"
-                onOpen={readonly ? undefined : (anchor) => setIdentityAt(anchor)}
-              />
-            </span>
-            <TagTitle tag={tag} />
-          </div>
-          {group && (
-            <p className="tag-page-group" data-testid="tag-page-group">
-              <FolderIcon aria-hidden />
-              {group}
-            </p>
-          )}
-        </header>
+          <span className="tag-title-mark">
+            <TagMark
+              tag={tag}
+              size="lg"
+              onOpen={readonly ? undefined : (anchor) => setIdentityAt(anchor)}
+            />
+          </span>
+          <TagTitle tag={tag} />
+        </DocumentHeader>
         <TagDefaults
           tag={tag}
           onEdit={readonly ? undefined : (key, anchor) => setPicker({ key, anchor })}
@@ -193,10 +175,9 @@ function TagBody({ tag, graphId }: { tag: TagSnapshot; graphId: string }) {
           title={message("tags.content")}
         />
         <section className="tag-notes" data-testid="tag-notes" aria-labelledby={notesHeadingId}>
-          <div className="tag-notes-heading">
-            <h2 id={notesHeadingId}>{message("tags.notes")}</h2>
-            {tag.blocks.length === 0 && <p>{message("tags.notesHint")}</p>}
-          </div>
+          <h2 className="document-section-heading" id={notesHeadingId}>
+            {message("tags.notes")}
+          </h2>
           <Outliner
             owner={{ kind: "tag", id: tag.id }}
             blocks={tag.blocks}
@@ -289,7 +270,6 @@ function TagMenu({
   const navigate = useNavigate();
   const notify = useNotify();
   const { message } = useI18n();
-  const starred = isFavourite(tag);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [dialog, setDialog] = useState<"info" | "delete" | null>(null);
 
@@ -310,36 +290,13 @@ function TagMenu({
           {!readonly && (
             <>
               <DropdownMenuItem
-                data-testid="menu-tag-favourite"
-                onSelect={() => {
-                  const owner = { kind: "tag", tag_id: tag.id } as const;
-                  void session
-                    .execute(
-                      starred
-                        ? { type: "remove_property", owner, key: FAVOURITE_KEY }
-                        : {
-                            type: "set_property",
-                            owner,
-                            key: FAVOURITE_KEY,
-                            value: { type: "checkbox", value: true },
-                          },
-                    )
-                    .catch((error: unknown) =>
-                      notify.failure(message("failure.customizeTag", { name: tag.name }), error),
-                    );
-                }}
-              >
-                {starred ? <StarOffIcon aria-hidden /> : <StarIcon aria-hidden />}
-                {message(starred ? "favourites.remove" : "favourites.add")}
-              </DropdownMenuItem>
-              <DropdownMenuItem
                 data-testid="menu-tag-customize"
                 onSelect={() => {
                   const trigger = triggerRef.current;
                   if (trigger) requestAnimationFrame(() => onCustomize(trigger));
                 }}
               >
-                <Settings2Icon aria-hidden />
+                <PaletteIcon aria-hidden />
                 {message("tags.customize")}
               </DropdownMenuItem>
             </>

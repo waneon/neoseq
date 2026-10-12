@@ -3,9 +3,6 @@ import { Link, useParams } from "react-router";
 import { elementAnchor } from "@/ui/anchored";
 import {
   FolderIcon,
-  HashIcon,
-  SearchIcon,
-  XIcon,
   ChevronDownIcon,
   ChevronUpIcon,
   MoreHorizontalIcon,
@@ -39,6 +36,8 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
 import { Input } from "@/ui/shadcn/input";
+import { SearchField } from "../../ui/SearchField";
+import { DocumentChrome } from "../shell/document-chrome";
 import { ConfirmDialog, Dialog } from "../../ui/components";
 import { Button } from "@/ui/shadcn/button";
 import { useI18n } from "../../i18n";
@@ -85,7 +84,7 @@ export function TagsView() {
     (left, right) => left.snapshot === right.snapshot && left.mode === right.mode,
   );
   const notify = useNotify();
-  const { message, compare } = useI18n();
+  const { message, compare, formatNumber } = useI18n();
   const readonly = state.mode === "readonly";
   const [creatingIn, setCreatingIn] = useState<{ group: string | null; name?: string } | null>(
     null,
@@ -214,65 +213,46 @@ export function TagsView() {
   return (
     <div className="page-scroll">
       <article
-        className="page-body tags-directory enter-fade-view"
+        className="page-body directory tags-directory enter-fade-view"
         onDragLeave={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
             setDrag((current) => (current ? { ...current, drop: null } : null));
           }
         }}
       >
-        <header className="tags-header">
-          <div className="tags-heading">
-            <div className="title-row">
-              <h1>{message("tags.title")}</h1>
-              <span className="tags-total">{tags.length}</span>
-            </div>
-            {!readonly && (
-              <Button
-                ref={createRef}
-                data-testid="new-tag"
-                onClick={() => setCreatingIn({ group: activeGroup ?? null })}
-              >
-                <PlusIcon aria-hidden />
-                {message("tags.new")}
-              </Button>
-            )}
+        {!readonly && (
+          <DocumentChrome>
+            <Button
+              ref={createRef}
+              variant="ghost"
+              className="chrome-action"
+              data-testid="new-tag"
+              onClick={() => setCreatingIn({ group: activeGroup ?? null })}
+            >
+              <PlusIcon aria-hidden />
+              <span>{message("tags.new")}</span>
+            </Button>
+          </DocumentChrome>
+        )}
+        <header className="document-header" data-scroll-title={message("tags.title")}>
+          <div className="title-row">
+            <h1>{message("tags.title")}</h1>
+            <span className="directory-total">{formatNumber(tags.length)}</span>
           </div>
-          <p className="tags-description">{message("tags.directoryHint")}</p>
         </header>
 
         {tags.length > 0 && (
           <div className="tags-browser-tools">
-            <div className="tags-search">
-              <SearchIcon aria-hidden />
-              <Input
-                type="search"
-                className="h-[42px] bg-[var(--surface-1)] px-10"
-                data-testid="tag-search"
-                aria-label={message("tags.findTag")}
-                placeholder={message("tags.findTag")}
-                value={search}
-                onChange={(event) => {
-                  setSearch(event.target.value);
-                  endDrag();
-                }}
-              />
-              {search && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={message("tags.clearSearch")}
-                  onClick={() => {
-                    setSearch("");
-                    window.document
-                      .querySelector<HTMLInputElement>('[data-testid="tag-search"]')
-                      ?.focus();
-                  }}
-                >
-                  <XIcon aria-hidden />
-                </Button>
-              )}
-            </div>
+            <SearchField
+              value={search}
+              onChange={(next) => {
+                setSearch(next);
+                endDrag();
+              }}
+              label={message("tags.findTag")}
+              placeholder={message("tags.findTag")}
+              testId="tag-search"
+            />
             {groups.some((group) => group.name !== null) && (
               <div className="tags-filters" role="group" aria-label={message("tags.filterGroup")}>
                 <button
@@ -310,8 +290,6 @@ export function TagsView() {
 
         {tags.length === 0 ? (
           <div className="tags-empty-state" data-testid="tags-empty">
-            <HashIcon aria-hidden />
-            <h2>{message("tags.empty")}</h2>
             <p>{message("tags.emptyHint")}</p>
             {!readonly && (
               <Button variant="secondary" onClick={() => setCreatingIn({ group: null })}>
@@ -322,9 +300,7 @@ export function TagsView() {
           </div>
         ) : visibleCount === 0 ? (
           <div className="tags-empty-state" data-testid="tags-no-results">
-            <SearchIcon aria-hidden />
-            <h2>{message("tags.noResults")}</h2>
-            <p>{message("tags.noResultsHint")}</p>
+            <p>{message("tags.noResults")}</p>
             <div className="tags-empty-actions">
               <Button variant="secondary" onClick={clearFilters}>
                 {message("tags.clearFilters")}
@@ -973,7 +949,6 @@ function NewTagDialog({
           if (event.nativeEvent.isComposing && event.key === "Enter") event.preventDefault();
         }}
       >
-        <p>{message("tags.createHint")}</p>
         <div className="tag-create-field">
           <label htmlFor={nameId}>{message("tags.name")}</label>
           <Input

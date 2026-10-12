@@ -30,6 +30,8 @@ export interface CommandBridge {
   openShortcuts(): void;
   /** Opens settings at a section. The section is reflected in the URL. */
   openSettings(section?: SettingsSection): void;
+  /** Creates an untitled page and opens it; absent without a shell. */
+  createPage?(): void;
   /** Registers a focused block target. Removing it restores the prior target. */
   registerBlockProperties(handler: (key?: string) => void): () => void;
   /** Set by PageView for as long as a page is on screen. */

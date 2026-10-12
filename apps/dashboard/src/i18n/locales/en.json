@@ -7,7 +7,6 @@
   "accounts.action.revokeSessions": "Revoke sessions",
   "accounts.empty": "No accounts yet. The first account you add can sign in straight away.",
   "accounts.lastAdmin": "Last active administrator",
-  "accounts.lede": "Who may authenticate to this sync server, what they may administer, and which sessions remain valid.",
   "accounts.list.title": "Directory",
   "accounts.loading": "Loading accounts…",
   "accounts.noMatches": "No account matches “{query}”.",

@@ -2,160 +2,110 @@
 
 ## Boundary
 
-The shell establishes place, global navigation, and access to product-wide
-capabilities. It owns the rail, top bar, command entrance, settings container,
-and graph-opening experience. Page bodies and feature-specific contextual
-controls belong to their focused design areas.
+The shell places the reader in the graph. It owns the rail, the top bar, the
+place directories, the command entrance, settings, and the graph library.
+Document bodies and their contextual controls belong to their focused areas.
 
 ## Spatial Model
 
-The application frame has one navigation region and one content region. The
-content region is the primary scroller; the frame itself does not scroll. This
-keeps navigation, overlay positioning, and return-to-caret behavior independent
-from document length.
+The frame has one navigation region and one content region. The content region
+scrolls; the frame does not. On wide screens the rail is a collapsible column.
+On narrow screens a bottom bar offers Journal, Search, New page, and Library;
+Library opens the rail as a focus-contained drawer (full screen on phones).
+Closed navigation cannot receive focus. While a block is being written on a
+phone, structural actions and Done replace the bottom bar. Shell and overlays
+share the visible viewport so the software keyboard never covers the
+interaction.
 
-On wide screens the rail is a stable column that may collapse. On narrow screens,
-a bottom bar gives direct access to Journal, Search, Tags, and Library. Library
-opens the shared directory as a temporary drawer on tablets and a full-screen
-surface on phones. Closed navigation cannot receive focus. The content measure
-and gutter preserve the hierarchy of page edge, outline inset, and floating layers.
-During block editing, structural writing controls and Done occupy the bottom
-navigation's place. The visible viewport is shared by the shell and its overlays
-so the software keyboard does not cover the current interaction.
+## Rail
 
-## Navigation Rail
+The rail is scanned, not read: dense rows, one quiet ground, small chrome type.
 
-The rail is quieter than the writing canvas. Its head identifies the product and
-current graph; search has the visual shape of the field it opens. A labeled New
-page action sits beside search in the stable head and is disabled for read-only
-graphs. The directory scrolls independently between this head and the settings
-and keyboard-help footer. The desktop collapse control is always visible. The current row
-uses the accent because the rail is scanned for location rather than read as
-content. Journal remains the current place on every dated journal route.
+- **Head:** the product mark and graph name open the graph menu (rename,
+  settings, members, all graphs). A shared graph carries a remote mark. The
+  collapse control sits beside it.
+- **Verbs:** Search keeps the shape of the action it opens and shows its
+  shortcut; New page creates and opens an untitled page. Both are disabled for
+  read-only graphs where they would write.
+- **Places:** Journal, Pages, and Tags, with page and tag totals.
+- **Favourites:** pages and tags the graph keeps at hand, in the graph's own
+  order, with drag and keyboard reordering. Absent when empty.
+- **Recent:** documents this browser opened most recently, excluding
+  favourites. Absent when empty.
+- **Foot:** Settings, and the keyboard reference on pointer devices.
 
-Directory labels use the shared small-text role and content ink. Section labels
-use the secondary ink role; compact section spacing establishes grouping without
-large empty bands. Desktop rows stay dense, while touch rows retain full targets.
+The current place uses a raised neutral key with an accent mark. Journal stays
+current on every dated journal route.
 
-Favourites form one list across pages and tags: the organizing idea is return,
-not entity type. Each item retains its own mark, and all labels share one mark
-column. The list is absent when empty. Favourite membership and order belong to
-the graph, and reordering has equivalent drag and keyboard routes.
+## Place Directories
 
-Journal and Tags are primary destinations. The page directory follows favourites
-and shows its size without displacing its labels. Page creation remains available
-above the directory at every scroll position.
+Pages and Tags are directories with the same frame: the title and total, a
+filter field, and a quiet table whose names hold the left edge and whose figures
+align under named columns. Pages are sorted by name, incoming links, or
+creation; the tag library adds groups, marks, usage counts, and ordering (see
+[Metadata](metadata.md)). Creation lives in the top bar. Empty and unmatched
+lists state the fact and offer the next action.
 
 ## Top Bar
 
-The top bar is a persistent, fine-edged orientation strip. A breadcrumb names the
-workspace and current document even before scrolling. On narrow screens it names
-the graph alongside Undo, Redo, and page creation; bottom navigation establishes
-the current place. Registry-backed Undo and Redo
-remain available beside exceptional save or collaboration state. Search also
-appears here whenever the rail is collapsed or becomes a drawer.
+The top bar carries what applies to the current document wherever the reader
+has scrolled:
 
-The page header owns the document's context, title, and surface-specific controls,
-including journal date navigation. Context and actions share a compact row above
-the full-width title on desktop. On mobile the title leads, followed by a row of
-touch controls, so long names never compete with controls for width.
+- browser Back and Forward on wide screens;
+- the name of the document or journal day whose header has scrolled away;
+- save, sync, and read-only status only when not healthy;
+- the document's own controls, rendered by the document into the bar
+  (favourite, customization, actions menu, directory creation);
+- Undo and Redo.
 
-## Disclosure and Commands
+On narrow screens the graph name replaces Back, Forward, and the scrolled name.
 
-Permanent chrome is intentionally small. A secondary control may be hidden at
-rest only when it is:
+## Commands
 
-- revealed by both hover and focus;
-- pinned or otherwise reachable on touch; and
-- available through the command or context layer.
+Permanent chrome is small. A secondary control may be hidden at rest only when
+hover and focus reveal it, touch reaches it, and the command layer offers it.
 
-The primary verb of a surface is never hover-gated. Page actions have a persistent
-trigger beside the title; context click opens that same anchored menu. The trigger
-is also the focus owner when a journal has no editable title. Query configuration
-remains visible so a new answer can be shaped without discovering a hidden toolbar.
+One registry owns labels, availability, bindings, disabled reasons, execution,
+and a pointer route for every command. One arbitration order handles IME
+composition, the topmost overlay, editor commands, and global commands. Global
+shortcuts never take unmodified typing keys from text fields.
 
-One command registry owns labels, availability, bindings, scopes, disabled
-reasons, execution, and a required pointer route. One arbitration order handles
-IME composition, the topmost overlay, editor commands, and global commands.
-Global shortcuts do not steal unmodified typing keys from text fields.
-
-The command palette is the global navigation and action entrance. It remains a
-stable size while results change, ranks navigation first, explains unavailable
-commands, always offers a next action, and restores the prior caret on close.
-An explicit close control remains available when the palette fills a touch
-screen. Tab cycles between the search field and that close control; options
-retain combobox navigation. Bindings, help, and visible key badges read from
-the same resolved shortcut table.
+The command palette is the global entrance. With no query it previews places
+and actions. With a query it lists, in order: a matching journal date, matching
+pages (with Create page as the last page row), tags, block matches placed by
+their document, then actions. A scattered match must start at a word. The frame
+keeps a stable size, rows hold one line, and closing restores the prior caret.
+Touch screens add an explicit close action.
 
 ## Settings
 
-Settings is a dialog with explicit browser-wide and graph-specific scopes. A
-URL-addressable open state allows browser Back to close it without turning it
-into a separate application route.
-Opening, switching, or closing settings preserves the invoking navigation drawer
-and returns focus to its control. Following a rail link closes the drawer,
-including a link to the current page; keyboard invocation preserves the editor's
-caret instead.
+Settings is a dialog addressed by the URL, so Back closes it. Its index groups
+sections for this browser and for this graph; each pane opens with its name and
+explains only what is not self-evident. Phones show the index and one section at
+a time with a permanent back action. Theme choices preview the product; accent
+choices preview their role. Graph-owned standing queries are authored here with
+the shared query grammar.
 
-The dialog keeps a spacious, stable frame across sections so navigation does not
-move under the pointer. Its sidebar groups application preferences for this
-device separately from the current graph. Each pane uses a consistent heading
-and description to establish purpose and scope before its controls. The active
-pane owns its scrolling within the remaining frame.
+## Graph Library
 
-On phones the dialog fills the visible viewport. A grouped index preserves the
-two scopes and opens one section at a time; a permanent back action returns to
-the selected index row. The index and selected section share the existing URL
-state, including direct links. Larger screens retain simultaneous section
-navigation. Close remains within reach in short windows. Theme choices use visual preview cards that show the writing
-surface and navigation together. Accent choices preview their actual product
-role, with visible swatches and bounded color controls.
+Opening a graph is one column on the neutral canvas: the product mark and
+browser preferences, the Graphs heading with New graph, the graph list (name,
+role, creation, offline availability, and an actions menu), and a footer with
+Import and Connect a server. Locations become tabs above the list once more than
+one exists; Local stays first and remote tabs name account and server. Quick
+catalog requests show no placeholder; a slow one reserves rows.
 
-Graph-owned standing queries are authored here with the same query grammar used
-elsewhere. Settings owns their graph-level lifecycle; the answer surface owns
-how a reader shapes a saved view.
-
-## First Light
-
-Graph opening is a bounded library on the writing surface's neutral canvas.
-A faint wash of the reader's accent fades from the top into the neutral canvas.
-On wide screens its ordinary catalog footprint sits near the viewport's vertical
-center; short and compact screens retain comfortable edge padding. Longer
-catalogs grow downward from that anchor rather than recentering the screen.
-Repository navigation sits beside one catalog on wide screens and becomes a
-horizontal, scrolling tab list on compact screens. Local stays first; remote
-locations identify both account and server. Tab orientation and keyboard movement
-follow the visible layout. The library's top edge stays fixed during loading and
-repository changes.
-
-Quick catalog requests do not flash a loading placeholder. Returning to a
-repository preserves its catalog or sign-in surface while it refreshes.
-
-The catalog prioritizes opening existing graphs. An empty catalog explains what
-a graph holds and offers creation directly; a populated catalog keeps that action
-in its header. Creation opens a dialog with a labeled name field, an example, and
-the selected destination. Dismissal returns focus to its initiating action. Archive
-import remains a secondary action in the catalog footer and always creates a copy.
-
-A named server-connection action stays alongside repository navigation. The
-selected remote account's menu signs out or forgets that account. Remote graph
-actions distinguish removing this device's copy from permanent server deletion,
-which is available to the graph owner and names its effect on every member. Repository
-selection scopes listing, creation, and import together. Browser-wide language
-and appearance choices remain available from the masthead before opening a graph.
+Creation opens a dialog with a labeled name and the destination it will be saved
+to. Import always creates a copy. Remote graph actions distinguish removing this
+device's copy from server deletion, which only an owner sees.
 
 ## Responsive Contract
 
-Responsive changes preserve capability and hierarchy:
+- The drawer has a close action, Escape dismissal, focus containment, and focus
+  return; the document is inert while it is open.
+- Touch targets grow to 44px; hover-revealed controls gain a touch route.
+- Long-press reaches the same actions as a context menu.
+- Overlays stay within the visible viewport.
 
-- Library opens with a visible close action, Escape dismissal, focus
-  containment, and focus return; the writing surface is inert while it is open;
-- compact settings uses an index and individual panes without mixing their scopes;
-- touch targets grow and hover-revealed controls become explicit;
-- long-press reaches the same contextual actions as a pointer context menu; and
-- overlays remain within the available viewport rather than forcing shell
-  scrolling.
-
-Shared control, overlay, and feedback behavior follows
-[Interaction](interaction.md); target and keyboard requirements follow
-[Accessibility](accessibility.md).
+Shared control and overlay behavior follows [Interaction](interaction.md);
+target and keyboard requirements follow [Accessibility](accessibility.md).

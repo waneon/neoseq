@@ -120,31 +120,26 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
       else byGroup.set(row.command.group, [row]);
     }
     const ordered: { group: CommandGroup; rows: Row[] }[] = [];
-    if (searchRows.length > 0) {
-      ordered.push({
-        group: "Search",
-        rows: searchRows
-          .slice(0, SEARCH_LIMIT)
-          .map((command) => ({ command, score: Number.MAX_SAFE_INTEGER })),
-      });
-    }
-    // Query-dependent rows always lead: a typed date or a page to create is the
-    // most specific thing the query can mean.
-    if (extras.length > 0) {
-      ordered.push({
-        group: extras[0].group,
-        rows: extras.map((command) => ({ command, score: Number.MAX_SAFE_INTEGER })),
-      });
-    }
+    const pinned = (command: Command) => ({ command, score: Number.MAX_SAFE_INTEGER });
+    // A typed date is the most specific thing a query can mean; a page to
+    // create is the last resort of the navigation it extends.
+    const dates = extras.filter((command) => command.group === "Journal");
+    const creations = extras.filter((command) => command.group !== "Journal");
+    if (dates.length > 0) ordered.push({ group: "Journal", rows: dates.map(pinned) });
     for (const group of GROUP_ORDER) {
-      const rows = byGroup.get(group);
-      if (!rows || rows.length === 0) continue;
+      const rows = byGroup.get(group) ?? [];
+      const trailing = group === "Pages" ? creations.map(pinned) : [];
+      if (group === "Search" && searchRows.length > 0) {
+        ordered.push({ group, rows: searchRows.slice(0, SEARCH_LIMIT).map(pinned) });
+        continue;
+      }
+      if (rows.length === 0 && trailing.length === 0) continue;
       // An empty palette previews every kind of command without mounting an
       // entire graph directory. Typing searches the full catalog first and only
       // then bounds the rendered frontier.
       ordered.push({
         group,
-        rows: trimmed.length === 0 ? rows.slice(0, EMPTY_GROUP_LIMIT) : rows,
+        rows: [...(trimmed.length === 0 ? rows.slice(0, EMPTY_GROUP_LIMIT) : rows), ...trailing],
       });
     }
     return ordered;
@@ -331,26 +326,6 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
                   </li>
                 ))}
               </ul>
-              {/* The keys the palette answers to, stated where the palette is. It is
-            the one overlay a reader is expected to drive entirely from the
-            keyboard, and three eleven-pixel pairs at the foot of it is what
-            every application this one competes with uses to teach that — and
-            what closes the panel visually, so the last row no longer runs off a
-            rounded edge into nothing. */}
-              <div className="cmdk-footer" aria-hidden>
-                <span className="cmdk-hint">
-                  <Kbd parts={["↑", "↓"]} />
-                  {message("commands.hintKeysNavigate")}
-                </span>
-                <span className="cmdk-hint">
-                  <Kbd parts={["⏎"]} />
-                  {message("commands.hintKeysSelect")}
-                </span>
-                <span className="cmdk-hint">
-                  <Kbd parts={["esc"]} />
-                  {message("commands.hintKeysClose")}
-                </span>
-              </div>
             </OverlayRoot>
           </DialogPrimitive.Content>
         </div>

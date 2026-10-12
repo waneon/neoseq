@@ -15,17 +15,16 @@ or animation vocabularies.
 
 The palette has three independent responsibilities:
 
-- A warm paper canvas and stone rail establish the light workspace; graphite
-  surfaces express the same hierarchy in dark mode. Overlay and ink roles stay
-  semantic in both modes.
+- A barely warm neutral canvas and a slightly deeper rail establish the light
+  workspace; graphite surfaces express the same hierarchy in dark mode. Overlay
+  and ink roles stay semantic in both modes.
 - The accent identifies action, reference, focus, selection, and current place.
 - Semantic tones identify information, success, caution, attention, and danger.
 
 These responsibilities do not cross. The accent is not a generic decoration or
 status color; a status tone does not mark navigation or focus. Categories are
-distinguished by name, mark, or position rather than arbitrary chroma.
-The startup canvas permits a faint accent wash at its top, following the reader's
-chosen hue without carrying status or interaction meaning.
+distinguished by name, mark, or position rather than arbitrary chroma. Current
+place is a raised neutral key; the accent marks only its glyph.
 
 The accent has a strong form for marks and a quieter form for references inside
 prose. A reader may choose any hue, while lightness and chroma remain
@@ -67,8 +66,8 @@ semantics must express the same distinction without color.
 ## Typography
 
 The user's writing is the typographic top. Block content owns the body voice and
-page titles own the largest display role; application chrome remains smaller and
-quieter. The closed type scale prevents local components from manufacturing
+page titles own the largest display role; application chrome is set a step
+below writing. The closed type scale prevents local components from manufacturing
 hierarchy through ad hoc size or weight.
 
 Weight rests at normal. Medium weight identifies emphasis or current choice, and
@@ -109,11 +108,11 @@ Focus geometry is a typed foundation role: its reach and its color are distinct
 tokens. Fields and controls inside scrollports draw focus inside their own edge;
 feature layout never reserves or recovers space with focus-specific margins.
 
-Controls share role-specific heights; page titles and block text retain distinct
-line metrics. Document context and navigation share a toolbar above the title, leaving the
-whole measure to the date or page name at every width. Whole-pixel geometry protects icon and rule clarity. Icon boxes use compatible
-dimensions, sibling rows that claim shared columns use shared tracks, and one
-global scrollbar language serves every scrolling surface.
+Controls share role-specific heights; compact hit targets inside writing are
+distinct from icon buttons in chrome. Page titles and block text retain distinct
+line metrics. Whole-pixel geometry protects icon and rule clarity. Icon boxes use
+compatible dimensions, sibling rows that claim shared columns use shared tracks,
+and one global scrollbar language serves every scrolling surface.
 
 An alignment frame owns the center of its values. Inline glyphs and nested
 controls must not introduce competing baselines, target heights, or local

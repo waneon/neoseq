@@ -1,24 +1,37 @@
-/* Query identity, authoring, and reading controls have separate rows. */
+/* A query is a derived answer inside writing: one hairline frame, no inner
+   bands. On a tag page it is the page's body and drops the frame. */
 .query-block {
   container-type: inline-size;
   min-width: 0;
-  margin: var(--sp-2) 0 var(--sp-4);
-  border: 1px solid var(--line-strong);
+  margin: var(--sp-1) 0 var(--sp-3);
   border-radius: var(--r-3);
   background: var(--canvas);
+  box-shadow: inset 0 0 0 1px var(--line);
   overflow: hidden;
 }
 
 .query-block[data-variant="page"] {
   margin: 0 0 var(--sp-6);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  overflow: visible;
 }
 
+.query-block[data-variant="page"] .query-header {
+  padding-inline-start: 0;
+}
+
+/* Saved views are tabs over one answer: the current one is underlined. */
 .query-views {
   display: flex;
   align-items: center;
   gap: var(--sp-1);
-  margin-bottom: 10px;
-  padding: 0 12px;
+  padding: 0 var(--sp-2);
+}
+
+.query-block[data-variant="page"] .query-views {
+  padding-inline: 0;
 }
 
 .query-view-track {
@@ -26,18 +39,14 @@
   min-width: 0;
   flex-wrap: wrap;
   align-items: center;
-  gap: 2px;
-  padding: 3px;
-  border-radius: var(--r-2);
-  background: var(--surface-2);
-  box-shadow: inset 0 0 0 1px var(--thread);
+  gap: var(--sp-1);
 }
 
 .query-view-tab {
   display: inline-flex;
   position: relative;
   max-width: 220px;
-  height: 30px;
+  height: 32px;
   align-items: center;
   gap: var(--sp-0);
   padding: 0 var(--sp-2);
@@ -59,21 +68,25 @@
   color: var(--ink);
 }
 
+.query-view-tab:hover {
+  background: var(--surface-2);
+}
+
 .query-view-tab:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--accent-soft);
+  box-shadow: var(--focus-inset);
 }
 
 .query-view-tab[aria-selected="true"] {
-  background: var(--raised);
   color: var(--ink);
-  box-shadow: var(--e1-raised);
+  box-shadow: inset 0 -2px 0 var(--ink);
+  border-radius: var(--r-1) var(--r-1) 0 0;
 }
 
 .query-view-tab[aria-selected="true"]:focus-visible {
   box-shadow:
-    var(--e1-raised),
-    0 0 0 2px var(--accent-soft);
+    inset 0 -2px 0 var(--ink),
+    var(--focus-inset);
 }
 
 .query-view-tab[data-dragging] {
@@ -129,11 +142,8 @@
 .query-view-rename {
   display: inline-grid;
   align-items: center;
-  background: var(--raised);
   color: var(--ink);
-  box-shadow:
-    var(--e1-raised),
-    0 0 0 2px var(--accent-soft);
+  box-shadow: var(--focus-inset);
   cursor: text;
 }
 
@@ -188,38 +198,24 @@
   }
 }
 
+/* One header row: the question on the left, how the answer is read on the
+   right. The question itself is the control that opens its conditions. */
 .query-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 12px 10px;
-}
-
-.query-block[data-variant="page"] .query-header,
-.query-block[data-variant="page"] .query-toolbar {
-  padding-inline: 16px;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-3);
+  min-height: 44px;
+  padding: var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-3);
 }
 
 .query-heading {
   display: flex;
-  align-items: flex-start;
-  gap: 9px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-2);
   min-width: 0;
-}
-
-.query-heading-icon {
-  flex: none;
-  width: 16px;
-  height: 16px;
-  margin-top: 2px;
-  color: var(--ink-3);
-}
-
-.query-heading-text {
-  display: grid;
-  min-width: 0;
-  gap: 3px;
 }
 
 .query-title {
@@ -230,37 +226,93 @@
   overflow-wrap: anywhere;
 }
 
-.query-summary {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+.query-question {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  height: 26px;
+  padding: 0 6px 0 8px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: var(--surface-2);
   color: var(--ink-2);
+  font: inherit;
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
-  overflow-wrap: anywhere;
+  font-weight: var(--weight-medium);
+  transition:
+    background-color var(--dur-press),
+    color var(--dur-press);
+}
+
+.query-question:hover {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+
+.query-question[aria-expanded="true"] {
+  background: var(--accent-soft);
+  color: var(--accent-quiet);
+}
+
+.query-question:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-inset);
+}
+
+.query-question-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.query-question svg {
+  flex: none;
+  width: 13px;
+  height: 13px;
+}
+
+.query-summary {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .query-header-actions,
 .query-result-tools {
   display: flex;
   flex: none;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
+  margin-inline-start: auto;
 }
 
+.query-header-actions .icon-btn {
+  color: var(--ink-3);
+}
+
+/* Reading tools are marks; their names are their labels and tooltips. */
 .query-block .query-tool {
-  min-height: 30px;
-  height: auto;
-  gap: 6px;
-  padding: 4px 8px;
+  height: 28px;
+  gap: 4px;
+  padding: 0 6px;
   border-radius: var(--r-2);
-  color: var(--ink-2);
+  color: var(--ink-3);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
   font-weight: var(--weight-medium);
   white-space: nowrap;
+}
+
+.query-block .query-tool > span:not(.query-tool-count) {
+  display: none;
 }
 
 .query-block .query-tool:hover,
@@ -270,87 +322,60 @@
   color: var(--ink);
 }
 
-.query-block .query-filter-trigger {
-  box-shadow: var(--e1);
-}
-
-.query-block .query-filter-trigger[aria-expanded="true"] {
-  background: var(--accent-tint);
-  color: var(--accent);
-}
-
 .query-block .query-tool[data-sorted] {
   color: var(--accent);
 }
 
 .query-header svg,
-.query-toolbar svg,
 .query-tool svg {
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
   flex: none;
 }
 
-.query-tool .query-tool-chevron {
-  width: 14px;
-  height: 14px;
-  color: var(--ink-3);
+.query-tool .query-tool-chevron,
+.query-question .query-tool-chevron {
+  width: 12px;
+  height: 12px;
+  opacity: 0.7;
 }
 
 .query-tool-count {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 17px;
-  height: 17px;
+  min-width: 16px;
+  height: 16px;
   padding: 0 4px;
-  border-radius: 4px;
-  background: var(--surface-2);
-  font-size: 11px;
+  border-radius: var(--r-full);
+  background: color-mix(in oklab, currentColor 14%, transparent);
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
-}
-
-.query-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  min-height: 44px;
-  padding: 6px 10px;
-  border-top: 1px solid var(--thread);
-  background: var(--surface-1);
-}
-
-.query-result-tools {
-  margin-inline-start: auto;
 }
 
 .query-disclosure {
   display: inline-flex;
   align-items: center;
   flex: none;
-  gap: 5px;
-  min-height: 30px;
-  padding: 4px;
+  gap: 2px;
+  height: 28px;
+  margin-inline-end: var(--sp-1);
+  padding: 0 6px 0 4px;
   border: 0;
   border-radius: var(--r-2);
   background: none;
-  color: var(--ink-2);
+  color: var(--ink-3);
   font: inherit;
-}
-
-button.query-disclosure {
-  cursor: pointer;
 }
 
 button.query-disclosure:hover {
   color: var(--ink);
-  background: var(--wash);
+  background: var(--surface-2);
 }
 
-.query-disclosure:has([data-static]) {
-  padding-inline-start: 23px;
+.query-disclosure svg {
+  width: 14px;
+  height: 14px;
 }
 
 .query-count {
@@ -366,66 +391,41 @@ button.query-disclosure:hover {
 .query-disclosure:focus-visible,
 .query-header .icon-btn:focus-visible,
 .query-block .query-tool:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
+  outline: none;
+  box-shadow: var(--focus-inset);
 }
 
 .query-empty {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 10px;
-  padding: 28px 20px;
-  text-align: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-3);
+  padding: var(--sp-3);
+  border-top: 1px solid var(--line);
 }
 
 .query-empty > svg {
-  width: 22px;
-  height: 22px;
-  color: var(--ink-3);
+  display: none;
 }
 
 .query-empty p {
-  max-width: 34ch;
   margin: 0;
-  color: var(--ink-2);
+  color: var(--ink-3);
   font-size: var(--text-sm);
   line-height: var(--lh-sm);
-  text-wrap: pretty;
 }
 
 @container (max-width: 440px) {
   .query-header {
-    gap: 8px;
-    padding: 10px;
-    flex-wrap: wrap;
-  }
-
-  .query-heading {
-    flex: 1 1 120px;
-  }
-
-  .query-header-actions {
-    margin-inline-start: auto;
-  }
-
-  .query-toolbar {
-    gap: 2px;
-    padding-inline: 8px;
-  }
-
-  .query-result-tools {
-    gap: 0;
-  }
-
-  .query-block .query-tool {
-    padding-inline: 6px;
+    padding-inline-start: var(--sp-2);
   }
 }
 
 @media (pointer: coarse) {
   .query-block .query-tool,
   .query-disclosure,
+  .query-question,
   .query-view-tab {
     min-height: 36px;
   }
@@ -792,13 +792,14 @@ button.query-disclosure:hover {
 .query-table thead th,
 .query-table thead .query-cell-filler {
   padding: 0;
-  background: var(--surface-1);
-  box-shadow: inset 0 -1px 0 var(--line);
-  color: var(--ink-2);
+  background: none;
+  box-shadow:
+    inset 0 1px 0 var(--line),
+    inset 0 -1px 0 var(--line);
+  color: var(--ink-3);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);
-  letter-spacing: 0.03em;
-  font-weight: var(--weight-strong);
+  font-weight: var(--weight-medium);
   vertical-align: middle;
 }
 
@@ -976,7 +977,7 @@ button.query-disclosure:hover {
 }
 
 .query-table tbody tr:hover td {
-  background: var(--surface-2);
+  background: var(--surface-1);
 }
 
 .query-table tbody tr[data-pinned="true"] td,

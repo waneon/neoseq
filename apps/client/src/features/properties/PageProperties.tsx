@@ -41,7 +41,7 @@ export function PageProperties({
     const pageBody = anchorRef.current?.closest(".page-body");
     return (
       pageBody?.querySelector<HTMLElement>('[data-testid="page-title"]') ??
-      pageBody?.querySelector<HTMLElement>('[data-testid="page-actions-trigger"]') ??
+      document.querySelector<HTMLElement>('[data-testid="page-actions-trigger"]') ??
       null
     );
   }, []);

@@ -2849,7 +2849,7 @@ export function Outliner({
   // arrive, a disclosure opens, a default is added. So it is measured rather
   // than assumed, and re-measured whenever anything that can push the outline
   // down changes size.
-  const [scrollMargin, setScrollMargin] = useState(0);
+  const [scrollMargin, setScrollMargin] = useState<number | null>(null);
   const populated = rows.length > 0;
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
@@ -2862,7 +2862,9 @@ export function Outliner({
         scrollElement.scrollTop;
       // A fractional layout would otherwise re-render the whole outline on every
       // observation without moving a single row.
-      setScrollMargin((current) => (Math.abs(current - offset) < 1 ? current : offset));
+      setScrollMargin((current) =>
+        current !== null && Math.abs(current - offset) < 1 ? current : offset,
+      );
     };
     measure();
 
@@ -2884,12 +2886,20 @@ export function Outliner({
     return () => observer.disconnect();
   }, [populated, scrollElement]);
 
+  // Rows are placed only once the outline knows where it sits in the scroller:
+  // placed at a guessed margin, they would read as above the reader and every
+  // measurement would pull the scroll position.
   const virtualizer = useVirtualizer({
+    enabled: scrollElement === null || scrollMargin !== null,
     count: rows.length,
     getScrollElement: () => scrollElement,
     estimateSize: () => 30,
     overscan: 10,
-    scrollMargin,
+    scrollMargin: scrollMargin ?? 0,
+    // Attaching to the scroller writes this offset back to it. Several outlines
+    // share one scroller in a continuous journal, so a later one must adopt
+    // where the reader is rather than return them to the top.
+    initialOffset: () => scrollElement?.scrollTop ?? 0,
     // jsdom (component tests) has no layout; the observer corrects this in
     // real browsers.
     initialRect: { width: 800, height: 600 },
@@ -3236,7 +3246,7 @@ export function Outliner({
                   width: "100%",
                   // `item.start` is page-relative; the row is placed inside
                   // the outline, so the header's height comes back off.
-                  transform: `translateY(${item.start - scrollMargin}px)`,
+                  transform: `translateY(${item.start - (scrollMargin ?? 0)}px)`,
                 }}
               >
                 <MemoBlockRow
@@ -4415,6 +4425,11 @@ function BlockRow({
           className="block-line outline-input"
           rows={1}
           value={value}
+          placeholder={
+            value === "" && queryDocument(row.block.properties) !== undefined
+              ? message("query.caption")
+              : undefined
+          }
           autoClosers={view.autoClosers}
           contentSession={content}
           data-block-editor

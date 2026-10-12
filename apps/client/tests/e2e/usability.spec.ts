@@ -28,13 +28,11 @@ test("phone navigation creates a page and returns to saved writing through searc
   const writing = page.url();
   await navigation.getByRole("link", { name: "Journal", exact: true }).tap();
   await app.expectOutline(["A thought from today"]);
-  await navigation.getByRole("link", { name: "Tags", exact: true }).tap();
-  await expect(page).toHaveURL(/\/tags$/);
   await page.getByTestId("mobile-search").tap();
   await page.getByTestId("command-input").fill("Pocket ideas");
   await page
-    .getByRole("group", { name: "Search", exact: true })
-    .getByRole("option", { name: "Pocket ideas Page", exact: true })
+    .getByRole("group", { name: "Pages", exact: true })
+    .getByRole("option", { name: "Pocket ideas", exact: true })
     .tap();
   await expect(page).toHaveURL(writing);
   await app.expectOutline(["Keep this for later"]);
@@ -120,15 +118,15 @@ test("the compact navigation drawer owns focus until its last layer closes", asy
   await app.createGraph("Keyboard navigation");
   const open = page.getByRole("button", { name: "Open menu", exact: true });
   const navigation = page.getByRole("navigation", { name: "Graph navigation" });
-  const close = navigation.getByRole("button", { name: "Close menu", exact: true });
+  const first = navigation.getByTestId("graph-switcher");
   const settings = navigation.getByRole("button", { name: "Settings", exact: true });
 
   await open.press("Enter");
-  await expect(close).toBeFocused();
+  await expect(first).toBeFocused();
   await page.keyboard.press("Shift+Tab");
   await expect(settings).toBeFocused();
   await page.keyboard.press("Tab");
-  await expect(close).toBeFocused();
+  await expect(first).toBeFocused();
   await page.keyboard.press("Shift+Tab");
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("settings-dialog")).toBeVisible();
@@ -225,12 +223,13 @@ test("creation and navigation have usable keyboard and pointer dismissal routes"
   await expect(page.getByTestId("picker-empty")).toBeVisible();
 
   await app.createGraph("Accessible notebook");
-  const properties = page.getByTestId("page-properties-trigger");
-  await properties.click();
+  const actions = page.getByTestId("page-actions-trigger");
+  await actions.click();
+  await page.getByTestId("menu-page-properties").click();
   await expect(page.getByTestId("property-picker")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("property-picker")).toHaveCount(0);
-  await expect(properties).toBeFocused();
+  await expect(actions).toBeFocused();
   await app.startBlock("My writing");
   await app.sidebar();
   await page.getByTestId("open-palette").click();
@@ -257,8 +256,7 @@ test("creation and navigation have usable keyboard and pointer dismissal routes"
   await expect(calendar).toHaveAttribute("data-date", "2026-09-08");
   await app.expectOutline([]);
   await app.startBlock("Tomorrow's note");
-  await calendar.click();
-  await dialog.getByRole("button", { name: "Today", exact: true }).click();
+  await page.getByRole("button", { name: "Today", exact: true }).click();
   await app.expectOutline(["My writing"]);
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth - innerWidth))
@@ -296,7 +294,7 @@ test("settings keeps a stable frame and reachable navigation while previews upda
   await navigate("journal");
   await page.getByTestId("settings-date-format").click();
   await page.getByRole("option", { name: /^ISO 8601/ }).click();
-  await expect(page.getByTestId("settings-journal-preview")).toHaveText("2026-09-07");
+  await expect(page.getByTestId("settings-date-format")).toHaveText(/ISO 8601 — 2026-09-07/);
 
   await navigate("tasks");
   const reset = page.getByTestId("due-tiers-reset");

@@ -25,7 +25,6 @@ export interface MessageArgumentMap {
   "accounts.action.revokeSessions": undefined;
   "accounts.empty": undefined;
   "accounts.lastAdmin": undefined;
-  "accounts.lede": undefined;
   "accounts.list.title": undefined;
   "accounts.loading": undefined;
   "accounts.noMatches": { readonly "query": string | number };

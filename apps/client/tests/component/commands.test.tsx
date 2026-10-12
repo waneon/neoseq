@@ -143,6 +143,8 @@ describe("command registry contract", () => {
     expect(prefix).toBeGreaterThan(substring);
     expect(substring).toBeGreaterThan(scattered);
     expect(fuzzyScore("Reading list", "zzz")).toBeNull();
+    // A scattered match starts a word: "cache" is not inside "match the system".
+    expect(fuzzyScore("Appearance: match the system", "cache")).toBeNull();
   });
 
   it("matches keywords but ranks them below the label", () => {

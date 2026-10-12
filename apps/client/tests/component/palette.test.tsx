@@ -264,4 +264,51 @@ describe("the command palette render frontier", () => {
     expect(screen.getByText("Project 499")).toBeInTheDocument();
     expect(screen.getAllByRole("option").length).toBeLessThanOrEqual(80);
   });
+
+  it("leads with matching places, then block matches, then actions", async () => {
+    const command = (id: string, group: "Pages" | "App", label: string) => ({
+      id,
+      group,
+      label,
+      pointerRoute: "",
+      run: vi.fn(),
+    });
+    render(
+      <LocaleProvider initialPreference="en">
+        <NotifyProvider>
+          <CommandPalette
+            commands={[
+              command("theme", "App", "Appearance: match the system"),
+              command("page-cache", "Pages", "Cache coherence paper"),
+              command("action-cache", "App", "Clear cache"),
+            ]}
+            dynamic={(query) => [command("create-page", "Pages", `Create page “${query}”`)]}
+            search={async () => [
+              {
+                ...command("block", "Pages", "Met about the cache paper"),
+                group: "Search" as const,
+                hint: "Monday",
+              },
+            ]}
+            onClose={() => {}}
+          />
+        </NotifyProvider>
+      </LocaleProvider>,
+    );
+    fireEvent.change(screen.getByTestId("command-input"), { target: { value: "cache" } });
+    await screen.findByText("Met about the cache paper");
+
+    expect(
+      screen
+        .getAllByRole("group")
+        .map((group) => [
+          group.getAttribute("aria-label"),
+          ...[...group.querySelectorAll('[role="option"]')].map((option) => option.id),
+        ]),
+    ).toEqual([
+      ["Pages", "cmdk-opt-page-cache", "cmdk-opt-create-page"],
+      ["In blocks", "cmdk-opt-block"],
+      ["App", "cmdk-opt-action-cache"],
+    ]);
+  });
 });

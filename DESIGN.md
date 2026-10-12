@@ -1,220 +1,120 @@
 # Neoseq Design Architecture
 
-## Purpose and Current Boundary
+## Purpose and Boundary
 
-Neoseq is a local-first outliner. Its interface makes the graph's structure
-legible without competing with the writing: pages and tags are places, blocks
-form an outline, properties turn prose into records, and queries present derived
-answers without becoming a second application.
+Neoseq is a local-first outliner. Its interface keeps the reader's writing in
+front and makes the graph's structure reachable without competing with it:
+pages, journal days, and tags are places; blocks form an outline; properties
+turn writing into records; queries answer questions about them.
 
 This document is the repository-wide source of truth for design architecture.
-It defines the durable experience model, the boundaries between design systems,
-and the rules that resolve conflicts between them. Focused design architecture
-lives under [`designs/`](designs/). Exact tokens and component styling live in
-[`apps/client/src/ui/styles/`](apps/client/src/ui/styles/), composed by
-[`app.css`](apps/client/src/ui/app.css),
-not a second design specification.
+Focused areas live under [`designs/`](designs/). Exact tokens and component
+styling live in [`apps/client/src/ui/styles/`](apps/client/src/ui/styles/),
+composed by [`app.css`](apps/client/src/ui/app.css).
 
-The current boundary is the browser client across light and dark modes, desktop
-and touch layouts, keyboard and pointer input, and supported locales. The
-separate server-administration app shares the accessibility and interaction
-baseline but has its own operational information hierarchy; it never borrows
-the writing surface as decoration. Native shells should preserve these contracts
-unless their platform conventions provide a materially more accessible interaction.
+The boundary is the browser client in light and dark modes, desktop and touch
+layouts, keyboard and pointer input, and supported locales. The separate
+server-administration app shares the semantic foundation and accessibility
+baseline but not the writing surface.
 
-## Drivers
+## Principles
 
-- The user's writing remains the visual and typographic subject.
-- Structure carries meaning; decoration that encodes no state or relationship is
-  excluded.
-- A quiet interface remains discoverable through stable navigation, commands,
-  focus behavior, and touch equivalents.
-- Local-first operation is calm when healthy and explicit when work, sync, or
-  recovery needs attention.
-- The same semantic roles work in light and dark modes and across every supported
-  accent choice.
-- Direct manipulation never sacrifices a keyboard, command, or touch route.
-- Stable geometry protects reading position, pointer intent, and the caret.
-- Presentation preferences do not alter graph semantics.
-- Accessibility and localization are system constraints, not component polish.
+- **The writing is the subject.** Authored content owns the largest type and
+  the reading measure; chrome is a step smaller and quieter.
+- **Every visible element earns its place.** It shows state, names the current
+  place, or offers a likely next action. Nothing restates what is already on
+  screen: no label that repeats a title, no caption that repeats its heading, no
+  hint that repeats its control.
+- **Copy names and states.** Labels are nouns and verbs; descriptions explain
+  non-obvious consequences. Encouragement and marketing sentences are excluded.
+- **Quiet at rest, present at the hand.** Secondary verbs appear on hover and
+  focus beside their object and remain reachable through menus, the command
+  layer, and touch routes. A surface's primary verb is permanent.
+- **Healthy is silent.** Saving, syncing, and loading appear only past a flash
+  threshold or when something needs attention.
+- **Stable geometry.** Content under the pointer or caret never moves because of
+  focus, hover, or arriving data.
+- **One system in both modes.** Roles are semantic and complete in light and dark;
+  reader-chosen color is limited to choices whose contrast is guaranteed.
+- **Accessibility and localization are constraints**, not polish.
 
 ## Experience Model
 
-The experience has five cooperating layers:
-
-```mermaid
-flowchart TB
-    Foundation[Visual foundation] --> Shell[Shell and navigation]
-    Foundation --> Content[Outliner and content]
-    Foundation --> Records[Metadata and queries]
-    Interaction[Interaction language] --> Shell
-    Interaction --> Content
-    Interaction --> Records
-    Access[Accessibility contract] --> Foundation
-    Access --> Interaction
-    Shell --> Surface[Current reading surface]
-    Content --> Surface
-    Records --> Surface
-```
-
 - The **visual foundation** supplies semantic color, type, depth, shape, and
-  motion roles.
-- The **shell** establishes place, global navigation, and the command entrance.
-- The **outliner** owns the primary writing and structural reading experience.
-- **Metadata and queries** enrich writing while remaining subordinate to it.
+  motion. See [Visual Foundation](designs/foundations.md).
+- The **shell** places the reader: one rail for places, one top bar for the
+  current document's controls, one scrolling document. See
+  [Shell and Navigation](designs/shell-and-navigation.md).
+- The **outliner** owns writing and structure. See [Outliner](designs/outliner.md).
+- **Metadata and queries** enrich writing while staying subordinate to it. See
+  [Metadata](designs/metadata.md) and [Query](designs/query.md).
 - The **interaction language** gives controls, overlays, manipulation, and
-  feedback one shared behavior.
-
-Accessibility constrains every layer. No component may locally trade away
-contrast, keyboard reachability, focus clarity, or localized readability.
-
-## Visual Language
-
-- **Structure is the ornament.** The outline's quiet guides show indentation; a
-  stronger branch shows the path to the caret. Structural marks appear only
-  where they explain a real relationship.
-- **Paper, stone, and one accent.** A warm paper canvas, a stone navigation
-  rail, and graphite inks carry hierarchy.
-  One accent identifies action, reference, focus, selection, and current place.
-  Semantic status tones never become a second accent.
-  Product identity keeps its own violet symbol and neutral wordmark, independent
-  of the reader's accent choice.
-- **The writing is the typographic top.** Product chrome is smaller and quieter
-  than authored content. Weight and color are reserved for hierarchy and state.
-- **Depth is compositional.** Luminance establishes ground, a hairline closes a
-  bounded object, and shadow expresses distance. Fields and primary actions use a
-  bounded surface; icon actions remain unboxed until interaction. Shadow is
-  reserved for floating layers.
-- **Both modes are one system.** Tokens are semantic and complete in light and
-  dark modes. User-selectable color is limited to choices whose contrast can be
-  guaranteed.
-- **Motion explains change.** New layers may arrive; content already under the
-  reader or pointer does not move decoratively.
-
-See [Visual Foundation](designs/foundations.md).
+  feedback one behavior. See [Interaction](designs/interaction.md) and
+  [Accessibility](designs/accessibility.md).
 
 ## Spatial Architecture
 
-The shell has one navigation region and one scrolling content region. Page
-material owns the page edge; outline text owns an inset edge whose margin holds
-bullets and branches. This distinction makes a page the root of its outline
-rather than an oversized first block.
+The rail holds the graph switcher, Search and New page, the three place
+directories (Journal, Pages, Tags), Favourites, and Recent, with Settings at its
+foot. The top bar holds browser Back and Forward, the document's name once its
+header scrolls away, exceptional status, the document's own controls, and Undo
+and Redo. A document begins with its title; nothing sits above it.
 
-Shared row frames own the alignment of writing, metadata, and icons. Nested value
-renderers inherit that geometry so their semantics cannot shift the row's center.
+Page material owns the page edge; outline text owns an inset edge whose margin
+holds bullets and branches. The region below the last block remains a writing
+target; answers and references follow it, and a journal continues into its
+earlier days.
 
-The workspace rail keeps search and a labeled New page action above its scrolling
-directory, with settings and keyboard help anchored below. A persistent breadcrumb
-and Undo and Redo orient the document without competing with its title. The
-document header separates context and tools from the full-width title. Tags use the same document hierarchy, with a searchable library as their directory
-and a compact defaults disclosure above each tag’s connected content.
-Contextual verbs are revealed near their object or summoned
-through the command layer. The region below the last outline block remains a
-writing target; additional bodies such as standing query answers begin only
-after that target has retained its full reach.
-
-Mobile has a dedicated navigation and writing composition. A bottom bar provides
-Journal, Search, Tags, and Library; the library owns the page directory and graph
-controls as a temporary focus-contained surface. While a block is active, a
-writing accessory replaces navigation with structural actions and an explicit
-Done action. The title leads the document, with context and tools below it.
-Compact settings uses a grouped index and one section at a time. Touch surfaces
-respect the visible viewport, keyboard, and safe areas; hover-only affordances
-gain an explicit touch route.
-
-See [Shell and Navigation](designs/shell-and-navigation.md) and
-[Outliner](designs/outliner.md).
+Phones replace the rail with a bottom bar (Journal, Search, New page, Library)
+and a library drawer; while writing, an accessory with structural actions and
+Done replaces it.
 
 ## Interaction Architecture
 
-- Every capability has one canonical command and at least one pointer route.
-  Touch and keyboard routes are first-class where the interaction applies.
-- The primary verb of a surface is permanent. Secondary verbs may be revealed
-  only when they remain discoverable through focus, touch, and the command layer.
-- One state uses one primary visual signal. Color may reinforce a state that is
-  already expressed by shape, position, text, or semantics.
-- Focus, selection, current location, and keyboard roving are distinct states and
-  use distinct indicators.
-- A manipulation states where its result will land while preserving layout until
-  commit. Reordering never makes the pointer chase moving content.
-- An overlay belongs to the layer that summoned it, remains anchored to a valid
-  geometry source, and yields Escape to the topmost open layer.
-- Healthy steady state is silent. Work appears only after a flash threshold;
-  failures are plain, actionable, and owned by exactly one surface.
-
-See [Interaction](designs/interaction.md) and
-[Accessibility](designs/accessibility.md).
+- Every capability has one canonical command and at least one pointer route;
+  touch and keyboard routes are first-class where they apply.
+- One state uses one primary signal. Focus, selection, current location, and
+  keyboard roving use distinct indicators.
+- A manipulation shows where its result lands and preserves layout until commit.
+- An overlay belongs to the layer that summoned it, stays anchored, and yields
+  Escape to the topmost open layer.
+- Failures are plain, actionable, and owned by exactly one surface.
 
 ## State Ownership
 
-Design follows the product's data boundaries:
+- Graph-shared state describes the graph or its objects: tags, favourites and
+  their order, property values, queries and saved views.
+- Browser-local durable state describes one reader's use: theme, accent, rail
+  collapse, recent visits, folded answers.
+- Session state describes the current act: caret, selection, open layers,
+  drafts, scroll position.
+- Derived state such as results and counts is presented, never styled as
+  authored data.
 
-- Graph-shared state describes the graph or an object in it: tag identity and
-  grouping, favourites and their order, property values, query definitions, and
-  shared saved views, including whether their conditions are expanded.
-- Browser-local durable state describes how one reader uses the product: theme,
-  accent, rail geometry, and folded query answers.
-- Session state describes the current act of use: caret, selection, open layers,
-  drafts, loading, and scroll position.
-- Derived state such as query results and counts is presented but never styled as
-  canonical authored data.
-
-Moving a preference across these boundaries requires both a product decision and
-an architecture change; visual convenience alone is insufficient.
-
-## Component Boundaries
-
-- [Visual foundation](designs/foundations.md): semantic tokens, typography,
-  depth, shape, iconography, motion, and mode invariants.
-- [Shell and navigation](designs/shell-and-navigation.md): application frame,
-  rail, top bar, global disclosure, command layer, settings, and first light.
-- [Outliner](designs/outliner.md): page hierarchy, blocks, branch, Markdown,
-  selection, and the append surface.
-- [Metadata](designs/metadata.md): properties, tags, tasks, moments, tag
-  organization, and their cross-surface identity.
-- [Query](designs/query.md): answer surfaces, authoring, saved views, list and
-  table presentation, and standing answers.
-- [Interaction](designs/interaction.md): control states, choice, overlays,
-  direct manipulation, and feedback.
-- [Accessibility](designs/accessibility.md): perception, focus, input,
-  semantics, localization, and verification.
-- [Server administration](designs/server-administration.md): operator login,
-  account status, global privilege, credential reset, and session revocation.
+Moving a preference across these boundaries is a product decision, not a visual
+one.
 
 ## Implementation Boundary
 
 `apps/client` implements the writing product with React, Tailwind CSS, and
-shadcn/Radix primitives. Behavior primitives may supply focus management,
-selection models, or positioning, but they do not supply Neoseq's appearance or
-override its interaction contracts.
+shadcn/Radix primitives. Primitives may supply focus management, selection
+models, or positioning; they never supply Neoseq's appearance or override its
+interaction contracts. `app.css` owns tokens and shared mechanisms; feature
+sheets own only their composition.
 
-`apps/dashboard` is a separately built React application. It shares no client state,
-graph runtime, or component implementation with `apps/client`; semantic
-foundation, accessibility intent, and the shared product identity assets cross
-that boundary.
-
-Shared day selection serves both journal navigation and task editing; each
-surface owns the consequence of choosing a date. Native controls follow the
-resolved product theme alongside custom controls.
-
-Semantic roles have one implementation owner. `app.css` owns the design tokens
-and shared visual mechanisms; feature code consumes them and owns only the
-composition specific to that feature. Reimplementing a global interaction or
-declaring a competing token locally is an architectural violation.
+`apps/dashboard` is a separately built application. It shares no client state
+or component implementation; the semantic foundation, accessibility intent, and
+identity assets cross the boundary.
 
 ## Evolution Rules
 
-- Begin a new design with the existing semantic roles and interaction language;
-  add a role only when the meaning cannot be expressed by the current system.
-- Add a focused document when a design area acquires its own invariants,
-  consumers, or evolution path. Keep repository-wide rules here.
-- Record intent and boundaries in design documents; keep exact measurements and
-  selector mechanics beside the implementation.
-- A component-level change updates its focused design document. A change to the
-  shared visual, spatial, interaction, or accessibility model updates this file
-  as well.
-- Verify both modes, responsive states, keyboard and pointer paths, supported
-  locales, and reduced motion in proportion to the affected boundary.
-- When design and implementation disagree, either restore the documented
-  invariant or change the architecture explicitly; do not let drift become a
-  third source of truth.
+- Begin with the existing roles and interaction language; add a role only when a
+  meaning cannot be expressed.
+- Record intent and boundaries here and in `designs/`; keep measurements beside
+  the implementation.
+- A component change updates its focused document; a change to the shared
+  model updates this file too.
+- Verify both modes, responsive states, keyboard and pointer paths, locales,
+  and reduced motion in proportion to the change.
+- When design and implementation disagree, restore the invariant or change the
+  architecture explicitly.

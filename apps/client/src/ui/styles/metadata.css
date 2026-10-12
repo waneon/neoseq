@@ -261,28 +261,6 @@
   height: 16px;
 }
 
-.property-picker-keyboard {
-  display: flex;
-  flex: none;
-  gap: var(--sp-4);
-  padding: var(--sp-2) var(--sp-4);
-  border-top: 1px solid var(--line);
-  background: var(--surface-1);
-  color: var(--ink-2);
-  font-size: 11px;
-  line-height: var(--lh-xs);
-}
-
-.property-picker-keyboard > span {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-1);
-}
-
-.property-picker-keyboard > span:last-child {
-  margin-inline-start: auto;
-}
-
 .property-picker-new {
   display: flex;
   min-height: 0;
@@ -402,12 +380,6 @@
 
 .property-picker-remove.btn:is(:hover, :focus-visible) {
   color: var(--danger);
-}
-
-@media (pointer: coarse) {
-  .property-picker-keyboard {
-    display: none;
-  }
 }
 
 /* The date editor: one field that reads words, the day it resolved to as a
@@ -1037,10 +1009,6 @@ button.tag-mark:focus-visible {
 
   .property-picker {
     max-height: 80dvh !important;
-  }
-
-  .property-picker-keyboard {
-    display: none;
   }
 
   .property-picker-option,

@@ -1,6 +1,6 @@
 import { useId, useRef, useState, type RefObject } from "react";
 import { parseDate } from "@internationalized/date";
-import { CalendarIcon, XIcon } from "lucide-react";
+import { CalendarIcon } from "lucide-react";
 import { isValidLocalDate } from "@/entities/calendar";
 import { useI18n } from "@/i18n";
 import { elementAnchor } from "@/ui/anchored";
@@ -11,13 +11,11 @@ import { Input } from "@/ui/shadcn/input";
 
 export function JournalCalendar({
   date,
-  today,
   onSelect,
   trigger,
 }: {
   trigger: RefObject<HTMLButtonElement | null>;
   date: string;
-  today: string;
   onSelect: (date: string) => void;
 }) {
   const { message } = useI18n();
@@ -62,12 +60,6 @@ export function JournalCalendar({
           dismissOnExternalScroll
           onClose={() => setOpen(false)}
         >
-          <div className="journal-calendar-heading">
-            <span>{message("journal.jumpToDate")}</span>
-            <Button size="icon" aria-label={message("common.close")} onClick={() => setOpen(false)}>
-              <XIcon aria-hidden />
-            </Button>
-          </div>
           <form
             className="journal-calendar-jump"
             onSubmit={(event) => {
@@ -86,12 +78,11 @@ export function JournalCalendar({
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
-                if (event.nativeEvent.isComposing && event.key === "Enter") event.preventDefault();
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                if (!event.nativeEvent.isComposing && isValidLocalDate(draft)) choose(draft);
               }}
             />
-            <Button type="submit" variant="secondary" disabled={!isValidLocalDate(draft)}>
-              {message("journal.goToDate")}
-            </Button>
           </form>
           <DateCalendar
             value={parseDate(date)}
@@ -99,9 +90,6 @@ export function JournalCalendar({
             onFocusChange={setFocusedDate}
             onChange={(value) => choose(value.toString())}
           />
-          <Button variant="ghost" onClick={() => choose(today)}>
-            {message("journal.today")}
-          </Button>
         </AnchoredPanel>
       )}
     </>

@@ -9,20 +9,22 @@ reader-facing question and answer.
 
 ## Question and Answer Hierarchy
 
-A query is a bounded surface with a clear question above its answer. Its ground
-and edge distinguish derived results from authored prose; internal separators
-express sections without competing with that boundary.
+A query is a derived answer inside writing. In an outline it has one hairline
+frame and no inner bands; on a tag page it is the page's body and drops the
+frame. One header row holds the question on the left and the reading tools on
+the right:
 
-The header leads with the query's name, falling back to its subject when unnamed.
-When the builder is closed, a short visible condition summary explains what the
-question asks. A labeled conditions control makes authoring discoverable and
-states whether the builder is open.
+- the name, falling back to its subject (`Blocks`);
+- the question itself, a compact summary of its conditions that opens and
+  closes the builder and states whether it is open;
+- the result count, which folds the answer when there is one to fold;
+- Columns, Sort, and Layout as labeled icon tools;
+- the query's actions menu.
 
-A separate answer toolbar owns the result count and folding control, the current
-Table or List layout, Columns, and Sort. Labels explain actions; counts identify
-the applied conditions and ordering. Empty answers retain stable
-header geometry and offer a concise hint for adjusting the question. Recovery
-actions respect the surface's authoring authority.
+Empty answers keep the header's geometry and offer a concise route to adjust
+the question. Recovery actions respect the surface's authoring authority. A
+block that holds a query keeps its own line as the query's caption, shown as a
+placeholder while empty.
 
 ## One Document, Different Contexts
 
@@ -75,10 +77,9 @@ named after renderer shapes. Layout is a property of a view. A second view is an
 independent saved question: it may begin as a copy, but later authoring,
 execution, columns, and presentation never alter its siblings.
 
-Saved views use the shared segmented-control language: a recessed track with the
-current key raised. The track appears permanently on a page and whenever an
-inline query has multiple views. It contains states only; a visible action to
-add a view sits beside it. Choosing another tab changes the view; pressing the
+Saved views are tabs over one answer; the current tab is underlined. The tabs
+appear permanently on a page and whenever an inline query has multiple views.
+They contain views only; a visible action to add a view sits beside them. Choosing another tab changes the view; pressing the
 current tab opens operations for that view, such as rename, duplicate, move, and
 delete.
 

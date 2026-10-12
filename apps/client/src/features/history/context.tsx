@@ -65,12 +65,14 @@ export function HistoryProvider({
   children: ReactNode;
 }) {
   const navigate = useNavigate();
-  const revealer = useRef<RegisteredRevealer | null>(null);
+  // Every mounted outline registers; a continuous journal mounts several.
+  const revealers = useRef(new Map<string, RegisteredRevealer>());
   const pending = useRef<PendingReveal | null>(null);
 
   const registerRevealer = useCallback((owner: OutlineOwner, handler: RevealHandler) => {
     const registration = { owner, handler };
-    revealer.current = registration;
+    const key = outlineOwnerKey(owner);
+    revealers.current.set(key, registration);
     const request = pending.current;
     if (
       request &&
@@ -80,7 +82,7 @@ export function HistoryProvider({
       pending.current = null;
     }
     return () => {
-      if (revealer.current === registration) revealer.current = null;
+      if (revealers.current.get(key) === registration) revealers.current.delete(key);
     };
   }, []);
 
@@ -102,11 +104,9 @@ export function HistoryProvider({
     (target: EntityRef, focus = false) => {
       const owner: OutlineOwner =
         target.kind === "page" ? { kind: "page", id: target.id } : target.owner;
-      const current = revealer.current;
+      const current = revealers.current.get(outlineOwnerKey(owner));
       if (target.kind === "page") {
-        if (!current || outlineOwnerKey(current.owner) !== outlineOwnerKey(owner)) {
-          navigate(routeForOwner(owner));
-        }
+        if (!current) navigate(routeForOwner(owner));
         return;
       }
       const request: HistoryRevealRequest = {
@@ -114,15 +114,9 @@ export function HistoryProvider({
         blockId: target.id,
         focus,
       };
-      if (
-        current &&
-        outlineOwnerKey(current.owner) === outlineOwnerKey(owner) &&
-        current.handler(request)
-      )
-        return;
+      if (current?.handler(request)) return;
       pending.current = { owner, request };
-      if (!current || outlineOwnerKey(current.owner) !== outlineOwnerKey(owner))
-        navigate(routeForOwner(owner));
+      if (!current) navigate(routeForOwner(owner));
     },
     [navigate, routeForOwner],
   );

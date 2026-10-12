@@ -7,7 +7,6 @@
   "accounts.action.revokeSessions": "세션 종료",
   "accounts.empty": "아직 계정이 없습니다. 처음 추가한 계정은 바로 로그인할 수 있습니다.",
   "accounts.lastAdmin": "마지막 활성 관리자",
-  "accounts.lede": "이 동기화 서버에 로그인할 수 있는 사용자, 서버 관리 권한, 유효한 세션을 관리합니다.",
   "accounts.list.title": "계정 목록",
   "accounts.loading": "계정을 불러오는 중…",
   "accounts.noMatches": "“{query}”와 일치하는 계정이 없습니다.",

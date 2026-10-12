@@ -2,24 +2,22 @@
 
 ## Document and Writing Hierarchy
 
-The outliner is the primary writing surface. A document header establishes the
-place with a small Page or Journal label, persistent actions, and a large title.
-A fine divider separates document identity from its content. Titles wrap across
-the full measure; journal navigation lives above the date on desktop and below it
-on mobile so controls never compete with it for writing space. Compact titles use a smaller scale and preserve
-word boundaries. An empty metadata strip exposes a quiet Properties action in the
-toolbar; existing properties provide their own direct editing controls below.
+The outliner is the primary writing surface. A document begins with its title,
+which wraps across the full measure and is larger than every Markdown heading.
+The document's controls live in the top bar, so nothing stands above the title.
+Properties appear under the title only when the page has them; otherwise they
+are reached from the page menu, the command layer, or `Mod+P`.
 
-The document is a comfortable reading column with enough width for nested work.
-Page metadata and managed queries use the page edge; block text sits inside a
-hanging bullet gutter. The title remains larger than every Markdown heading.
-Body writing uses the shared 16px type and 28px line rhythm.
+A journal day's title is its date. Beside it sit Previous day, the calendar, and
+Next day, with Today only while another day is shown; below it a caption states
+the day's distance from today. On phones the date leads, then its distance, then
+the day controls. The calendar accepts a typed date and a picked day; either
+navigates, and cancellation keeps the current day. Navigation restores the
+initiating control once its destination arrives.
 
-Journal navigation provides previous day, calendar, next day, and a visible Today
-cue. On another date, Today returns to the current journal. Calendar text is a
-draft until submitted; selecting a day navigates directly. Cancellation preserves
-the current day. Navigation restores the initiating control after its destination
-arrives, including newly created journal pages.
+The document is one reading column with room for nested work. Page metadata and
+queries use the page edge; block text sits inside a hanging bullet gutter. Body
+writing uses the shared 16px type and line rhythm.
 
 ## Editing and Structure
 
@@ -56,15 +54,21 @@ keyboard input. Narrower indentation preserves room for nested writing.
 
 ## Beginning and Continuing
 
-An empty document offers a visible writing action and a small command and page
-link hint on the same text axis as the first block. Both disappear when writing
-begins. The region below the final block remains a generous, clickable append
-surface with a bullet revealed by pointer or keyboard intent.
+An empty document offers a visible writing action and a short command and link
+hint on the first block's text axis. Both disappear when writing begins. The
+region below the final block remains a generous, clickable append surface with a
+bullet revealed by pointer or keyboard intent.
 
-Standing queries follow that append reach on today's journal. Linked references
-follow the writing and queries as a collapsible section with source navigation.
-Empty references add no chrome. A scroll reserve lets the last content sit at a
-comfortable reading height and limits jumps when trailing sections collapse.
+Today's journal is followed by its standing answers. Linked references follow
+the writing and answers as a collapsible section with source navigation; empty
+references add no chrome.
+
+The journal is continuous: below the day on screen, every earlier day that has
+writing follows as its own editable outline, newest first, under a date title
+at the same scale and its distance from today. Days load as the reader scrolls
+toward them; empty days are skipped. A day's title opens it as the day on
+screen. A scroll reserve lets the last content sit at a
+comfortable height and limits jumps when trailing sections collapse.
 
 ## Markdown and Stable Interaction
 

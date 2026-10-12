@@ -38,7 +38,7 @@ describe("mobile settings navigation", () => {
     await mountAt(`/g/${GRAPH_ID}/custom`, <SettingsNavigation />);
 
     expect(screen.getByRole("navigation", { name: "Settings sections" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Application" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "This browser" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "This graph" })).toBeInTheDocument();
     expect(screen.queryByTestId("settings-appearance")).not.toBeInTheDocument();
     expect(screen.queryByTestId("settings-back")).not.toBeInTheDocument();
