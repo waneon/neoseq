@@ -40,8 +40,9 @@ Caret position, editing, and structural selection are separate states. Focus doe
 not add a row fill. Block selection forms a continuous ribbon over the visible
 range; descendants traveling with an ancestor are passengers, not extra selected
 roots. Copy produces portable Markdown, and structural operations remain one
-undoable intent. Drag shows a destination seam before committing; keyboard
-movement follows the same ordering rules.
+undoable intent. Outdenting a block keeps the run it introduced: the siblings
+that followed it become its last children. Drag shows a destination seam before
+committing; keyboard movement follows the same ordering rules.
 Touch swipes retain native scrolling and text selection; structural range and
 bullet dragging belong to mouse or pen gestures.
 

@@ -903,7 +903,15 @@ fn structural_metadata(
             moved(
                 SemanticEvent::SubtreeMoved,
                 owner,
-                plan.steps.iter().map(|step| &step.block_id).collect(),
+                plan.roots
+                    .iter()
+                    .chain(
+                        plan.steps
+                            .iter()
+                            .map(|step| &step.block_id)
+                            .filter(|block_id| !plan.roots.contains(block_id)),
+                    )
+                    .collect(),
             )
         }
         PrimitiveOp::DeleteBlocks { owner, plan } => {

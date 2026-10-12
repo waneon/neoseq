@@ -100,7 +100,9 @@ A command is one user intent and one local history item. Structural commands
 accept a non-empty list of block IDs for both single-block and multi-block
 actions. Before mutation, the core removes duplicates and descendants already
 carried by a selected ancestor, orders the remaining roots from authoritative
-outline state, and simulates the whole move, indent, or outdent plan. A rejected
+outline state, and simulates the whole move, indent, or outdent plan. An outdent
+first moves the root's following unselected siblings under it, after its own
+children. A rejected
 plan leaves no document change or undo item. The UI supplies targets and a move
 destination, but never operation order or undo-group controls. The pure outline
 model and these structural planners live together in `core/outline.rs`.

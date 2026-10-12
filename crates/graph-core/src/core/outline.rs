@@ -22,6 +22,8 @@ pub(super) struct MovePlan {
 /// plan never needs to rediscover siblings or parents from the live tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ReparentPlan {
+    /// The requested blocks in document order; other steps carry blocks they adopt.
+    pub(super) roots: Vec<BlockId>,
     pub(super) steps: Vec<ReparentStep>,
 }
 
@@ -226,7 +228,9 @@ impl OutlineState {
         })
     }
 
-    fn outdent(&mut self, block_id: &BlockId) -> Result<ReparentStep, CoreError> {
+    /// Moves a block after its parent. The siblings that followed it become its
+    /// last children, so the outdented block keeps the run it introduced.
+    fn outdent(&mut self, block_id: &BlockId) -> Result<Vec<ReparentStep>, CoreError> {
         let parent = self
             .parents
             .get(block_id)
@@ -243,11 +247,41 @@ impl OutlineState {
             .get(&grandparent)
             .and_then(|siblings| siblings.iter().position(|id| id == &parent))
             .ok_or_else(|| CoreError::InvalidHierarchy("missing parent sibling".into()))?;
+        let siblings = self
+            .children
+            .get(&Some(parent.clone()))
+            .cloned()
+            .unwrap_or_default();
+        let followers = siblings
+            .iter()
+            .position(|id| id == block_id)
+            .map(|index| siblings[index + 1..].to_vec())
+            .unwrap_or_default();
+
+        let mut steps = Vec::with_capacity(followers.len() + 1);
+        let mut anchor = self
+            .children
+            .get(&Some(block_id.clone()))
+            .and_then(|children| children.last())
+            .cloned();
+        for follower in followers {
+            self.move_one(&follower, Some(block_id.clone()), usize::MAX)?;
+            steps.push(ReparentStep {
+                block_id: follower.clone(),
+                destination: match anchor.replace(follower) {
+                    Some(anchor) => ReparentDestination::After { anchor },
+                    None => ReparentDestination::FirstChild {
+                        parent: block_id.clone(),
+                    },
+                },
+            });
+        }
         self.move_one(block_id, grandparent, position + 1)?;
-        Ok(ReparentStep {
+        steps.push(ReparentStep {
             block_id: block_id.clone(),
             destination: ReparentDestination::After { anchor: parent },
-        })
+        });
+        Ok(steps)
     }
 
     fn move_one(
@@ -333,7 +367,7 @@ impl GraphCore {
         for block_id in &roots {
             steps.push(projected.indent(block_id)?);
         }
-        Ok(ReparentPlan { steps })
+        Ok(ReparentPlan { roots, steps })
     }
 
     pub(super) fn plan_outdent_blocks(
@@ -342,13 +376,12 @@ impl GraphCore {
         block_ids: &[BlockId],
     ) -> Result<ReparentPlan, CoreError> {
         let mut projected = self.outline_state(owner)?;
-        let mut roots = projected.roots(block_ids)?;
-        roots.reverse();
+        let roots = projected.roots(block_ids)?;
         let mut steps = Vec::with_capacity(roots.len());
-        for block_id in &roots {
-            steps.push(projected.outdent(block_id)?);
+        for block_id in roots.iter().rev() {
+            steps.extend(projected.outdent(block_id)?);
         }
-        Ok(ReparentPlan { steps })
+        Ok(ReparentPlan { roots, steps })
     }
 
     pub(super) fn plan_delete_blocks(

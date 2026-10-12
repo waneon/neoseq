@@ -7641,6 +7641,92 @@ mod tests {
     }
 
     #[test]
+    fn outdent_carries_following_siblings_as_children() {
+        fn shape(blocks: &[BlockSnapshot]) -> String {
+            blocks
+                .iter()
+                .map(|block| {
+                    if block.children.is_empty() {
+                        block.markdown.clone()
+                    } else {
+                        format!("{}({})", block.markdown, shape(&block.children))
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(",")
+        }
+        let owner = OutlineOwner::Page { id: page() };
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "page", &page());
+        let ids = ["a", "b", "x", "c", "d"]
+            .into_iter()
+            .enumerate()
+            .map(|(index, text)| insert_root(&mut core, text, &page(), index, text))
+            .collect::<Vec<_>>();
+        let [_, b, x, c, d] = ids.as_slice() else {
+            unreachable!()
+        };
+        for (id, block_ids) in [
+            (
+                "indent-run",
+                vec![b.clone(), x.clone(), c.clone(), d.clone()],
+            ),
+            ("indent-x", vec![x.clone()]),
+        ] {
+            core.execute(
+                envelope(
+                    id,
+                    Command::IndentBlocks {
+                        owner: owner.clone(),
+                        block_ids,
+                    },
+                ),
+                "t2",
+            )
+            .unwrap();
+        }
+        let nested = core.page_snapshot(&page()).unwrap();
+        assert_eq!(shape(&nested.blocks), "a(b(x),c,d)");
+
+        // The siblings after the outdented block follow its own children.
+        core.execute(
+            envelope(
+                "outdent-b",
+                Command::OutdentBlocks {
+                    owner: owner.clone(),
+                    block_ids: vec![b.clone()],
+                },
+            ),
+            "t3",
+        )
+        .unwrap();
+        assert_eq!(
+            shape(&core.page_snapshot(&page()).unwrap().blocks),
+            "a,b(x,c,d)"
+        );
+        core.execute(envelope("undo-outdent-b", Command::Undo), "t4")
+            .unwrap();
+        assert_eq!(core.page_snapshot(&page()).unwrap(), nested);
+
+        // A selected block is outdented itself, never adopted by an earlier one.
+        core.execute(
+            envelope(
+                "outdent-b-d",
+                Command::OutdentBlocks {
+                    owner,
+                    block_ids: vec![b.clone(), d.clone()],
+                },
+            ),
+            "t5",
+        )
+        .unwrap();
+        assert_eq!(
+            shape(&core.page_snapshot(&page()).unwrap().blocks),
+            "a,b(x,c),d"
+        );
+    }
+
+    #[test]
     fn summary_omits_blocks_and_page_reads_are_owner_scoped() {
         let first_page = page();
         let second_page = PageId::new("second").unwrap();
