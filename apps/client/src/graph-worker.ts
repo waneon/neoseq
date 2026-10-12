@@ -30,6 +30,7 @@ import {
   graphStorageKey,
   validChecksum,
   type QuarantineRecord,
+  type ResolvedOutboxRecord,
 } from "./persistence";
 import { TestIndexedDbGraphRepository, type FaultPoint } from "./testing/test-persistence";
 import { randomUUID } from "@/lib/crypto";
@@ -57,6 +58,8 @@ interface OpenState {
   nextCursor: number;
   pending?: PendingWrite;
   remote: boolean;
+  /** Outbox records the frame in flight carries; its Ack retires them all. */
+  frame?: { message_id: string; covers: string[] };
 }
 
 const COMPACT_TAIL_UPDATES = 128;
@@ -767,16 +770,57 @@ async function syncNext(payload: { graph_handle: string }) {
   };
 }
 
+// Pending updates travel together, up to half the server's default
+// max_update_bytes and its tail compaction cadence.
+const FRAME_UPDATE_BYTES = 256 * 1024;
+const FRAME_UPDATES = 256;
+
 async function syncNextFrame(payload: { graph_handle: string }) {
-  const next = await syncNext(payload);
-  if (!next) return null;
-  const { local_sequence: _, ...update } = next;
-  return { message_id: next.message_id, frame: syncEncode({ Update: update }) };
+  const state = requireState(payload.graph_handle);
+  const pending = await state.repository.outbox(state.storageKey, FRAME_UPDATES);
+  const [first] = pending;
+  if (!first) return null;
+  let bytes = first.payload.byteLength;
+  let records = 1;
+  while (records < pending.length) {
+    bytes += pending[records].payload.byteLength;
+    if (bytes > FRAME_UPDATE_BYTES) break;
+    records++;
+  }
+  const carried = pending.slice(0, records);
+  const merged = records > 1 ? mergeUpdates(state.core, carried) : undefined;
+  const update = merged ? ownedBuffer(merged) : first.payload;
+  const covered = merged ? carried : [first];
+  const message_id = merged ? await checksum(update) : first.message_id;
+  state.frame = { message_id, covers: covered.map((record) => record.message_id) };
+  const metadata = await state.repository.metadata(state.storageKey);
+  const frame = syncEncode({
+    Update: {
+      message_id,
+      base_version_vector: [...new Uint8Array(first.base_version_vector)],
+      bytes: [...new Uint8Array(update)],
+      history_epoch: metadata.history_epoch,
+    },
+  });
+  return { message_id, frame };
+}
+
+function mergeUpdates(core: WasmGraphCore, records: ResolvedOutboxRecord[]) {
+  const payloads = new Uint8Array(records.reduce((sum, r) => sum + r.payload.byteLength, 0));
+  let offset = 0;
+  for (const record of records) {
+    payloads.set(new Uint8Array(record.payload), offset);
+    offset += record.payload.byteLength;
+  }
+  const lengths = Uint32Array.from(records, (record) => record.payload.byteLength);
+  return core.mergeUpdates(payloads, lengths);
 }
 
 async function syncAck(payload: { graph_handle: string; message_id: string }) {
   const state = requireState(payload.graph_handle);
-  await state.repository.acknowledge(state.storageKey, payload.message_id);
+  const frame = state.frame?.message_id === payload.message_id ? state.frame : undefined;
+  await state.repository.acknowledge(state.storageKey, frame?.covers ?? [payload.message_id]);
+  if (frame && state.frame === frame) state.frame = undefined;
   return null;
 }
 

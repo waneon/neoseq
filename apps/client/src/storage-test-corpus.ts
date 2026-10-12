@@ -642,6 +642,7 @@ export async function runIndexedDbFaultCorpus() {
 
 export async function runRemoteOutboxCorpus() {
   await verifyRemoteCompaction();
+  await verifyBatchedFrame();
   const graph = graphId("remote-outbox");
   const writer = new TestCoreWorker();
   const opened = await writer.openGraph(openRequest(graph, 271));
@@ -866,6 +867,45 @@ export async function runRemoteOutboxCorpus() {
     acknowledged: true,
     corrupt_identity_rejected: true,
   };
+}
+
+async function verifyBatchedFrame() {
+  const graph = graphId("remote-batch");
+  const worker = new TestCoreWorker();
+  const opened = await worker.openGraph(openRequest(graph, 282));
+  const base = await worker.gcCheckpoint(opened.graph_handle);
+  await worker.configureSync(opened.graph_handle);
+  await worker.replaceRemote(opened.graph_handle, base.checkpoint, 0, base.version_vector);
+  const rename = (index: number) =>
+    worker.execute({
+      graph_handle: opened.graph_handle,
+      command: renamePage(graph, `batch-${index}`, "home", `Home ${index}`),
+      timeout_ms: 1_000,
+    });
+  await worker.execute({
+    graph_handle: opened.graph_handle,
+    command: ensurePage(graph, "seed", "home"),
+    timeout_ms: 1_000,
+  });
+  for (let index = 0; index < 3; index++) await rename(index);
+  const first = await worker.nextOutbox(opened.graph_handle);
+  const frame = await worker.nextSyncFrame(opened.graph_handle);
+  assert(frame && frame.message_id !== first?.message_id, "pending updates were not batched");
+  const message = await worker.decodeSyncMessage(frame.frame);
+  assert(
+    "Update" in message &&
+      message.Update.message_id === (await sha256Hex(new Uint8Array(message.Update.bytes))),
+    "a batched frame must be identified by its own content",
+  );
+  await rename(3);
+  await worker.acknowledgeOutbox(opened.graph_handle, frame.message_id);
+  assert(
+    (await worker.syncState(opened.graph_handle)).pending === 1,
+    "a frame Ack must retire exactly the updates it carried",
+  );
+  await worker.closeGraph({ graph_handle: opened.graph_handle });
+  await worker.deleteGraph(graph);
+  worker.terminate();
 }
 
 async function verifyRemoteCompaction() {

@@ -289,7 +289,10 @@ metadata, checkpoint, history epoch, and server-Base marker in one IndexedDB
 transaction. Both paths require the target graph to be absent, so installation
 is complete or absent.
 
-Acknowledgement removes the outbox record matching that content ID. A referenced Tail row stays
+The client sends the oldest pending records as one frame: their operations
+re-exported as a single update under its own content ID. That frame's
+acknowledgement removes every record it carried; any other acknowledgement
+removes the record matching its content ID. A referenced Tail row stays
 pinned until acknowledgement and is deleted only when the fallback Base no
 longer needs it.
 Storage capability `usage_bytes` reports logical bytes owned by this graph—Base,

@@ -343,15 +343,12 @@ export class IndexedDbGraphRepository {
   }
 
   async peekNext(graphId: string): Promise<ResolvedOutboxRecord | null> {
-    return (await this.readOutbox(graphId, true))[0] ?? null;
+    return (await this.outbox(graphId, 1))[0] ?? null;
   }
 
-  outbox(graphId: string): Promise<ResolvedOutboxRecord[]> {
-    return this.readOutbox(graphId, false);
-  }
-
-  private async readOutbox(graphId: string, first: boolean): Promise<ResolvedOutboxRecord[]> {
-    const inspected = await this.inspectOutbox(graphId, first);
+  /** The oldest `limit` pending updates, in local order. */
+  async outbox(graphId: string, limit?: number): Promise<ResolvedOutboxRecord[]> {
+    const inspected = await this.inspectOutbox(graphId, limit);
     for (const { persisted, contentId } of inspected) {
       if (persisted.message_id !== contentId) {
         throw new StorageError(
@@ -364,14 +361,12 @@ export class IndexedDbGraphRepository {
     return inspected.map(({ resolved }) => resolved);
   }
 
-  private async inspectOutbox(graphId: string, first = false): Promise<InspectedOutboxRecord[]> {
+  private async inspectOutbox(graphId: string, limit?: number): Promise<InspectedOutboxRecord[]> {
     const database = await openDatabase();
     const transaction = database.transaction([STORES.outbox, STORES.updates], "readonly");
     const store = transaction.objectStore(STORES.outbox);
     const records = await request<OutboxRecord[]>(
-      store
-        .index("by_graph_sequence")
-        .getAll(IDBKeyRange.bound([graphId], [graphId, []]), first ? 1 : undefined),
+      store.index("by_graph_sequence").getAll(IDBKeyRange.bound([graphId], [graphId, []]), limit),
     );
     const updateStore = transaction.objectStore(STORES.updates);
     const candidates: Array<{
@@ -421,39 +416,39 @@ export class IndexedDbGraphRepository {
     return inspected;
   }
 
-  async acknowledge(graphId: string, messageId: string): Promise<void> {
+  async acknowledge(graphId: string, messageIds: readonly string[]): Promise<void> {
     const database = await openDatabase();
     const transaction = database.transaction(
       [STORES.metadata, STORES.outbox, STORES.updates, STORES.checkpoints],
       "readwrite",
     );
     const outboxStore = transaction.objectStore(STORES.outbox);
-    const record = await request<OutboxRecord | undefined>(outboxStore.get([graphId, messageId]));
-    outboxStore.delete([graphId, messageId]);
-    if (record && record.local_sequence > 0) {
-      const metadata = await request<MetadataRecord | undefined>(
-        transaction.objectStore(STORES.metadata).get(graphId),
+    const updateStore = transaction.objectStore(STORES.updates);
+    const metadataStore = transaction.objectStore(STORES.metadata);
+    let metadata = await request<MetadataRecord | undefined>(metadataStore.get(graphId));
+    const checkpoints = await request<CheckpointRecord[]>(
+      transaction.objectStore(STORES.checkpoints).index("by_graph").getAll(graphId),
+    );
+    const fallbackThrough = checkpoints.reduce(
+      (minimum, checkpoint) => Math.min(minimum, checkpoint.local_sequence),
+      metadata?.compacted_through ?? 0,
+    );
+    for (const messageId of messageIds) {
+      const record = await request<OutboxRecord | undefined>(outboxStore.get([graphId, messageId]));
+      outboxStore.delete([graphId, messageId]);
+      if (!metadata || !record || record.local_sequence <= 0) continue;
+      if (record.local_sequence > fallbackThrough) continue;
+      const update = await request<UpdateRecord | undefined>(
+        updateStore.get([graphId, record.local_sequence]),
       );
-      const checkpoints = await request<CheckpointRecord[]>(
-        transaction.objectStore(STORES.checkpoints).index("by_graph").getAll(graphId),
-      );
-      const fallbackThrough = checkpoints.reduce(
-        (minimum, checkpoint) => Math.min(minimum, checkpoint.local_sequence),
-        metadata?.compacted_through ?? 0,
-      );
-      if (metadata && record.local_sequence <= fallbackThrough) {
-        const updateStore = transaction.objectStore(STORES.updates);
-        const update = await request<UpdateRecord | undefined>(
-          updateStore.get([graphId, record.local_sequence]),
-        );
-        updateStore.delete([graphId, record.local_sequence]);
-        if (update) {
-          transaction.objectStore(STORES.metadata).put({
-            ...metadata,
-            tail_bytes: Math.max(0, metadata.tail_bytes - update.payload.byteLength),
-            tail_count: Math.max(0, metadata.tail_count - 1),
-          });
-        }
+      updateStore.delete([graphId, record.local_sequence]);
+      if (update) {
+        metadata = {
+          ...metadata,
+          tail_bytes: Math.max(0, metadata.tail_bytes - update.payload.byteLength),
+          tail_count: Math.max(0, metadata.tail_count - 1),
+        };
+        metadataStore.put(metadata);
       }
     }
     await complete(transaction);

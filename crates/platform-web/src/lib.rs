@@ -398,6 +398,26 @@ impl WasmGraphCore {
             .map_err(js_core_error)
     }
 
+    /// Merges updates laid end to end in `payloads`; `lengths` splits them.
+    #[wasm_bindgen(js_name = mergeUpdates)]
+    pub fn merge_updates(
+        &self,
+        payloads: &[u8],
+        lengths: &[u32],
+    ) -> Result<Option<Vec<u8>>, JsValue> {
+        let mut rest = payloads;
+        let mut updates = Vec::with_capacity(lengths.len());
+        for &length in lengths {
+            if rest.len() < length as usize {
+                return Err(js_invalid_request("update lengths exceed payload bytes"));
+            }
+            let (update, tail) = rest.split_at(length as usize);
+            updates.push(update);
+            rest = tail;
+        }
+        self.inner.merge_updates(updates).map_err(js_core_error)
+    }
+
     #[wasm_bindgen(js_name = queryJson)]
     pub fn query_json(&mut self, request: &str) -> Result<String, JsValue> {
         if self.pending_update.is_some() {

@@ -27,7 +27,7 @@ use domain::{
     validate_property_shape, validate_property_target, validate_property_write,
 };
 use loro::{
-    Container, ContainerID, ContainerTrait, ExpandType, ExportMode, Index, LoroDoc,
+    Container, ContainerID, ContainerTrait, ExpandType, ExportMode, IdSpan, Index, LoroDoc,
     LoroEncodeError, LoroError, LoroMap, LoroText, LoroTree, LoroValue, StyleConfig,
     StyleConfigMap, Subscription, TextDelta, TreeID, TreeParentId, UndoManager, ValueOrContainer,
     VersionVector, event::Diff,
@@ -1045,6 +1045,34 @@ impl GraphCore {
     pub fn export_updates_since(&self, encoded: &[u8]) -> Result<Vec<u8>, CoreError> {
         let version = VersionVector::decode(encoded)?;
         Ok(self.doc.export(ExportMode::updates(&version))?)
+    }
+
+    /// Re-exports the operations of several updates as one, or `None` when
+    /// this replica no longer holds all of them.
+    pub fn merge_updates<'a>(
+        &self,
+        updates: impl IntoIterator<Item = &'a [u8]>,
+    ) -> Result<Option<Vec<u8>>, CoreError> {
+        let held = self.doc.oplog_vv();
+        let trimmed = self.doc.shallow_since_vv();
+        let mut spans = Vec::new();
+        for update in updates {
+            let meta = LoroDoc::decode_import_blob_meta(update, false)?;
+            for (&peer, &end) in meta.partial_end_vv.iter() {
+                let start = meta.partial_start_vv.get(&peer).copied().unwrap_or(0);
+                if start >= end {
+                    continue;
+                }
+                // Export silently omits spans the oplog lacks.
+                if held.get(&peer).copied().unwrap_or(0) < end
+                    || trimmed.get(&peer).copied().unwrap_or(0) > start
+                {
+                    return Ok(None);
+                }
+                spans.push(IdSpan::new(peer, start, end));
+            }
+        }
+        Ok(Some(self.doc.export(ExportMode::updates_in_range(spans))?))
     }
 
     /// Projects the complete public graph and its diagnostics in one walk per
@@ -8552,6 +8580,49 @@ mod tests {
             .unwrap();
         assert!(exhausted.update.is_empty());
         assert_eq!(recovered.summary().unwrap().pages[0].title, "Home");
+    }
+
+    #[test]
+    fn merged_updates_carry_exactly_their_operations() {
+        let mut writer = GraphCore::new(graph(), 1, "t0").unwrap();
+        let base = writer.export_snapshot().unwrap();
+        let mut run =
+            |id: &str, command: Command| writer.execute(envelope(id, command), id).unwrap().update;
+        let first = run(
+            "page",
+            Command::EnsurePage {
+                page_id: page(),
+                title: "Home".into(),
+            },
+        );
+        let second = run(
+            "rename",
+            Command::RenamePage {
+                page_id: page(),
+                title: "Renamed".into(),
+            },
+        );
+        let third = run(
+            "rename-again",
+            Command::RenamePage {
+                page_id: page(),
+                title: "Unsent".into(),
+            },
+        );
+
+        let merged = writer
+            .merge_updates([first.as_slice(), second.as_slice()])
+            .unwrap()
+            .unwrap();
+        let mut recipient = GraphCore::from_snapshot(graph(), 2, &base).unwrap();
+        recipient.import_remote(&merged).unwrap();
+        assert_eq!(recipient.summary().unwrap().pages[0].title, "Renamed");
+        recipient.import_remote(&third).unwrap();
+        assert_eq!(recipient.summary().unwrap().pages[0].title, "Unsent");
+
+        let trimmed =
+            GraphCore::from_snapshot(graph(), 1, &writer.export_gc_checkpoint().unwrap()).unwrap();
+        assert_eq!(trimmed.merge_updates([first.as_slice()]).unwrap(), None);
     }
 
     #[test]
