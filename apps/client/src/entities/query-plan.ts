@@ -348,6 +348,32 @@ export function defaultValueForField(field: PlanField): PlanValue {
   }
 }
 
+/**
+ * The value `op` takes for `field`, carried over from `value` where it can be:
+ * a chosen value becomes the first member of an `is any of` list, and a list
+ * gives its first member back. Operators without a value take none.
+ */
+export function valueForOperator(
+  op: PlanOperator,
+  field: PlanField,
+  value: PlanValue | undefined,
+): PlanValue | undefined {
+  if (!operatorTakesValue(op)) return undefined;
+  if (operatorTakesList(op)) {
+    if (value?.type === "list") return value;
+    const member =
+      value?.type === "text" || value?.type === "tag" || value?.type === "page" ? value.value : "";
+    return { type: "list", values: member ? [member] : [] };
+  }
+  if (value?.type !== "list") return value ?? defaultValueForField(field);
+  const [first] = value.values;
+  if (first === undefined) return defaultValueForField(field);
+  const type = fieldType(field);
+  return type === "tag" || type === "page"
+    ? { type, value: first }
+    : { type: "text", value: first };
+}
+
 // ── Structure edits ───────────────────────────────────────────────────────────
 
 /** A new condition opens on the one field every subject has: its own text. */
@@ -359,7 +385,7 @@ export function newCondition(): PlanCondition {
     kind: "condition",
     field,
     op,
-    value: operatorTakesValue(op) ? defaultValueForField(field) : undefined,
+    value: valueForOperator(op, field, undefined),
   };
 }
 

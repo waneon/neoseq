@@ -26,6 +26,7 @@ import {
   operatorTakesList,
   operatorTakesRange,
   operatorTakesValue,
+  valueForOperator,
   PLAN_ANY_OF_MAX,
   PLAN_LIMIT_MAX,
   PLAN_MAX_CONDITIONS,
@@ -442,7 +443,8 @@ function ConditionEditor({
       ...condition,
       field,
       op,
-      value: operatorTakesValue(op) ? defaultValueForField(field) : undefined,
+      // A new field starts from its own default, in the shape the operator takes.
+      value: valueForOperator(op, field, undefined),
       value2: undefined,
     });
   };
@@ -474,9 +476,7 @@ function ConditionEditor({
           onChange({
             ...condition,
             op,
-            value: operatorTakesValue(op)
-              ? (condition.value ?? defaultValueForField(condition.field))
-              : undefined,
+            value: valueForOperator(op, condition.field, condition.value),
             value2: operatorTakesRange(op) ? condition.value2 : undefined,
           });
         }}
@@ -729,7 +729,11 @@ function ValueListEditor({
     setMembers([...members, trimmed]);
   };
 
+  // Members are stored as values and named as the single-value select names them.
   const nameOf = (member: string): string => {
+    if (condition.field.kind === "property" && choices.length > 0) {
+      return choiceLabel(condition.field.key, member, message);
+    }
     if (type === "tag") return snapshot.tags.find((tag) => tag.id === member)?.name ?? member;
     if (type === "page") {
       const page = namedDocuments(snapshot).find((item) => item.id === member);
@@ -745,7 +749,7 @@ function ValueListEditor({
           .map((tag) => ({ value: tag.id, label: tag.name }))
       : choices
           .filter((choice) => !members.includes(choice))
-          .map((choice) => ({ value: choice, label: choice }));
+          .map((choice) => ({ value: choice, label: nameOf(choice) }));
 
   return (
     <span className="qb-operand qb-list" data-testid="qb-value-list">

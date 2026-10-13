@@ -235,6 +235,41 @@ describe("the query builder", () => {
     expect(storedDefinition(harness)?.source.startsWith(DERIVED_SOURCE_PROVENANCE)).toBe(true);
   });
 
+  it("keeps the chosen value when the operator changes its shape", async () => {
+    const harness = await mountPage();
+    await createQuery(harness);
+    await harness.settle(() => fireEvent.click(screen.getByTestId("qb-add-condition")));
+    const condition = await screen.findByTestId("qb-condition");
+    const choose = async (testId: string, name: string) => {
+      await harness.settle(() =>
+        fireEvent.pointerDown(within(condition).getByTestId(testId), {
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      const option = await screen.findByRole("option", { name, exact: true });
+      await harness.settle(() => fireEvent.click(option));
+    };
+    const stored = () =>
+      decodePlan(storedDefinition(harness)!.plan!.payload, QUERY_PLAN_VERSION)?.where.children[0];
+    await choose("qb-field", "Status");
+    await choose("qb-value", "Doing");
+
+    // `is any of` holds a list: the chosen value becomes its first member.
+    await choose("qb-operator", "is any of");
+    await waitFor(() =>
+      expect(stored()).toMatchObject({ op: "any_of", value: { type: "list", values: ["doing"] } }),
+    );
+    // Members read as the select reads them, not as their stored values.
+    expect(within(condition).getByTestId("qb-value-list")).toHaveTextContent("Doing");
+    // And back: the list's first member is the value again.
+    await choose("qb-operator", "is");
+    await waitFor(() =>
+      expect(stored()).toMatchObject({ op: "equals", value: { type: "text", value: "doing" } }),
+    );
+    expect(screen.queryByTestId("toast")).not.toBeInTheDocument();
+  });
+
   it("carries a nested alternative into the plan", async () => {
     const harness = await mountPage();
     await createQuery(harness);
