@@ -587,6 +587,7 @@ export interface MessageArgumentMap {
   "settings.defaultQueryName": undefined;
   "settings.deleteDescription": undefined;
   "settings.deleteGraph": undefined;
+  "settings.deleteServerDescription": undefined;
   "settings.dueAfterUpcoming": undefined;
   "settings.dueBeforeToday": undefined;
   "settings.dueColor": undefined;

@@ -830,37 +830,44 @@ function DangerSection({ repositoryId, graphId }: { repositoryId: string; graphI
   };
 
   return (
-    <section className="settings-section settings-danger">
-      <div className="settings-danger-action">
-        <Trash2Icon aria-hidden />
-        <h3>{message(local ? "graph.deleteTitle" : "graph.removeReplicaTitle")}</h3>
-        <p>{message(local ? "settings.deleteDescription" : "settings.removeReplicaDescription")}</p>
-        <Button
-          ref={deleteButtonRef}
-          variant="destructive"
-          className="self-start"
-          data-testid="settings-delete-graph"
-          onClick={() => setConfirmDelete("device")}
-        >
-          {message(local ? "settings.deleteGraph" : "settings.removeReplica")}
-        </Button>
-      </div>
-      {connection?.role === "owner" && (
+    <section className="settings-section">
+      {/* Each irreversible act is one row: what it does on the left, the act on
+          the right. The confirmation names the graph again before anything goes. */}
+      <div className="settings-danger">
         <div className="settings-danger-action">
-          <h3>{message("graph.deleteServerTitle")}</h3>
-          <p>{message("graph.deleteServerConfirm", { name: graphName(repositoryId, graphId) })}</p>
+          <div className="settings-danger-text">
+            <h3>{message(local ? "graph.deleteTitle" : "graph.removeReplicaTitle")}</h3>
+            <p>
+              {message(local ? "settings.deleteDescription" : "settings.removeReplicaDescription")}
+            </p>
+          </div>
           <Button
-            ref={serverDeleteButtonRef}
+            ref={deleteButtonRef}
             variant="destructive"
-            className="self-start"
-            data-testid="settings-delete-server-graph"
-            disabled={!readAuthSession(repositoryId)}
-            onClick={() => setConfirmDelete("server")}
+            data-testid="settings-delete-graph"
+            onClick={() => setConfirmDelete("device")}
           >
-            {message("graph.deleteServer")}
+            {message(local ? "settings.deleteGraph" : "settings.removeReplica")}
           </Button>
         </div>
-      )}
+        {connection?.role === "owner" && (
+          <div className="settings-danger-action">
+            <div className="settings-danger-text">
+              <h3>{message("graph.deleteServerTitle")}</h3>
+              <p>{message("settings.deleteServerDescription")}</p>
+            </div>
+            <Button
+              ref={serverDeleteButtonRef}
+              variant="destructive"
+              data-testid="settings-delete-server-graph"
+              disabled={!readAuthSession(repositoryId)}
+              onClick={() => setConfirmDelete("server")}
+            >
+              {message("settings.deleteGraph")}
+            </Button>
+          </div>
+        )}
+      </div>
       {confirmDelete && (
         <ConfirmDialog
           title={message(

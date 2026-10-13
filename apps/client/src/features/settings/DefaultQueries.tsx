@@ -17,13 +17,17 @@
 // its own queries. A standing question read as a table says which columns it
 // returns here too, because those columns are part of the question; the saved
 // view can then be shaped wherever its answer is read.
+//
+// **The list is read; one question is edited.** Rows are one line each — the
+// name, the question beneath it when named, and the count — and opening one
+// lays its name, conditions and layout out below it. Here the conditions are the
+// point of opening it, so they are always shown; folding them is the journal's.
 
 import { useId, useMemo, useState } from "react";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
   ChevronUpIcon,
-  ListFilterIcon,
   MoreHorizontalIcon,
   PlusIcon,
   Trash2Icon,
@@ -63,7 +67,6 @@ import {
 import { useQueryAnswer } from "../query/execution";
 import { answerLabel } from "../query/labels";
 import { QueryBuilder } from "../query/QueryBuilder";
-import { useQueryConditions } from "../query/presentation";
 import {
   columnChoices,
   QueryColumnsControl,
@@ -114,34 +117,32 @@ export function DefaultQueriesSection() {
 
   return (
     <section className="settings-section">
-      {queries.length === 0 && <p className="settings-empty">{message("settings.emptyQueries")}</p>}
-      {queries.length > 0 && (
-        <ul className="default-queries" data-testid="settings-default-queries">
-          {queries.map((query, index) => (
-            <DefaultQueryRow
-              key={query.id}
-              query={query}
-              open={openId === query.id}
-              first={index === 0}
-              last={index === queries.length - 1}
-              index={index}
-              onOpen={(open) => setOpenId(open ? query.id : null)}
-            />
-          ))}
-        </ul>
-      )}
-      {/* The empty state *is* the action, so this is the section's own floor
-          rather than a row that appears once something else exists. */}
-      <div className="default-query-add">
-        <Button
-          variant="secondary"
+      <div className="default-queries" data-testid="settings-default-queries">
+        {queries.length === 0 && (
+          <p className="default-queries-empty">{message("settings.emptyQueries")}</p>
+        )}
+        {queries.map((query, index) => (
+          <DefaultQueryRow
+            key={query.id}
+            query={query}
+            open={openId === query.id}
+            first={index === 0}
+            last={index === queries.length - 1}
+            index={index}
+            onOpen={(open) => setOpenId(open ? query.id : null)}
+          />
+        ))}
+        {/* The list's own last row, so adding is where the next one will be. */}
+        <button
+          type="button"
+          className="default-query-add"
           disabled={full || state.mode === "readonly"}
           data-testid="add-default-query"
           onClick={() => create(defaultPlan("block"))}
         >
           <PlusIcon aria-hidden />
           {message("settings.addDefaultQuery")}
-        </Button>
+        </button>
       </div>
       {/* A disabled button has to say what would re-enable it. */}
       {full && (
@@ -182,9 +183,6 @@ function DefaultQueryRow({
   const activeView =
     query.document.views.find((view) => view.id === query.document.default_view_id) ??
     query.document.views[0]!;
-  const [conditionsOpen, setConditionsOpen] = useQueryConditions(activeView, true);
-  const [savingConditions, setSavingConditions] = useState(false);
-  const conditionsId = `${bodyId}-conditions`;
   const storedPlan = activeView.definition.plan;
   const plan = useMemo(
     () => (storedPlan ? decodePlan(storedPlan.payload, storedPlan.version) : null),
@@ -235,26 +233,6 @@ function DefaultQueryRow({
       });
   const save = (command: Parameters<typeof session.execute>[0]): void => {
     void executeCommand(command);
-  };
-  const toggleConditions = async (): Promise<void> => {
-    if (savingConditions) return;
-    if (state.mode === "readonly") {
-      setConditionsOpen(!conditionsOpen);
-      return;
-    }
-    setSavingConditions(true);
-    try {
-      await executeCommand({
-        type: "put_query_view",
-        owner,
-        view: {
-          ...activeView,
-          options: { ...activeView.options, conditions_open: !conditionsOpen },
-        },
-      });
-    } finally {
-      setSavingConditions(false);
-    }
   };
   /** The plan is authority; its marked SPARQL is regenerated beside it. */
   const commitPlan = (next: QueryPlan): Promise<void> =>
@@ -326,54 +304,44 @@ function DefaultQueryRow({
     })();
   };
 
+  const question = summaryLabel(summary);
+  const readonly = state.mode === "readonly";
   return (
-    <li className="default-query" data-open={open || undefined}>
+    <div className="default-query" data-open={open || undefined}>
       <div className="default-query-head">
-        <Button
-          size="icon"
+        <button
+          type="button"
+          className="default-query-summary"
           aria-expanded={open}
           aria-controls={open ? bodyId : undefined}
-          aria-label={message("settings.editDefaultQuery", { name })}
           data-testid="default-query-disclose"
           onClick={() => onOpen(!open)}
         >
-          {open ? <ChevronDownIcon aria-hidden /> : <ChevronRightIcon aria-hidden />}
-        </Button>
-        {/* The name is a field, because it is the one thing here the reader
-            writes in their own words. Empty, it shows the question itself — which
-            is also what the journal captions the answer with, so leaving it blank
-            is a choice rather than an omission. */}
-        <Input
-          aria-label={message("settings.defaultQueryName")}
-          value={query.title}
-          placeholder={summaryLabel(summary)}
-          maxLength={MAX_DEFAULT_QUERY_TITLE}
-          data-testid="default-query-title"
-          disabled={state.mode === "readonly"}
-          onChange={(event) =>
-            save({
-              type: "rename_default_query",
-              default_query_id: query.id,
-              title: event.target.value,
-            })
-          }
-        />
-        {count && (
-          <span
-            className="query-count"
-            data-state={answer.error ? "error" : undefined}
-            aria-busy={answer.loading || undefined}
-            data-testid="default-query-count"
-          >
-            {count}
+          <ChevronRightIcon className="default-query-chevron" aria-hidden />
+          <span className="default-query-text">
+            <span className="default-query-name">{name}</span>
+            {/* Named, the question still says what it asks. */}
+            {query.title && <span className="default-query-question">{question}</span>}
           </span>
-        )}
+          {count && (
+            <span
+              className="query-count"
+              data-state={answer.error ? "error" : undefined}
+              aria-busy={answer.loading || undefined}
+              data-testid="default-query-count"
+            >
+              {count}
+            </span>
+          )}
+        </button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               size="icon"
+              variant="ghost"
+              className="default-query-actions"
               aria-label={message("settings.defaultQueryActions", { name })}
-              disabled={state.mode === "readonly"}
+              disabled={readonly}
               data-testid="default-query-actions"
             >
               <MoreHorizontalIcon aria-hidden />
@@ -384,7 +352,7 @@ function DefaultQueryRow({
                 ordered by saying so — the drag a longer list would earn buys
                 nothing a phone or a keyboard can use. */}
             <DropdownMenuItem
-              disabled={first || state.mode === "readonly"}
+              disabled={first || readonly}
               data-testid="default-query-up"
               onSelect={() =>
                 save({
@@ -398,7 +366,7 @@ function DefaultQueryRow({
               {message("common.moveUp")}
             </DropdownMenuItem>
             <DropdownMenuItem
-              disabled={last || state.mode === "readonly"}
+              disabled={last || readonly}
               data-testid="default-query-down"
               onSelect={() =>
                 save({
@@ -414,7 +382,7 @@ function DefaultQueryRow({
             <DropdownMenuSeparator />
             <DropdownMenuItem
               variant="destructive"
-              disabled={state.mode === "readonly"}
+              disabled={readonly}
               data-testid="default-query-remove"
               onSelect={() =>
                 save({
@@ -430,79 +398,90 @@ function DefaultQueryRow({
         </DropdownMenu>
       </div>
       {open && (
-        <div className="default-query-body" id={bodyId}>
-          {plan ? (
-            <>
-              <Button
-                variant="ghost"
-                className="default-query-conditions-trigger"
-                aria-expanded={conditionsOpen}
-                aria-controls={conditionsOpen ? conditionsId : undefined}
-                aria-disabled={savingConditions || undefined}
-                data-testid="default-query-conditions-trigger"
-                onClick={() => void toggleConditions()}
-              >
-                <ListFilterIcon aria-hidden />
-                {message("query.conditions")}
-                {conditionsOpen ? <ChevronUpIcon aria-hidden /> : <ChevronDownIcon aria-hidden />}
-              </Button>
-              {conditionsOpen && (
-                <QueryBuilder
-                  id={conditionsId}
-                  plan={plan}
-                  snapshot={state.snapshot}
-                  readonly={state.mode === "readonly"}
-                  onChange={commitPlan}
-                />
-              )}
-            </>
-          ) : (
-            // A question written by a build that had a SPARQL editor. It still
-            // runs and still says what it asks; what it no longer has is an
-            // editor, so the reader's choices here are to read it or delete it.
-            <pre className="query-compiled" data-testid="default-query-compiled">
-              <code>{activeView.definition.source}</code>
-            </pre>
-          )}
-          {answer.error && (
-            <p className="query-diagnostic" role="alert">
-              {answer.error}
-            </p>
-          )}
+        <div className="default-query-editor" id={bodyId}>
+          {/* The name is the one thing here written in the reader's own words.
+              Empty, it shows the question itself — which is also what the
+              journal captions the answer with. */}
+          <div className="default-query-field">
+            <label className="settings-field-label" htmlFor={`${bodyId}-name`}>
+              {message("settings.defaultQueryName")}
+            </label>
+            <Input
+              id={`${bodyId}-name`}
+              value={query.title}
+              placeholder={question}
+              maxLength={MAX_DEFAULT_QUERY_TITLE}
+              data-testid="default-query-title"
+              disabled={readonly}
+              onChange={(event) =>
+                save({
+                  type: "rename_default_query",
+                  default_query_id: query.id,
+                  title: event.target.value,
+                })
+              }
+            />
+          </div>
+          {/* The builder names its own parts; a label above it would repeat them. */}
+          <div className="default-query-field">
+            {plan ? (
+              <QueryBuilder
+                id={`${bodyId}-conditions`}
+                plan={plan}
+                snapshot={state.snapshot}
+                readonly={readonly}
+                onChange={commitPlan}
+              />
+            ) : (
+              // A question written by a build that had a SPARQL editor. It still
+              // runs and still says what it asks; what it no longer has is an
+              // editor, so the reader's choices here are to read it or delete it.
+              <pre className="query-compiled" data-testid="default-query-compiled">
+                <code>{activeView.definition.source}</code>
+              </pre>
+            )}
+            {answer.error && (
+              <p className="query-diagnostic" role="alert">
+                {answer.error}
+              </p>
+            )}
+          </div>
           {/* Settings authors the projection and may choose its initial layout;
               the journal may shape the current saved view without changing the
               question. Columns remain part of a table's question and disappear
               when the answer is read as a list. */}
-          <div className="default-query-layout">
-            <span className="field-label" id={`${bodyId}-layout`}>
+          <div className="default-query-field">
+            <span className="settings-field-label" id={`${bodyId}-layout`}>
               {message("settings.defaultQueryLayout")}
             </span>
-            <div className="segmented" role="group" aria-labelledby={`${bodyId}-layout`}>
-              {LAYOUTS.map((layout) => (
-                <button
-                  key={layout}
-                  type="button"
-                  aria-pressed={activeView.kind === layout}
-                  disabled={state.mode === "readonly"}
-                  data-testid={`default-query-layout-${layout}`}
-                  onClick={() =>
-                    save({
-                      type: "put_query_view",
-                      owner,
-                      view: { ...activeView, kind: layout },
-                    })
-                  }
-                >
-                  {message(layout === "list" ? "query.viewList" : "query.viewTable")}
-                </button>
-              ))}
+            <div className="default-query-layout">
+              <div className="segmented" role="group" aria-labelledby={`${bodyId}-layout`}>
+                {LAYOUTS.map((layout) => (
+                  <button
+                    key={layout}
+                    type="button"
+                    aria-pressed={activeView.kind === layout}
+                    disabled={readonly}
+                    data-testid={`default-query-layout-${layout}`}
+                    onClick={() =>
+                      save({
+                        type: "put_query_view",
+                        owner,
+                        view: { ...activeView, kind: layout },
+                      })
+                    }
+                  >
+                    {message(layout === "list" ? "query.viewList" : "query.viewTable")}
+                  </button>
+                ))}
+              </div>
+              {activeView.kind === "table" && plan && (
+                <QueryColumnsControl choices={choices} onToggle={toggleColumn} />
+              )}
             </div>
-            {activeView.kind === "table" && plan && (
-              <QueryColumnsControl choices={choices} onToggle={toggleColumn} />
-            )}
           </div>
         </div>
       )}
-    </li>
+    </div>
   );
 }

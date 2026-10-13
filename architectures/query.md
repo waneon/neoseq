@@ -307,8 +307,8 @@ set, the surface supplies its initial default; an explicit closed value always
 wins, even for a question with no conditions. A read-only graph permits temporary
 local inspection without writing a shared preference.
 
-Default queries use that same view option in Settings and on the journal. The
-journal can disclose the conditions for inspection; Settings retains authority
+Default queries use that view option on the journal, which can disclose the
+conditions for inspection. Settings always lays them out and retains authority
 to edit their definition. Opening the conditions never grants authoring authority.
 
 Answer folding remains a browser-local reading preference, stored as a bounded

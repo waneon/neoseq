@@ -154,7 +154,7 @@
 .settings-section > p,
 .settings-field p,
 .settings-empty p,
-.settings-danger-action p {
+.settings-danger-text p {
   margin: 0;
   color: var(--ink-2);
   font-size: var(--text-sm);
@@ -414,25 +414,221 @@
   font-variant-numeric: tabular-nums;
 }
 
-.settings-danger-action {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 14px;
-  padding: 24px;
-  border: 1px solid color-mix(in oklab, var(--danger) 24%, var(--thread));
+/* Each irreversible act is a row inside one danger-edged frame: what it does,
+   then the act, which stays a quiet red until pressed. */
+.settings-danger {
+  border: 1px solid color-mix(in oklab, var(--danger) 28%, var(--thread));
   border-radius: var(--r-3);
 }
 
-.settings-danger-action > svg {
-  width: 22px;
-  height: 22px;
-  margin-bottom: 6px;
-  color: var(--danger);
+.settings-danger-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-5);
+  padding: var(--sp-4);
 }
 
-.settings-danger-action > button {
-  margin-top: 8px;
+.settings-danger-action + .settings-danger-action {
+  border-top: 1px solid var(--thread);
+}
+
+.settings-danger-text {
+  display: grid;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.settings-danger-text h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  font-weight: var(--weight-strong);
+}
+
+.settings-danger-action > .btn-danger {
+  flex: none;
+  background: var(--raised);
+  box-shadow: var(--e1-raised);
+}
+
+.settings-danger-action > .btn-danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+  box-shadow: none;
+}
+
+/* ── Default queries ──
+   One bordered list. A row states a standing question in one line — its name,
+   the question beneath it when named, and its count — and the open row lays its
+   editor out below, aligned with the name. The list's last row adds the next. */
+.default-queries {
+  --default-query-mark: 14px;
+  border: 1px solid var(--thread);
+  border-radius: var(--r-3);
+  overflow: clip;
+}
+
+.default-queries > * + *,
+.default-queries > * + .default-query-add {
+  border-top: 1px solid var(--thread);
+}
+
+.default-queries-empty {
+  margin: 0;
+  padding: var(--sp-4) var(--sp-3);
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+.default-query-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding-inline-end: var(--sp-2);
+  transition: background-color var(--dur-press) var(--ease-out);
+}
+
+.default-query-head:hover {
+  background: var(--surface-1);
+}
+
+.default-query-summary {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  min-height: 52px;
+  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3);
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.default-query-summary:focus-visible {
+  outline: none;
+  border-radius: var(--r-2);
+  box-shadow: var(--focus-inset);
+}
+
+.default-query-chevron {
+  flex: none;
+  width: var(--default-query-mark);
+  height: var(--default-query-mark);
+  color: var(--ink-3);
+  transition: transform var(--dur-disclose) var(--ease-out);
+}
+
+.default-query[data-open] .default-query-chevron {
+  transform: rotate(90deg);
+}
+
+.default-query-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.default-query-name,
+.default-query-question {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.default-query-name {
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  font-weight: var(--weight-medium);
+}
+
+.default-query-question {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+.default-query-summary .query-count {
+  flex: none;
+}
+
+.default-query-actions.icon-btn {
+  color: var(--ink-3);
+}
+
+.default-query-editor {
+  display: grid;
+  gap: var(--sp-5);
+  padding: var(--sp-2) var(--sp-4) var(--sp-5)
+    calc(var(--sp-3) + var(--default-query-mark) + var(--sp-2));
+}
+
+.default-query-field {
+  display: grid;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.default-query-field > input {
+  max-width: 420px;
+}
+
+/* Inside the editor the builder is a field among fields, not an inset panel. */
+.default-query-editor .query-builder {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.default-query-layout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.default-query-add {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--sp-3);
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  text-align: start;
+  cursor: pointer;
+}
+
+.default-query-add svg {
+  flex: none;
+  width: var(--default-query-mark);
+  height: var(--default-query-mark);
+}
+
+.default-query-add:hover:not(:disabled) {
+  background: var(--surface-1);
+  color: var(--ink);
+}
+
+.default-query-add:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-inset);
+}
+
+.default-query-add:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .settings-empty {
@@ -527,10 +723,6 @@
 
   .settings-theme-label > svg:first-child {
     display: none;
-  }
-
-  .settings-danger-action {
-    padding: 20px;
   }
 
   .settings-grid > div {
@@ -725,7 +917,16 @@
   }
 
   .settings-danger-action {
-    padding: 20px;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .settings-danger-action > .btn-danger {
+    align-self: flex-start;
+  }
+
+  .default-query-editor {
+    padding-inline-end: var(--sp-3);
   }
 }
 

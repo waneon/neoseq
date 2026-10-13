@@ -84,7 +84,9 @@ sections for this browser and for this graph; each pane opens with its name and
 explains only what is not self-evident. Phones show the index and one section at
 a time with a permanent back action. Theme choices preview the product; accent
 choices preview their role. Graph-owned standing queries are authored here with
-the shared query grammar.
+the shared query grammar, as one list whose rows state name, question, and count
+and whose open row edits them. Irreversible acts are rows in one danger frame,
+each stating its effect beside its action.
 
 ## Graph Library
 

@@ -225,55 +225,18 @@ describe("writing a standing question", () => {
     });
   });
 
-  it("saves explicit Conditions folds in the view independently of the Settings row", async () => {
+  it("always lays out the open question's conditions and leaves their fold to the journal", async () => {
     const user = userEvent.setup();
     const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
     await addQuery(harness);
 
-    const conditions = screen.getByTestId("default-query-conditions-trigger");
-    expect(conditions).toHaveAttribute("aria-expanded", "true");
-    await user.click(conditions);
-    await waitFor(() => {
-      expect(queries(harness)[0].document.views[0].options.conditions_open).toBe(false);
-      expect(conditions).toHaveAttribute("aria-expanded", "false");
-    });
-    expect(screen.queryByTestId("query-builder")).not.toBeInTheDocument();
-    expect(screen.getByTestId("default-query-layout-list")).toBeVisible();
-
-    // Opening the settings for a query preserves its saved Conditions choice.
-    await user.click(screen.getByTestId("default-query-disclose"));
-    await user.click(screen.getByTestId("default-query-disclose"));
-    expect(screen.getByTestId("default-query-conditions-trigger")).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
-
-    await user.click(screen.getByTestId("default-query-conditions-trigger"));
-    await waitFor(() =>
-      expect(queries(harness)[0].document.views[0].options.conditions_open).toBe(true),
-    );
     expect(screen.getByTestId("query-builder")).toBeInTheDocument();
-  });
-
-  it("keeps Conditions open and reports a rejected disclosure write", async () => {
-    const user = userEvent.setup();
-    const harness = await mountAt(`/g/${GRAPH_ID}/custom`, settings);
-    await addQuery(harness);
-    const execute = vi
-      .spyOn(harness.session, "execute")
-      .mockRejectedValueOnce(new Error("Disclosure write rejected"));
-
-    await user.click(screen.getByTestId("default-query-conditions-trigger"));
-
-    expect(await screen.findByTestId("toast")).toHaveTextContent("Couldn’t save that query");
-    expect(screen.getByTestId("default-query-conditions-trigger")).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
-    expect(screen.getByTestId("default-query-conditions-trigger")).toBeEnabled();
+    expect(screen.queryByTestId("default-query-conditions-trigger")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("default-query-disclose"));
+    expect(screen.queryByTestId("query-builder")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("default-query-disclose"));
     expect(screen.getByTestId("query-builder")).toBeInTheDocument();
     expect(queries(harness)[0].document.views[0].options.conditions_open).toBeUndefined();
-    execute.mockRestore();
   });
 
   it("names itself after the question until the reader names it", async () => {
@@ -484,7 +447,7 @@ describe("reading a standing question", () => {
     expect(standingRequests()).toHaveLength(before + 1);
   });
 
-  it("shares Conditions state between the journal and Settings through document history", async () => {
+  it("folds the journal's conditions without folding the editor", async () => {
     const user = userEvent.setup();
     const harness = await mountAt(
       `/g/${GRAPH_ID}/journal`,
@@ -493,41 +456,17 @@ describe("reading a standing question", () => {
         <DefaultQueriesSection />
       </>,
     );
-    const query = await seed(harness, { plan: defaultPlan("block") });
+    await seed(harness, { plan: defaultPlan("block") });
     await user.click(screen.getByTestId("default-query-disclose"));
     const journal = within(screen.getByTestId("journal-queries"));
     const editor = within(screen.getByTestId("settings-default-queries"));
-    const assertOpen = (open: boolean) => {
-      expect(journal.getByTestId("query-conditions-trigger")).toHaveAttribute(
-        "aria-expanded",
-        String(open),
-      );
-      expect(editor.getByTestId("default-query-conditions-trigger")).toHaveAttribute(
-        "aria-expanded",
-        String(open),
-      );
-    };
 
-    await user.click(editor.getByTestId("default-query-conditions-trigger"));
-    await waitFor(() => assertOpen(false));
-    await user.click(journal.getByTestId("query-conditions-trigger"));
-    await waitFor(() => assertOpen(true));
-    expect(queries(harness)[0].document.views[0].options.conditions_open).toBe(true);
-
-    await harness.settle(() => harness.session.execute({ type: "undo" }));
-    assertOpen(false);
-    await harness.settle(() => harness.session.execute({ type: "redo" }));
-    assertOpen(true);
-
-    // A canonical change arriving independently of either disclosure also wins.
-    const saved = queries(harness)[0].document.views[0];
-    await harness.settle(() =>
-      harness.session.execute({
-        type: "put_query_view",
-        owner: { kind: "graph_default", default_query_id: query.id },
-        view: { ...saved, options: { ...saved.options, conditions_open: false } },
-      }),
+    const fold = journal.getByTestId("query-conditions-trigger");
+    const wasOpen = fold.getAttribute("aria-expanded") === "true";
+    await user.click(fold);
+    await waitFor(() =>
+      expect(queries(harness)[0].document.views[0].options.conditions_open).toBe(!wasOpen),
     );
-    assertOpen(false);
+    expect(editor.getByTestId("query-builder")).toBeInTheDocument();
   });
 });

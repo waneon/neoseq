@@ -158,9 +158,9 @@ result row.
 
 A standing answer exposes its conditions for inspection as well as reading
 actions, saved-view shaping, folding, and editing of the blocks it quotes.
-Conditions disclosure is shared with its Settings editor; authoring the definition
-remains in Settings. It does not imply that the journal owns the
-question. The route to edit the question names and opens its graph-settings
+Folding those conditions belongs to the journal; the Settings editor always lays
+them out, because authoring the definition remains in Settings. Disclosure does
+not imply that the journal owns the question. The route to edit the question names and opens its graph-settings
 owner.
 
 Shared control, drag, and overlay behavior follows
