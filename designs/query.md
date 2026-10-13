@@ -45,12 +45,17 @@ controls the surface may state permanently and who owns authoring.
 
 ## Question and Answer Controls
 
-The query builder separates the source, its conditions, and the returned answer.
-A source header states which entities to search. Consistent filter rows make
-field, comparison, and value recognizable as controls; depth expresses nested
-condition groups. Adding a condition is the primary action within that section.
-A quieter footer holds result grain and row limit. Builder state that has no
-semantic effect is omitted from storage.
+The query builder reads as a sentence: `Find [subject]`, its filters, then
+`Show [grain] up to [limit]`. Each filter is one phrase — field, comparison, and
+value, written as the caption writes them — and pressing it opens an editor for
+that filter alone; one just added opens on its value. The word before each
+filter is how it combines (`where`, `and`, `or`, or `none of` before an
+excluding group's first filter), and choosing that word changes how the whole
+group combines. A nested group is an inset clause with its own words and a menu
+for its combination and removal. `Add filter` is the primary action: a searchable
+list of the subject's fields, ending in a filter group. Removal is present at
+the hand beside each phrase. Builder state that has no semantic effect is
+omitted from storage.
 
 The question explicitly returns entities or a summary. An entity answer has one
 row per selected thing; a summary states its grouping fields and scalar

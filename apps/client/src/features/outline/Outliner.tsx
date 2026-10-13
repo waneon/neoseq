@@ -224,7 +224,7 @@ const NO_PAGE_REFERENCES: readonly PageReferenceSpan[] = [];
  * autocomplete, a settings dialog — and the outline is not one of them.
  */
 const FLOATING_OVERLAY_SELECTOR =
-  '[data-slot="dropdown-menu-content"],[data-slot="select-content"],[data-slot="dialog-content"],.ac-popover,.property-picker,.tag-picker,.slash-menu,.cmdk';
+  '[data-slot="dropdown-menu-content"],[data-slot="dialog-content"],.ac-popover,.property-picker,.tag-picker,.slash-menu,.cmdk';
 /** Edge band that pulls the scroll container along during a drag. */
 const AUTOSCROLL_BAND_PX = 56;
 const AUTOSCROLL_MAX_PX = 18;

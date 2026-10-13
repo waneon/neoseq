@@ -376,9 +376,8 @@ export function valueForOperator(
 
 // ── Structure edits ───────────────────────────────────────────────────────────
 
-/** A new condition opens on the one field every subject has: its own text. */
-export function newCondition(): PlanCondition {
-  const field: PlanField = { kind: "content" };
+/** A new condition on `field`, in its first comparison and that comparison's default. */
+export function newCondition(field: PlanField = { kind: "content" }): PlanCondition {
   const op = operatorsFor(field)[0];
   return {
     id: planId("c"),

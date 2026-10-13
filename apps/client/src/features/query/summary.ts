@@ -92,18 +92,34 @@ function describeCondition(
   plan: QueryPlan,
   context: SummaryContext,
 ): string {
+  const { field, operator, value } = conditionPhrase(condition, plan.subject, context);
+  return [field, operator, value ?? ""].filter((word) => word.length > 0).join(" ");
+}
+
+/**
+ * One condition read aloud in its three parts, so a surface can set the field,
+ * the comparison, and the operand apart. `value` is `null` for comparisons that
+ * take none, and empty when one is still to be given.
+ */
+export function conditionPhrase(
+  condition: PlanCondition,
+  subject: QueryPlan["subject"],
+  context: SummaryContext,
+): { field: string; operator: string; value: string | null } {
   const { message } = context;
-  const words = [
-    fieldLabel(condition.field, plan.subject, message),
-    operatorLabel(condition.op, message),
-  ];
+  let value: string | null = null;
   if (operatorTakesValue(condition.op)) {
-    words.push(valueText(condition.field, condition.value, context));
+    value = valueText(condition.field, condition.value, context);
     if (operatorTakesRange(condition.op)) {
-      words.push(message("query.and"), valueText(condition.field, condition.value2, context));
+      const upper = valueText(condition.field, condition.value2, context);
+      value = value && upper ? `${value} ${message("query.and")} ${upper}` : "";
     }
   }
-  return words.filter((word) => word.length > 0).join(" ");
+  return {
+    field: fieldLabel(condition.field, subject, message),
+    operator: operatorLabel(condition.op, message),
+    value,
+  };
 }
 
 /** One operand as a person wrote it: a name, a day, a choice — never a raw id. */

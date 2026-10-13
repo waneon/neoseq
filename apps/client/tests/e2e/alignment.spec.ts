@@ -47,9 +47,9 @@ test("block metadata and mixed query values retain one vertical center", async (
   );
   const query = page.getByTestId("query-block");
   const builder = query.getByTestId("query-builder");
-  await app.saved(() => builder.getByTestId("qb-add-condition").click());
-  await builder.getByRole("combobox", { name: "Field", exact: true }).click();
+  await builder.getByTestId("qb-add-condition").click();
   await app.saved(() => page.getByRole("option", { name: "Status", exact: true }).click());
+  await page.keyboard.press("Escape");
 
   await query.getByTestId("query-columns-trigger").click();
   const columns = page.getByTestId("query-columns-panel");

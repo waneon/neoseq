@@ -19,7 +19,7 @@ describe("query result views", () => {
     const harness = await withResult();
     harness.port.queryResult = null;
     const user = userEvent.setup();
-    await chooseFromMenu(user, screen.getByTestId("qb-grain"), "Summary");
+    await chooseFromMenu(user, screen.getByTestId("qb-grain"), "Counts");
     await waitFor(() => {
       const plan = decodePlan(storedDefinition(harness)!.plan!.payload, QUERY_PLAN_VERSION);
       expect(plan?.grain).toBe("summary");
@@ -45,7 +45,7 @@ describe("query result views", () => {
       plan: { grain: "summary" },
     });
 
-    await chooseFromMenu(user, screen.getByTestId("qb-grain"), "Entities");
+    await chooseFromMenu(user, screen.getByTestId("qb-grain"), "Each match");
     await waitFor(() =>
       expect(
         within(screen.getByTestId("query-list")).getAllByTestId("query-list-row"),
@@ -77,9 +77,9 @@ describe("query result views", () => {
     fireEvent.change(editor, { target: { value: "Saved before summary" } });
     await waitFor(() => expect(saving).toBe(true));
     harness.port.queryResult = null;
-    await chooseFromMenu(user, screen.getByTestId("qb-grain"), "Summary");
+    await chooseFromMenu(user, screen.getByTestId("qb-grain"), "Counts");
 
-    expect(screen.getByTestId("qb-grain")).toHaveTextContent("Entities");
+    expect(screen.getByTestId("qb-grain")).toHaveTextContent("Each match");
     expect(decodePlan(storedDefinition(harness)!.plan!.payload, QUERY_PLAN_VERSION)?.grain).toBe(
       "entity",
     );
@@ -192,10 +192,10 @@ describe("query result views", () => {
       });
     };
     fireEvent.change(editor, { target: { value: "Keep this correction" } });
-    await chooseFromMenu(user, screen.getByTestId("qb-grain"), "Summary");
+    await chooseFromMenu(user, screen.getByTestId("qb-grain"), "Counts");
 
     const error = await screen.findByRole("alert");
-    expect(screen.getByTestId("qb-grain")).toHaveTextContent("Entities");
+    expect(screen.getByTestId("qb-grain")).toHaveTextContent("Each match");
     expect(editor).toHaveValue("Keep this correction");
     expect(resultBlock(harness)?.markdown).toBe("Before");
     harness.port.beforeExecute = null;

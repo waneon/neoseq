@@ -17,6 +17,13 @@ import {
   createQuery,
 } from "./query-support";
 
+/** Adds a filter on `field` through the builder's own entrance, `nth` add button first. */
+async function addFilter(user: ReturnType<typeof userEvent.setup>, field: string, nth = 0) {
+  await user.click(screen.getAllByRole("button", { name: "Add filter" })[nth]);
+  await user.click(await screen.findByRole("option", { name: field, exact: true }));
+  await screen.findByTestId("qb-filter-editor");
+}
+
 function SeededQuerySwitcher() {
   const [tagId, setTagId] = useState("tag-a");
   const document = useSessionSelector((state) => {
@@ -174,7 +181,7 @@ describe("the query builder", () => {
     const user = userEvent.setup();
 
     await harness.settle(() => fireEvent.click(screen.getByTestId("query-conditions-trigger")));
-    await waitFor(() => expect(screen.getByTestId("qb-value")).toHaveTextContent("Alpha"));
+    await waitFor(() => expect(screen.getByTestId("qb-condition")).toHaveTextContent("#Alpha"));
     await user.click(screen.getByRole("button", { name: "Switch tag" }));
     await waitFor(() =>
       expect(screen.getByTestId("query-conditions-trigger")).toHaveAttribute(
@@ -184,7 +191,7 @@ describe("the query builder", () => {
     );
     expect(screen.queryByTestId("query-builder")).not.toBeInTheDocument();
     await harness.settle(() => fireEvent.click(screen.getByTestId("query-conditions-trigger")));
-    await waitFor(() => expect(screen.getByTestId("qb-value")).toHaveTextContent("Beta"));
+    await waitFor(() => expect(screen.getByTestId("qb-condition")).toHaveTextContent("#Beta"));
   });
 
   it("is what `/` creates, and lets the core derive its compatibility SPARQL", async () => {
@@ -206,21 +213,9 @@ describe("the query builder", () => {
   it("persists a condition as a typed plan and a derived explanation", async () => {
     const harness = await mountPage();
     await createQuery(harness);
-    await harness.settle(() => fireEvent.click(screen.getByTestId("qb-add-condition")));
-    const condition = await screen.findByTestId("qb-condition");
-    const choose = async (testId: string, name: string) => {
-      // Menu opening owns its asynchronous placement and focus before selection.
-      await harness.settle(() =>
-        fireEvent.pointerDown(within(condition).getByTestId(testId), {
-          button: 0,
-          pointerType: "mouse",
-        }),
-      );
-      const option = await screen.findByRole("option", { name, exact: true });
-      await harness.settle(() => fireEvent.click(option));
-    };
-    await choose("qb-field", "Status");
-    await choose("qb-value", "Doing");
+    const user = userEvent.setup();
+    await addFilter(user, "Status");
+    await chooseFromMenu(user, screen.getByTestId("qb-value"), "Doing");
 
     await waitFor(() => {
       const plan = decodePlan(storedDefinition(harness)!.plan!.payload, QUERY_PLAN_VERSION);
@@ -238,36 +233,48 @@ describe("the query builder", () => {
   it("keeps the chosen value when the operator changes its shape", async () => {
     const harness = await mountPage();
     await createQuery(harness);
-    await harness.settle(() => fireEvent.click(screen.getByTestId("qb-add-condition")));
-    const condition = await screen.findByTestId("qb-condition");
-    const choose = async (testId: string, name: string) => {
-      await harness.settle(() =>
-        fireEvent.pointerDown(within(condition).getByTestId(testId), {
-          button: 0,
-          pointerType: "mouse",
-        }),
-      );
-      const option = await screen.findByRole("option", { name, exact: true });
-      await harness.settle(() => fireEvent.click(option));
-    };
+    const user = userEvent.setup();
     const stored = () =>
       decodePlan(storedDefinition(harness)!.plan!.payload, QUERY_PLAN_VERSION)?.where.children[0];
-    await choose("qb-field", "Status");
-    await choose("qb-value", "Doing");
+    await addFilter(user, "Status");
+    await chooseFromMenu(user, screen.getByTestId("qb-value"), "Doing");
 
     // `is any of` holds a list: the chosen value becomes its first member.
-    await choose("qb-operator", "is any of");
+    await chooseFromMenu(user, screen.getByTestId("qb-operator"), "is any of");
     await waitFor(() =>
       expect(stored()).toMatchObject({ op: "any_of", value: { type: "list", values: ["doing"] } }),
     );
     // Members read as the select reads them, not as their stored values.
-    expect(within(condition).getByTestId("qb-value-list")).toHaveTextContent("Doing");
+    expect(screen.getByTestId("qb-value-list")).toHaveTextContent("Doing");
     // And back: the list's first member is the value again.
-    await choose("qb-operator", "is");
+    await chooseFromMenu(user, screen.getByTestId("qb-operator"), "is");
     await waitFor(() =>
       expect(stored()).toMatchObject({ op: "equals", value: { type: "text", value: "doing" } }),
     );
     expect(screen.queryByTestId("toast")).not.toBeInTheDocument();
+  });
+
+  it("reads each filter as a phrase and says how filters combine", async () => {
+    const harness = await mountPage();
+    await createQuery(harness);
+    const user = userEvent.setup();
+    await addFilter(user, "Status");
+    await chooseFromMenu(user, screen.getByTestId("qb-value"), "Doing");
+    await user.keyboard("{Escape}");
+    await addFilter(user, "Text");
+    await user.keyboard("{Escape}");
+
+    const rows = await screen.findAllByTestId("qb-condition");
+    expect(rows[0]).toHaveTextContent("Status is Doing");
+    expect(rows[1]).toHaveTextContent("Text contains");
+    // The word between filters is the group's way of combining, and changes it.
+    await chooseFromMenu(user, screen.getByTestId("qb-match"), /^or/);
+    await waitFor(() =>
+      expect(
+        decodePlan(storedDefinition(harness)!.plan!.payload, QUERY_PLAN_VERSION)?.where.match,
+      ).toBe("any"),
+    );
+    expect(screen.getByTestId("qb-match")).toHaveTextContent("or");
   });
 
   it("carries a nested alternative into the plan", async () => {
@@ -275,13 +282,15 @@ describe("the query builder", () => {
     await createQuery(harness);
     const user = userEvent.setup();
 
-    await user.click(screen.getByTestId("qb-add-group"));
+    await user.click(screen.getByTestId("qb-add-condition"));
+    await user.click(await screen.findByTestId("qb-add-group"));
     await waitFor(() => expect(screen.getAllByTestId("qb-group")).toHaveLength(2));
-    // A group renders inside its parent's children, so the nested group's own
-    // "Condition" button comes first in the document.
-    const adders = () => screen.getAllByRole("button", { name: "Add condition" });
-    await user.click(adders()[0]);
-    await user.click(adders()[0]);
+    // A group renders inside its parent's filters, so the nested group's own
+    // "Add filter" comes first in the document.
+    await addFilter(user, "Text");
+    await user.keyboard("{Escape}");
+    await addFilter(user, "Text");
+    await user.keyboard("{Escape}");
 
     await waitFor(() => {
       const plan = decodePlan(storedDefinition(harness)!.plan!.payload, QUERY_PLAN_VERSION);
@@ -308,13 +317,17 @@ describe("the query builder", () => {
     };
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
+      fireEvent.click(screen.getByTestId("qb-add-condition"));
       fireEvent.click(screen.getByTestId("qb-add-group"));
       await act(async () => vi.advanceTimersByTimeAsync(600));
       expect(saving).toBe(true);
 
-      const adders = () => screen.getAllByRole("button", { name: "Add condition" });
-      fireEvent.click(adders()[0]);
-      fireEvent.click(adders()[0]);
+      const addText = () => {
+        fireEvent.click(screen.getAllByRole("button", { name: "Add filter" })[0]);
+        fireEvent.click(screen.getByRole("option", { name: "Text", exact: true }));
+      };
+      addText();
+      addText();
       expect(screen.getAllByTestId("qb-condition")).toHaveLength(2);
 
       await act(async () => {
@@ -540,10 +553,9 @@ describe("the query builder", () => {
     expect(conditions).toHaveAttribute("aria-expanded", "true");
     expect(conditions).toHaveAttribute("title", "Blocks");
 
-    await user.click(screen.getByTestId("qb-add-condition"));
-    const condition = await screen.findByTestId("qb-condition");
-    await chooseFromMenu(user, within(condition).getByTestId("qb-field"), "Status");
-    await chooseFromMenu(user, within(condition).getByTestId("qb-value"), "Doing");
+    await addFilter(user, "Status");
+    await chooseFromMenu(user, screen.getByTestId("qb-value"), "Doing");
+    await user.keyboard("{Escape}");
 
     // Word for word the builder's own vocabulary, and it tracks the plan in hand
     // rather than the one last written to the document.

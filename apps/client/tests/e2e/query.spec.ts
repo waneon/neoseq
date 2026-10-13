@@ -48,11 +48,13 @@ test("a saved task query selects exact records, orders them, and edits their sou
   const query = page.getByTestId("query-block");
   const builder = query.getByTestId("query-builder");
   await expect(builder).toBeVisible();
-  await app.saved(() => builder.getByTestId("qb-add-condition").click());
-  await app.saved(() =>
-    choose(page, builder.getByRole("combobox", { name: "Field", exact: true }), "Status"),
-  );
-  await expect(builder.getByRole("combobox", { name: "Value", exact: true })).toHaveText("To-do");
+  await builder.getByTestId("qb-add-condition").click();
+  await page.getByRole("combobox", { name: "Search fields", exact: true }).fill("Status");
+  await app.saved(() => page.keyboard.press("Enter"));
+  const filter = page.getByTestId("qb-filter-editor");
+  await expect(filter.getByRole("combobox", { name: "Value", exact: true })).toHaveText("To-do");
+  await page.keyboard.press("Escape");
+  await expect(builder.getByTestId("qb-condition")).toHaveText("Status is To-do");
 
   const table = query.getByTestId("query-table");
   const rows = table.getByTestId("query-row");

@@ -16,7 +16,6 @@ import type {
   PlanColumnSource,
   PlanField,
   PlanFieldKind,
-  PlanMatch,
   PlanOperator,
   PlanRelativeDate,
   PlanSubject,
@@ -26,12 +25,6 @@ export function subjectLabel(subject: PlanSubject, message: MessageFunction): st
   return message(
     `query.subject.${subject}` as
       "query.subject.block" | "query.subject.page" | "query.subject.tag",
-  );
-}
-
-export function matchLabel(match: PlanMatch, message: MessageFunction): string {
-  return message(
-    `query.match.${match}` as "query.match.all" | "query.match.any" | "query.match.none",
   );
 }
 
