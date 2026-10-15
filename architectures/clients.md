@@ -35,11 +35,16 @@ call Wasm, IndexedDB, or native APIs directly. Browser-only graph listing,
 deletion, copy import/export, pending-write retry, storage capabilities, and test
 fault controls are adapter operations outside the portable product contract.
 
-`GraphSession` serializes commands, remote imports, and query execution. The core
-publishes authoritative values and text mappings or an outline refresh scope.
-The session installs those values with structural sharing and reads only affected
-hydrated owners; writing an unhydrated owner does not hydrate it. It neither
-classifies commands nor replays them against a frontend graph replica.
+`GraphSession` serializes commands, remote imports, outline reads, and query
+execution. Queued graph work runs before queued queries, so a slow query delays
+no edit or navigation queued after it, and a query whose caller has moved on is
+dropped before it reaches the core. The core
+publishes authoritative values and text mappings or an outline refresh scope,
+and says whether anything outside those outlines changed. The session installs
+those values with structural sharing, reads only affected hydrated owners, and
+rereads the graph summary only when the core says it changed; writing an
+unhydrated owner does not hydrate it. It neither classifies commands nor replays
+them against a frontend graph replica.
 
 An execute outcome distinguishes rejection from an applied but unsaved change.
 Applied results retain their identity, history, and read-model publication even

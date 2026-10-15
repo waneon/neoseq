@@ -571,11 +571,13 @@ pub enum GraphChanges {
     Content {
         blocks: Vec<BlockContentUpdate>,
     },
-    /// `None` invalidates every hydrated outline; an empty list affects only
-    /// the summary. Unhydrated outlines remain demand reads.
+    /// `None` invalidates every hydrated outline. Unhydrated outlines remain
+    /// demand reads. `summary` is false when nothing the graph summary holds
+    /// changed, as when a transaction only restructures outlines.
     Refresh {
         outlines: Option<Vec<OutlineOwner>>,
         blocks: Vec<BlockContentUpdate>,
+        summary: bool,
     },
 }
 

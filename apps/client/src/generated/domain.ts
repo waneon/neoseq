@@ -39,7 +39,7 @@ export type ErrorMessage = { code: ErrorCode, recoverable: boolean,
  * Stable, content-free diagnostic suitable for logs and clients.
  */
 diagnostic: string, };
-export type GraphChanges = { "kind": "content", blocks: Array<BlockContentUpdate>, } | { "kind": "refresh", outlines: Array<OutlineOwner> | null, blocks: Array<BlockContentUpdate>, };
+export type GraphChanges = { "kind": "content", blocks: Array<BlockContentUpdate>, } | { "kind": "refresh", outlines: Array<OutlineOwner> | null, blocks: Array<BlockContentUpdate>, summary: boolean, };
 export type GraphConflict = { "kind": "duplicate_entity_name", canonical_name: string, entity_ids: Array<PageId>, } | { "kind": "default_query_overflow", overflow_ids: Array<DefaultQueryId>, } | { "kind": "query_view_overflow", owner: QueryOwner, overflow_ids: Array<QueryViewId>, } | { "kind": "query_default_view_unavailable", owner: QueryOwner, requested_view_id: QueryViewId, fallback_view_id: QueryViewId, } | { "kind": "text_limit_exceeded", target: TextTarget, actual_bytes: number, limit: number, };
 export type GraphId = string;
 export type GraphSettings = { 

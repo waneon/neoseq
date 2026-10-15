@@ -637,6 +637,7 @@ mod tests {
             domain::GraphChanges::Refresh {
                 outlines: Some(vec![OutlineOwner::Page { id: page.clone() }]),
                 blocks: vec![],
+                summary: true,
             }
         );
         assert_eq!(runtime.read_summary().unwrap().pages[0].id, page);
@@ -716,6 +717,7 @@ mod tests {
             domain::GraphChanges::Refresh {
                 outlines: Some(vec![OutlineOwner::Page { id: page.clone() }]),
                 blocks: vec![],
+                summary: true,
             }
         );
         assert_eq!(runtime.read_summary().unwrap().pages[0].id, page);

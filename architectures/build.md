@@ -51,8 +51,9 @@ client + dashboard + server + appliance controller + runtime tools
 
 The `neoseq-client` output compiles `platform-web`, generates Wasm bindings, checks the
 client, and installs the static site as one Nix store artifact. Production Wasm
-uses the `wasm-release` profile with size optimization, LTO, one codegen unit,
-aborting panics, and stripped symbols. Development and browser test builds use
+uses the `wasm-release` profile with LTO, one codegen unit, aborting panics, and
+stripped symbols. It optimizes for speed rather than size: the core runs on the
+path of every edit and query, while the service worker downloads it once. Development and browser test builds use
 the regular release profile for a faster loop.
 
 The `neoseq-dashboard` output checks the independent account administration app

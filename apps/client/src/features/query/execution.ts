@@ -35,6 +35,8 @@ interface PendingExecution {
   canonicalRevision: number;
   token: object;
   promise: Promise<void>;
+  /** Drops the query if it has not reached the core yet. */
+  abort: () => void;
 }
 
 interface QueryExecutionEntry {
@@ -92,6 +94,7 @@ export class QueryExecutionStore {
   clear(owner: string): void {
     const entry = this.entries.get(owner);
     if (!entry) return;
+    entry.pending?.abort();
     entry.pending = null;
     this.entries.delete(owner);
     this.bump(owner);
@@ -117,9 +120,10 @@ export class QueryExecutionStore {
       !(entry.error && same(entry.error))
     ) {
       // Returning to a cached identity supersedes work for an identity the
-      // component no longer wants. The Promise cannot be cancelled, but its
-      // token must not be allowed to replace the answer after this cache hit.
+      // component no longer wants. Work that already started cannot be
+      // cancelled, but its token must not replace the answer after this hit.
       if (entry.pending) {
+        entry.pending.abort();
         entry.pending = null;
         this.bump(owner);
       }
@@ -128,8 +132,10 @@ export class QueryExecutionStore {
     }
 
     const token = {};
+    const controller = new AbortController();
+    entry.pending?.abort();
     entry.error = null;
-    const promise = this.session.queryFrame(request).then(
+    const promise = this.session.queryFrame(request, controller.signal).then(
       (frame) => {
         const current = this.entries.get(owner);
         if (current?.pending?.token !== token) return;
@@ -150,7 +156,13 @@ export class QueryExecutionStore {
         this.trim();
       },
     );
-    entry.pending = { signature, canonicalRevision, token, promise };
+    entry.pending = {
+      signature,
+      canonicalRevision,
+      token,
+      promise,
+      abort: () => controller.abort(),
+    };
     this.touch(owner);
     this.bump(owner);
     return promise;

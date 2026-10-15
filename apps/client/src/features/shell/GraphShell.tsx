@@ -706,24 +706,27 @@ function ShellBody({
   // Page and tag names are already matched by the palette's own catalog, so
   // the graph search contributes the blocks, each placed by its document.
   const searchGraph = useCallback(
-    async (needle: string): Promise<PaletteCommand[]> => {
-      const result = await session.query({
-        kind: "raw_sparql",
-        language: "sparql-1.1/neoseq-v1",
-        source: `PREFIX neo: <urn:neoseq:vocab:v1:>
+    async (needle: string, signal: AbortSignal): Promise<PaletteCommand[]> => {
+      const result = await session.query(
+        {
+          kind: "raw_sparql",
+          language: "sparql-1.1/neoseq-v1",
+          source: `PREFIX neo: <urn:neoseq:vocab:v1:>
 SELECT ?entity ?content ?owner WHERE {
   ?entity a neo:Block; neo:content ?content.
   OPTIONAL { ?entity neo:owner ?owner }
   FILTER(neo:matchesText(?content, ?needle))
 } ORDER BY ?content LIMIT 20`,
-        bindings: {
-          needle: {
-            kind: "literal",
-            value: needle,
-            datatype: "http://www.w3.org/2001/XMLSchema#string",
+          bindings: {
+            needle: {
+              kind: "literal",
+              value: needle,
+              datatype: "http://www.w3.org/2001/XMLSchema#string",
+            },
           },
         },
-      });
+        signal,
+      );
       if (result.kind !== "select") return [];
       const placeName = (owner: { kind: string; id: string }): string => {
         if (owner.kind === "tag") return `#${findTag(state.snapshot, owner.id)?.name ?? owner.id}`;

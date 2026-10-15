@@ -288,6 +288,24 @@ impl WasmGraphCore {
         })
     }
 
+    #[wasm_bindgen(js_name = fromUnvalidatedSnapshot)]
+    pub fn from_unvalidated_snapshot(
+        graph_id: &str,
+        peer_id: u64,
+        snapshot: &[u8],
+    ) -> Result<WasmGraphCore, JsValue> {
+        let graph_id = domain::GraphId::new(graph_id).map_err(js_invalid_request)?;
+        let inner = GraphCore::from_unvalidated_snapshot(graph_id, peer_id, snapshot)
+            .map_err(js_core_error)?;
+        Ok(Self {
+            inner,
+            index: None,
+            pending_update: None,
+            #[cfg(test)]
+            fail_next_index_update: false,
+        })
+    }
+
     #[wasm_bindgen(js_name = fromRecoverySnapshot)]
     pub fn from_recovery_snapshot(
         graph_id: &str,

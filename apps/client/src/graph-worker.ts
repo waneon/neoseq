@@ -29,6 +29,7 @@ import {
   checksum,
   graphStorageKey,
   validChecksum,
+  type CheckpointRecord,
   type QuarantineRecord,
   type ResolvedOutboxRecord,
 } from "./persistence";
@@ -279,6 +280,10 @@ async function recover(
   graphId: string,
   metadata: { replica_id: number; schema_version: number; next_sequence: number },
 ) {
+  const checkpoints = await repository.checkpointsDescending(storageKey);
+  const intact = await recoverIntact(repository, storageKey, graphId, metadata, checkpoints[0]);
+  if (intact) return intact;
+
   const quarantinedRecords: string[] = [];
   let selected:
     | {
@@ -287,7 +292,6 @@ async function recover(
         sequence: number;
       }
     | undefined;
-  const checkpoints = await repository.checkpointsDescending(storageKey);
   for (const checkpoint of checkpoints) {
     let reason: string | undefined;
     if (!supportsDocumentSchema(checkpoint.schema_version))
@@ -404,14 +408,8 @@ async function recover(
       corruptTail,
       now(),
     );
-  } else if (metadata.schema_version < SCHEMA_VERSION) {
-    await repository.installCheckpoint(
-      storageKey,
-      ownedBuffer(core.exportSnapshot()),
-      validThrough,
-      SCHEMA_VERSION,
-      now(),
-    );
+  } else {
+    await upgradeCheckpoint(repository, storageKey, metadata, core, validThrough);
   }
   // Replayed same-replica Tail operations are durable graph state, not local
   // commands from this browser session. Start undo only after recovery reaches
@@ -425,6 +423,74 @@ async function recover(
       quarantined_records: quarantinedRecords,
     },
   };
+}
+
+/**
+ * The common case: the newest checkpoint and its whole Tail are intact, so
+ * the document is validated once, after the Tail is applied. Anything else
+ * returns null and recovery validates record by record to find what to
+ * quarantine.
+ */
+async function recoverIntact(
+  repository: IndexedDbGraphRepository,
+  storageKey: string,
+  graphId: string,
+  metadata: { replica_id: number; schema_version: number },
+  checkpoint: CheckpointRecord | undefined,
+) {
+  if (
+    !checkpoint ||
+    !supportsDocumentSchema(checkpoint.schema_version) ||
+    !(await validChecksum(checkpoint.checksum, checkpoint.payload))
+  ) {
+    return null;
+  }
+  const updates = await repository.updatesAfter(storageKey, checkpoint.local_sequence);
+  const checksums = await Promise.all(
+    updates.map((update) => validChecksum(update.checksum, update.payload)),
+  );
+  if (!checksums.every(Boolean)) return null;
+  let core: WasmGraphCore;
+  try {
+    core = WasmGraphCore.fromUnvalidatedSnapshot(
+      graphId,
+      BigInt(metadata.replica_id),
+      new Uint8Array(checkpoint.payload),
+    );
+    for (const update of updates) core.stageRecoveryUpdate(new Uint8Array(update.payload));
+    core.finishRecovery();
+  } catch {
+    return null;
+  }
+  const validThrough = updates.at(-1)?.local_sequence ?? checkpoint.local_sequence;
+  await upgradeCheckpoint(repository, storageKey, metadata, core, validThrough);
+  core.resetLocalHistory();
+  return {
+    core,
+    report: {
+      checkpoint_sequence: checkpoint.local_sequence,
+      replayed_updates: updates.length,
+      quarantined_records: [],
+    },
+  };
+}
+
+/** Rewrites a checkpoint stored under an older document schema. */
+async function upgradeCheckpoint(
+  repository: IndexedDbGraphRepository,
+  storageKey: string,
+  metadata: { schema_version: number },
+  core: WasmGraphCore,
+  validThrough: number,
+) {
+  if (metadata.schema_version >= SCHEMA_VERSION) return;
+  await repository.installCheckpoint(
+    storageKey,
+    ownedBuffer(core.exportSnapshot()),
+    validThrough,
+    SCHEMA_VERSION,
+    now(),
+  );
 }
 
 async function execute(request: ExecuteRequest) {

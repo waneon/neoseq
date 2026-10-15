@@ -91,7 +91,11 @@ The RDF store remains the semantic index. The planner recognizes only algebra
 shapes whose restriction is provably equivalent: mandatory text/range/equality
 conditions become compressed candidate intersections, and a simple ordered
 entity query may evaluate its bounded top candidates against a temporary RDF
-dataset. Oxigraph still evaluates the complete query and therefore remains the
+dataset. Bound parameters and text candidates enter as a `VALUES` join on the
+group pattern they constrain, inside the required side of `OPTIONAL` and
+`MINUS` and each `UNION` branch, where the optimizer plans them with the
+patterns beside them. A text candidate set too large to lead that join is not
+injected; a filtered scan is cheaper. Oxigraph still evaluates the complete query and therefore remains the
 semantic verifier. Unsupported or ambiguous shapes fall back to the complete
 RDF store. A hierarchy reachability cache remains a compatible future
 accelerator, not a second query contract.

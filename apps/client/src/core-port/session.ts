@@ -102,9 +102,17 @@ export interface SessionPort extends CorePort {
   terminate?(): void;
 }
 
+type Lane = "graph" | "query";
+type Job = () => Promise<void>;
+
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
+}
+
 type ReconcileScope =
   | { kind: "summary" }
-  | { kind: "outlines"; owners: readonly OutlineOwner[] }
+  /** `summary` is false when the core reports that only these outlines changed. */
+  | { kind: "outlines"; owners: readonly OutlineOwner[]; summary: boolean }
   | { kind: "all-hydrated-outlines" };
 
 export class GraphSession {
@@ -116,7 +124,10 @@ export class GraphSession {
   private opening: Promise<void> | null = null;
   private closing: Promise<void> | null = null;
   private closeRequested = false;
-  private queue: Promise<unknown> = Promise.resolve();
+  /** Graph work runs before queries; each lane is first in, first out. */
+  private readonly lanes: Record<Lane, Job[]> = { graph: [], query: [] };
+  private queue: Promise<void> = Promise.resolve();
+  private draining = false;
   private listeners = new Set<() => void>();
   private syncAgent: SyncAgent | null = null;
   private readonly sessionId = `neoseq-client:${tabId()}:${randomUUID()}`;
@@ -272,36 +283,77 @@ export class GraphSession {
     return this.enqueue(() => this.retryNow());
   }
 
-  /** Executes against the published derived index after prior mutations settle. */
-  query(query: AuthoredQueryRequest): Promise<SparqlQueryResult> {
-    return this.queryFrame(query).then((frame) => frame.result);
+  /**
+   * Executes against the published derived index after prior mutations settle.
+   * Queries wait behind graph work queued before they start, and one aborted
+   * before it starts never reaches the core.
+   */
+  query(query: AuthoredQueryRequest, signal?: AbortSignal): Promise<SparqlQueryResult> {
+    return this.queryFrame(query, signal).then((frame) => frame.result);
   }
 
-  queryFrame(query: AuthoredQueryRequest): Promise<QueryFrame> {
+  queryFrame(query: AuthoredQueryRequest, signal?: AbortSignal): Promise<QueryFrame> {
     const request = structuredClone(query);
-    return this.enqueue(async () => {
-      await this.ensureCurrent();
-      if (this.state.status !== "ready") {
-        throw new CorePortFailure({
-          code: "graph_not_open",
-          message: "graph is not open",
-          retryable: false,
-        });
-      }
-      const canonicalRevision = this.state.canonicalRevision;
-      const response = await this.port.query({ graph_handle: this.handle, query: request });
-      return { request, result: response.result, canonicalRevision };
-    });
+    return this.enqueue(
+      async () => {
+        await this.ensureCurrent();
+        if (this.state.status !== "ready") {
+          throw new CorePortFailure({
+            code: "graph_not_open",
+            message: "graph is not open",
+            retryable: false,
+          });
+        }
+        const canonicalRevision = this.state.canonicalRevision;
+        const response = await this.port.query({ graph_handle: this.handle, query: request });
+        return { request, result: response.result, canonicalRevision };
+      },
+      "query",
+      signal,
+    );
   }
 
   /**
-   * Serializes graph work behind everything queued before it. The work counts
-   * as application activity until it settles; failures do not stall the queue.
+   * Runs work one item at a time: queued graph work first, then queries. The
+   * work counts as application activity until it settles; failures do not
+   * stall the queue. Work aborted while it waits is dropped.
    */
-  private enqueue<T>(work: () => Promise<T>): Promise<T> {
-    const run = trackActivity(this.queue.then(work));
-    this.queue = run.catch(() => undefined);
-    return run;
+  private enqueue<T>(
+    work: () => Promise<T>,
+    lane: Lane = "graph",
+    signal?: AbortSignal,
+  ): Promise<T> {
+    if (signal?.aborted) return Promise.reject(abortReason(signal));
+    const run = new Promise<T>((resolve, reject) => {
+      const jobs = this.lanes[lane];
+      const drop = () => {
+        const index = jobs.indexOf(job);
+        if (index < 0) return;
+        jobs.splice(index, 1);
+        reject(abortReason(signal!));
+      };
+      const job: Job = () => {
+        signal?.removeEventListener("abort", drop);
+        return work().then(resolve, reject);
+      };
+      jobs.push(job);
+      signal?.addEventListener("abort", drop, { once: true });
+    });
+    this.drain();
+    return trackActivity(run);
+  }
+
+  private drain(): void {
+    if (this.draining) return;
+    this.draining = true;
+    this.queue = (async () => {
+      for (;;) {
+        const job = this.lanes.graph.shift() ?? this.lanes.query.shift();
+        if (!job) break;
+        await job();
+      }
+      this.draining = false;
+    })();
   }
 
   close(): Promise<void> {
@@ -405,7 +457,7 @@ export class GraphSession {
     }
     const scope: ReconcileScope =
       changes.kind === "refresh" && changes.outlines !== null
-        ? { kind: "outlines", owners: changes.outlines }
+        ? { kind: "outlines", owners: changes.outlines, summary: changes.summary }
         : { kind: "all-hydrated-outlines" };
     // A missed event invalidates the mapping from the client's old baseline.
     // Refresh publications arrive through the serialized import/command path.
@@ -526,8 +578,13 @@ export class GraphSession {
     } catch {
       // A failed event poll falls through to the authoritative re-read below.
     }
-    const read = await this.port.read({ graph_handle: this.handle });
-    let snapshot = mergeSummary(read.summary, this.state.snapshot);
+    let snapshot =
+      scope.kind === "outlines" && !scope.summary
+        ? this.state.snapshot
+        : mergeSummary(
+            (await this.port.read({ graph_handle: this.handle })).summary,
+            this.state.snapshot,
+          );
     const ownersToRead =
       scope.kind === "all-hydrated-outlines"
         ? [...this.state.hydratedOutlines].map((key) => parseOutlineKey(key, snapshot))

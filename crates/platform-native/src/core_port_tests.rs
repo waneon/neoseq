@@ -311,6 +311,7 @@ fn core_port_native_contract_suite_matches_current_golden() {
                     id: PageId::new(page_id).unwrap()
                 }]),
                 blocks: vec![],
+                summary: true,
             }
         );
         let summary = port

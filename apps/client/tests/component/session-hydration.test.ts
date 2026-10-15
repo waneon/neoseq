@@ -163,6 +163,41 @@ describe("outline hydration", () => {
     await session.close();
   });
 
+  it("rereads only the outline a structural edit changed, and the summary for a rename", async () => {
+    const port = new TrackingCorePort();
+    const session = new GraphSession("structural-reconcile-test", port);
+    await session.open();
+    await session.execute({ type: "ensure_page", page_id: "home", title: "Home" });
+    const inserted = await session.execute({
+      type: "insert_block",
+      owner: { kind: "page", id: "home" },
+      parent: null,
+      index: 0,
+      markdown: "BeforeAfter",
+    });
+    await session.hydratePage("home");
+    port.readOwners.length = 0;
+    port.summaryReads = 0;
+
+    await session.execute({
+      type: "split_block",
+      owner: { kind: "page", id: "home" },
+      block_id: inserted.created_block!,
+      index: 6,
+      placement: "after",
+    });
+    expect(port.summaryReads).toBe(0);
+    expect(port.readOwners).toEqual(["document:home"]);
+    expect(
+      findPage(session.getState().snapshot, "home")?.blocks.map((block) => block.markdown),
+    ).toEqual(["Before", "After"]);
+
+    await session.execute({ type: "rename_page", page_id: "home", title: "Renamed" });
+    expect(port.summaryReads).toBe(1);
+    expect(findPage(session.getState().snapshot, "home")?.title).toBe("Renamed");
+    await session.close();
+  });
+
   it("keeps structural and content writes to an unhydrated owner as demand reads", async () => {
     const port = new TrackingCorePort();
     const session = new GraphSession("unhydrated-write-test", port);

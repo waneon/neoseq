@@ -94,7 +94,13 @@ deterministically promotes the next preserved item.
 One `ProjectedGraph` pass produces values, quarantine, and typed conflicts
 together. It reads each page and tag header once and visits each visible block
 once; `GraphSnapshot` and `GraphSummary` are views of that same result rather
-than independent interpretations of the causal document.
+than independent interpretations of the causal document. A summary visits
+blocks only to measure their text, so it reports the same conflicts without
+materializing any block.
+
+Projecting one outline reads the pages and tags its blocks reference, not the
+graph: a reference title and a tag's liveness are looked up by ID. An edit or an
+outline read therefore costs its own outline at any graph size.
 
 ## Query Representation
 

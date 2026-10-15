@@ -52,6 +52,11 @@ const NEO_CONTENT: &str = "urn:neoseq:vocab:v1:content";
 const NEO_NAME: &str = "urn:neoseq:vocab:v1:name";
 const MIN_TOP_K_ENTITY_COUNT: usize = 12_000;
 const MIN_TOP_K_CANDIDATE_COUNT: u64 = 5_000;
+/// The optimizer sizes a pattern with a bound predicate and object at 10,000
+/// rows whatever the graph holds. A larger candidate table stops leading the
+/// join and is re-scanned once per scanned entity instead, so beyond this a
+/// filtered scan is the faster plan.
+const MAX_INJECTED_TEXT_CANDIDATES: usize = 5_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -2775,7 +2780,8 @@ fn inject_text_candidates(
             continue;
         };
         if !candidates.is_empty()
-            && (candidates.len() > 100_000 || candidates.len().saturating_mul(4) > index.len())
+            && (candidates.len() >= MAX_INJECTED_TEXT_CANDIDATES
+                || candidates.len().saturating_mul(4) > index.len())
         {
             continue;
         }
@@ -2947,9 +2953,16 @@ fn inject_query_bindings(
     Ok(())
 }
 
-/// Inserts an algebraic VALUES row inside solution modifiers. This gives bound
-/// variables normal SPARQL join semantics without rewriting query text, while
-/// preserving the SELECT projection exactly as authored.
+/// Joins a VALUES table to the group pattern it constrains. Bound variables get
+/// normal SPARQL join semantics without rewriting query text, and the SELECT
+/// projection stays exactly as authored.
+///
+/// The table descends into the required side of OPTIONAL and MINUS and into
+/// every UNION branch, which is equivalent for a join. It must not stop above
+/// them: the optimizer reorders the operands of a join but never looks inside
+/// an operand that is not itself a join, so the patterns under an OPTIONAL
+/// beside a VALUES table would lose their join keys and degrade to cross
+/// products.
 fn inject_values(
     pattern: &mut GraphPattern,
     variables: Vec<Variable>,
@@ -2963,7 +2976,13 @@ fn inject_values(
         | GraphPattern::Distinct { inner }
         | GraphPattern::Reduced { inner }
         | GraphPattern::Slice { inner, .. }
-        | GraphPattern::Group { inner, .. } => inject_values(inner, variables, rows),
+        | GraphPattern::Group { inner, .. }
+        | GraphPattern::LeftJoin { left: inner, .. }
+        | GraphPattern::Minus { left: inner, .. } => inject_values(inner, variables, rows),
+        GraphPattern::Union { left, right } => {
+            inject_values(left, variables.clone(), rows.clone());
+            inject_values(right, variables, rows);
+        }
         _ => {
             let original = std::mem::replace(pattern, GraphPattern::Bgp { patterns: vec![] });
             *pattern = GraphPattern::Join {
@@ -3372,6 +3391,64 @@ mod tests {
             };
             assert_eq!(rows.len(), expected, "needle: {needle:?}");
         }
+    }
+
+    #[test]
+    fn bound_values_join_the_patterns_they_constrain() {
+        // The optimizer never reorders inside a join operand that is not a join,
+        // so a VALUES table beside an OPTIONAL or UNION would leave the patterns
+        // under it without join keys.
+        let Query::Select { mut pattern, .. } = SparqlParser::new()
+            .parse_query(
+                "PREFIX neo: <urn:neoseq:vocab:v1:>\n\
+                 SELECT ?entity ?owner WHERE {\n\
+                   { ?entity neo:content ?content } UNION { ?entity neo:name ?content }\n\
+                   OPTIONAL { ?entity neo:owner ?owner }\n\
+                   MINUS { ?entity neo:tag ?tag }\n\
+                   FILTER(neo:matchesText(?content, ?needle))\n\
+                 } ORDER BY ?content",
+            )
+            .unwrap()
+        else {
+            panic!("expected SELECT");
+        };
+        inject_values(
+            &mut pattern,
+            vec![Variable::new("needle").unwrap()],
+            vec![vec![Some(Literal::from("x").into())]],
+        );
+
+        fn tables(pattern: &GraphPattern) -> usize {
+            match pattern {
+                GraphPattern::Join { left, right } => {
+                    if let GraphPattern::Values { .. } = left.as_ref() {
+                        assert!(
+                            matches!(
+                                right.as_ref(),
+                                GraphPattern::Bgp { .. } | GraphPattern::Join { .. }
+                            ),
+                            "VALUES joined above {right:?}"
+                        );
+                        return 1 + tables(right);
+                    }
+                    tables(left) + tables(right)
+                }
+                GraphPattern::Values { .. } => panic!("VALUES outside a join"),
+                GraphPattern::Filter { inner, .. }
+                | GraphPattern::Extend { inner, .. }
+                | GraphPattern::OrderBy { inner, .. }
+                | GraphPattern::Project { inner, .. }
+                | GraphPattern::Distinct { inner }
+                | GraphPattern::Reduced { inner }
+                | GraphPattern::Slice { inner, .. }
+                | GraphPattern::Group { inner, .. } => tables(inner),
+                GraphPattern::LeftJoin { left, right, .. }
+                | GraphPattern::Minus { left, right }
+                | GraphPattern::Union { left, right } => tables(left) + tables(right),
+                _ => 0,
+            }
+        }
+        assert_eq!(tables(&pattern), 2, "one table per UNION branch");
     }
 
     #[test]

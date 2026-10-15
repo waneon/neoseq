@@ -43,7 +43,6 @@ zip = { version = "=8.6.0", default-features = false }
 
 [profile.wasm-release]
 inherits = "release"
-opt-level = "z"
 lto = "fat"
 codegen-units = 1
 panic = "abort"

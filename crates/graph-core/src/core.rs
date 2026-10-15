@@ -258,6 +258,9 @@ pub enum GraphChangeSet {
     Incremental {
         pages: BTreeSet<PageId>,
         tags: BTreeSet<TagId>,
+        /// Whether anything outside an outline changed: a header, a name, the
+        /// set of entities, or graph settings.
+        summary: bool,
     },
     Rebuild,
 }
@@ -267,6 +270,7 @@ impl Default for GraphChangeSet {
         Self::Incremental {
             pages: BTreeSet::new(),
             tags: BTreeSet::new(),
+            summary: false,
         }
     }
 }
@@ -305,7 +309,22 @@ impl GraphChangeSet {
             tags.insert(tag);
         }
     }
+
+    fn include_summary(&mut self) {
+        if let Self::Incremental { summary, .. } = self {
+            *summary = true;
+        }
+    }
+
+    fn changes_summary(&self) -> bool {
+        match self {
+            Self::Incremental { summary, .. } => *summary,
+            Self::Rebuild => true,
+        }
+    }
 }
+
+const UPDATED_AT: &str = "builtin.updated-at";
 
 type ContentMappings = BTreeMap<(OutlineOwner, BlockId), Vec<ContentRangeChange>>;
 
@@ -480,6 +499,23 @@ impl ProjectionChangeTracker {
                 result.require_rebuild();
                 continue;
             }
+            // Everything an outline holds lives under its entity's `outline` key:
+            // root map, then the entity record, then that key. The `updated-at`
+            // stamp every edit leaves on its document is not summary news either;
+            // like typing, it reaches the reader with the next summary read.
+            let in_outline = change
+                .path
+                .first()
+                .is_some_and(|(root, _)| roots.contains(root))
+                && matches!(change.path.get(2), Some((_, Index::Key(key))) if key.as_ref() == "outline");
+            let stamp =
+                change.path.iter().any(
+                    |(_, index)| matches!(index, Index::Key(key) if key.as_ref() == UPDATED_AT),
+                ) || (!change.map_keys.is_empty()
+                    && change.map_keys.iter().all(|key| key == UPDATED_AT));
+            if !in_outline && !stamp {
+                result.include_summary();
+            }
             if roots.contains(&change.target) {
                 for id in &change.map_keys {
                     if let Some(record) = records.get(id).and_then(value_into_map) {
@@ -573,16 +609,16 @@ impl GraphCore {
         peer_id: u64,
         snapshot: &[u8],
     ) -> Result<Self, CoreError> {
-        let mut core = Self::from_recovery_snapshot(graph_id, peer_id, snapshot)?;
+        let mut core = Self::from_unvalidated_snapshot(graph_id, peer_id, snapshot)?;
         core.finish_recovery()?;
         Ok(core)
     }
 
-    /// Loads a persistence Base. Recovery adapters must
-    /// replay the complete durable Tail with `import_recovery_update`, then
-    /// call `finish_recovery` before exposing the graph to normal reads or
-    /// writes.
-    pub fn from_recovery_snapshot(
+    /// Loads a persistence Base without validating it on its own. The caller
+    /// stages the complete Tail and calls `finish_recovery`, which validates the
+    /// result once. If that fails, recovery restarts from
+    /// `from_recovery_snapshot`, which can tell which record is invalid.
+    pub fn from_unvalidated_snapshot(
         graph_id: GraphId,
         peer_id: u64,
         snapshot: &[u8],
@@ -590,8 +626,6 @@ impl GraphCore {
         let doc = LoroDoc::from_snapshot(snapshot)?;
         configure_inline_content(&doc);
         doc.set_peer_id(peer_id)?;
-        verify_schema(&doc, &graph_id)?;
-        validate_entity_names(&doc)?;
         enable_outlines(&doc)?;
         let undo = UndoManager::new(&doc);
         Ok(Self {
@@ -603,6 +637,21 @@ impl GraphCore {
             undo_history: Vec::new(),
             redo_history: Vec::new(),
         })
+    }
+
+    /// Loads a persistence Base. Recovery adapters must
+    /// replay the complete durable Tail with `import_recovery_update`, then
+    /// call `finish_recovery` before exposing the graph to normal reads or
+    /// writes.
+    pub fn from_recovery_snapshot(
+        graph_id: GraphId,
+        peer_id: u64,
+        snapshot: &[u8],
+    ) -> Result<Self, CoreError> {
+        let core = Self::from_unvalidated_snapshot(graph_id, peer_id, snapshot)?;
+        verify_schema(&core.doc, &core.graph_id)?;
+        validate_entity_names(&core.doc)?;
+        Ok(core)
     }
 
     /// Replays a durable Tail while preserving current-schema invariants.
@@ -639,14 +688,10 @@ impl GraphCore {
 
     /// Validates Base+Tail and starts a fresh undo epoch.
     pub fn finish_recovery(&mut self) -> Result<(), CoreError> {
-        let peer_id = self.doc.peer_id();
-        let staged = self.doc.fork();
-        configure_inline_content(&staged);
-        staged.set_peer_id(peer_id)?;
-        verify_schema(&staged, &self.graph_id)?;
-        validate_entity_names(&staged)?;
-        enable_outlines(&staged)?;
-        self.doc = staged;
+        // Validation only reads, so a failure leaves the document as staged.
+        verify_schema(&self.doc, &self.graph_id)?;
+        validate_entity_names(&self.doc)?;
+        enable_outlines(&self.doc)?;
         self.reset_local_history();
         Ok(())
     }
@@ -871,7 +916,7 @@ impl GraphCore {
     ) -> GraphChanges {
         let outlines = match changes {
             GraphChangeSet::Rebuild => None,
-            GraphChangeSet::Incremental { pages, tags } => Some(
+            GraphChangeSet::Incremental { pages, tags, .. } => Some(
                 pages
                     .iter()
                     .cloned()
@@ -880,15 +925,15 @@ impl GraphCore {
                     .collect(),
             ),
         };
-        GraphChanges::Refresh { outlines, blocks }
+        GraphChanges::Refresh {
+            outlines,
+            blocks,
+            summary: changes.changes_summary(),
+        }
     }
 
     fn content_publication(&self, mappings: &ContentMappings) -> Vec<BlockContentUpdate> {
         let mut diagnostics = ProjectionDiagnostics::default();
-        let directory = page_directory(&self.doc, &mut diagnostics.quarantined)
-            .into_iter()
-            .map(|entry| (entry.id.clone(), entry))
-            .collect();
         mappings
             .iter()
             .filter_map(|((owner, block_id), mapping)| {
@@ -896,7 +941,7 @@ impl GraphCore {
                 let text = self.block_text(owner, block_id).ok()?;
                 let (markdown, page_references, content) = materialize_block_content(
                     &text,
-                    &directory,
+                    &self.doc,
                     block_id.as_str(),
                     &mut diagnostics.quarantined,
                 );
@@ -949,7 +994,10 @@ impl GraphCore {
             return Err(CoreError::MissingDependencies);
         }
         let mappings = change_tracker.content_mappings(&self.doc);
-        let changes = change_tracker.finish(&self.doc);
+        let mut changes = change_tracker.finish(&self.doc);
+        // Merged text can cross its limit without either side exceeding it,
+        // which the summary reports as a conflict.
+        changes.include_summary();
         let publication = self.refresh_publication(&changes, self.content_publication(&mappings));
         Ok((changes, publication))
     }
@@ -1078,7 +1126,7 @@ impl GraphCore {
     /// Projects the complete public graph and its diagnostics in one walk per
     /// canonical entity. Snapshot and summary are views of this same result;
     /// neither performs a second interpretation of CRDT state.
-    fn project_graph(&self) -> Result<ProjectedGraph, CoreError> {
+    fn project_graph(&self, blocks: Blocks) -> Result<ProjectedGraph, CoreError> {
         let mut diagnostics = ProjectionDiagnostics::default();
         let mut tag_headers = BTreeMap::<TagId, (TagSummary, LoroMap)>::new();
         crate::entities::tags(&self.doc).for_each(|raw_id, value| {
@@ -1098,8 +1146,6 @@ impl GraphCore {
                 tag_headers.insert(tag_id, (summary, tag));
             }
         });
-        let live_tags = live_tag_ids(&self.doc);
-
         let mut page_directory = BTreeMap::<PageId, PageDirectoryEntry>::new();
         let mut page_headers = BTreeMap::<PageId, (PageSnapshot, LoroMap)>::new();
         crate::entities::all(&self.doc).for_each(|raw_id, value| {
@@ -1115,7 +1161,7 @@ impl GraphCore {
                     .push(format!("page:{raw_id}:not-map"));
                 return;
             };
-            let Some(header) = project_page_header(&page_id, &page, &live_tags, &mut diagnostics)
+            let Some(header) = project_page_header(&page_id, &page, &self.doc, &mut diagnostics)
             else {
                 return;
             };
@@ -1124,29 +1170,16 @@ impl GraphCore {
                 page_headers.insert(page_id, (snapshot, page));
             }
         });
-        let directory = page_directory.clone();
-
         let mut tags = Vec::with_capacity(tag_headers.len());
         for (tag_id, (summary, tag)) in tag_headers {
             let owner = OutlineOwner::Tag { id: tag_id };
             let outline = tag_outline(&tag)?;
-            let mut blocks = Vec::new();
-            for root in outline.roots() {
-                blocks.push(project_block_snapshot(
-                    &outline,
-                    root,
-                    &owner,
-                    &live_tags,
-                    &directory,
-                    &mut diagnostics,
-                )?);
-            }
             tags.push(TagSnapshot {
                 id: summary.id,
                 name: summary.name,
                 properties: summary.properties,
                 defaults: summary.defaults,
-                blocks,
+                blocks: blocks.project(&self.doc, &outline, &owner, &mut diagnostics)?,
             });
         }
 
@@ -1162,16 +1195,7 @@ impl GraphCore {
                 pages.insert(page_id, snapshot);
                 continue;
             };
-            for root in outline.roots() {
-                snapshot.blocks.push(project_block_snapshot(
-                    &outline,
-                    root,
-                    &owner,
-                    &live_tags,
-                    &directory,
-                    &mut diagnostics,
-                )?);
-            }
+            snapshot.blocks = blocks.project(&self.doc, &outline, &owner, &mut diagnostics)?;
             pages.insert(page_id, snapshot);
         }
 
@@ -1211,7 +1235,7 @@ impl GraphCore {
     }
 
     pub fn snapshot(&self) -> Result<GraphSnapshot, CoreError> {
-        let projection = self.project_graph()?;
+        let projection = self.project_graph(Blocks::Project)?;
         Ok(GraphSnapshot {
             schema_version: SCHEMA_VERSION,
             graph_id: self.graph_id.clone(),
@@ -1225,7 +1249,7 @@ impl GraphCore {
     }
 
     pub fn summary(&self) -> Result<GraphSummary, CoreError> {
-        let projection = self.project_graph()?;
+        let projection = self.project_graph(Blocks::CheckLimits)?;
         Ok(GraphSummary {
             schema_version: SCHEMA_VERSION,
             graph_id: self.graph_id.clone(),
@@ -1259,8 +1283,7 @@ impl GraphCore {
     pub fn page_snapshot(&self, page_id: &PageId) -> Result<PageSnapshot, CoreError> {
         let page = self.require_live_page(page_id)?;
         let mut quarantined = Vec::new();
-        let live_tags = live_tag_ids(&self.doc);
-        let mut snapshot = page_metadata(page_id, &page, &live_tags, &mut quarantined)
+        let mut snapshot = page_metadata(page_id, &page, &self.doc, &mut quarantined)
             .ok_or_else(|| CoreError::PageDeleted(page_id.clone()))?;
         snapshot.blocks = self
             .outline_snapshot(&OutlineOwner::Page {
@@ -1273,20 +1296,14 @@ impl GraphCore {
     pub fn outline_snapshot(&self, owner: &OutlineOwner) -> Result<OutlineSnapshot, CoreError> {
         self.require_live_outline_owner(owner)?;
         let outline = self.outline(owner)?;
-        let live_tags = live_tag_ids(&self.doc);
         let mut quarantined = Vec::new();
-        let directory = page_directory(&self.doc, &mut quarantined)
-            .into_iter()
-            .map(|entry| (entry.id.clone(), entry))
-            .collect::<BTreeMap<_, _>>();
         let mut blocks = Vec::new();
         for root in outline.roots() {
             blocks.push(block_snapshot(
                 &outline,
                 root,
                 owner,
-                &live_tags,
-                &directory,
+                &self.doc,
                 &mut quarantined,
             )?);
         }
@@ -1303,6 +1320,7 @@ impl GraphCore {
         let GraphChangeSet::Incremental {
             pages: affected_pages,
             tags: affected_tags,
+            ..
         } = changes
         else {
             return Ok(None);
@@ -1318,20 +1336,9 @@ impl GraphCore {
             }
         }
 
-        let mut directory_issues = Vec::new();
-        let directory = page_directory(&self.doc, &mut directory_issues)
-            .into_iter()
-            .map(|entry| (entry.id.clone(), entry))
-            .collect::<BTreeMap<_, _>>();
         for tag_id in affected_tags {
             let mut quarantined = Vec::new();
-            if let Some(tag) = tag_snapshot_by_id(
-                &self.doc,
-                tag_id,
-                &live_tag_ids(&self.doc),
-                &directory,
-                &mut quarantined,
-            )? {
+            if let Some(tag) = tag_snapshot_by_id(&self.doc, tag_id, &mut quarantined)? {
                 index_changes.push(IndexChange::Upsert(IndexUnit::Tag(tag)));
             } else {
                 index_changes.push(IndexChange::Remove(IndexUnitId::Tag(tag_id.clone())));
@@ -1347,12 +1354,7 @@ impl GraphCore {
         &self,
     ) -> Result<impl Iterator<Item = Result<IndexUnit, CoreError>> + '_, CoreError> {
         let mut quarantined = Vec::new();
-        let live_tags = live_tag_ids(&self.doc);
-        let directory = page_directory(&self.doc, &mut quarantined)
-            .into_iter()
-            .map(|entry| (entry.id.clone(), entry))
-            .collect::<BTreeMap<_, _>>();
-        let tags = tag_snapshots(&self.doc, &live_tags, &directory, &mut quarantined)?;
+        let tags = tag_snapshots(&self.doc, &mut quarantined)?;
         let pages = crate::entities::all(&self.doc);
         let mut page_ids = BTreeSet::new();
         pages.for_each(|raw_id, value| {
@@ -1365,7 +1367,7 @@ impl GraphCore {
 
         let tag_units = tags.into_iter().map(|tag| Ok(IndexUnit::Tag(tag)));
         let page_units = page_ids.into_iter().filter_map(move |page_id| {
-            match self.projection_page_snapshot(&page_id, &live_tags) {
+            match self.projection_page_snapshot(&page_id) {
                 Ok(Some(page)) => Some(Ok(IndexUnit::Page(page))),
                 Ok(None) => None,
                 Err(error) => Some(Err(error)),
@@ -1377,20 +1379,15 @@ impl GraphCore {
     fn projection_page_snapshot(
         &self,
         page_id: &PageId,
-        live_tags: &BTreeSet<TagId>,
     ) -> Result<Option<PageSnapshot>, CoreError> {
         let page = self.require_page(page_id)?;
         let mut quarantined = Vec::new();
-        let Some(mut snapshot) = page_metadata(page_id, &page, live_tags, &mut quarantined) else {
+        let Some(mut snapshot) = page_metadata(page_id, &page, &self.doc, &mut quarantined) else {
             return Ok(None);
         };
         let Some(outline) = page.get("outline").and_then(value_into_tree) else {
             return Ok(Some(snapshot));
         };
-        let directory = page_directory(&self.doc, &mut quarantined)
-            .into_iter()
-            .map(|entry| (entry.id.clone(), entry))
-            .collect::<BTreeMap<_, _>>();
         for root in outline.roots() {
             snapshot.blocks.push(block_snapshot(
                 &outline,
@@ -1398,8 +1395,7 @@ impl GraphCore {
                 &OutlineOwner::Page {
                     id: page_id.clone(),
                 },
-                live_tags,
-                &directory,
+                &self.doc,
                 &mut quarantined,
             )?);
         }
@@ -2605,20 +2601,27 @@ fn live_tag_names(doc: &LoroDoc) -> Vec<(TagId, String)> {
         .collect()
 }
 
-fn live_tag_ids(doc: &LoroDoc) -> BTreeSet<TagId> {
-    let mut ids = BTreeSet::new();
-    crate::entities::all(doc).for_each(|id, value| {
-        if let Some(record) = value_into_map(value)
-            && let Some(properties) = crate::entities::root(&record)
+/// Whether a tag reference names a live entity. Projection asks per
+/// reference, so its cost follows the outline rather than the graph.
+fn tag_is_live(doc: &LoroDoc, tag_id: &TagId) -> bool {
+    crate::entities::all(doc)
+        .get(tag_id.as_str())
+        .and_then(value_into_map)
+        .and_then(|record| {
+            crate::entities::root(&record)
                 .get("properties")
                 .and_then(value_into_map)
-            && !bag_contains_key(&properties, &key("builtin.deleted-at"))
-            && let Ok(id) = TagId::new(id)
-        {
-            ids.insert(id);
-        }
-    });
-    ids
+        })
+        .is_some_and(|properties| !bag_contains_key(&properties, &key("builtin.deleted-at")))
+}
+
+/// The directory title of one referenced page, read from that page alone.
+fn page_title(doc: &LoroDoc, page_id: &PageId) -> Option<String> {
+    let page = crate::entities::all(doc)
+        .get(page_id.as_str())
+        .and_then(value_into_map)?;
+    project_page_header(page_id, &page, doc, &mut ProjectionDiagnostics::default())
+        .map(|header| header.directory.title)
 }
 
 fn ensure_page_name_available(
@@ -3816,7 +3819,7 @@ struct ProjectedPageHeader {
 fn project_page_header(
     page_id: &PageId,
     page: &LoroMap,
-    live_tags: &BTreeSet<TagId>,
+    doc: &LoroDoc,
     diagnostics: &mut ProjectionDiagnostics,
 ) -> Option<ProjectedPageHeader> {
     let root = crate::entities::root(page);
@@ -3881,7 +3884,7 @@ fn project_page_header(
             tags: decode_tag_refs(
                 &root,
                 &format!("page:{page_id}"),
-                live_tags,
+                doc,
                 &mut diagnostics.quarantined,
             ),
             blocks: Vec::new(),
@@ -3896,18 +3899,17 @@ fn project_page_header(
 fn page_metadata(
     page_id: &PageId,
     page: &LoroMap,
-    live_tags: &BTreeSet<TagId>,
+    doc: &LoroDoc,
     quarantined: &mut Vec<String>,
 ) -> Option<PageSnapshot> {
     let mut diagnostics = ProjectionDiagnostics::default();
-    let snapshot = project_page_header(page_id, page, live_tags, &mut diagnostics)
+    let snapshot = project_page_header(page_id, page, doc, &mut diagnostics)
         .and_then(|header| header.snapshot);
     quarantined.append(&mut diagnostics.quarantined);
     snapshot
 }
 
 fn page_directory(doc: &LoroDoc, quarantined: &mut Vec<String>) -> Vec<PageDirectoryEntry> {
-    let live_tags = live_tag_ids(doc);
     let mut diagnostics = ProjectionDiagnostics::default();
     let mut entries = BTreeMap::new();
     crate::entities::all(doc).for_each(|raw_id, value| {
@@ -3923,8 +3925,7 @@ fn page_directory(doc: &LoroDoc, quarantined: &mut Vec<String>) -> Vec<PageDirec
                 .push(format!("page:{raw_id}:not-map"));
             return;
         };
-        let Some(header) = project_page_header(&page_id, &page, &live_tags, &mut diagnostics)
-        else {
+        let Some(header) = project_page_header(&page_id, &page, doc, &mut diagnostics) else {
             return;
         };
         entries.insert(page_id, header.directory);
@@ -3935,7 +3936,7 @@ fn page_directory(doc: &LoroDoc, quarantined: &mut Vec<String>) -> Vec<PageDirec
 
 fn materialize_block_content(
     text: &LoroText,
-    directory: &BTreeMap<PageId, PageDirectoryEntry>,
+    doc: &LoroDoc,
     owner: &str,
     quarantined: &mut Vec<String>,
 ) -> (String, Vec<PageReferenceSpan>, Vec<InlineContent>) {
@@ -3973,10 +3974,8 @@ fn materialize_block_content(
                     content.push(InlineContent::PageReference {
                         page_id: page_id.clone(),
                     });
-                    let title = directory
-                        .get(page_id)
-                        .map(|entry| entry.title.as_str())
-                        .unwrap_or_else(|| page_id.as_str());
+                    let title = page_title(doc, page_id);
+                    let title = title.as_deref().unwrap_or_else(|| page_id.as_str());
                     let source = format!("[[{title}]]");
                     let length = source.chars().count();
                     markdown.push_str(&source);
@@ -4039,8 +4038,6 @@ fn tag_outline(tag: &LoroMap) -> Result<LoroTree, CoreError> {
 
 fn tag_snapshots(
     doc: &LoroDoc,
-    live_tags: &BTreeSet<TagId>,
-    directory: &BTreeMap<PageId, PageDirectoryEntry>,
     quarantined: &mut Vec<String>,
 ) -> Result<Vec<TagSnapshot>, CoreError> {
     let mut snapshots = Vec::new();
@@ -4055,14 +4052,7 @@ fn tag_snapshots(
             id: summary.id.clone(),
         };
         for root in outline.roots() {
-            blocks.push(block_snapshot(
-                &outline,
-                root,
-                &owner,
-                live_tags,
-                directory,
-                quarantined,
-            )?);
+            blocks.push(block_snapshot(&outline, root, &owner, doc, quarantined)?);
         }
         snapshots.push(TagSnapshot {
             id: summary.id,
@@ -4078,8 +4068,6 @@ fn tag_snapshots(
 fn tag_snapshot_by_id(
     doc: &LoroDoc,
     tag_id: &TagId,
-    live_tags: &BTreeSet<TagId>,
-    directory: &BTreeMap<PageId, PageDirectoryEntry>,
     quarantined: &mut Vec<String>,
 ) -> Result<Option<TagSnapshot>, CoreError> {
     let tag = crate::entities::tags(doc)
@@ -4095,14 +4083,7 @@ fn tag_snapshot_by_id(
     let outline = tag_outline(&tag)?;
     let owner = OutlineOwner::Tag { id: tag_id.clone() };
     for root in outline.roots() {
-        blocks.push(block_snapshot(
-            &outline,
-            root,
-            &owner,
-            live_tags,
-            directory,
-            quarantined,
-        )?);
+        blocks.push(block_snapshot(&outline, root, &owner, doc, quarantined)?);
     }
     Ok(Some(TagSnapshot {
         id: summary.id,
@@ -4170,7 +4151,7 @@ fn tag_summary(tag_id: &TagId, tag: &LoroMap, quarantined: &mut Vec<String>) -> 
 fn decode_tag_refs(
     node: &LoroMap,
     owner: &str,
-    live_tags: &BTreeSet<TagId>,
+    doc: &LoroDoc,
     quarantined: &mut Vec<String>,
 ) -> Vec<TagId> {
     let Some(refs) = node.get("tag_refs").and_then(value_into_map) else {
@@ -4181,7 +4162,7 @@ fn decode_tag_refs(
     refs.for_each(|raw_id, value| {
         let valid = matches!(value, ValueOrContainer::Value(LoroValue::Bool(true)));
         match (TagId::new(raw_id), valid) {
-            (Ok(tag_id), true) if live_tags.contains(&tag_id) => tags.push(tag_id),
+            (Ok(tag_id), true) if tag_is_live(doc, &tag_id) => tags.push(tag_id),
             (Ok(_), true) => quarantined.push(format!("{owner}:tag-ref:{raw_id}:dangling")),
             _ => quarantined.push(format!("{owner}:tag-ref:{raw_id}:invalid")),
         }
@@ -4190,17 +4171,70 @@ fn decode_tag_refs(
     tags
 }
 
+/// What a whole-graph projection does with each outline. A summary carries no
+/// blocks, but must still report every block whose text exceeds its limit.
+#[derive(Clone, Copy)]
+enum Blocks {
+    Project,
+    CheckLimits,
+}
+
+impl Blocks {
+    fn project(
+        self,
+        doc: &LoroDoc,
+        outline: &LoroTree,
+        owner: &OutlineOwner,
+        diagnostics: &mut ProjectionDiagnostics,
+    ) -> Result<Vec<BlockSnapshot>, CoreError> {
+        match self {
+            Self::Project => outline
+                .roots()
+                .into_iter()
+                .map(|root| project_block_snapshot(outline, root, owner, doc, diagnostics))
+                .collect(),
+            Self::CheckLimits => {
+                let mut pending = outline.roots();
+                while let Some(node) = pending.pop() {
+                    if let Ok(meta) = outline.get_meta(node)
+                        && let Some(ValueOrContainer::Container(Container::Text(text))) =
+                            meta.get("content")
+                    {
+                        diagnostics.text_conflicts.extend(block_text_limit(
+                            &text,
+                            owner,
+                            &block_id(node),
+                        ));
+                    }
+                    pending.extend(outline.children(node).unwrap_or_default());
+                }
+                Ok(Vec::new())
+            }
+        }
+    }
+}
+
+fn block_text_limit(text: &LoroText, owner: &OutlineOwner, id: &BlockId) -> Option<GraphConflict> {
+    let actual_bytes = text.len_utf8();
+    (actual_bytes > MAX_BLOCK_TEXT_BYTES).then(|| GraphConflict::TextLimitExceeded {
+        target: TextTarget::BlockContent {
+            owner: owner.clone(),
+            block_id: id.clone(),
+        },
+        actual_bytes,
+        limit: MAX_BLOCK_TEXT_BYTES,
+    })
+}
+
 fn block_snapshot(
     outline: &LoroTree,
     node: TreeID,
     owner: &OutlineOwner,
-    live_tags: &BTreeSet<TagId>,
-    directory: &BTreeMap<PageId, PageDirectoryEntry>,
+    doc: &LoroDoc,
     quarantined: &mut Vec<String>,
 ) -> Result<BlockSnapshot, CoreError> {
     let mut diagnostics = ProjectionDiagnostics::default();
-    let snapshot =
-        project_block_snapshot(outline, node, owner, live_tags, directory, &mut diagnostics)?;
+    let snapshot = project_block_snapshot(outline, node, owner, doc, &mut diagnostics)?;
     quarantined.append(&mut diagnostics.quarantined);
     Ok(snapshot)
 }
@@ -4209,30 +4243,19 @@ fn project_block_snapshot(
     outline: &LoroTree,
     node: TreeID,
     owner: &OutlineOwner,
-    live_tags: &BTreeSet<TagId>,
-    directory: &BTreeMap<PageId, PageDirectoryEntry>,
+    doc: &LoroDoc,
     diagnostics: &mut ProjectionDiagnostics,
 ) -> Result<BlockSnapshot, CoreError> {
     let meta = outline.get_meta(node)?;
     let id = block_id(node);
     let (markdown, page_references, content) = match meta.get("content") {
         Some(ValueOrContainer::Container(Container::Text(text))) => {
-            let actual_bytes = text.to_string().len();
-            if actual_bytes > MAX_BLOCK_TEXT_BYTES {
-                diagnostics
-                    .text_conflicts
-                    .push(GraphConflict::TextLimitExceeded {
-                        target: TextTarget::BlockContent {
-                            owner: owner.clone(),
-                            block_id: id.clone(),
-                        },
-                        actual_bytes,
-                        limit: MAX_BLOCK_TEXT_BYTES,
-                    });
-            }
+            diagnostics
+                .text_conflicts
+                .extend(block_text_limit(&text, owner, &id));
             materialize_block_content(
                 &text,
-                directory,
+                doc,
                 &format!("block:{node}"),
                 &mut diagnostics.quarantined,
             )
@@ -4264,7 +4287,7 @@ fn project_block_snapshot(
     let tags = decode_tag_refs(
         &meta,
         &format!("block:{node}"),
-        live_tags,
+        doc,
         &mut diagnostics.quarantined,
     );
     let mut children = Vec::new();
@@ -4273,8 +4296,7 @@ fn project_block_snapshot(
             outline,
             child,
             owner,
-            live_tags,
-            directory,
+            doc,
             diagnostics,
         )?);
     }
@@ -4478,6 +4500,61 @@ mod tests {
             PropertyValue::Date(value) => Some(value.as_str()),
             _ => None,
         }
+    }
+
+    #[test]
+    fn only_changes_outside_outlines_refresh_the_summary() {
+        let mut core = GraphCore::new(graph(), 1, "t0").unwrap();
+        ensure_regular_page(&mut core, "create-page", &page());
+        let first = insert_root(&mut core, "first", &page(), 0, "first");
+        let owner = OutlineOwner::Page { id: page() };
+        let summary_refreshed = |core: &mut GraphCore, id: &str, command: Command| {
+            let execution = core.execute(envelope(id, command), "t3").unwrap();
+            match core.publication(&execution) {
+                GraphChanges::Refresh { summary, .. } => summary,
+                GraphChanges::Content { .. } => panic!("expected a refresh"),
+            }
+        };
+
+        for (id, command) in [
+            (
+                "split",
+                Command::SplitBlock {
+                    owner: owner.clone(),
+                    block_id: first.clone(),
+                    index: 2,
+                    placement: SplitPlacement::After,
+                },
+            ),
+            (
+                "indent",
+                Command::InsertBlock {
+                    owner: owner.clone(),
+                    parent: Some(first.clone()),
+                    index: 0,
+                    markdown: "child".into(),
+                },
+            ),
+        ] {
+            assert!(!summary_refreshed(&mut core, id, command), "{id}");
+        }
+        assert!(summary_refreshed(
+            &mut core,
+            "rename",
+            Command::RenamePage {
+                page_id: page(),
+                title: "Renamed".into(),
+            },
+        ));
+        assert!(summary_refreshed(
+            &mut core,
+            "page-property",
+            Command::SetProperty {
+                owner: PropertyOwner::Page { id: page() },
+                key: PropertyKey::new("user.area").unwrap(),
+                value: PropertyValue::String("lab".into()),
+            },
+        ));
     }
 
     #[test]
@@ -4706,7 +4783,10 @@ mod tests {
         assert!(!edited.changes.is_rebuild());
 
         let remote = right.import_remote_with_changes(&edited.update).unwrap();
-        assert_eq!(remote, edited.changes);
+        assert_eq!(remote.pages(), edited.changes.pages());
+        assert_eq!(remote.tags(), edited.changes.tags());
+        // A merge can push text over its limit, which only the summary reports.
+        assert!(remote.changes_summary());
         let delta = right.index_delta(&remote).unwrap().unwrap();
         assert_eq!(delta.changes().count(), 1);
         assert!(matches!(

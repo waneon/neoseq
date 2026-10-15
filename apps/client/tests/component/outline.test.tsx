@@ -1156,9 +1156,10 @@ describe("outliner keyboard commands", () => {
       await user.keyboard("{Enter}");
       await started;
       await user.keyboard("X{End}{Enter}Y");
-      const read = port.read.bind(port);
+      // The structural edit refreshes only its outline, so that read fails.
+      const readOutline = port.readOutline.bind(port);
       let failures = reads;
-      port.read = async (request) => {
+      port.readOutline = async (request) => {
         if (failures > 0) {
           failures -= 1;
           if (failures === 0) recoveryFailed();
@@ -1168,7 +1169,7 @@ describe("outliner keyboard commands", () => {
             retryable: true,
           });
         }
-        return read(request);
+        return readOutline(request);
       };
       const persisted = new Promise<void>((resolve) => {
         const unsubscribe = session.subscribe(() => {

@@ -200,11 +200,12 @@ Only after commit does it publish semantic and saved events.
 
 Open chooses the newest supported checkpoint with a valid checksum and reads
 only Tail records whose compound key follows that Base. The normal path stages
-the checksummed Tail in sequence order, then validates the completed document
-once. A failed stage or final validation discards that document and
-replays from the same Base through the record-validating path, preserving the
-exact last valid frontier. Invalid checkpoints are quarantined and the next
-older checkpoint is considered. Once an update is invalid or has unresolved
+the checksummed Tail in sequence order onto the unvalidated Base, then validates
+the completed document once, in place. A failed stage or final validation
+discards that document and recovers record by record: each checkpoint is
+validated on its own, invalid ones are quarantined and the next older one is
+considered, and the Tail replays from the selected Base with each update
+validated, preserving the exact last valid frontier. Once an update is invalid or has unresolved
 causal dependencies, that record and the remaining Tail form one corrupt suffix.
 Recovery atomically installs a checkpoint at the last valid frontier, moves the
 suffix to quarantine, and removes it from active history without reusing sequence

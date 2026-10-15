@@ -34,7 +34,8 @@ interface Props {
    * and the "Create page …" row that guarantees the list is never a dead end.
    */
   dynamic?(query: string): Command[];
-  search?(query: string): Promise<Command[]>;
+  /** Searches the graph; `signal` aborts once a newer query supersedes it. */
+  search?(query: string, signal: AbortSignal): Promise<Command[]>;
   onClose(): void;
 }
 
@@ -74,13 +75,14 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
 
   useEffect(() => {
     let current = true;
+    const superseded = new AbortController();
     const trimmed = query.trim();
     if (!search || trimmed.length === 0) {
       setSearchRows([]);
       return;
     }
     const timer = window.setTimeout(() => {
-      void search(trimmed)
+      void search(trimmed, superseded.signal)
         .then((rows) => {
           if (current) setSearchRows(rows);
         })
@@ -96,6 +98,7 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
     }, 160);
     return () => {
       current = false;
+      superseded.abort();
       window.clearTimeout(timer);
     };
   }, [message, notify, query, search]);
