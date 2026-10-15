@@ -213,3 +213,19 @@ test("long lines wrap beside their number and keep the caret on its glyph", asyn
   const caret = await code.evaluate((textarea: HTMLTextAreaElement) => textarea.selectionStart);
   expect(caret).toBe(value.indexOf(long) + long.length);
 });
+
+// A code key edits the text from script. The keystroke that undoes it restores
+// the text React last saw, and must still reach the graph.
+test("Backspace after a code block's Enter is saved", async ({ app, page }) => {
+  await app.createGraph("Code keys");
+  await app.startBlock(`${FENCE}\nabc\n${FENCE}`);
+  const code = app.editors.first();
+  await code.focus();
+  await code.evaluate((node: HTMLTextAreaElement) => node.setSelectionRange(7, 7));
+  await page.keyboard.press("Enter");
+  await expect(code).toHaveValue(`${FENCE}\nabc\n\n${FENCE}`);
+  await app.saved(() => page.keyboard.press("Backspace"));
+  await expect(code).toHaveValue(`${FENCE}\nabc\n${FENCE}`);
+  await page.reload();
+  await app.expectOutline([`${FENCE}\nabc\n${FENCE}`]);
+});

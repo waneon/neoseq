@@ -5,6 +5,7 @@
 // closer provenance, and IME repair live here; callers own drafts, persistence,
 // completions, and surface-specific keyboard commands.
 
+import { replaceTextRange } from "./scripted-text";
 import {
   forwardRef,
   useCallback,
@@ -65,7 +66,7 @@ interface PendingInputRepair {
 }
 
 function applyTextEdit(textarea: HTMLTextAreaElement, plan: TextEditPlan) {
-  textarea.setRangeText(plan.insert, plan.from, plan.to, "preserve");
+  replaceTextRange(textarea, plan.insert, plan.from, plan.to, "preserve");
   textarea.setSelectionRange(plan.selectionStart, plan.selectionEnd, plan.selectionDirection);
 }
 

@@ -1,4 +1,5 @@
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import { replaceTextRange } from "../scripted-text";
 import type { BlockTextEdit } from "../BlockTextArea";
 import type { VimEffect, VimKey } from "./engine";
 
@@ -22,7 +23,7 @@ export function applyVimTextEffect(
     textarea.setSelectionRange(effect.start, effect.end);
     return;
   }
-  textarea.setRangeText(effect.insert, effect.from, effect.to, "preserve");
+  replaceTextRange(textarea, effect.insert, effect.from, effect.to, "preserve");
   textarea.setSelectionRange(effect.selectionStart, effect.selectionEnd);
   onEdit(textarea.value, textarea, {
     preferredStart: effect.from,

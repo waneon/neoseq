@@ -10,6 +10,7 @@
 // deleted, indented or outdented as one. A caret and a selection never coexist:
 // taking one drops the other, so Delete can only ever mean one thing.
 
+import { replaceTextRange } from "../blocks/editor/scripted-text";
 import {
   memo,
   useCallback,
@@ -4065,7 +4066,7 @@ function handleCodeKey(
   const apply = (edit: CodeEdit) => {
     event.preventDefault();
     if (editor.readonly) return true;
-    textarea.setRangeText(edit.insert, edit.from, edit.to, "end");
+    replaceTextRange(textarea, edit.insert, edit.from, edit.to, "end");
     textarea.setSelectionRange(edit.selectionStart, edit.selectionEnd);
     editor.onInput(row, textarea.value, textarea);
     return true;
@@ -4107,7 +4108,7 @@ function handleCodeKey(
     event.preventDefault();
     // An empty code block unwraps into an empty line of writing.
     if (fence.body === "" && !editor.readonly) {
-      textarea.setRangeText("", 0, value.length, "end");
+      replaceTextRange(textarea, "", 0, value.length, "end");
       editor.onInput(row, "", textarea);
     }
     return true;
