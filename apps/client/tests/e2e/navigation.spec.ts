@@ -1,3 +1,4 @@
+import { NeoseqApp } from "../support/app";
 import { test, expect } from "../support/fixtures";
 
 test("a second untitled page gets the next free name", async ({ app, page }) => {
@@ -29,4 +30,20 @@ test("an address for a graph this browser does not hold opens nothing", async ({
   await page.reload();
   await expect(page.getByTestId("open-graph-g-not-here")).toHaveCount(0);
   await expect(page.getByText("g-not-here")).toHaveCount(0);
+});
+
+test("dismissing a notification leaves Settings open", async ({ app, page }) => {
+  await app.createGraph("Notice over settings");
+  // A second tab opens read-only and says so in a notification.
+  const second = await page.context().newPage();
+  await second.goto(page.url());
+  const reader = new NeoseqApp(second);
+  await expect(second.getByTestId("journal-title")).toBeVisible();
+  await reader.sidebar();
+  await second.getByTestId("open-settings").click();
+  await expect(second.getByTestId("settings-dialog")).toBeVisible();
+  const notice = second.getByTestId("toast").filter({ hasText: "open in another tab" });
+  await notice.getByTestId("toast-dismiss").click();
+  await expect(notice).toHaveCount(0);
+  await expect(second.getByTestId("settings-dialog")).toBeVisible();
 });
