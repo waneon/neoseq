@@ -1,4 +1,4 @@
-import { canonicalContentBoundary } from "./inline-content";
+import { canonicalContentBoundary, type InlineContentProjection } from "./inline-content";
 import { mapContentPosition, projectContent } from "./content-buffer";
 import type { ContentProjectionChange } from "./content-session";
 import { codePointIndex } from "./text-diff";
@@ -6,6 +6,16 @@ import { codePointIndex } from "./text-diff";
 export interface TextSelection {
   anchor: number;
   head: number;
+}
+
+/** The UTF-16 offset of a content position: each reference atom spans its text. */
+export function textOffset(projection: InlineContentProjection, index: number): number {
+  let display = index;
+  for (const reference of projection.pageReferences) {
+    if (reference.index >= index) break;
+    display += reference.end - reference.start - 1;
+  }
+  return Array.from(projection.markdown).slice(0, display).join("").length;
 }
 
 /** Convert native UTF-16 positions only at the input projection boundary. */
@@ -16,14 +26,6 @@ export function transformProjectedSelection(
   const before = projectContent(change.before, change.beforeDirectory);
   const after = projectContent(change.after, change.afterDirectory);
   const afterPoints = Array.from(after.markdown);
-  const afterOffset = (logical: number) => {
-    let display = logical;
-    for (const reference of after.pageReferences) {
-      if (reference.index >= logical) break;
-      display += reference.end - reference.start - 1;
-    }
-    return afterPoints.slice(0, display).join("").length;
-  };
   const map = (offset: number) => {
     const point = codePointIndex(before.markdown, offset);
     const reference = before.pageReferences.find(
@@ -42,7 +44,7 @@ export function transformProjectedSelection(
       }
     }
     const boundary = canonicalContentBoundary(before.markdown, before.pageReferences, offset);
-    return afterOffset(mapContentPosition(boundary.index, change.mapping, "before"));
+    return textOffset(after, mapContentPosition(boundary.index, change.mapping, "before"));
   };
   return { anchor: map(selection.anchor), head: map(selection.head) };
 }

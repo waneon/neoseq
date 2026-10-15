@@ -22,6 +22,8 @@ export interface HistoryRevealRequest {
   token: string;
   blockId: string;
   focus: boolean;
+  /** The content position a history step changed, where the caret belongs. */
+  index?: number;
 }
 
 type RevealHandler = (request: HistoryRevealRequest) => boolean;
@@ -44,7 +46,7 @@ export interface HistoryActions {
    * itself. Undo/redo is one caller; following a query result is another, and
    * both need the same "navigate, then let the mounted outliner reveal" order.
    */
-  reveal(target: EntityRef, focus?: boolean): void;
+  reveal(target: EntityRef, focus?: boolean, index?: number): void;
   /**
    * Opens anything the graph can name, including the one kind that is not an
    * entity in the outline's sense: a tag, which has a place of its own rather
@@ -101,7 +103,7 @@ export function HistoryProvider({
   );
 
   const reveal = useCallback(
-    (target: EntityRef, focus = false) => {
+    (target: EntityRef, focus = false, index?: number) => {
       const owner: OutlineOwner =
         target.kind === "page" ? { kind: "page", id: target.id } : target.owner;
       const current = revealers.current.get(outlineOwnerKey(owner));
@@ -113,6 +115,7 @@ export function HistoryProvider({
         token: randomUUID(),
         blockId: target.id,
         focus,
+        index,
       };
       if (current?.handler(request)) return;
       pending.current = { owner, request };
@@ -141,7 +144,18 @@ export function HistoryProvider({
       const result = await session.execute({ type: direction });
       const effect = result.history_effect;
       if (!effect || effect.scope === "graph" || !effect.reveal) return result;
-      reveal(effect.reveal, invocation.kind === "outline");
+      const change = session.getState().lastChange;
+      const target = effect.reveal;
+      const mapping =
+        target.kind === "block" && change?.commandId === result.command_id
+          ? change.changes.blocks.find(
+              (update) =>
+                update.block_id === target.id &&
+                outlineOwnerKey(update.owner) === outlineOwnerKey(target.owner),
+            )?.mapping
+          : undefined;
+      const last = mapping?.at(-1);
+      reveal(target, invocation.kind === "outline", last && last.index + last.insert);
       return result;
     },
     [reveal, session],

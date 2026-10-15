@@ -12,6 +12,7 @@
 
 import { caretOnEdgeLine } from "../../ui/textarea-caret";
 import { replaceTextRange } from "../blocks/editor/scripted-text";
+import { textOffset } from "../blocks/editor/selection";
 import {
   memo,
   useCallback,
@@ -2718,6 +2719,7 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
         type: "edit",
         id: row.block.id,
         value,
+        caret: textarea.selectionEnd,
         baselineIfAbsent: row.block.markdown,
         pageReferencesIfAbsent: row.block.page_references ?? [],
         autoClosers: nextClosers,
@@ -3230,13 +3232,28 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
     if (!request) return;
     const index = rowIndexOf(rows, request.blockId);
     if (index < 0) return;
+    const block = rows[index].block;
+    const caret =
+      request.index === undefined
+        ? undefined
+        : textOffset(
+            { markdown: block.markdown, pageReferences: block.page_references },
+            request.index,
+          );
     if (request.focus && focusedRef.current !== request.blockId) {
-      activateBlock(request.blockId, undefined, "programmatic");
+      activateBlock(request.blockId, caret, "programmatic");
     } else {
+      const textarea = viewportRef.current?.querySelector<HTMLTextAreaElement>(
+        `[data-block-id="${cssEscape(request.blockId)}"] .outline-input`,
+      );
+      if (request.focus && caret !== undefined && textarea && textarea === document.activeElement) {
+        textarea.setSelectionRange(caret, caret);
+        publishSelection(request.blockId, textarea);
+      }
       revealNavigationTarget(request.blockId);
     }
     pendingHistoryReveal.current = null;
-  }, [activateBlock, historyRevealRevision, revealNavigationTarget, rows]);
+  }, [activateBlock, historyRevealRevision, publishSelection, revealNavigationTarget, rows]);
 
   // A navigation arrival asks to be revealed exactly once. Focus itself is a
   // durable editing state and must not imply durable scroll ownership: after a

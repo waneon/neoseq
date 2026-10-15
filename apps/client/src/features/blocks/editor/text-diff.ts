@@ -23,7 +23,12 @@ export function codePointIndex(value: string, utf16Offset: number): number {
   return index;
 }
 
-export function diffSplice(before: string, after: string): Splice | null {
+/**
+ * The smallest splice from `before` to `after`. Inside a repeated run several
+ * are equally small; `caret`, a UTF-16 offset into `after`, picks the one that
+ * ends there, where the input happened.
+ */
+export function diffSplice(before: string, after: string, caret?: number): Splice | null {
   if (before === after) return null;
   const left = codePoints(before);
   const right = codePoints(after);
@@ -39,9 +44,22 @@ export function diffSplice(before: string, after: string): Splice | null {
   ) {
     suffix += 1;
   }
+  const remove = left.length - prefix - suffix;
+  const insert = right.length - prefix - suffix;
+  if (caret !== undefined && (remove === 0 || insert === 0)) {
+    const end = codePointIndex(after, caret);
+    const changed = insert === 0 ? left : right;
+    const length = remove + insert;
+    while (
+      prefix > 0 &&
+      prefix + insert > end &&
+      changed[prefix - 1] === changed[prefix + length - 1]
+    )
+      prefix -= 1;
+  }
   return {
     index: prefix,
-    delete: left.length - prefix - suffix,
-    insert: right.slice(prefix, right.length - suffix).join(""),
+    delete: remove,
+    insert: right.slice(prefix, prefix + insert).join(""),
   };
 }

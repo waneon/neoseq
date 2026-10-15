@@ -98,6 +98,7 @@ export type OutlineDraftAction =
       type: "edit";
       id: string;
       value: string;
+      caret?: number;
       baselineIfAbsent?: string;
       contentIfAbsent?: readonly InlineContent[];
       autoClosers?: readonly AutoCloserMarker[];
@@ -154,7 +155,7 @@ export function applyOutlineDraftAction(
       const content =
         action.contentIfAbsent ??
         contentFromProjection(action.baselineIfAbsent ?? "", action.pageReferencesIfAbsent ?? []);
-      sessions.open(owner, action.id, content).edit(action.value, directory);
+      sessions.open(owner, action.id, content).edit(action.value, directory, action.caret);
       return {
         ...state,
         autoClosers:

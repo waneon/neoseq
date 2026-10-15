@@ -72,8 +72,9 @@ export class BlockContentSession {
     this.store.set(this, buffer);
   }
 
-  edit(value: string, directory: readonly PageDirectoryEntry[]): void {
-    this.replace(editBuffer(this.buffer, projectBuffer(this.buffer, directory), value));
+  /** `caret`, where input left it, places the edit within a repeated run. */
+  edit(value: string, directory: readonly PageDirectoryEntry[], caret?: number): void {
+    this.replace(editBuffer(this.buffer, projectBuffer(this.buffer, directory), value, caret));
   }
 
   splice(index: number, deleteCount: number, insert: readonly InlineContent[]): void {

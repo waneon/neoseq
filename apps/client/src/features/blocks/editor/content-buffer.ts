@@ -173,8 +173,9 @@ export function editBuffer(
   buffer: ContentBuffer,
   projection: InlineContentProjection,
   value: string,
+  caret?: number,
 ): ContentBuffer {
-  const plan = planInlineEdit("", projection.markdown, projection.pageReferences, value);
+  const plan = planInlineEdit("", projection.markdown, projection.pageReferences, value, caret);
   return plan
     ? spliceBuffer(buffer, plan.splice.index, plan.splice.delete, plan.splice.insert)
     : buffer;

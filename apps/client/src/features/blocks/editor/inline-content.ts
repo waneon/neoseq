@@ -155,8 +155,9 @@ export function planInlineEdit(
   before: string,
   referencesInput: readonly PageReferenceSpan[],
   after: string,
+  caret?: number,
 ): InlineEditPlan | null {
-  const diff = diffSplice(before, after);
+  const diff = diffSplice(before, after, caret);
   if (!diff) return null;
   const references = ordered(referencesInput);
   const beforePoints = Array.from(before);
