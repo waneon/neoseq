@@ -59,6 +59,8 @@ import {
   type PlanSubject,
   type PlanValue,
   type QueryPlan,
+  graphPropertyTypes,
+  type PropertyTypes,
 } from "../../entities/query-plan";
 import { todayLocalDate } from "../../entities/journal";
 import { useI18n } from "../../i18n";
@@ -99,6 +101,7 @@ export function QueryBuilder({
 }) {
   const { message, formatJournalDate } = useI18n();
   const propertyKeys = useMemo(() => graphPropertyKeys(snapshot), [snapshot]);
+  const propertyTypes = graphPropertyTypes(snapshot);
   const [editing, setEditing] = useState<{ id: string; fresh: boolean } | null>(null);
   const [adding, setAdding] = useState<string | null>(null);
 
@@ -107,6 +110,7 @@ export function QueryBuilder({
     snapshot,
     readonly,
     propertyKeys,
+    propertyTypes,
     phrase: { snapshot, message, formatDate: formatJournalDate },
     full: countConditions(plan.where) >= PLAN_MAX_CONDITIONS,
     deep: groupDepth(plan.where) >= PLAN_MAX_DEPTH,
@@ -199,6 +203,7 @@ interface BuilderContext {
   snapshot: GraphSnapshot;
   readonly: boolean;
   propertyKeys: string[];
+  propertyTypes: PropertyTypes;
   phrase: SummaryContext;
   /** The tree holds as many conditions as a plan may. */
   full: boolean;
@@ -414,7 +419,7 @@ function GroupView({
               anchor={() => elementAnchor(addRef.current)}
               fields={fields}
               onPick={(field) => {
-                const condition = newCondition(field);
+                const condition = newCondition(field, context.propertyTypes);
                 onChange(appendNode(group, group.id, condition));
                 context.setAdding(null);
                 context.setEditing({ id: condition.id, fresh: true });
@@ -596,14 +601,14 @@ function FilterRow({
     const field: PlanField = encoded.startsWith(FIELD_PROPERTY_PREFIX)
       ? { kind: "property", key: encoded.slice(FIELD_PROPERTY_PREFIX.length) }
       : ({ kind: encoded } as PlanField);
-    const next = operatorsFor(field);
+    const next = operatorsFor(field, context.propertyTypes);
     const op = next.includes(condition.op) ? condition.op : next[0];
     onChange({
       ...condition,
       field,
       op,
       // A new field starts from its own default, in the shape the operator takes.
-      value: valueForOperator(op, field, undefined),
+      value: valueForOperator(op, field, undefined, context.propertyTypes),
       value2: undefined,
     });
   };
@@ -675,7 +680,7 @@ function FilterRow({
               value={condition.op}
               label={message("query.operatorLabel")}
               testId="qb-operator"
-              options={operatorsFor(condition.field).map((op) => ({
+              options={operatorsFor(condition.field, context.propertyTypes).map((op) => ({
                 value: op,
                 label: operatorLabel(op, message),
               }))}
@@ -684,7 +689,12 @@ function FilterRow({
                 onChange({
                   ...condition,
                   op,
-                  value: valueForOperator(op, condition.field, condition.value),
+                  value: valueForOperator(
+                    op,
+                    condition.field,
+                    condition.value,
+                    context.propertyTypes,
+                  ),
                   value2: operatorTakesRange(op) ? condition.value2 : undefined,
                 });
               }}
@@ -731,7 +741,7 @@ function ValueEditor({
   const operand = (
     <Operand
       field={condition.field}
-      value={condition.value ?? defaultValueForField(condition.field)}
+      value={condition.value ?? defaultValueForField(condition.field, graphPropertyTypes(snapshot))}
       snapshot={snapshot}
       readonly={readonly}
       onChange={(value) => onChange({ ...condition, value })}
@@ -744,7 +754,9 @@ function ValueEditor({
       <span className="qb-label">{message("query.and")}</span>
       <Operand
         field={condition.field}
-        value={condition.value2 ?? defaultValueForField(condition.field)}
+        value={
+          condition.value2 ?? defaultValueForField(condition.field, graphPropertyTypes(snapshot))
+        }
         snapshot={snapshot}
         readonly={readonly}
         onChange={(value) => onChange({ ...condition, value2: value })}
@@ -768,7 +780,7 @@ function Operand({
   onChange: (value: PlanValue) => void;
 }) {
   const { message } = useI18n();
-  const type = fieldType(field);
+  const type = fieldType(field, graphPropertyTypes(snapshot));
 
   if (type === "date") {
     const relative = value.type === "relative" ? relativeDateId(value.value) : EXACT_DATE;
@@ -913,7 +925,7 @@ function ValueListEditor({
   const { message } = useI18n();
   const [draft, setDraft] = useState("");
   const members = condition.value?.type === "list" ? condition.value.values : [];
-  const type = fieldType(condition.field);
+  const type = fieldType(condition.field, graphPropertyTypes(snapshot));
   const choices =
     condition.field.kind === "property"
       ? offeredChoices(condition.field.key, stringChoicesOf(condition.field.key))

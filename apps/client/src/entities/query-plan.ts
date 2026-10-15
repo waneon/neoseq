@@ -124,7 +124,10 @@ export function tagPlan(tagId: string): QueryPlan {
  */
 export type PlanFieldType = PropertyValueType | "tag" | "integer";
 
-export function fieldType(field: PlanField): PlanFieldType {
+/** The value type each graph-defined property key is stored with. */
+export type PropertyTypes = ReadonlyMap<string, PropertyValueType>;
+
+export function fieldType(field: PlanField, types?: PropertyTypes): PlanFieldType {
   switch (field.kind) {
     case "content":
       return "string";
@@ -136,7 +139,7 @@ export function fieldType(field: PlanField): PlanFieldType {
     case "sibling_index":
       return "integer";
     case "property":
-      return valueTypeOf(field.key) ?? "string";
+      return valueTypeOf(field.key) ?? types?.get(field.key) ?? "string";
   }
 }
 
@@ -183,8 +186,8 @@ const REFERENCE_OPERATORS: PlanOperator[] = [
 ];
 const CHECKBOX_OPERATORS: PlanOperator[] = ["is_true", "is_false", "is_set", "is_empty"];
 
-export function operatorsFor(field: PlanField): PlanOperator[] {
-  const type = fieldType(field);
+export function operatorsFor(field: PlanField, types?: PropertyTypes): PlanOperator[] {
+  const type = fieldType(field, types);
   if (type === "checkbox") return CHECKBOX_OPERATORS;
   if (type === "number" || type === "integer") return NUMBER_OPERATORS;
   if (type === "date") return DATE_OPERATORS;
@@ -297,14 +300,18 @@ export function planPropertyKeys(present: Iterable<string> = []): string[] {
  * A snapshot is immutable, so one walk answers all of them, and the cache dies
  * with the revision that filled it.
  */
-const propertyKeyCache = new WeakMap<GraphSnapshot, string[]>();
+const propertyCache = new WeakMap<GraphSnapshot, { keys: string[]; types: PropertyTypes }>();
 
-export function graphPropertyKeys(snapshot: GraphSnapshot): string[] {
-  const cached = propertyKeyCache.get(snapshot);
+function graphProperties(snapshot: GraphSnapshot): { keys: string[]; types: PropertyTypes } {
+  const cached = propertyCache.get(snapshot);
   if (cached) return cached;
-  const present = new Set<string>();
-  const visit = (bag: { key: string }[]) => {
-    for (const field of bag) if (isGenericProperty(field.key)) present.add(field.key);
+  const types = new Map<string, PropertyValueType>();
+  const visit = (bag: { key: string; value_type: PropertyValueType }[]) => {
+    for (const field of bag) {
+      if (isGenericProperty(field.key) && !types.has(field.key)) {
+        types.set(field.key, field.value_type);
+      }
+    }
   };
   for (const page of snapshot.pages) {
     visit(page.properties);
@@ -319,9 +326,18 @@ export function graphPropertyKeys(snapshot: GraphSnapshot): string[] {
     visit(tag.properties);
     visit(tag.defaults);
   }
-  const keys = planPropertyKeys(present);
-  propertyKeyCache.set(snapshot, keys);
-  return keys;
+  const result = { keys: planPropertyKeys(types.keys()), types };
+  propertyCache.set(snapshot, result);
+  return result;
+}
+
+export function graphPropertyKeys(snapshot: GraphSnapshot): string[] {
+  return graphProperties(snapshot).keys;
+}
+
+/** The type each property key in this graph is stored with, for keys the registry does not define. */
+export function graphPropertyTypes(snapshot: GraphSnapshot): PropertyTypes {
+  return graphProperties(snapshot).types;
 }
 
 /**
@@ -329,8 +345,8 @@ export function graphPropertyKeys(snapshot: GraphSnapshot): string[] {
  * the condition was written — because that is what a saved query almost always
  * means.
  */
-export function defaultValueForField(field: PlanField): PlanValue {
-  const type = fieldType(field);
+export function defaultValueForField(field: PlanField, types?: PropertyTypes): PlanValue {
+  const type = fieldType(field, types);
   switch (type) {
     case "number":
     case "integer":
@@ -357,6 +373,7 @@ export function valueForOperator(
   op: PlanOperator,
   field: PlanField,
   value: PlanValue | undefined,
+  types?: PropertyTypes,
 ): PlanValue | undefined {
   if (!operatorTakesValue(op)) return undefined;
   if (operatorTakesList(op)) {
@@ -365,10 +382,10 @@ export function valueForOperator(
       value?.type === "text" || value?.type === "tag" || value?.type === "page" ? value.value : "";
     return { type: "list", values: member ? [member] : [] };
   }
-  if (value?.type !== "list") return value ?? defaultValueForField(field);
+  if (value?.type !== "list") return value ?? defaultValueForField(field, types);
   const [first] = value.values;
-  if (first === undefined) return defaultValueForField(field);
-  const type = fieldType(field);
+  if (first === undefined) return defaultValueForField(field, types);
+  const type = fieldType(field, types);
   return type === "tag" || type === "page"
     ? { type, value: first }
     : { type: "text", value: first };
@@ -377,14 +394,17 @@ export function valueForOperator(
 // ── Structure edits ───────────────────────────────────────────────────────────
 
 /** A new condition on `field`, in its first comparison and that comparison's default. */
-export function newCondition(field: PlanField = { kind: "content" }): PlanCondition {
-  const op = operatorsFor(field)[0];
+export function newCondition(
+  field: PlanField = { kind: "content" },
+  types?: PropertyTypes,
+): PlanCondition {
+  const op = operatorsFor(field, types)[0];
   return {
     id: planId("c"),
     kind: "condition",
     field,
     op,
-    value: valueForOperator(op, field, undefined),
+    value: valueForOperator(op, field, undefined, types),
   };
 }
 

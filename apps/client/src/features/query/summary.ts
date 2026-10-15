@@ -14,6 +14,7 @@ import {
   type PlanNode,
   type PlanValue,
   type QueryPlan,
+  graphPropertyTypes,
 } from "../../entities/query-plan";
 import type { MessageFunction } from "../../i18n";
 import {
@@ -156,7 +157,7 @@ function describeList(field: PlanField, members: string[], context: SummaryConte
 
 /** A list member is a bare id, so its name comes from the field's own type. */
 function memberName(field: PlanField, member: string, context: SummaryContext): string {
-  const type = fieldType(field);
+  const type = fieldType(field, graphPropertyTypes(context.snapshot));
   if (type === "tag") return tagName(member, context);
   if (type === "page") return pageName(member, context);
   return textOperand(field, member, context);
