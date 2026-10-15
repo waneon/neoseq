@@ -42,6 +42,8 @@ interface Props {
 interface Row {
   command: Command;
   score: number;
+  /** Offered when nothing else fits; never the row Enter picks by default. */
+  lastResort?: boolean;
 }
 
 const EMPTY_GROUP_LIMIT = 12;
@@ -53,7 +55,8 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
   const notify = useNotify();
   const [query, setQuery] = useState("");
   const [searchRows, setSearchRows] = useState<Command[]>([]);
-  const [active, setActive] = useState(0);
+  // The row the reader moved to; until they move, the first row the query matched.
+  const [moved, setMoved] = useState<number | null>(null);
   const container = useOverlayRoot();
   const [surface, setSurface] = useState<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -131,7 +134,10 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
     if (dates.length > 0) ordered.push({ group: "Journal", rows: dates.map(pinned) });
     for (const group of GROUP_ORDER) {
       const rows = byGroup.get(group) ?? [];
-      const trailing = group === "Pages" ? creations.map(pinned) : [];
+      const trailing =
+        group === "Pages"
+          ? creations.map((command) => ({ ...pinned(command), lastResort: true }))
+          : [];
       if (group === "Search" && searchRows.length > 0) {
         ordered.push({ group, rows: searchRows.slice(0, SEARCH_LIMIT).map(pinned) });
         continue;
@@ -149,9 +155,13 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
   }, [commands, dynamic, query, searchRows]);
 
   const flat = useMemo(() => groups.flatMap((group) => group.rows), [groups]);
+  // Enter on a command's name runs it: a page to create is chosen only when
+  // nothing the query matched comes before it in the reader's reach.
+  const firstMatch = flat.findIndex((row) => !row.lastResort);
+  const active = moved ?? Math.max(firstMatch, 0);
 
   useEffect(() => {
-    setActive(0);
+    setMoved(null);
   }, [query]);
 
   // Keep the highlighted row in view without animating anything.
@@ -178,19 +188,19 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
     if (event.target !== inputRef.current) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setActive((index) => Math.min(index + 1, Math.max(flat.length - 1, 0)));
+      setMoved(Math.min(active + 1, Math.max(flat.length - 1, 0)));
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      setActive((index) => Math.max(index - 1, 0));
+      setMoved(Math.max(active - 1, 0));
     } else if (event.key === "Enter") {
       event.preventDefault();
       runRow(flat[active]);
     } else if (event.key === "Home") {
       event.preventDefault();
-      setActive(0);
+      setMoved(0);
     } else if (event.key === "End") {
       event.preventDefault();
-      setActive(Math.max(flat.length - 1, 0));
+      setMoved(Math.max(flat.length - 1, 0));
     }
   };
 
@@ -303,7 +313,7 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
                               data-active={position === active}
                               data-disabled={command.disabledReason ? true : undefined}
                               data-testid={`cmd-${command.id}`}
-                              onMouseMove={() => setActive(position)}
+                              onMouseMove={() => setMoved(position)}
                               onMouseDown={(event) => {
                                 event.preventDefault();
                                 runRow({ command, score: 0 });

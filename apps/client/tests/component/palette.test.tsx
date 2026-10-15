@@ -311,4 +311,31 @@ describe("the command palette render frontier", () => {
       ["App", "cmdk-opt-action-cache"],
     ]);
   });
+
+  it("runs a matching action on Enter instead of creating a page named after it", () => {
+    const undo = vi.fn();
+    const create = vi.fn();
+    render(
+      <LocaleProvider initialPreference="en">
+        <NotifyProvider>
+          <CommandPalette
+            commands={[{ id: "undo", group: "Edit", label: "Undo", pointerRoute: "", run: undo }]}
+            dynamic={(query) => [
+              {
+                id: "create-page",
+                group: "Pages",
+                label: `Create page “${query}”`,
+                pointerRoute: "",
+                run: create,
+              },
+            ]}
+            onClose={() => {}}
+          />
+        </NotifyProvider>
+      </LocaleProvider>,
+    );
+    fireEvent.change(screen.getByTestId("command-input"), { target: { value: "undo" } });
+    expect(screen.getByTestId("cmd-undo")).toHaveAttribute("data-active", "true");
+    expect(screen.getByTestId("cmd-create-page")).toHaveAttribute("data-active", "false");
+  });
 });

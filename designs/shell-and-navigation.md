@@ -73,7 +73,8 @@ shortcuts never take unmodified typing keys from text fields.
 The command palette is the global entrance. With no query it previews places
 and actions. With a query it lists, in order: a matching journal date, matching
 pages (with Create page as the last page row), tags, block matches placed by
-their document, then actions. A scattered match must start at a word. The frame
+their document, then actions. Enter starts on the first row the query matched,
+so Create page is the default only when nothing else fits. A scattered match must start at a word. The frame
 keeps a stable size, rows hold one line, and closing restores the prior caret.
 Touch screens add an explicit close action.
 
