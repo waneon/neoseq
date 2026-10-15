@@ -1,27 +1,27 @@
 // The shapes this app composes its surfaces from.
 //
-// Every one of them is a composition of the roles in `app.css` and the Radix
-// primitives under `ui/shadcn`. None of them declares a colour, a radius, a
+// Every one of them is a composition of the roles in `app.css` and the React
+// Aria primitives. None of them declares a colour, a radius, a
 // duration or a focus treatment of its own: a component that reimplements a
 // global interaction is an architectural violation (DESIGN.md § Implementation
 // Boundary), and it is also how two dialogs end up closing differently.
 
 import { useId, useState, type ComponentProps, type ReactNode } from "react";
-import { TriangleAlertIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, TriangleAlertIcon } from "lucide-react";
+import {
+  Button as AriaButton,
+  Label,
+  ListBox,
+  ListBoxItem,
+  Popover,
+  Select,
+  SelectValue,
+} from "react-aria-components";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/ui/shadcn/button";
 import { Input } from "@/ui/shadcn/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/ui/shadcn/select";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/ui/shadcn/alert-dialog";
+import { DialogSurface } from "@/ui/shadcn/dialog";
 
 /**
  * A labelled text field, with the rule it must satisfy stated beside it.
@@ -88,26 +88,47 @@ export function ChoiceField({
   className?: string;
   triggerClassName?: string;
 }) {
-  const id = useId();
   const selected = options.find((option) => option.value === value);
   return (
-    <div className={cn("field", className)}>
-      <label className={hideLabel ? "sr-only" : "field-label"} htmlFor={id}>
-        {label}
-      </label>
-      <Select value={selected?.value ?? ""} onValueChange={onValueChange}>
-        <SelectTrigger id={id} className={triggerClassName} aria-label={label}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent align="start" aria-label={label}>
-          {options.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              {option.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
+    <Select
+      className={cn("field", className)}
+      selectedKey={selected?.value ?? null}
+      onSelectionChange={(key) => {
+        if (key !== null) onValueChange(String(key));
+      }}
+    >
+      <Label className={hideLabel ? "sr-only" : "field-label"}>{label}</Label>
+      <AriaButton className={cn("menu-select", triggerClassName)}>
+        <SelectValue className="menu-select-value" />
+        <ChevronDownIcon aria-hidden />
+      </AriaButton>
+      <Popover
+        className="choice-menu enter-none z-[var(--z-menu)] min-w-[max(10rem,var(--trigger-width))] rounded-lg bg-[var(--overlay)] p-1 shadow-[var(--e2)]"
+        style={{ zIndex: undefined }}
+        placement="bottom start"
+        offset={6}
+        maxHeight={320}
+      >
+        <ListBox items={options} className="outline-none">
+          {(option) => (
+            <ListBoxItem
+              id={option.value}
+              textValue={option.label}
+              className="choice-row relative flex min-h-[30px] cursor-pointer select-none items-center gap-2 rounded-md py-1 pl-7 pr-2 text-sm text-foreground outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+            >
+              {({ isSelected }) => (
+                <>
+                  <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+                    {isSelected && <CheckIcon className="size-3.5 text-[var(--accent)]" />}
+                  </span>
+                  {option.label}
+                </>
+              )}
+            </ListBoxItem>
+          )}
+        </ListBox>
+      </Popover>
+    </Select>
   );
 }
 
@@ -146,8 +167,7 @@ export function Callout({
  * The dialog owns the lifetime of the operation: it stays up, with its confirm
  * button pending, until the server has actually answered, and a failure is
  * reported here rather than somewhere behind the panel that asked the question.
- * The safe action takes initial focus, which is Radix's default for an alert
- * dialog's cancel.
+ * The safe action takes initial focus.
  */
 export function ConfirmDialog({
   title,
@@ -183,39 +203,23 @@ export function ConfirmDialog({
   };
 
   return (
-    <AlertDialog open>
-      <AlertDialogContent
-        onEscapeKeyDown={(event) => {
-          event.preventDefault();
-          if (!pending) onCancel();
-        }}
-      >
-        <AlertDialogHeader>
-          <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription>{description}</AlertDialogDescription>
-        </AlertDialogHeader>
-        {error && <Callout>{error}</Callout>}
-        <div className="dialog-actions">
-          <AlertDialogCancel asChild>
-            <Button variant="ghost" disabled={pending} onClick={onCancel}>
-              {cancelLabel}
-            </Button>
-          </AlertDialogCancel>
-          <AlertDialogAction asChild>
-            <Button
-              variant="destructive-filled"
-              disabled={pending}
-              onClick={(event) => {
-                event.preventDefault();
-                void confirm();
-              }}
-            >
-              {pending && <span className="spinner" aria-hidden />}
-              {confirmLabel}
-            </Button>
-          </AlertDialogAction>
-        </div>
-      </AlertDialogContent>
-    </AlertDialog>
+    <DialogSurface
+      role="alertdialog"
+      title={title}
+      description={description}
+      dismissible={!pending}
+      onClose={onCancel}
+    >
+      {error && <Callout>{error}</Callout>}
+      <div className="dialog-actions">
+        <Button variant="ghost" autoFocus disabled={pending} onClick={onCancel}>
+          {cancelLabel}
+        </Button>
+        <Button variant="destructive-filled" disabled={pending} onClick={() => void confirm()}>
+          {pending && <span className="spinner" aria-hidden />}
+          {confirmLabel}
+        </Button>
+      </div>
+    </DialogSurface>
   );
 }

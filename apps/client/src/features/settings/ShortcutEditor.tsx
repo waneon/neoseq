@@ -154,7 +154,7 @@ export function ShortcutEditor() {
                   }}
                   className="shortcut-key"
                   data-recording={recording === id || undefined}
-                  data-escape-cancel={recording === id ? "true" : undefined}
+
                   data-testid={`shortcut-${id}`}
                   aria-label={message("settings.shortcutChange", { action })}
                   aria-keyshortcuts={formatBinding(binding)}

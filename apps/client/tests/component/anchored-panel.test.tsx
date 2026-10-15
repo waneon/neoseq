@@ -3,7 +3,7 @@
 // The frame that puts the caret on a panel's first control runs after the panel
 // mounts, so a fast hand — or a machine slow enough that a press overtakes a
 // frame — can open one of the panel's own dropdowns first. The frame must not
-// then take the caret back: focus leaving a Radix menu closes it, so the reader
+// then take the caret back: focus leaving a menu closes it, so the reader
 // would watch the menu they just opened shut itself.
 
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";

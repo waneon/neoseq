@@ -9,7 +9,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
+  DropdownMenuChoice,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
@@ -368,9 +368,9 @@ function MatchMenu({
         onValueChange={(value) => onChange({ ...group, match: value as PlanGroup["match"] })}
       >
         {(["all", "any", "none"] as const).map((match) => (
-          <DropdownMenuRadioItem key={match} value={match}>
+          <DropdownMenuChoice key={match} value={match}>
             {message(`query.mode.${match}`)}
-          </DropdownMenuRadioItem>
+          </DropdownMenuChoice>
         ))}
       </DropdownMenuRadioGroup>
     </DropdownMenuContent>
@@ -405,9 +405,9 @@ function GroupMenu({
           onValueChange={(value) => onChange({ ...group, match: value as PlanGroup["match"] })}
         >
           {(["all", "any", "none"] as const).map((match) => (
-            <DropdownMenuRadioItem key={match} value={match}>
+            <DropdownMenuChoice key={match} value={match}>
               {message(`query.mode.${match}`)}
-            </DropdownMenuRadioItem>
+            </DropdownMenuChoice>
           ))}
         </DropdownMenuRadioGroup>
         <DropdownMenuSeparator />

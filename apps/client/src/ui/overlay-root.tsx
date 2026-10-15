@@ -22,13 +22,22 @@
 // return is that it be a place a `position: fixed` child can still be placed
 // against the window — see designs/foundations.md § Motion.
 
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useCallback, useContext, type ReactNode } from "react";
+import { UNSAFE_PortalProvider } from "react-aria";
 
 const OverlayRootContext = createContext<HTMLElement | null>(null);
 
-/** Declares this subtree's summoned surfaces to belong to `node`. */
+/**
+ * Declares this subtree's summoned surfaces to belong to `node`, both the
+ * product's own panels and the menus and lists React Aria portals.
+ */
 export function OverlayRoot({ node, children }: { node: HTMLElement | null; children: ReactNode }) {
-  return <OverlayRootContext.Provider value={node}>{children}</OverlayRootContext.Provider>;
+  const getContainer = useCallback(() => node ?? document.body, [node]);
+  return (
+    <OverlayRootContext.Provider value={node}>
+      <UNSAFE_PortalProvider getContainer={getContainer}>{children}</UNSAFE_PortalProvider>
+    </OverlayRootContext.Provider>
+  );
 }
 
 /**
@@ -38,3 +47,9 @@ export function OverlayRoot({ node, children }: { node: HTMLElement | null; chil
 export function useOverlayRoot(): HTMLElement {
   return useContext(OverlayRootContext) ?? document.body;
 }
+
+/**
+ * React Aria lifts its overlays to one fixed z-index; a surface's class places
+ * it in the product's layer order instead.
+ */
+export const LAYER_STYLE = { zIndex: undefined };

@@ -19,11 +19,12 @@
 // previews the actual strong accent in both modes; CSS still supplies the two
 // measured lightness/chroma pairs, so every position remains legible.
 
-import { useId, useState, type CSSProperties } from "react";
+import { useId, useRef, useState, type CSSProperties } from "react";
 import { CheckIcon, RotateCcwIcon, SlidersHorizontalIcon } from "lucide-react";
 import { useI18n, type MessageKey } from "../../i18n";
 import { DEFAULT_ACCENT_HUE, normalizeHue, setAccentHue, storedAccentHue } from "../../ui/theme";
-import { Popover, PopoverContent, PopoverPortal, PopoverTrigger } from "../../ui/shadcn/popover";
+import { AnchoredPanel } from "../../ui/anchored-panel";
+import { elementAnchor } from "../../ui/anchored";
 
 /** Eight steps around the circle, named, with iris where it has always been. */
 const ACCENT_STEPS = [
@@ -41,6 +42,8 @@ export function AccentField() {
   const { message } = useI18n();
   const inputId = useId();
   const [hue, setHue] = useState(storedAccentHue);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
   const custom = !ACCENT_STEPS.some((step) => step.hue === hue);
 
   const apply = (next: number) => {
@@ -77,32 +80,33 @@ export function AccentField() {
           ))}
         </div>
 
-        <Popover>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              className="accent-custom-trigger"
-              aria-pressed={custom}
-              aria-label={message("settings.customColor")}
-              title={message("settings.customColor")}
-              data-testid="settings-accent-custom"
-              style={accentStyle(hue)}
-            >
-              <span className="accent-custom-well" aria-hidden />
-              <SlidersHorizontalIcon aria-hidden />
-              <span>{message("settings.customColor")}</span>
-            </button>
-          </PopoverTrigger>
-          <PopoverPortal>
-            <PopoverContent
-              className="color-studio-popover enter-fade-fast"
-              align="start"
-              collisionPadding={12}
-              sideOffset={8}
-              aria-label={message("settings.customColor")}
-              data-testid="settings-accent-picker"
-              style={accentStyle(hue)}
-            >
+        <button
+          ref={trigger}
+          type="button"
+          className="accent-custom-trigger"
+          aria-pressed={custom}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-label={message("settings.customColor")}
+          title={message("settings.customColor")}
+          data-testid="settings-accent-custom"
+          style={accentStyle(hue)}
+          onClick={() => setOpen((current) => !current)}
+        >
+          <span className="accent-custom-well" aria-hidden />
+          <SlidersHorizontalIcon aria-hidden />
+          <span>{message("settings.customColor")}</span>
+        </button>
+        {open && (
+          <AnchoredPanel
+            anchor={elementAnchor(trigger.current)}
+            className="color-studio-popover enter-fade-fast"
+            options={{ gap: 8 }}
+            label={message("settings.customColor")}
+            testId="settings-accent-picker"
+            onClose={() => setOpen(false)}
+          >
+            <div className="accent-studio" style={accentStyle(hue)}>
               <div className="color-studio-head">
                 <strong>{message("settings.customColor")}</strong>
                 <button
@@ -148,9 +152,9 @@ export function AccentField() {
                   onChange={(event) => apply(Number(event.target.value))}
                 />
               </div>
-            </PopoverContent>
-          </PopoverPortal>
-        </Popover>
+            </div>
+          </AnchoredPanel>
+        )}
       </div>
     </div>
   );

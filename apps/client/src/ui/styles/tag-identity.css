@@ -557,14 +557,10 @@
 }
 
 @media (max-width: 600px) {
-  [data-radix-popper-content-wrapper]:has(> .tag-identity-editor) {
+  .tag-identity-editor {
+    position: fixed !important;
     inset: auto 0 0 !important;
     min-width: 0 !important;
-    transform: none !important;
-  }
-
-  .tag-identity-editor {
-    position: static !important;
     width: 100% !important;
     max-width: none !important;
     max-height: 86dvh !important;

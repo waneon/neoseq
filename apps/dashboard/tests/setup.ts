@@ -4,7 +4,7 @@ import { afterEach } from "vitest";
 
 afterEach(() => cleanup());
 
-// Radix primitives (select, dialog, alert dialog) reach for pointer-capture,
+// React Aria primitives reach for pointer-capture,
 // scroll and media-query APIs that jsdom does not implement. Stub them so the
 // portaled surfaces open and close under userEvent the way they do in a browser.
 if (!("PointerEvent" in globalThis)) {

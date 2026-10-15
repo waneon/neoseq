@@ -12,14 +12,14 @@ import {
 } from "lucide-react";
 import type { QueryView, QueryViewKind } from "../../core-port/snapshot";
 import { Button } from "@/ui/shadcn/button";
-import { focusOverlayOwner } from "@/ui/overlay-focus";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
+  DropdownMenuGroup,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  PointMenu,
 } from "@/ui/shadcn/dropdown-menu";
 import { useI18n } from "../../i18n";
 
@@ -241,89 +241,71 @@ export function QueryViewTabs({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
-            <DropdownMenuLabel>{message("query.newView")}</DropdownMenuLabel>
-            <DropdownMenuItem onSelect={() => onAdd("table")}>
-              {message("query.viewTable")}
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => onAdd("list")}>
-              {message("query.viewList")}
-            </DropdownMenuItem>
+            <DropdownMenuGroup label={message("query.newView")}>
+              <DropdownMenuItem onSelect={() => onAdd("table")}>
+                {message("query.viewTable")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onAdd("list")}>
+                {message("query.viewList")}
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
       )}
 
-      {/* One menu, two routes into it. Radix needs something to position
-          against, so the trigger is a zero-size anchor placed where the reader
-          asked — the pointer, or the chevron they pressed. It is `aria-hidden`
-          and unfocusable: it is not a control, it is a coordinate. */}
-      <DropdownMenu
-        modal={false}
-        open={menuAt !== null}
-        onOpenChange={(open) => (open ? undefined : setMenuAt(null))}
+      {/* One menu, two routes into it: it opens where the reader asked — the
+          pointer, or the chevron they pressed. */}
+      <PointMenu
+        at={menuAt}
+        label={message("query.viewActions", { name: menuView?.name ?? "" })}
+        // The anchor cannot take focus, so focus goes back to the tab the menu
+        // was summoned from.
+        owner={() =>
+          strip.current?.querySelector<HTMLElement>(
+            `[data-view-id="${CSS.escape(activeView.id)}"]`,
+          ) ?? null
+        }
+        onClose={() => setMenuAt(null)}
       >
-        <DropdownMenuTrigger asChild>
-          <span
-            className="menu-anchor"
-            aria-label={message("query.viewActions", {
-              name: menuView?.name ?? "",
-            })}
-            aria-hidden
-            style={{ left: menuAt?.x ?? 0, top: menuAt?.y ?? 0 }}
-          />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="start"
-          onCloseAutoFocus={(event) => {
-            // The anchor is hidden from assistive technology and cannot be
-            // focused, so focus goes back to the tab the menu was summoned from.
-            event.preventDefault();
-            focusOverlayOwner(
-              strip.current?.querySelector<HTMLElement>(
-                `[data-view-id="${CSS.escape(activeView.id)}"]`,
-              ) ?? null,
-            );
+        <DropdownMenuItem
+          data-testid="query-view-rename"
+          onSelect={() => {
+            const id = menuView?.id;
+            if (id) requestAnimationFrame(() => setRenaming(id));
           }}
         >
-          <DropdownMenuItem
-            data-testid="query-view-rename"
-            onSelect={() => {
-              const id = menuView?.id;
-              if (id) requestAnimationFrame(() => setRenaming(id));
-            }}
-          >
-            <PencilLineIcon aria-hidden />
-            {message("query.renameView")}
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => menuView && onDuplicate(menuView)}>
-            <CopyIcon aria-hidden />
-            {message("query.duplicateView")}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled={!menuView || views[0]?.id === menuView.id}
-            onSelect={() => menuView && onMove(menuView, -1)}
-          >
-            <ChevronLeftIcon aria-hidden />
-            {message("query.moveViewLeft")}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled={!menuView || views[views.length - 1]?.id === menuView.id}
-            onSelect={() => menuView && onMove(menuView, 1)}
-          >
-            <ChevronRightIcon aria-hidden />
-            {message("query.moveViewRight")}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            variant="destructive"
-            disabled={views.length <= 1}
-            data-testid="query-view-delete"
-            onSelect={() => menuView && onRemove(menuView)}
-          >
-            <Trash2Icon aria-hidden />
-            {message("query.deleteView")}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+          <PencilLineIcon aria-hidden />
+          {message("query.renameView")}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => menuView && onDuplicate(menuView)}>
+          <CopyIcon aria-hidden />
+          {message("query.duplicateView")}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={!menuView || views[0]?.id === menuView.id}
+          onSelect={() => menuView && onMove(menuView, -1)}
+        >
+          <ChevronLeftIcon aria-hidden />
+          {message("query.moveViewLeft")}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={!menuView || views[views.length - 1]?.id === menuView.id}
+          onSelect={() => menuView && onMove(menuView, 1)}
+        >
+          <ChevronRightIcon aria-hidden />
+          {message("query.moveViewRight")}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          variant="destructive"
+          disabled={views.length <= 1}
+          data-testid="query-view-delete"
+          onSelect={() => menuView && onRemove(menuView)}
+        >
+          <Trash2Icon aria-hidden />
+          {message("query.deleteView")}
+        </DropdownMenuItem>
+      </PointMenu>
     </div>
   );
 }

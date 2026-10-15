@@ -27,7 +27,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
+  DropdownMenuChoice,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
@@ -122,12 +122,12 @@ export function TaskStatusMenu({
           sitting at `done` — silently did nothing. */}
       <DropdownMenuRadioGroup value={status}>
         {options.map((option) => (
-          <DropdownMenuRadioItem key={option} value={option} onSelect={() => void choose(option)}>
+          <DropdownMenuChoice key={option} value={option} onSelect={() => void choose(option)}>
             <TaskStatusGlyph status={option} />
             {option === "done" && recurs
               ? message("task.completeOccurrence")
               : statusLabel(option, message)}
-          </DropdownMenuRadioItem>
+          </DropdownMenuChoice>
         ))}
       </DropdownMenuRadioGroup>
       <DropdownMenuSeparator />

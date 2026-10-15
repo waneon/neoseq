@@ -6,15 +6,14 @@
 // focus, dismissal, and its place above any menu that invoked it.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { SearchIcon, XIcon } from "lucide-react";
 import { Button } from "../../ui/shadcn/button";
 import { GROUP_ORDER, matchCommand, type Command, type CommandGroup } from "./registry";
 import { Kbd } from "../../ui/kbd";
 import { useNotify } from "../notify/context";
 import { useI18n, type MessageKey } from "../../i18n";
-import { currentFocusOwner, restoreOverlayFocus } from "../../ui/overlay-focus";
-import { OverlayRoot, useOverlayRoot } from "../../ui/overlay-root";
+import { currentFocusOwner } from "../../ui/overlay-focus";
+import { ModalLayer } from "../../ui/modal";
 
 const GROUP_MESSAGE = {
   Search: "commands.group.search",
@@ -57,8 +56,6 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
   const [searchRows, setSearchRows] = useState<Command[]>([]);
   // The row the reader moved to; until they move, the first row the query matched.
   const [moved, setMoved] = useState<number | null>(null);
-  const container = useOverlayRoot();
-  const [surface, setSurface] = useState<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const selectedCommand = useRef<Command | null>(null);
@@ -182,8 +179,8 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
   };
 
   const onKeyDown = (event: React.KeyboardEvent) => {
-    // Radix handles Escape for the top modal, including cancellation during
-    // composition, and cycles native Tab between the input and close action.
+    // The modal answers Escape, including cancellation during composition, and
+    // contains native Tab between the input and close action.
     if (event.nativeEvent.isComposing) return;
     if (event.target !== inputRef.current) return;
     if (event.key === "ArrowDown") {
@@ -207,142 +204,121 @@ export function CommandPalette({ commands, dynamic, search, onClose }: Props) {
   const activeId = flat[active] ? `cmdk-opt-${flat[active].command.id}` : undefined;
   let index = -1;
 
-  // The backdrop is a SIBLING of the panel, not its parent: opacity on an ancestor
-  // fades its children too, which would leave the palette's text compositing at
-  // partial alpha the instant it is read. The scrim fades; the panel does not.
   return (
-    <DialogPrimitive.Root open onOpenChange={(open) => !open && onClose()}>
-      <DialogPrimitive.Portal container={container}>
-        <DialogPrimitive.Overlay className="cmdk-backdrop" aria-hidden />
-        <div className="cmdk-scrim" data-testid="command-palette">
-          <DialogPrimitive.Content
-            ref={setSurface}
-            className="cmdk enter-rise"
-            aria-modal="true"
-            aria-describedby={undefined}
-            onKeyDown={onKeyDown}
-            onOpenAutoFocus={(event) => {
-              event.preventDefault();
-              inputRef.current?.focus({ preventScroll: true });
-            }}
-            onCloseAutoFocus={(event) => {
-              const command = selectedCommand.current;
-              selectedCommand.current = null;
-              // A successor dialog must capture the persistent invoker, not
-              // the body left behind by this portal. Restore first, then let
-              // the command claim its own destination after the trap is gone.
-              restoreOverlayFocus(event, restore.element);
-              if (
-                document.activeElement === restore.element &&
-                restore.start !== null &&
-                (restore.element instanceof HTMLTextAreaElement ||
-                  restore.element instanceof HTMLInputElement)
-              ) {
-                restore.element.setSelectionRange(restore.start, restore.end ?? restore.start);
-              }
-              if (command) void command.run();
-            }}
-          >
-            <OverlayRoot node={surface}>
-              <DialogPrimitive.Title className="sr-only">
-                {message("commands.palette")}
-              </DialogPrimitive.Title>
-              <div className="cmdk-input-row">
-                <SearchIcon className="cmdk-search-icon" aria-hidden />
-                <input
-                  ref={inputRef}
-                  className="cmdk-input"
-                  type="text"
-                  autoComplete="off"
-                  spellCheck={false}
-                  role="combobox"
-                  aria-expanded={flat.length > 0}
-                  aria-controls="cmdk-results"
-                  aria-activedescendant={activeId}
-                  aria-autocomplete="list"
-                  aria-label={message("commands.searchLabel")}
-                  placeholder={message("commands.searchPlaceholder")}
-                  data-testid="command-input"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                />
-                <DialogPrimitive.Close asChild>
-                  <Button
-                    size="icon"
-                    className="cmdk-close"
-                    aria-label={message("common.close")}
-                    data-testid="command-close"
-                  >
-                    <XIcon aria-hidden />
-                  </Button>
-                </DialogPrimitive.Close>
-              </div>
-              <ul
-                ref={listRef}
-                id="cmdk-results"
-                className="cmdk-results"
-                role="listbox"
-                aria-label={message("commands.results")}
-              >
-                {flat.length === 0 && (
-                  <li className="cmdk-empty" role="status">
-                    {message("commands.searchResultsEmpty", { query: query.trim() })}
-                  </li>
-                )}
-                {groups.map(({ group, rows }, groupIndex) => (
-                  <li key={`${group}-${groupIndex}`} role="presentation">
-                    <div className="cmdk-group-title" role="presentation">
-                      {message(GROUP_MESSAGE[group])}
-                    </div>
-                    <ul
-                      role="group"
-                      aria-label={message(GROUP_MESSAGE[group])}
-                      className="m-0 list-none p-0"
+    <ModalLayer
+      frameClassName="cmdk-scrim"
+      className="cmdk"
+      testId="command-palette"
+      aria-label={message("commands.palette")}
+      initialFocus={() => inputRef.current}
+      returnFocus={() => restore.element}
+      onKeyDown={onKeyDown}
+      onClose={onClose}
+      onClosed={() => {
+        const command = selectedCommand.current;
+        selectedCommand.current = null;
+        if (
+          document.activeElement === restore.element &&
+          restore.start !== null &&
+          (restore.element instanceof HTMLTextAreaElement ||
+            restore.element instanceof HTMLInputElement)
+        ) {
+          restore.element.setSelectionRange(restore.start, restore.end ?? restore.start);
+        }
+        // A successor dialog must capture the persistent invoker, not the body
+        // this modal leaves behind, so the command runs once focus is back.
+        if (command) void command.run();
+      }}
+    >
+      <div className="cmdk-input-row">
+        <SearchIcon className="cmdk-search-icon" aria-hidden />
+        <input
+          ref={inputRef}
+          className="cmdk-input"
+          type="text"
+          autoComplete="off"
+          spellCheck={false}
+          role="combobox"
+          aria-expanded={flat.length > 0}
+          aria-controls="cmdk-results"
+          aria-activedescendant={activeId}
+          aria-autocomplete="list"
+          aria-label={message("commands.searchLabel")}
+          placeholder={message("commands.searchPlaceholder")}
+          data-testid="command-input"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <Button
+          size="icon"
+          className="cmdk-close"
+          aria-label={message("common.close")}
+          data-testid="command-close"
+          onClick={onClose}
+        >
+          <XIcon aria-hidden />
+        </Button>
+      </div>
+      <ul
+        ref={listRef}
+        id="cmdk-results"
+        className="cmdk-results"
+        role="listbox"
+        aria-label={message("commands.results")}
+      >
+        {flat.length === 0 && (
+          <li className="cmdk-empty" role="status">
+            {message("commands.searchResultsEmpty", { query: query.trim() })}
+          </li>
+        )}
+        {groups.map(({ group, rows }, groupIndex) => (
+          <li key={`${group}-${groupIndex}`} role="presentation">
+            <div className="cmdk-group-title" role="presentation">
+              {message(GROUP_MESSAGE[group])}
+            </div>
+            <ul
+              role="group"
+              aria-label={message(GROUP_MESSAGE[group])}
+              className="m-0 list-none p-0"
+            >
+              {rows.map(({ command }) => {
+                index += 1;
+                const position = index;
+                return (
+                  <li key={command.id} role="presentation">
+                    <div
+                      id={`cmdk-opt-${command.id}`}
+                      role="option"
+                      aria-selected={position === active}
+                      aria-disabled={command.disabledReason ? true : undefined}
+                      className="cmdk-row"
+                      data-active={position === active}
+                      data-disabled={command.disabledReason ? true : undefined}
+                      data-testid={`cmd-${command.id}`}
+                      onMouseMove={() => setMoved(position)}
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        runRow({ command, score: 0 });
+                      }}
                     >
-                      {rows.map(({ command }) => {
-                        index += 1;
-                        const position = index;
-                        return (
-                          <li key={command.id} role="presentation">
-                            <div
-                              id={`cmdk-opt-${command.id}`}
-                              role="option"
-                              aria-selected={position === active}
-                              aria-disabled={command.disabledReason ? true : undefined}
-                              className="cmdk-row"
-                              data-active={position === active}
-                              data-disabled={command.disabledReason ? true : undefined}
-                              data-testid={`cmd-${command.id}`}
-                              onMouseMove={() => setMoved(position)}
-                              onMouseDown={(event) => {
-                                event.preventDefault();
-                                runRow({ command, score: 0 });
-                              }}
-                            >
-                              <span className="cmdk-row-icon" aria-hidden>
-                                {command.icon}
-                              </span>
-                              <span className="cmdk-row-copy">
-                                <span className="label">{command.label}</span>
-                                {(command.disabledReason || command.hint) && (
-                                  <span className="hint">
-                                    {command.disabledReason ?? command.hint}
-                                  </span>
-                                )}
-                              </span>
-                              {command.binding && <Kbd parts={command.binding} />}
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
+                      <span className="cmdk-row-icon" aria-hidden>
+                        {command.icon}
+                      </span>
+                      <span className="cmdk-row-copy">
+                        <span className="label">{command.label}</span>
+                        {(command.disabledReason || command.hint) && (
+                          <span className="hint">{command.disabledReason ?? command.hint}</span>
+                        )}
+                      </span>
+                      {command.binding && <Kbd parts={command.binding} />}
+                    </div>
                   </li>
-                ))}
-              </ul>
-            </OverlayRoot>
-          </DialogPrimitive.Content>
-        </div>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+                );
+              })}
+            </ul>
+          </li>
+        ))}
+      </ul>
+    </ModalLayer>
   );
 }

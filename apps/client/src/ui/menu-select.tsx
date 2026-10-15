@@ -16,7 +16,7 @@
 // was doing it in the place where a user is most likely to be a beginner.
 //
 // The trade is named in designs/interaction.md § Choice: a native `<select>`
-// brings the platform picker and mobile wheel for free. Radix Select gives back
+// brings the platform picker and mobile wheel for free. React Aria's Select gives back
 // type-ahead, roving focus, portalling, dismissal and `option` semantics; the
 // mobile wheel it does not. One consistent surface for product choices was
 // judged worth that.
@@ -24,7 +24,10 @@
 // The trigger keeps the shape of a field, because it is standing in for one. Only
 // the popup changed.
 
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./shadcn/select";
+import { CheckIcon, ChevronDownIcon } from "lucide-react";
+import { Button, ListBox, ListBoxItem, Popover, Select, SelectValue } from "react-aria-components";
+import { cn } from "@/lib/utils";
+import { LAYER_STYLE } from "@/ui/overlay-root";
 
 export interface MenuSelectOption {
   value: string;
@@ -53,20 +56,44 @@ export function MenuSelect({
   testId?: string;
 }) {
   const selected = options.find((option) => option.value === value);
-  const text = selected?.label ?? placeholder ?? "";
-
   return (
-    <Select value={selected?.value ?? ""} onValueChange={onValueChange} disabled={disabled}>
-      <SelectTrigger className={className} aria-label={label} data-testid={testId}>
-        <SelectValue placeholder={text} />
-      </SelectTrigger>
-      <SelectContent align="start" aria-label={label}>
-        {options.map((option) => (
-          <SelectItem key={option.value} value={option.value}>
-            {option.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
+    <Select
+      aria-label={label}
+      selectedKey={selected?.value ?? null}
+      onSelectionChange={(key) => {
+        if (key !== null) onValueChange(String(key));
+      }}
+      isDisabled={disabled}
+      placeholder={placeholder ?? ""}
+    >
+      <Button className={cn("menu-select", className)} data-testid={testId}>
+        <SelectValue className="menu-select-value" />
+        <ChevronDownIcon aria-hidden />
+      </Button>
+      <Popover
+        className="menu-surface menu-select-menu enter-fade-fast"
+        style={LAYER_STYLE}
+        placement="bottom start"
+        offset={6}
+        maxHeight={320}
+      >
+        <ListBox items={options} className="menu-list">
+          {(option) => (
+            <ListBoxItem
+              id={option.value}
+              textValue={option.label}
+              className="menu-row menu-choice"
+            >
+              {({ isSelected }) => (
+                <>
+                  <span className="menu-indicator">{isSelected && <CheckIcon aria-hidden />}</span>
+                  {option.label}
+                </>
+              )}
+            </ListBoxItem>
+          )}
+        </ListBox>
+      </Popover>
     </Select>
   );
 }

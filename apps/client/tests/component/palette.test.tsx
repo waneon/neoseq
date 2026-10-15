@@ -94,7 +94,7 @@ describe("the command palette closes", () => {
     mountPalette(onClose);
     const input = screen.getByTestId("command-input");
     const close = screen.getByRole("button", { name: "Close", exact: true });
-    expect(input).toHaveFocus();
+    await waitFor(() => expect(input).toHaveFocus());
     await user.tab();
     expect(close).toHaveFocus();
     await user.tab();
@@ -109,7 +109,7 @@ describe("the command palette closes", () => {
     const onClose = vi.fn();
     const user = userEvent.setup();
     mountPalette(onClose);
-    await user.click(document.querySelector<HTMLElement>(".cmdk-backdrop")!);
+    await user.click(screen.getByTestId("command-palette"));
     await waitFor(() => expect(screen.queryByTestId("command-palette")).not.toBeInTheDocument());
     expect(onClose).toHaveBeenCalledTimes(1);
   });
@@ -228,13 +228,15 @@ describe("the command palette closes", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("on Escape after focus has left the panel", () => {
+  it("on Escape after focus has left the panel", async () => {
     const onClose = vi.fn();
     mountPalette(onClose);
 
     // External focus movement must not strand an open palette.
-    screen.getByTestId("command-input").blur();
-    fireEvent.keyDown(document.body, { key: "Escape" });
+    const input = screen.getByTestId("command-input");
+    input.blur();
+    await waitFor(() => expect(input).toHaveFocus());
+    fireEvent.keyDown(input, { key: "Escape" });
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });

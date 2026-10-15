@@ -446,8 +446,8 @@ describe("query result blocks", () => {
     // The table projects the selected empty cell as an editing affordance.
     const table = await screen.findByTestId("query-table");
     expect(await within(table).findByTestId("query-edit-status")).toHaveAttribute(
-      "data-slot",
-      "dropdown-menu-trigger",
+      "aria-haspopup",
+      "true",
     );
 
     await chooseFromMenu(user, screen.getByTestId("query-view-trigger"), "List");

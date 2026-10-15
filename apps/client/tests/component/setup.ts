@@ -132,7 +132,7 @@ Element.prototype.getBoundingClientRect = function getBoundingClientRect(): DOMR
   return { ...rect, toJSON: () => rect } as DOMRect;
 };
 
-// Radix primitives (dropdown menu, dialog, tooltip) reach for pointer-capture,
+// React Aria primitives reach for pointer-capture,
 // scroll, and media-query APIs that jsdom does not implement. Stub them so the
 // portaled menus open and close under userEvent the way they do in a browser.
 if (!("PointerEvent" in globalThis)) {

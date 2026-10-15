@@ -1,20 +1,16 @@
-import { useState, type ReactNode } from "react";
-import { Dialog as DialogRoot, DialogContent, DialogHeader, DialogTitle } from "@/ui/shadcn/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/ui/shadcn/alert-dialog";
-import { Button } from "@/ui/shadcn/button";
-import { OverlayRoot } from "@/ui/overlay-root";
-import { currentFocusOwner, focusOverlayOwner, restoreOverlayFocus } from "@/ui/overlay-focus";
+import { useId, useState, type ReactNode } from "react";
+import { XIcon } from "lucide-react";
+import { Button, buttonClass } from "@/ui/shadcn/button";
+import { ModalLayer } from "@/ui/modal";
 import { cn } from "@/lib/utils";
 import { useI18n } from "../i18n";
 
+const TITLE_CLASS =
+  "text-[var(--text-lg)] font-semibold leading-[var(--lh-lg)] tracking-[var(--track-lg)] text-[var(--ink)]";
+
+// The panel is centred by its frame rather than `-translate-x-1/2
+// -translate-y-1/2`, so it rests at `transform: none` — a panel parked on a
+// half-applied translate is a target automation reports as unstable.
 export function Dialog({
   title,
   onClose,
@@ -33,50 +29,41 @@ export function Dialog({
   children: ReactNode;
 }) {
   const { message } = useI18n();
-  const [focusOwner] = useState(currentFocusOwner);
-  // The panel itself, once it exists. Everything a dialog summons — a menu, an
-  // anchored panel, an autocomplete — is portaled into it rather than onto the
-  // body, because the scroll lock, the pointer-events lock and the focus trap a
-  // modal installs all stop at this element (§ ui/overlay-root).
-  const [surface, setSurface] = useState<HTMLElement | null>(null);
-  // Rendered only while open (parents mount it conditionally), so the Radix
-  // root is always open; closing via Escape, the backdrop, or the X reports
-  // back through onOpenChange. There is no Radix Trigger in this composition,
-  // so retain the invoker ourselves while Radix owns the focus lifecycle.
+  const titleId = useId();
   return (
-    <DialogRoot open onOpenChange={(open) => (open ? undefined : onClose())}>
-      <DialogContent
-        ref={setSurface}
-        closeLabel={message("common.close")}
-        showCloseButton={dismissible}
-        aria-describedby={undefined}
-        className={cn(
-          size === "wide" && "max-w-[720px]",
-          size === "settings" && "settings-dialog-surface max-w-[940px] gap-0 p-0 max-[600px]:p-0",
-        )}
-        onEscapeKeyDown={(event) => {
-          // Radix arbitrates layers during document capture, before a field's
-          // keydown can discard its draft. A dirty field explicitly retains
-          // this Escape; the next one can dismiss the surrounding dialog.
-          const target = event.target;
-          const cancelsDraft =
-            target instanceof Element && target.closest('[data-escape-cancel="true"]');
-          if (!dismissible || event.isComposing || cancelsDraft) event.preventDefault();
-        }}
-        onPointerDownOutside={(event) => {
-          if (!dismissible) event.preventDefault();
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") event.stopPropagation();
-        }}
-        onCloseAutoFocus={(event) => restoreOverlayFocus(event, returnFocus?.() ?? focusOwner)}
-      >
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-        </DialogHeader>
-        <OverlayRoot node={surface}>{children}</OverlayRoot>
-      </DialogContent>
-    </DialogRoot>
+    <ModalLayer
+      frameClassName="dialog-frame"
+      className={cn(
+        "dialog-surface relative grid w-full gap-4",
+        size === "wide" && "max-w-[720px]",
+        size === "settings" && "settings-dialog-surface max-w-[940px] gap-0 p-0 max-[600px]:p-0",
+      )}
+      aria-labelledby={titleId}
+      dismissible={dismissible}
+      returnFocus={returnFocus}
+      onEscapeKeyDown={(event) => {
+        // Escape during composition belongs to the input method.
+        if (!dismissible || event.isComposing) event.preventDefault();
+      }}
+      onClose={onClose}
+    >
+      <div className="dialog-header flex flex-col gap-1 pr-8">
+        <h2 id={titleId} className={TITLE_CLASS}>
+          {title}
+        </h2>
+      </div>
+      {children}
+      {dismissible && (
+        <button
+          type="button"
+          className={cn(buttonClass("secondary", "icon"), "dialog-close absolute")}
+          aria-label={message("common.close")}
+          onClick={onClose}
+        >
+          <XIcon className="size-[var(--dialog-close-icon,0.875rem)]" />
+        </button>
+      )}
+    </ModalLayer>
   );
 }
 
@@ -127,7 +114,8 @@ export function ConfirmDialog({
   children: ReactNode;
 }) {
   const [pending, setPending] = useState(false);
-  const [focusOwner] = useState(currentFocusOwner);
+  const titleId = useId();
+  const descriptionId = useId();
   const working = busy || pending;
   const close = onClose;
 
@@ -144,49 +132,43 @@ export function ConfirmDialog({
   };
 
   return (
-    <AlertDialog open>
-      <AlertDialogContent
-        aria-busy={working || undefined}
-        onCloseAutoFocus={(event) => {
-          if (returnFocus) {
-            event.preventDefault();
-            focusOverlayOwner(returnFocus());
-          } else {
-            restoreOverlayFocus(event, focusOwner);
-          }
-        }}
-        onEscapeKeyDown={(event) => {
-          event.preventDefault();
-          if (!working) close();
-        }}
-      >
-        <AlertDialogHeader>
-          <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription>{children}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <div className="dialog-actions">
-          <AlertDialogCancel asChild>
-            <Button variant="secondary" disabled={working} onClick={close}>
-              {cancelLabel}
-            </Button>
-          </AlertDialogCancel>
-          <AlertDialogAction asChild>
-            <Button
-              variant="destructive"
-              disabled={working}
-              data-testid={testId}
-              onClick={(event) => {
-                // A destructive operation owns the lifetime of its dialog: it
-                // remains visible until the operation has actually committed.
-                event.preventDefault();
-                void confirm();
-              }}
-            >
-              {confirmLabel}
-            </Button>
-          </AlertDialogAction>
+    <ModalLayer
+      role="alertdialog"
+      frameClassName="dialog-frame"
+      className="dialog-surface relative grid w-full gap-4"
+      aria-labelledby={titleId}
+      aria-describedby={descriptionId}
+      aria-busy={working || undefined}
+      dismissible={false}
+      returnFocus={returnFocus}
+      onEscapeKeyDown={(event) => {
+        if (working) event.preventDefault();
+      }}
+      onClose={close}
+    >
+      <div className="flex flex-col gap-2">
+        <h2 id={titleId} className={TITLE_CLASS}>
+          {title}
+        </h2>
+        <div id={descriptionId} className="text-sm text-[var(--ink-2)]">
+          {children}
         </div>
-      </AlertDialogContent>
-    </AlertDialog>
+      </div>
+      <div className="dialog-actions">
+        <Button variant="secondary" disabled={working} onClick={close}>
+          {cancelLabel}
+        </Button>
+        {/* A destructive operation owns the lifetime of its dialog: it remains
+            visible until the operation has actually committed. */}
+        <Button
+          variant="destructive"
+          disabled={working}
+          data-testid={testId}
+          onClick={() => void confirm()}
+        >
+          {confirmLabel}
+        </Button>
+      </div>
+    </ModalLayer>
   );
 }

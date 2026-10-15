@@ -27,12 +27,11 @@ import type {
 import { findOutline, outlineOwnerKey, sameHeaders } from "../../core-port/snapshot";
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
+  DropdownMenuCheckboxGroup,
+  DropdownMenuChoice,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
@@ -1036,41 +1035,32 @@ function QueryPanelSurface({
   // Layout and row presentation belong to the selected saved view.
   const layoutItems = (
     <>
-      <DropdownMenuLabel>{message("query.layout")}</DropdownMenuLabel>
       <DropdownMenuRadioGroup
+        label={message("query.layout")}
         value={activeView.kind}
         onValueChange={(kind) =>
           void putCurrentView({ ...activeView, kind: kind as QueryViewKind })
         }
       >
-        <DropdownMenuRadioItem value="table">{message("query.viewTable")}</DropdownMenuRadioItem>
-        <DropdownMenuRadioItem value="list">{message("query.viewList")}</DropdownMenuRadioItem>
+        <DropdownMenuChoice value="table">{message("query.viewTable")}</DropdownMenuChoice>
+        <DropdownMenuChoice value="list">{message("query.viewList")}</DropdownMenuChoice>
       </DropdownMenuRadioGroup>
       <DropdownMenuSeparator />
-      <DropdownMenuLabel>{message("query.rows")}</DropdownMenuLabel>
       {/* A checked switch says what is on. The label used to flip between
           `Compact rows` and `Roomy rows`, which left the reader guessing whether
           it named the state or the verb. */}
-      <DropdownMenuCheckboxItem
-        checked={activeView.options.compact}
-        onSelect={(event) => {
-          event.preventDefault();
-          void setOption({ compact: !activeView.options.compact });
-        }}
+      <DropdownMenuCheckboxGroup
+        label={message("query.rows")}
+        checked={(["compact", "wrap"] as const).filter((option) => activeView.options[option])}
+        onCheckedChange={(option, on) =>
+          void setOption(option === "wrap" ? { wrap: on } : { compact: on })
+        }
       >
-        {message("query.densityCompact")}
-      </DropdownMenuCheckboxItem>
-      {activeView.kind === "table" && (
-        <DropdownMenuCheckboxItem
-          checked={activeView.options.wrap}
-          onSelect={(event) => {
-            event.preventDefault();
-            void setOption({ wrap: !activeView.options.wrap });
-          }}
-        >
-          {message("query.wrap")}
-        </DropdownMenuCheckboxItem>
-      )}
+        <DropdownMenuChoice value="compact">{message("query.densityCompact")}</DropdownMenuChoice>
+        {activeView.kind === "table" && (
+          <DropdownMenuChoice value="wrap">{message("query.wrap")}</DropdownMenuChoice>
+        )}
+      </DropdownMenuCheckboxGroup>
     </>
   );
 

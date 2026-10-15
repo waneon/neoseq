@@ -754,7 +754,7 @@ function GraphSection({ repositoryId, graphId }: { repositoryId: string; graphId
           value={draftName ?? authoritativeName}
           disabled={repositoryId !== "local"}
           data-testid="settings-graph-name"
-          data-escape-cancel={draftName !== null ? "true" : undefined}
+
           onChange={(event) => setDraftName(event.target.value)}
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing) return;

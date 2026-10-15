@@ -51,7 +51,7 @@
   transition: background-color var(--dur-press);
 }
 .rail-switcher:hover,
-.rail-switcher[data-state="open"] {
+.rail-switcher[aria-expanded="true"] {
   background: var(--surface-2);
 }
 .rail-switcher:focus-visible {

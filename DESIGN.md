@@ -99,7 +99,7 @@ one.
 ## Implementation Boundary
 
 `apps/client` implements the writing product with React, Tailwind CSS, and
-shadcn/Radix primitives. Primitives may supply focus management, selection
+React Aria primitives. Primitives may supply focus management, selection
 models, or positioning; they never supply Neoseq's appearance or override its
 interaction contracts. `app.css` owns tokens and shared mechanisms; feature
 sheets own only their composition.

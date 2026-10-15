@@ -65,7 +65,7 @@ import {
 import { TagMark } from "../tags/TagIdentity";
 import { LogoMark } from "../../ui/brand";
 import { Input } from "@/ui/shadcn/input";
-import { Button } from "@/ui/shadcn/button";
+import { Button, buttonClass } from "@/ui/shadcn/button";
 import { Kbd } from "@/ui/kbd";
 import { graphPath } from "../graphs/routing";
 import { DocumentNameConflicts } from "./DocumentNameConflicts";
@@ -331,7 +331,7 @@ function ShellBody({
       );
     focusable()[0]?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
-      // A dismissed Radix layer can unmount before this event reaches document.
+      // A dismissed overlay can unmount before this event reaches document.
       if (
         event.defaultPrevented ||
         (event.target instanceof Element &&
@@ -779,9 +779,9 @@ SELECT ?entity ?content ?owner WHERE {
             <h1>{message("graph.loadError")}</h1>
             <p>{message("error.internal")}</p>
             <div className="actions">
-              <Button asChild variant="secondary">
-                <Link to="/">{message("graph.backToGraphs")}</Link>
-              </Button>
+              <Link to="/" className={buttonClass("secondary", "default")}>
+                {message("graph.backToGraphs")}
+              </Link>
             </div>
           </div>
         </div>
@@ -985,7 +985,7 @@ SELECT ?entity ?content ?owner WHERE {
               <span className="nav-label">{message("shell.settings")}</span>
             </button>
             <Tooltip>
-              <TooltipTrigger asChild>
+              <TooltipTrigger>
                 <Button
                   size="icon"
                   className="rail-help"
@@ -1007,7 +1007,7 @@ SELECT ?entity ?content ?owner WHERE {
           <header className="shell-topbar" data-titled={scrolledTitle !== null || undefined}>
             <div className="topbar-start">
               <Tooltip>
-                <TooltipTrigger asChild>
+                <TooltipTrigger>
                   <Button
                     size="icon"
                     className="rail-toggle"
@@ -1371,7 +1371,7 @@ function HistoryControls({ commands }: { commands: PaletteCommand[] }) {
         if (!command) return null;
         return (
           <Tooltip key={id}>
-            <TooltipTrigger asChild>
+            <TooltipTrigger>
               <Button
                 size="icon"
                 aria-label={command.label}

@@ -7,7 +7,7 @@
 // so a freely chosen colour cannot make one mode inherit the other's contrast.
 
 import { CheckIcon, RotateCcwIcon, SlidersHorizontalIcon } from "lucide-react";
-import { useId, type CSSProperties } from "react";
+import { useId, useRef, useState, type CSSProperties } from "react";
 import {
   customTone,
   MAX_CUSTOM_TONE_CHROMA,
@@ -19,7 +19,8 @@ import {
 } from "../../entities/settings";
 import type { DueTier } from "../../entities/tasks";
 import { useI18n, type MessageKey } from "../../i18n";
-import { Popover, PopoverContent, PopoverPortal, PopoverTrigger } from "../../ui/shadcn/popover";
+import { AnchoredPanel } from "../../ui/anchored-panel";
+import { elementAnchor } from "../../ui/anchored";
 import { tonePresentation } from "../tasks/tone-presentation";
 
 const TONE_MESSAGE = {
@@ -57,28 +58,33 @@ export function ToneChoice({
       100,
   );
   const custom = (patch: Partial<typeof position>) => onChange({ ...position, ...patch });
+  const trigger = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
 
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="color-studio-trigger"
-          aria-label={label}
-          title={label}
-          data-testid={testId}
-        >
-          <span className="color-studio-well" {...tonePresentation(value)} />
-          <SlidersHorizontalIcon aria-hidden />
-        </button>
-      </PopoverTrigger>
-      <PopoverPortal>
-        <PopoverContent
+    <>
+      <button
+        ref={trigger}
+        type="button"
+        className="color-studio-trigger"
+        aria-label={label}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        title={label}
+        data-testid={testId}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className="color-studio-well" {...tonePresentation(value)} />
+        <SlidersHorizontalIcon aria-hidden />
+      </button>
+      {open && (
+        <AnchoredPanel
+          anchor={elementAnchor(trigger.current)}
           className="color-studio-popover enter-fade-fast"
-          align="end"
-          sideOffset={8}
-          aria-label={label}
-          data-testid={testId ? `${testId}-picker` : undefined}
+          options={{ gap: 8 }}
+          label={label}
+          testId={testId ? `${testId}-picker` : undefined}
+          onClose={() => setOpen(false)}
         >
           <div className="color-studio-head">
             <strong>{label}</strong>
@@ -166,9 +172,9 @@ export function ToneChoice({
               })}
             </div>
           </div>
-        </PopoverContent>
-      </PopoverPortal>
-    </Popover>
+        </AnchoredPanel>
+      )}
+    </>
   );
 }
 

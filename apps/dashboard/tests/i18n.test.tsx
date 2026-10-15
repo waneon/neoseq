@@ -33,7 +33,7 @@ describe("dashboard internationalization", () => {
 
     expect(screen.getByRole("heading", { name: "Administrator sign in" })).toBeVisible();
 
-    await user.click(screen.getByRole("combobox", { name: "Language" }));
+    await user.click(screen.getByRole("button", { name: /Language$/ }));
     await user.click(await screen.findByRole("option", { name: "한국어" }));
 
     expect(screen.getByRole("heading", { name: "관리자 로그인" })).toBeVisible();

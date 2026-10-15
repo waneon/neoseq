@@ -1,3 +1,4 @@
+import { I18nProvider } from "react-aria-components";
 import {
   createContext,
   useCallback,
@@ -324,7 +325,13 @@ export function LocaleProvider({
     [formatJournalDate, journalDateFormat, preference, runtime, setPreference],
   );
 
-  return <LocaleContext.Provider value={value}>{children}</LocaleContext.Provider>;
+  // React Aria's own controls read the same locale for direction, collation
+  // and calendar arithmetic.
+  return (
+    <LocaleContext.Provider value={value}>
+      <I18nProvider locale={runtime.locale}>{children}</I18nProvider>
+    </LocaleContext.Provider>
+  );
 }
 
 export function useI18n(): LocaleContextValue {

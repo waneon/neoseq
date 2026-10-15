@@ -40,7 +40,7 @@ stdenv.mkDerivation {
     inherit version src pnpm;
     pname = "${pname}-${pnpmLockDigest}";
     fetcherVersion = 4;
-    hash = "sha256-sDVz7DANVifkGemz8u8j9aKeRyyqZ+cQoPI/ZGrOs3Q=";
+    hash = "sha256-wWvVfRznGNnJlAnFihbDP+bCHJJquwahHCGjRxxqhRo=";
   };
 
   nativeBuildInputs = [

@@ -1,191 +1,362 @@
 import * as React from "react";
-import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
+import {
+  Button as AriaButton,
+  Header,
+  Menu,
+  MenuItem,
+  MenuSection,
+  MenuTrigger,
+  Popover,
+  Pressable,
+  Separator,
+  type ButtonProps,
+  type Key,
+  type MenuItemProps,
+  type Placement,
+} from "react-aria-components";
 import { CheckIcon } from "lucide-react";
 
-import { useOverlayRoot } from "@/ui/overlay-root";
-import { menuFocusOwner, restoreOverlayFocus } from "@/ui/overlay-focus";
 import { cn } from "@/lib/utils";
+import { LAYER_STYLE } from "@/ui/overlay-root";
+import { afterArrivals, menuOwnerRef, restoreOverlayFocus } from "@/ui/overlay-focus";
 
-function DropdownMenu(props: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
-  return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />;
+// A non-modal menu leaves the page live: a press outside both dismisses it and
+// lands where it was aimed.
+const ModalContext = React.createContext(true);
+
+function DropdownMenu({
+  open,
+  onOpenChange,
+  modal = true,
+  children,
+}: {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  modal?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <ModalContext.Provider value={modal}>
+      <MenuTrigger isOpen={open} onOpenChange={onOpenChange}>
+        {children}
+      </MenuTrigger>
+    </ModalContext.Provider>
+  );
 }
 
-function DropdownMenuTrigger(props: React.ComponentProps<typeof DropdownMenuPrimitive.Trigger>) {
-  return <DropdownMenuPrimitive.Trigger data-slot="dropdown-menu-trigger" {...props} />;
+type PressableChild = React.ComponentProps<typeof Pressable>["children"];
+
+/**
+ * The control that opens the menu. `asChild` lends the menu a control the caller
+ * renders, which must pass its props and ref through to a focusable element.
+ */
+function DropdownMenuTrigger({
+  asChild = false,
+  children,
+  ...props
+}: ButtonProps & { asChild?: boolean; children: React.ReactNode }) {
+  if (!asChild) return <AriaButton {...props}>{children}</AriaButton>;
+  const child = children as React.ReactElement<{ disabled?: boolean }>;
+  return <Pressable isDisabled={child.props.disabled}>{child as PressableChild}</Pressable>;
 }
 
-function DropdownMenuGroup(props: React.ComponentProps<typeof DropdownMenuPrimitive.Group>) {
-  return <DropdownMenuPrimitive.Group data-slot="dropdown-menu-group" {...props} />;
+type Align = "start" | "end";
+
+function MenuSurface({
+  placement,
+  offset,
+  label,
+  className,
+  testId,
+  modal,
+  triggerRef,
+  menuRef,
+  autoFocus,
+  isOpen,
+  onOpenChange,
+  onClose,
+  onClosed,
+  children,
+}: {
+  placement: Placement;
+  offset: number;
+  label?: string;
+  className?: string;
+  testId?: string;
+  modal: boolean;
+  triggerRef?: React.RefObject<Element | null>;
+  menuRef?: React.Ref<HTMLDivElement>;
+  /** A menu without a trigger takes focus itself; a trigger's menu is focused by the trigger. */
+  autoFocus?: boolean;
+  isOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  onClose?: () => void;
+  onClosed?: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Popover
+      className={cn("menu-surface enter-fade-fast", className)}
+      style={LAYER_STYLE}
+      placement={placement}
+      offset={offset}
+      isNonModal={!modal}
+      triggerRef={triggerRef}
+      isOpen={isOpen}
+      onOpenChange={onOpenChange}
+    >
+      {onClosed && <ClosedHook onClosed={onClosed} />}
+      <Menu
+        ref={menuRef}
+        autoFocus={autoFocus ? "first" : undefined}
+        className="menu-list"
+        aria-label={label}
+        data-testid={testId}
+        onClose={onClose}
+      >
+        {children}
+      </Menu>
+    </Popover>
+  );
+}
+
+/** Runs once the menu is gone and anything its action opened has taken focus. */
+function ClosedHook({ onClosed }: { onClosed: () => void }) {
+  const latest = React.useRef(onClosed);
+  latest.current = onClosed;
+  const mounted = React.useRef(false);
+  React.useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      // A hook mounted again by then was only remounted, as StrictMode does.
+      afterArrivals(() => {
+        if (!mounted.current) latest.current();
+      });
+    };
+  }, []);
+  return null;
 }
 
 function DropdownMenuContent({
-  className,
+  align = "start",
   sideOffset = 6,
-  onCloseAutoFocus,
-  ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
-  // A menu opened from inside a modal belongs inside it, not on the body behind
-  // it — a non-modal menu portaled onto the body cannot be scrolled or clicked
-  // through a dialog's locks (§ ui/overlay-root).
-  const container = useOverlayRoot();
+  className,
+  "aria-label": label,
+  "data-testid": testId,
+  children,
+}: {
+  align?: Align;
+  sideOffset?: number;
+  className?: string;
+  "aria-label"?: string;
+  "data-testid"?: string;
+  children: React.ReactNode;
+}) {
+  const modal = React.useContext(ModalContext);
   return (
-    <DropdownMenuPrimitive.Portal container={container}>
-      <DropdownMenuPrimitive.Content
-        data-slot="dropdown-menu-content"
-        sideOffset={sideOffset}
-        onCloseAutoFocus={(event) => {
-          onCloseAutoFocus?.(event);
-          if (event.defaultPrevented) return;
-          const menu = event.currentTarget instanceof Element ? event.currentTarget : null;
-          restoreOverlayFocus(event, menuFocusOwner(menu));
-        }}
-        className={cn(
-          // No `overflow-hidden` here: a menu's box — its cap and its scrolling —
-          // is declared in `app.css`, because a utility would outrank it and did.
-          "z-[var(--z-menu)] min-w-[12rem] rounded-lg bg-[var(--overlay)] p-1 text-popover-foreground shadow-[var(--e2)]",
-          // One arrival, no exit: the menu rises the system's `--rise` and
-          // settles, and Radix unmounts it immediately on close rather than
-          // leaving a low-opacity ghost that is neither clickable nor
-          // contrast-safe. Opacity finishes in the first 40% of the animation,
-          // so the surface is never read — by a person or by the contrast
-          // audit — while it is still translucent.
-          "enter-fade-fast",
-          className,
-        )}
-        {...props}
+    <MenuSurface
+      placement={`bottom ${align}`}
+      offset={sideOffset}
+      label={label}
+      className={className}
+      testId={testId}
+      modal={modal}
+    >
+      {children}
+    </MenuSurface>
+  );
+}
+
+/**
+ * A menu summoned at a point — a context menu, or a gesture on a row — rather
+ * than from a control of its own. Focus has no trigger to return to, so the
+ * caller says where it goes once the menu is gone.
+ */
+function PointMenu({
+  at,
+  label,
+  owner,
+  onClose,
+  onClosed = () => restoreOverlayFocus(null, owner()),
+  children,
+}: {
+  at: { x: number; y: number } | null;
+  label: string;
+  /** Where focus belongs once the menu is gone, and the owner of any dialog it opens. */
+  owner: () => HTMLElement | null;
+  onClose: () => void;
+  onClosed?: () => void;
+  children: React.ReactNode;
+}) {
+  const anchor = React.useRef<HTMLSpanElement>(null);
+  return (
+    <>
+      <span
+        ref={anchor}
+        className="menu-anchor"
+        aria-hidden
+        style={{ left: at?.x ?? 0, top: at?.y ?? 0 }}
       />
-    </DropdownMenuPrimitive.Portal>
+      <MenuSurface
+        placement="bottom start"
+        offset={6}
+        label={label}
+        modal={false}
+        triggerRef={anchor}
+        isOpen={at !== null}
+        onOpenChange={(open) => {
+          if (!open) onClose();
+        }}
+        menuRef={menuOwnerRef(owner)}
+        autoFocus
+        onClose={onClose}
+        onClosed={onClosed}
+      >
+        {children}
+      </MenuSurface>
+    </>
   );
 }
 
 function DropdownMenuItem({
   className,
   variant = "default",
+  disabled,
+  onSelect,
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.Item> & {
+}: Omit<MenuItemProps, "className" | "isDisabled" | "onAction"> & {
+  className?: string;
   variant?: "default" | "destructive";
+  disabled?: boolean;
+  onSelect?: () => void;
+  "data-testid"?: string;
 }) {
   return (
-    <DropdownMenuPrimitive.Item
-      data-slot="dropdown-menu-item"
+    <MenuItem
+      className={cn("menu-row", className)}
       data-variant={variant}
-      className={cn(
-        "relative flex min-h-[30px] cursor-pointer select-none items-center gap-2 rounded-md px-2 text-sm text-foreground outline-none transition-colors",
-        // Pointer hover and keyboard focus share one highlight, so "where am I"
-        // never has two answers.
-        "focus:bg-accent focus:text-accent-foreground",
-        "data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-[var(--danger-soft)]",
-        "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
-        "[&_svg]:pointer-events-none [&_svg]:size-3.5 [&_svg]:shrink-0 [&_svg]:text-[var(--ink-3)]",
-        "data-[variant=destructive]:[&_svg]:text-destructive",
-        className,
-      )}
+      isDisabled={disabled}
+      onAction={onSelect}
       {...props}
     />
   );
 }
 
-/**
- * A choice within a group of them — the row a `<select>`'s option becomes now
- * that every list of choices in the product opens the same menu. It reserves the
- * indicator's column whether or not it is the selected one, so a menu of options
- * does not shift its text sideways as the selection moves down it.
- */
-function DropdownMenuRadioGroup(
-  props: React.ComponentProps<typeof DropdownMenuPrimitive.RadioGroup>,
-) {
-  return <DropdownMenuPrimitive.RadioGroup data-slot="dropdown-menu-radio-group" {...props} />;
+/** A section of a menu, headed when it has a label. */
+function DropdownMenuGroup({ label, children }: { label?: string; children: React.ReactNode }) {
+  return (
+    <MenuSection>
+      {label !== undefined && <DropdownMenuLabel>{label}</DropdownMenuLabel>}
+      {children}
+    </MenuSection>
+  );
 }
 
-function DropdownMenuRadioItem({
+/**
+ * Choices within a group — the rows a `<select>`'s options become now that
+ * every list of choices in the product opens the same menu.
+ */
+function DropdownMenuRadioGroup({
+  label,
+  value,
+  onValueChange,
+  children,
+}: {
+  label?: string;
+  value: string;
+  onValueChange?: (value: string) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <MenuSection
+      selectionMode="single"
+      disallowEmptySelection
+      selectedKeys={[value]}
+      onSelectionChange={(keys) => {
+        const [key] = keys === "all" ? [] : [...keys];
+        if (key !== undefined) onValueChange?.(String(key));
+      }}
+    >
+      {label !== undefined && <DropdownMenuLabel>{label}</DropdownMenuLabel>}
+      {children}
+    </MenuSection>
+  );
+}
+
+/**
+ * Switches within a group — each one state the reader turns on or off, as
+ * against a radio group's one-of-many.
+ */
+function DropdownMenuCheckboxGroup({
+  label,
+  checked,
+  onCheckedChange,
+  children,
+}: {
+  label?: string;
+  checked: readonly string[];
+  onCheckedChange: (value: string, checked: boolean) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <MenuSection
+      selectionMode="multiple"
+      selectedKeys={checked}
+      onSelectionChange={(keys) => {
+        if (keys === "all") return;
+        const next = new Set([...keys].map(String));
+        for (const value of next) if (!checked.includes(value)) onCheckedChange(value, true);
+        for (const value of checked) if (!next.has(value)) onCheckedChange(value, false);
+      }}
+    >
+      {label !== undefined && <DropdownMenuLabel>{label}</DropdownMenuLabel>}
+      {children}
+    </MenuSection>
+  );
+}
+
+/**
+ * One choice in a radio or checkbox group. It reserves the indicator's column
+ * whether or not it is chosen, so a menu does not shift its text sideways as the
+ * selection moves down it, and a menu mixing both kinds keeps one left edge.
+ */
+function DropdownMenuChoice({
+  value,
   className,
   children,
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.RadioItem>) {
+}: Omit<React.ComponentProps<typeof DropdownMenuItem>, "id" | "value" | "children"> & {
+  value: Key;
+  children: React.ReactNode;
+}) {
   return (
-    <DropdownMenuPrimitive.RadioItem
-      data-slot="dropdown-menu-radio-item"
-      className={cn(
-        "relative flex min-h-[30px] cursor-pointer select-none items-center gap-2 rounded-md py-1 pl-7 pr-2 text-sm text-foreground outline-none transition-colors",
-        "focus:bg-accent focus:text-accent-foreground",
-        "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
-        className,
+    <DropdownMenuItem id={value} className={cn("menu-choice", className)} {...props}>
+      {({ isSelected }) => (
+        <>
+          <span className="menu-indicator">{isSelected && <CheckIcon aria-hidden />}</span>
+          {children}
+        </>
       )}
-      {...props}
-    >
-      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
-        <DropdownMenuPrimitive.ItemIndicator>
-          <CheckIcon className="size-3.5 text-[var(--accent)]" />
-        </DropdownMenuPrimitive.ItemIndicator>
-      </span>
-      {children}
-    </DropdownMenuPrimitive.RadioItem>
+    </DropdownMenuItem>
   );
 }
 
 /**
  * The heading over a section of a menu. It takes `.group-label`, which is the
- * product's one group-divider rule (designs/foundations.md § Typography): four signals in
- * agreement — smaller, heavier, tracked out, a step quieter — because one step of
- * anything reads as the first item of its own list rather than as its heading.
- * No menu is allowed to invent its own.
+ * product's one group-divider rule (designs/foundations.md § Typography): four
+ * signals in agreement — smaller, heavier, tracked out, a step quieter — because
+ * one step of anything reads as the first item of its own list rather than as
+ * its heading. No menu is allowed to invent its own.
  */
-function DropdownMenuLabel({
-  className,
-  ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.Label>) {
+function DropdownMenuLabel({ children }: { children: React.ReactNode }) {
   return (
-    <DropdownMenuPrimitive.Label
-      data-slot="dropdown-menu-label"
-      className={cn("group-label flex min-h-[24px] items-center px-2 pt-1", className)}
-      {...props}
-    />
+    <Header className="group-label flex min-h-[24px] items-center px-2 pt-1">{children}</Header>
   );
 }
 
-/**
- * A switch inside a menu — one state the reader turns on or off, as against the
- * `RadioItem`'s one-of-many. It reserves the same indicator column, at the same
- * width, so a menu that mixes the two (a result's view, its columns, its row
- * height) keeps every label on one left edge.
- */
-function DropdownMenuCheckboxItem({
-  className,
-  children,
-  ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.CheckboxItem>) {
-  return (
-    <DropdownMenuPrimitive.CheckboxItem
-      data-slot="dropdown-menu-checkbox-item"
-      className={cn(
-        "relative flex min-h-[30px] cursor-pointer select-none items-center gap-2 rounded-md py-1 pl-7 pr-2 text-sm text-foreground outline-none transition-colors",
-        "focus:bg-accent focus:text-accent-foreground",
-        "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
-        className,
-      )}
-      {...props}
-    >
-      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
-        <DropdownMenuPrimitive.ItemIndicator>
-          <CheckIcon className="size-3.5 text-[var(--accent)]" />
-        </DropdownMenuPrimitive.ItemIndicator>
-      </span>
-      {children}
-    </DropdownMenuPrimitive.CheckboxItem>
-  );
-}
-
-function DropdownMenuSeparator({
-  className,
-  ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.Separator>) {
-  return (
-    <DropdownMenuPrimitive.Separator
-      data-slot="dropdown-menu-separator"
-      className={cn("-mx-1 my-1 h-px bg-border", className)}
-      {...props}
-    />
-  );
+function DropdownMenuSeparator() {
+  return <Separator className="-mx-1 my-1 h-px border-0 bg-border" />;
 }
 
 /**
@@ -194,31 +365,23 @@ function DropdownMenuSeparator({
  * a hover-revealed control is discoverable rather than hidden.
  *
  * It holds a `<Kbd>`, which owns how a modifier and its key are set (app.css
- * § .kbd); this element contributes position only. It used to declare the mono
- * face and `--ink-3` itself, which is how a menu row ended up drawing `⌘P` in a
- * font that renders those three glyphs at three different sizes, in an ink that
- * fails contrast the moment the row takes its `--surface-2` highlight.
+ * § .kbd); this element contributes position only.
  */
 function DropdownMenuShortcut({ className, ...props }: React.ComponentProps<"span">) {
-  return (
-    <span
-      data-slot="dropdown-menu-shortcut"
-      className={cn("ml-auto flex items-center pl-4", className)}
-      {...props}
-    />
-  );
+  return <span className={cn("ml-auto flex items-center pl-4", className)} {...props} />;
 }
 
 export {
   DropdownMenu,
   DropdownMenuTrigger,
-  DropdownMenuCheckboxItem,
+  DropdownMenuCheckboxGroup,
+  DropdownMenuChoice,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
+  PointMenu,
 };

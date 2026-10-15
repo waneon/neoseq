@@ -629,7 +629,7 @@ describe("query result views", () => {
 
     await chooseFromMenu(
       user,
-      within(panel).getByRole("combobox", { name: "owner direction" }),
+      within(panel).getByRole("button", { name: /owner direction$/ }),
       "Descending",
     );
     await waitFor(() => expect(values()).toEqual(["Zulu", "Alpha"]));

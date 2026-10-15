@@ -79,7 +79,7 @@
   scrollbar-width: none;
 }
 
-.picker-locations[hidden] {
+.picker-locations-strip[hidden] {
   display: none;
 }
 
@@ -107,7 +107,7 @@
   background: var(--surface-2);
 }
 
-.picker-locations .tabs-trigger[data-state="active"] {
+.picker-locations .tabs-trigger[data-selected] {
   background: var(--surface-3);
   color: var(--ink);
 }
@@ -123,13 +123,13 @@
   font-size: var(--text-xs);
 }
 
-.picker-locations .tabs-trigger:focus-visible,
-.repository-panel:focus-visible {
+.picker-locations .tabs-trigger[data-focus-visible],
+.repository-panel[data-focus-visible] {
   outline: none;
   box-shadow: var(--focus-inset);
 }
 
-.picker-locations .tabs-trigger:disabled {
+.picker-locations .tabs-trigger[data-disabled] {
   opacity: 0.5;
 }
 

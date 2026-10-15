@@ -441,12 +441,10 @@ a:hover {
   outline-offset: -2px;
 }
 
-[data-slot="dialog-content"]:focus,
-[data-slot="dialog-content"]:focus-visible,
-[data-slot="dropdown-menu-content"]:focus,
-[data-slot="dropdown-menu-content"]:focus-visible,
-[data-slot="select-content"]:focus,
-[data-slot="select-content"]:focus-visible,
+.dialog-surface:focus,
+.dialog-surface:focus-visible,
+.menu-surface:focus,
+.menu-surface:focus-visible,
 .cmdk:focus,
 .cmdk:focus-visible,
 .toast:focus,

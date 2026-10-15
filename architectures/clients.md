@@ -444,7 +444,7 @@ answer does not have to fold it again after a reload. Query results, selection,
 scroll, loading state, and drafts are session-only, as is a sort chosen on a
 graph the reader cannot write to.
 
-The presentation layer uses Tailwind CSS v4 and shadcn/Radix primitives over the
+The presentation layer uses Tailwind CSS v4 and React Aria primitives over the
 tokens in `ui/app.css`. Theme resolution is CSS-first, with a pre-paint script
 applying an explicit stored choice before React mounts. Portals share one z-index
 scale, and motion follows the closed vocabulary in

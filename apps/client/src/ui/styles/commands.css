@@ -1,13 +1,5 @@
 /* Search stays in a stable frame while its result list changes. One line per
    result: what it is, then where it lives. */
-.cmdk-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-palette);
-  background: var(--scrim);
-  animation: ns-fade-in 100ms var(--ease-out) both;
-}
-
 .cmdk-scrim {
   position: fixed;
   inset: 0;
@@ -16,11 +8,19 @@
   justify-content: center;
   align-items: flex-start;
   padding: min(14vh, 112px) var(--sp-5) var(--sp-5);
-  pointer-events: none;
+}
+
+/* The frame is the modal's underlay; the scrim fades without fading the panel. */
+.cmdk-scrim::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: var(--scrim);
+  animation: ns-fade-in 100ms var(--ease-out) both;
 }
 
 .cmdk {
-  pointer-events: auto;
   display: flex;
   flex-direction: column;
   width: min(600px, 100%);

@@ -91,10 +91,11 @@ describe("a shared dialog", () => {
             <input
               aria-label="Name"
               value={draft}
-              data-escape-cancel={draft !== "Saved" || undefined}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Escape") setDraft("Saved");
+                if (event.key !== "Escape" || draft === "Saved") return;
+                event.preventDefault();
+                setDraft("Saved");
               }}
             />
           </Dialog>
@@ -154,13 +155,13 @@ describe("a shared dialog", () => {
     const user = userEvent.setup();
     render(<DialogHarness />);
     await user.click(screen.getByRole("button", { name: "Settings" }));
-    await user.click(screen.getByRole("combobox", { name: "Theme" }));
+    await user.click(screen.getByRole("button", { name: /Theme$/ }));
     await screen.findByRole("listbox", { name: "Theme" });
 
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("listbox", { name: "Theme" })).not.toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "Preferences" })).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Theme" })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole("button", { name: /Theme$/ })).toHaveFocus());
 
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.getByRole("button", { name: "Settings" })).toHaveFocus());

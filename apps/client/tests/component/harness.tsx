@@ -275,7 +275,7 @@ export async function openViewMenu(name: string): Promise<HTMLElement> {
 /**
  * Picks a value from one of the product's dropdowns.
  *
- * Every field-like list of choices uses the same Radix Select, so the route is
+ * Every field-like list of choices uses the same select, so the route is
  * the same as a user's: press the trigger, then press the option. This replaces
  * `userEvent.selectOptions`, which only ever worked against a native `<select>`.
  */

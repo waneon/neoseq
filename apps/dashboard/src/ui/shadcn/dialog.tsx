@@ -1,107 +1,79 @@
 import * as React from "react";
-import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
 import { XIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { buttonClass } from "@/ui/shadcn/button";
 
-function Dialog(props: React.ComponentProps<typeof DialogPrimitive.Root>) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />;
-}
-
-function DialogOverlay({
-  className,
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Overlay>) {
-  return (
-    <DialogPrimitive.Overlay
-      data-slot="dialog-overlay"
-      className={cn(
-        "enter-fade fixed inset-0 z-[var(--z-dialog)] bg-[var(--scrim)] backdrop-blur-[var(--scrim-blur)]",
-        className,
-      )}
-      {...props}
-    />
-  );
-}
-
-// Centred by a flex wrapper rather than by `-translate-x-1/2 -translate-y-1/2`,
-// so the panel's own transform is free for its arrival and it comes to rest at
-// `transform: none` — a panel parked on a half-applied translate is a target
-// automation reports as unstable. There is no exit animation: Radix unmounts
-// immediately rather than leaving a ghost of a dialog that has been answered.
-function DialogContent({
-  className,
+// The frame is the modal's underlay: React Aria makes everything outside it
+// inert, so the scrim is its `::before` rather than a sibling. Centred by the
+// frame rather than by a half-applied translate, so the panel comes to rest at
+// `transform: none` — a panel parked on a translate is a target automation
+// reports as unstable. There is no exit animation: a dialog that has been
+// answered leaves no ghost.
+function DialogSurface({
+  role = "dialog",
+  title,
+  description,
+  dismissible,
+  closeLabel,
+  onClose,
   children,
-  showCloseButton = true,
-  closeLabel = "Close",
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Content> & {
-  showCloseButton?: boolean;
+}: {
+  role?: "dialog" | "alertdialog";
+  title: string;
+  description: React.ReactNode;
+  /** Escape and a press outside close the dialog. */
+  dismissible: boolean;
+  /** Shows a close control with this label. */
   closeLabel?: string;
+  onClose: () => void;
+  children: React.ReactNode;
 }) {
+  const descriptionId = React.useId();
   return (
-    <DialogPrimitive.Portal data-slot="dialog-portal">
-      <DialogOverlay />
-      <div className="pointer-events-none fixed inset-0 z-[var(--z-dialog)] flex items-center justify-center p-4">
-        <DialogPrimitive.Content
-          data-slot="dialog-content"
-          className={cn(
-            "enter-rise pointer-events-auto relative grid w-full max-w-[420px] gap-4 rounded-[var(--r-4)] bg-[var(--overlay)] p-6 shadow-[var(--e3)] max-[600px]:p-4",
-            className,
-          )}
-          {...props}
+    <ModalOverlay
+      isOpen
+      isDismissable={dismissible && role === "dialog"}
+      isKeyboardDismissDisabled={!dismissible}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      className="dialog-frame"
+    >
+      <Modal className="contents">
+        <Dialog
+          role={role}
+          aria-describedby={descriptionId}
+          className="dialog-surface enter-rise relative grid w-full max-w-[420px] gap-4 rounded-[var(--r-4)] bg-[var(--overlay)] p-6 shadow-[var(--e3)] max-[600px]:p-4"
         >
+          <div className={cn("flex flex-col", role === "dialog" ? "gap-1 pr-8" : "gap-2")}>
+            <Heading
+              slot="title"
+              className="text-[var(--text-lg)] font-semibold leading-[var(--lh-lg)] tracking-[var(--track-lg)] text-[var(--ink)]"
+            >
+              {title}
+            </Heading>
+            <div id={descriptionId} className="text-sm leading-[var(--lh-sm)] text-[var(--ink-2)]">
+              {description}
+            </div>
+          </div>
           {children}
-          {showCloseButton && (
-            <DialogPrimitive.Close
-              data-slot="dialog-close"
+          {closeLabel && (
+            <button
+              type="button"
               className={cn(buttonClass("secondary", "icon"), "absolute right-3 top-3")}
               aria-label={closeLabel}
+              disabled={!dismissible}
+              onClick={onClose}
             >
               <XIcon />
-            </DialogPrimitive.Close>
+            </button>
           )}
-        </DialogPrimitive.Content>
-      </div>
-    </DialogPrimitive.Portal>
+        </Dialog>
+      </Modal>
+    </ModalOverlay>
   );
 }
 
-function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="dialog-header"
-      className={cn("flex flex-col gap-1 pr-8", className)}
-      {...props}
-    />
-  );
-}
-
-function DialogTitle({ className, ...props }: React.ComponentProps<typeof DialogPrimitive.Title>) {
-  return (
-    <DialogPrimitive.Title
-      data-slot="dialog-title"
-      className={cn(
-        "text-[var(--text-lg)] font-semibold leading-[var(--lh-lg)] tracking-[var(--track-lg)] text-[var(--ink)]",
-        className,
-      )}
-      {...props}
-    />
-  );
-}
-
-function DialogDescription({
-  className,
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Description>) {
-  return (
-    <DialogPrimitive.Description
-      data-slot="dialog-description"
-      className={cn("text-sm leading-[var(--lh-sm)] text-[var(--ink-2)]", className)}
-      {...props}
-    />
-  );
-}
-
-export { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle };
+export { DialogSurface };

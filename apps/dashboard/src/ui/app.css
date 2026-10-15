@@ -404,13 +404,33 @@ body {
 
 /* A focus *container* is not a control. A dialog and a menu take focus so their
    contents have somewhere to send keys; the thing inside says so itself. */
-[data-slot="dialog-content"]:focus,
-[data-slot="dialog-content"]:focus-visible,
-[data-slot="alert-dialog-content"]:focus,
-[data-slot="alert-dialog-content"]:focus-visible,
-[data-slot="select-content"]:focus,
-[data-slot="select-content"]:focus-visible {
+.dialog-surface:focus,
+.dialog-surface:focus-visible,
+.choice-menu:focus,
+.choice-menu:focus-visible {
   outline: none;
+}
+
+/* The modal's underlay. Everything outside it is inert, so the scrim is its own
+   `::before`; opacity on the frame would fade the panel with it. */
+.dialog-frame {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-dialog);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.dialog-frame::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: var(--scrim);
+  backdrop-filter: blur(var(--scrim-blur));
+  animation: ns-fade-in var(--dur-overlay) var(--ease-out) both;
 }
 
 h1,
@@ -747,7 +767,7 @@ h2 {
    the trigger says which of the controls on this line the popup belongs to, and
    a luminance change alone could not — every other control here is a luminance
    change away too. */
-.menu-select[data-state="open"],
+.menu-select[aria-expanded="true"],
 .menu-select:focus-visible {
   outline: none;
   background: var(--surface-1);
@@ -759,7 +779,7 @@ h2 {
   cursor: default;
 }
 
-.menu-select [data-slot="select-value"] {
+.menu-select-value {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -774,13 +794,10 @@ h2 {
   color: var(--ink-3);
 }
 
-/* A menu is never taller than the room it has: Radix publishes what is left on
-   the side it opened to, and a menu that ignores it runs off the window with its
-   last rows out of reach of every pointer. The box belongs to this layer, not to
-   a utility on the primitive — a utility outranks it and the scroll would never
-   apply. */
-[data-slot="select-content"] {
-  max-height: min(320px, 60vh, var(--radix-select-content-available-height, 100vh));
+/* A menu is never taller than the room it has: React Aria caps it at what is
+   left on the side it opened to, and the box scrolls rather than running off
+   the window. */
+.choice-menu {
   overflow: hidden auto;
   overscroll-behavior: contain;
 }
@@ -788,11 +805,7 @@ h2 {
 /* ── The roving highlight ──
    One appearance for "where the next key will land". A fill, and only a fill,
    because the thing it marks is transient. */
-[data-slot="select-item"] {
-  position: relative;
-}
-
-[data-slot="select-item"][data-highlighted] {
+.choice-row[data-focused] {
   background: var(--surface-2);
   color: var(--ink);
 }

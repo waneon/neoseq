@@ -21,7 +21,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
+  DropdownMenuChoice,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
@@ -103,10 +103,10 @@ export function TaskPriorityMenu({
         }
       >
         {options.map((option) => (
-          <DropdownMenuRadioItem key={option} value={option}>
+          <DropdownMenuChoice key={option} value={option}>
             <PriorityGlyph priority={option} />
             {priorityLabel(option, message)}
-          </DropdownMenuRadioItem>
+          </DropdownMenuChoice>
         ))}
       </DropdownMenuRadioGroup>
       <DropdownMenuSeparator />

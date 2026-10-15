@@ -18,7 +18,7 @@ import { Outliner } from "../outline/Outliner";
 import { PageProperties } from "../properties/PageProperties";
 import { AutoHeight } from "../../ui/auto-height";
 import { ConfirmDialog, Dialog } from "../../ui/components";
-import { Button } from "@/ui/shadcn/button";
+import { Button, buttonClass } from "@/ui/shadcn/button";
 import { EditableTitle } from "../shell/EditableTitle";
 import {
   DropdownMenu,
@@ -470,11 +470,12 @@ export function Tombstone({
           <h1>{title}</h1>
           <p>{detail}</p>
           <div className="actions">
-            <Button asChild variant="secondary">
-              <Link to={graphPath(repositoryId, graphId, "journal")}>
-                {message("page.goToJournal")}
-              </Link>
-            </Button>
+            <Link
+              to={graphPath(repositoryId, graphId, "journal")}
+              className={buttonClass("secondary", "default")}
+            >
+              {message("page.goToJournal")}
+            </Link>
             {actions}
           </div>
         </section>

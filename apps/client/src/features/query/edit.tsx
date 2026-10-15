@@ -1170,7 +1170,7 @@ function QueryMarkdownField({
         }}
         onBlur={(event) => {
           // Opening the saved-view menu is a presentation change. Keep the
-          // query-level draft alive so the other renderer adopts it. Radix
+          // query-level draft alive so the other renderer adopts it. The menu
           // may focus the menu item directly, so the toolbar marks the intent
           // on pointer down before this blur runs.
           const changingPresentation =

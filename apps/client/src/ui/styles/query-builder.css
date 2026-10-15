@@ -40,7 +40,7 @@
   font-weight: var(--weight-medium);
 }
 
-.qb-token.menu-select [data-slot="select-value"] {
+.qb-token.menu-select .menu-select-value {
   flex: none;
 }
 
@@ -81,7 +81,7 @@
 }
 
 .qb-combiner-token:hover,
-.qb-combiner-token[data-state="open"] {
+.qb-combiner-token[aria-expanded="true"] {
   background: var(--surface-2);
   color: var(--ink);
 }

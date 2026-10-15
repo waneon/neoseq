@@ -56,9 +56,10 @@ export function Toaster({ store }: { store: ToastStore }) {
   return createPortal(
     <div
       className="toast-viewport"
-      // Notifications float above every layer, so a press here is not a press
-      // outside the dialog or menu beneath; it never reaches their listeners.
-      onPointerDown={(event) => event.stopPropagation()}
+      // Notifications float above every layer: React Aria leaves them live
+      // under a modal, and a press here is not a press outside the dialog or
+      // menu beneath.
+      data-react-aria-top-layer
       role="region"
       aria-label={message("notify.notifications")}
       data-testid="toasts"

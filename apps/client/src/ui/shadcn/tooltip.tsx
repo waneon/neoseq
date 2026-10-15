@@ -1,55 +1,48 @@
 import * as React from "react";
-import * as TooltipPrimitive from "@radix-ui/react-tooltip";
+import {
+  Focusable,
+  Tooltip as AriaTooltip,
+  TooltipTrigger as AriaTooltipTrigger,
+  type TooltipProps,
+  type TooltipTriggerComponentProps,
+} from "react-aria-components";
 
 import { cn } from "@/lib/utils";
+import { LAYER_STYLE } from "@/ui/overlay-root";
 
-function TooltipProvider({
-  delayDuration = 300,
-  ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Provider>) {
-  return (
-    <TooltipPrimitive.Provider
-      data-slot="tooltip-provider"
-      delayDuration={delayDuration}
-      {...props}
-    />
-  );
+function Tooltip({ delay = 300, ...props }: TooltipTriggerComponentProps) {
+  return <AriaTooltipTrigger delay={delay} {...props} />;
 }
 
-function Tooltip(props: React.ComponentProps<typeof TooltipPrimitive.Root>) {
-  return (
-    <TooltipProvider>
-      <TooltipPrimitive.Root data-slot="tooltip" {...props} />
-    </TooltipProvider>
-  );
-}
+type FocusableChild = React.ComponentProps<typeof Focusable>["children"];
 
-function TooltipTrigger(props: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />;
+/**
+ * The control the tooltip describes. Focusable types its child as a DOM
+ * element; a component that passes its props and ref through to one, as Button
+ * does, works the same.
+ */
+function TooltipTrigger({ children }: { children: React.ReactElement }) {
+  return <Focusable>{children as FocusableChild}</Focusable>;
 }
 
 // Opacity-only entrance and no exit animation: the zoom/slide variants moved a
 // surface that an audit may read and a pointer may already be travelling toward.
 function TooltipContent({
   className,
-  sideOffset = 6,
-  children,
+  offset = 6,
   ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Content>) {
+}: TooltipProps & { className?: string }) {
   return (
-    <TooltipPrimitive.Portal>
-      <TooltipPrimitive.Content
-        data-slot="tooltip-content"
-        sideOffset={sideOffset}
-        className={cn(
-          "z-[var(--z-popover)] w-fit rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background enter-fade-fast",
-          className,
-        )}
-        {...props}
-      >
-        {children}
-      </TooltipPrimitive.Content>
-    </TooltipPrimitive.Portal>
+    <AriaTooltip
+      data-slot="tooltip-content"
+      offset={offset}
+      style={LAYER_STYLE}
+      className={cn(
+        "z-[var(--z-popover)] w-fit rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background enter-fade-fast",
+        className,
+      )}
+      {...props}
+    />
   );
 }
 

@@ -1,14 +1,13 @@
-import { useId, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import { Settings2Icon } from "lucide-react";
-import { LOCALE_DEFINITIONS, useI18n } from "../../i18n";
-import { setTheme, storedTheme, subscribeTheme } from "../../ui/theme";
+import { LOCALE_DEFINITIONS, useI18n, type LocalePreference } from "../../i18n";
+import { setTheme, storedTheme, subscribeTheme, type Theme } from "../../ui/theme";
 import { Button } from "@/ui/shadcn/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuLabel,
   DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
+  DropdownMenuChoice,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
@@ -22,8 +21,6 @@ const THEMES = [
 export function StartupPreferences() {
   const { message, preference, setPreference } = useI18n();
   const theme = useSyncExternalStore(subscribeTheme, storedTheme, storedTheme);
-  const appearanceId = useId();
-  const languageId = useId();
 
   return (
     <DropdownMenu>
@@ -40,28 +37,28 @@ export function StartupPreferences() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuLabel id={appearanceId}>{message("settings.appearance")}</DropdownMenuLabel>
-        <DropdownMenuRadioGroup value={theme} aria-labelledby={appearanceId}>
+        <DropdownMenuRadioGroup
+          label={message("settings.appearance")}
+          value={theme}
+          onValueChange={(value) => setTheme(value as Theme)}
+        >
           {THEMES.map(([value, label]) => (
-            <DropdownMenuRadioItem key={value} value={value} onSelect={() => setTheme(value)}>
+            <DropdownMenuChoice key={value} value={value}>
               {message(label)}
-            </DropdownMenuRadioItem>
+            </DropdownMenuChoice>
           ))}
         </DropdownMenuRadioGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuLabel id={languageId}>{message("language.label")}</DropdownMenuLabel>
-        <DropdownMenuRadioGroup value={preference} aria-labelledby={languageId}>
-          <DropdownMenuRadioItem value="system" onSelect={() => setPreference("system")}>
-            {message("language.system")}
-          </DropdownMenuRadioItem>
+        <DropdownMenuRadioGroup
+          label={message("language.label")}
+          value={preference}
+          onValueChange={(value) => setPreference(value as LocalePreference)}
+        >
+          <DropdownMenuChoice value="system">{message("language.system")}</DropdownMenuChoice>
           {LOCALE_DEFINITIONS.map((locale) => (
-            <DropdownMenuRadioItem
-              key={locale.tag}
-              value={locale.tag}
-              onSelect={() => setPreference(locale.tag)}
-            >
+            <DropdownMenuChoice key={locale.tag} value={locale.tag}>
               {message(locale.labelKey)}
-            </DropdownMenuRadioItem>
+            </DropdownMenuChoice>
           ))}
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>

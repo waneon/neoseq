@@ -12,14 +12,14 @@
 }
 
 /* The rule is drawn inside the header so it does not shift the title's center. */
-.settings-dialog-surface > [data-slot="dialog-header"] {
+.settings-dialog-surface > .dialog-header {
   justify-content: center;
   min-height: var(--settings-head);
   padding: 16px 64px 16px var(--settings-edge);
   box-shadow: inset 0 -1px var(--thread);
 }
 
-.settings-dialog-surface > [data-slot="dialog-close"] {
+.settings-dialog-surface > .dialog-close {
   top: calc((var(--settings-head) - var(--settings-close)) / 2);
   inset-inline-end: calc(
     var(--settings-edge) - (var(--settings-close) - var(--settings-close-ink)) / 2
@@ -648,7 +648,7 @@
     --settings-head: 56px;
   }
 
-  .settings-dialog-surface > [data-slot="dialog-header"] {
+  .settings-dialog-surface > .dialog-header {
     padding-block: 12px;
   }
 
@@ -753,17 +753,17 @@
     --dialog-close-icon: 20px;
   }
 
-  .settings-dialog-surface > [data-slot="dialog-header"] {
+  .settings-dialog-surface > .dialog-header {
     min-height: calc(var(--settings-head) + env(safe-area-inset-top, 0px));
     padding-block: calc(16px + env(safe-area-inset-top, 0px)) 16px;
     background: var(--canvas);
   }
 
-  .settings-dialog-surface:has(.settings-back) > [data-slot="dialog-header"] {
+  .settings-dialog-surface:has(.settings-back) > .dialog-header {
     padding-inline-start: 54px;
   }
 
-  .settings-dialog-surface > [data-slot="dialog-close"] {
+  .settings-dialog-surface > .dialog-close {
     top: calc(env(safe-area-inset-top, 0px) + (var(--settings-head) - var(--settings-close)) / 2);
     background: transparent;
   }
@@ -1114,7 +1114,7 @@
 }
 
 .accent-custom-trigger:hover,
-.accent-custom-trigger[data-state="open"] {
+.accent-custom-trigger[aria-expanded="true"] {
   background: var(--surface-2);
   color: var(--ink);
 }
@@ -1197,7 +1197,7 @@
 }
 
 .color-studio-trigger:hover,
-.color-studio-trigger[data-state="open"] {
+.color-studio-trigger[aria-expanded="true"] {
   background: var(--surface-2);
   color: var(--ink-2);
 }
@@ -1231,6 +1231,11 @@
   background: var(--overlay);
   color: var(--ink);
   box-shadow: var(--e2);
+}
+
+/* Carries the custom accent's variables into the panel without adding a box. */
+.accent-studio {
+  display: contents;
 }
 
 .color-studio-head {

@@ -49,12 +49,10 @@ import type { GraphSession } from "../../core-port/session";
 import { CorePortFailure } from "../../core-worker";
 import type { Command, InlineContent, SplitPlacement } from "../../core-port/commands";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
-  DropdownMenuTrigger,
+  PointMenu,
 } from "@/ui/shadcn/dropdown-menu";
 import { Kbd } from "@/ui/kbd";
 import { useCommands } from "../commands/context";
@@ -148,7 +146,7 @@ import { hasMarkdownSyntax } from "../markdown/profile";
 import { BlockBody, BlockRowFrame } from "../blocks/BlockPresentation";
 import { BlockTextArea } from "../blocks/editor/BlockTextArea";
 import { useTextAreaSize } from "@/ui/textarea-size";
-import { menuOwnerRef, restoreOverlayFocus } from "@/ui/overlay-focus";
+import { restoreOverlayFocus } from "@/ui/overlay-focus";
 import {
   caretForVerticalEntry,
   normalCaretAfterEdit,
@@ -240,7 +238,7 @@ const NO_PAGE_REFERENCES: readonly PageReferenceSpan[] = [];
  * autocomplete, a settings dialog — and the outline is not one of them.
  */
 const FLOATING_OVERLAY_SELECTOR =
-  '[data-slot="dropdown-menu-content"],[data-slot="dialog-content"],.ac-popover,.property-picker,.tag-picker,.slash-menu,.cmdk';
+  ".menu-surface,.dialog-surface,.ac-popover,.property-picker,.tag-picker,.slash-menu,.cmdk";
 /** Edge band that pulls the scroll container along during a drag. */
 const AUTOSCROLL_BAND_PX = 56;
 const AUTOSCROLL_MAX_PX = 18;
@@ -787,7 +785,7 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
 
   // Whether the press now in flight began while something was floating over the
   // page. It has to be sampled here, on `window` in the capture phase, because
-  // that is the only listener that runs *before* Radix's own document-level
+  // that is the only listener that runs *before* React Aria's own document-level
   // dismisser: by the time a click reaches the append region, the menu it was
   // aimed past has already been unmounted, and asking "is a menu open?" then
   // always answers no. See `dismissTransient`.
@@ -2063,8 +2061,8 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
     (row: OutlineRow, event: ReactPointerEvent) => {
       if (event.button !== 0 || event.pointerType === "touch") return;
       if (isPendingId(row.block.id)) {
-        // Nothing to drag or act on yet, and the press must not reach Radix's
-        // own trigger handling and open a menu with no content.
+        // Nothing to drag or act on yet, and the press must not go on to open
+        // a menu with no content.
         event.preventDefault();
         return;
       }
@@ -2493,7 +2491,7 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
       if (!request || request.blockId !== row.block.id || readonly || !chosen) return;
       // Removing the token can reconcile and replace the textarea before the
       // picker mounts. Its place is part of this gesture, so capture it while
-      // the gesture's anchor still exists instead of handing Radix a detached
+      // the gesture's anchor still exists instead of handing the picker a detached
       // element whose bounding box is the origin.
       const pickerAnchor = snapshotAnchor(completionAnchor(request));
       const value = readDraft(row.block.id)?.markdown ?? row.block.markdown;
@@ -2770,7 +2768,7 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
     // Clicking past a menu, a popover or a selection is first a way *out* of it.
     // The empty region under the last block is a real button — it makes a block —
     // which meant dismissing a block menu by clicking below the writing also
-    // appended an empty row the user never asked for, every time. Radix has
+    // appended an empty row the user never asked for, every time. React Aria has
     // already closed its own layer by now; what is left to undo is the outline's
     // share of the same gesture.
     dismissTransient: () => {
@@ -5173,187 +5171,172 @@ function BlockMenu({
       : document.querySelector<HTMLTextAreaElement>(`#row-${CSS.escape(row.block.id)} textarea`);
 
   return (
-    <DropdownMenu
-      modal={false}
-      open
-      onOpenChange={(open) => {
-        if (!open) editor.openMenu(null);
+    <PointMenu
+      at={{ x: rect?.left ?? 0, y: rect?.top ?? 0 }}
+      label={message("outline.blockActions")}
+      owner={textarea}
+      onClose={() => editor.openMenu(null)}
+      onClosed={() => {
+        if (selected && selectionCount > 1) {
+          editor.takeTreeFocus();
+          return;
+        }
+        if (editor.focusedId !== null && editor.focusedId !== row.block.id) return;
+        restoreOverlayFocus(null, textarea());
       }}
     >
-      <DropdownMenuTrigger asChild>
-        <span
-          className="menu-anchor"
-          aria-label={message("outline.blockActions")}
-          aria-hidden
-          style={{ left: rect?.left ?? 0, top: rect?.top ?? 0 }}
-        />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        ref={menuOwnerRef(textarea)}
-        align="start"
-        onCloseAutoFocus={(event) => {
-          event.preventDefault();
-          if (selected && selectionCount > 1) {
-            editor.takeTreeFocus();
-            return;
-          }
-          if (editor.focusedId !== null && editor.focusedId !== row.block.id) return;
-          restoreOverlayFocus(event, textarea());
-        }}
-      >
-        {selected && selectionCount > 1 ? (
-          <>
-            <DropdownMenuItem
-              data-testid="menu-copy-selection"
-              onSelect={() => editor.menu.copySelection("context_menu")}
-            >
-              <CopyIcon aria-hidden />
-              {message("outline.copySelection", { count: selectionCount })}
-              <DropdownMenuShortcut>
-                <Kbd parts={["⌘", "C"]} plain />
-              </DropdownMenuShortcut>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              disabled={editor.readonly}
-              onSelect={() => editor.menu.indentSelection("context_menu")}
-            >
-              <IndentIncreaseIcon aria-hidden />
-              {message("outline.indent")}
-              <DropdownMenuShortcut>
-                <Kbd parts={["⇥"]} plain />
-              </DropdownMenuShortcut>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={editor.readonly}
-              onSelect={() => editor.menu.outdentSelection("context_menu")}
-            >
-              <IndentDecreaseIcon aria-hidden />
-              {message("outline.outdent")}
-              <DropdownMenuShortcut>
-                <Kbd parts={["⇧", "⇥"]} plain />
-              </DropdownMenuShortcut>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              data-testid="menu-delete-selection"
-              variant="destructive"
-              disabled={editor.readonly}
-              onSelect={() => editor.menu.removeSelection("context_menu")}
-            >
-              <Trash2Icon aria-hidden />
-              {message("outline.deleteSelection", { count: selectionCount })}
-              <DropdownMenuShortcut>
-                <Kbd parts={["⌫"]} plain />
-              </DropdownMenuShortcut>
-            </DropdownMenuItem>
-          </>
-        ) : (
-          <>
-            <DropdownMenuItem
-              data-testid="menu-properties"
-              onSelect={() => editor.openProperties(row.block.id, undefined, editor.menuAnchor)}
-            >
-              <Settings2Icon aria-hidden />
-              {message("properties.addOrChange")}
-              <DropdownMenuShortcut>
-                <Shortcut binding={bindings.properties} plain />
-              </DropdownMenuShortcut>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              data-testid="menu-tags"
-              onSelect={() => editor.openTags(row.block.id, editor.menuAnchor)}
-            >
-              <HashIcon aria-hidden />
-              {message("outline.tags")}
-            </DropdownMenuItem>
-            {codeFence(editor.draftOf(row)) && (
-              <>
-                <DropdownMenuSeparator />
-                {editor.sourceId !== row.block.id && (
-                  <DropdownMenuItem
-                    data-testid="menu-code-language"
-                    disabled={editor.readonly}
-                    onSelect={() => editor.openLanguage(row.block.id)}
-                  >
-                    <CodeXmlIcon aria-hidden />
-                    {message("code.changeLanguage")}
-                  </DropdownMenuItem>
-                )}
+      {selected && selectionCount > 1 ? (
+        <>
+          <DropdownMenuItem
+            data-testid="menu-copy-selection"
+            onSelect={() => editor.menu.copySelection("context_menu")}
+          >
+            <CopyIcon aria-hidden />
+            {message("outline.copySelection", { count: selectionCount })}
+            <DropdownMenuShortcut>
+              <Kbd parts={["⌘", "C"]} plain />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            disabled={editor.readonly}
+            onSelect={() => editor.menu.indentSelection("context_menu")}
+          >
+            <IndentIncreaseIcon aria-hidden />
+            {message("outline.indent")}
+            <DropdownMenuShortcut>
+              <Kbd parts={["⇥"]} plain />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={editor.readonly}
+            onSelect={() => editor.menu.outdentSelection("context_menu")}
+          >
+            <IndentDecreaseIcon aria-hidden />
+            {message("outline.outdent")}
+            <DropdownMenuShortcut>
+              <Kbd parts={["⇧", "⇥"]} plain />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            data-testid="menu-delete-selection"
+            variant="destructive"
+            disabled={editor.readonly}
+            onSelect={() => editor.menu.removeSelection("context_menu")}
+          >
+            <Trash2Icon aria-hidden />
+            {message("outline.deleteSelection", { count: selectionCount })}
+            <DropdownMenuShortcut>
+              <Kbd parts={["⌫"]} plain />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+        </>
+      ) : (
+        <>
+          <DropdownMenuItem
+            data-testid="menu-properties"
+            onSelect={() => editor.openProperties(row.block.id, undefined, editor.menuAnchor)}
+          >
+            <Settings2Icon aria-hidden />
+            {message("properties.addOrChange")}
+            <DropdownMenuShortcut>
+              <Shortcut binding={bindings.properties} plain />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            data-testid="menu-tags"
+            onSelect={() => editor.openTags(row.block.id, editor.menuAnchor)}
+          >
+            <HashIcon aria-hidden />
+            {message("outline.tags")}
+          </DropdownMenuItem>
+          {codeFence(editor.draftOf(row)) && (
+            <>
+              <DropdownMenuSeparator />
+              {editor.sourceId !== row.block.id && (
                 <DropdownMenuItem
-                  data-testid="menu-code-source"
-                  onSelect={() => editor.toggleSource(row)}
+                  data-testid="menu-code-language"
+                  disabled={editor.readonly}
+                  onSelect={() => editor.openLanguage(row.block.id)}
                 >
-                  <FileCodeIcon aria-hidden />
-                  {message(
-                    editor.sourceId === row.block.id ? "code.editAsCode" : "code.editAsMarkdown",
-                  )}
+                  <CodeXmlIcon aria-hidden />
+                  {message("code.changeLanguage")}
                 </DropdownMenuItem>
-              </>
-            )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem disabled={editor.readonly} onSelect={() => editor.menu.addChild(row)}>
-              <CornerDownRightIcon aria-hidden />
-              {message("outline.addChild")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={editor.readonly || row.index === 0}
-              onSelect={() => editor.menu.indent(row)}
-            >
-              <IndentIncreaseIcon aria-hidden />
-              {message("outline.indent")}
-              <DropdownMenuShortcut>
-                <Kbd parts={["⇥"]} plain />
-              </DropdownMenuShortcut>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={editor.readonly || row.depth === 0}
-              onSelect={() => editor.menu.outdent(row)}
-            >
-              <IndentDecreaseIcon aria-hidden />
-              {message("outline.outdent")}
-              <DropdownMenuShortcut>
-                <Kbd parts={["⇧", "⇥"]} plain />
-              </DropdownMenuShortcut>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              data-testid="menu-move-up"
-              disabled={editor.readonly || row.index === 0}
-              onSelect={() => editor.menu.move(row, -1)}
-            >
-              <ArrowUpIcon aria-hidden />
-              {message("outline.moveUp")}
-              <DropdownMenuShortcut>
-                <Kbd parts={["⌥", "↑"]} plain />
-              </DropdownMenuShortcut>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              data-testid="menu-move-down"
-              disabled={editor.readonly || row.index >= row.siblingCount - 1}
-              onSelect={() => editor.menu.move(row, 1)}
-            >
-              <ArrowDownIcon aria-hidden />
-              {message("outline.moveDown")}
-              <DropdownMenuShortcut>
-                <Kbd parts={["⌥", "↓"]} plain />
-              </DropdownMenuShortcut>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              data-testid="menu-delete"
-              variant="destructive"
-              disabled={editor.readonly}
-              onSelect={() => editor.menu.remove(row, rows)}
-            >
-              <Trash2Icon aria-hidden />
-              {message("outline.deleteBlock")}
-              <DropdownMenuShortcut>
-                <Kbd parts={["⌫"]} plain />
-              </DropdownMenuShortcut>
-            </DropdownMenuItem>
-          </>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+              )}
+              <DropdownMenuItem
+                data-testid="menu-code-source"
+                onSelect={() => editor.toggleSource(row)}
+              >
+                <FileCodeIcon aria-hidden />
+                {message(
+                  editor.sourceId === row.block.id ? "code.editAsCode" : "code.editAsMarkdown",
+                )}
+              </DropdownMenuItem>
+            </>
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem disabled={editor.readonly} onSelect={() => editor.menu.addChild(row)}>
+            <CornerDownRightIcon aria-hidden />
+            {message("outline.addChild")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={editor.readonly || row.index === 0}
+            onSelect={() => editor.menu.indent(row)}
+          >
+            <IndentIncreaseIcon aria-hidden />
+            {message("outline.indent")}
+            <DropdownMenuShortcut>
+              <Kbd parts={["⇥"]} plain />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={editor.readonly || row.depth === 0}
+            onSelect={() => editor.menu.outdent(row)}
+          >
+            <IndentDecreaseIcon aria-hidden />
+            {message("outline.outdent")}
+            <DropdownMenuShortcut>
+              <Kbd parts={["⇧", "⇥"]} plain />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            data-testid="menu-move-up"
+            disabled={editor.readonly || row.index === 0}
+            onSelect={() => editor.menu.move(row, -1)}
+          >
+            <ArrowUpIcon aria-hidden />
+            {message("outline.moveUp")}
+            <DropdownMenuShortcut>
+              <Kbd parts={["⌥", "↑"]} plain />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            data-testid="menu-move-down"
+            disabled={editor.readonly || row.index >= row.siblingCount - 1}
+            onSelect={() => editor.menu.move(row, 1)}
+          >
+            <ArrowDownIcon aria-hidden />
+            {message("outline.moveDown")}
+            <DropdownMenuShortcut>
+              <Kbd parts={["⌥", "↓"]} plain />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            data-testid="menu-delete"
+            variant="destructive"
+            disabled={editor.readonly}
+            onSelect={() => editor.menu.remove(row, rows)}
+          >
+            <Trash2Icon aria-hidden />
+            {message("outline.deleteBlock")}
+            <DropdownMenuShortcut>
+              <Kbd parts={["⌫"]} plain />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+        </>
+      )}
+    </PointMenu>
   );
 }

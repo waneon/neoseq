@@ -52,7 +52,7 @@ test("a saved task query selects exact records, orders them, and edits their sou
   await page.getByRole("combobox", { name: "Search fields", exact: true }).fill("Status");
   await app.saved(() => page.keyboard.press("Enter"));
   const filter = page.getByTestId("qb-filter-editor");
-  await expect(filter.getByRole("combobox", { name: "Value", exact: true })).toHaveText("To-do");
+  await expect(filter.getByRole("button", { name: / Value$/ })).toHaveText("To-do");
   await page.keyboard.press("Escape");
   await expect(builder.getByTestId("qb-condition")).toHaveText("Status is To-do");
 

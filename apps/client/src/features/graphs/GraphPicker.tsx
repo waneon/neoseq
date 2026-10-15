@@ -78,7 +78,7 @@ const CREATED = { day: "numeric", month: "short", year: "numeric" } as const;
 const SELECTED_REPOSITORY_KEY = "neoseq.selected-repository.v1";
 
 export function GraphPicker() {
-  const { message, formatInstant, direction } = useI18n();
+  const { message, formatInstant } = useI18n();
   const notify = useNotify();
   const navigate = useNavigate();
   const [repositories, setRepositories] = useState<Repository[]>(listRepositories);
@@ -260,10 +260,8 @@ export function GraphPicker() {
 
         <Tabs
           className="picker-library"
-          orientation="horizontal"
-          dir={direction}
-          value={selected?.id}
-          onValueChange={chooseRepository}
+          selectedKey={selected?.id ?? null}
+          onSelectionChange={(key) => chooseRepository(String(key))}
         >
           <div className="picker-heading">
             <h1>{message("graph.yourGraphs")}</h1>
@@ -278,38 +276,35 @@ export function GraphPicker() {
             </div>
           </div>
           {/* Locations appear once there is more than one to choose between. */}
-          <TabsList
-            className="picker-locations"
-            aria-label={message("repository.tabsLabel")}
-            hidden={repositories.length < 2}
-          >
-            {repositories.map((repository) => (
-              <TabsTrigger
-                key={repository.id}
-                value={repository.id}
-                disabled={importing}
-                aria-label={repositoryLabel(repository, message("repository.local"))}
-                title={repositoryLabel(repository, message("repository.local"))}
-              >
-                {repository.kind === "local" ? (
-                  <HardDriveIcon aria-hidden />
-                ) : (
-                  <CloudIcon aria-hidden />
-                )}
-                <span>
-                  {repository.kind === "local" ? message("repository.local") : repository.username}
-                </span>
-                {repository.kind === "remote" && <small>{new URL(repository.origin).host}</small>}
-              </TabsTrigger>
-            ))}
-          </TabsList>
+          <div className="picker-locations-strip" hidden={repositories.length < 2}>
+            <TabsList className="picker-locations" aria-label={message("repository.tabsLabel")}>
+              {repositories.map((repository) => (
+                <TabsTrigger
+                  key={repository.id}
+                  id={repository.id}
+                  isDisabled={importing}
+                  aria-label={repositoryLabel(repository, message("repository.local"))}
+                >
+                  {repository.kind === "local" ? (
+                    <HardDriveIcon aria-hidden />
+                  ) : (
+                    <CloudIcon aria-hidden />
+                  )}
+                  <span title={repositoryLabel(repository, message("repository.local"))}>
+                    {repository.kind === "local"
+                      ? message("repository.local")
+                      : repository.username}
+                  </span>
+                  {repository.kind === "remote" && <small>{new URL(repository.origin).host}</small>}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </div>
 
           {selected && (
             <TabsContent
               className="repository-panel"
-              value={selected.id}
-              // Every state of the panel holds its own controls to land on.
-              tabIndex={-1}
+              id={selected.id}
               aria-busy={initialLoading || catalog.refreshing || importing}
             >
               {catalog.status === "failed" && (

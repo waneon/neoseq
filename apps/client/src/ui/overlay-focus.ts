@@ -20,6 +20,23 @@ export function trackOverlayFocusInput(document: Document): () => void {
   };
 }
 
+/**
+ * Moves focus once React has finished its commit. Blurring a field dispatches
+ * events of its own — a `change`, for one — and those must not land inside
+ * React's work.
+ */
+export function afterCommit(task: () => void): void {
+  queueMicrotask(task);
+}
+
+/**
+ * Returns focus once every arrival a closing surface's action set off has
+ * happened, so a surface that action opened keeps the focus it took.
+ */
+export function afterArrivals(task: () => void): void {
+  setTimeout(task, 0);
+}
+
 /** Restore native focus and its appearance together, leaving text-entry cues to the browser. */
 export function focusOverlayOwner(owner: HTMLElement | null): void {
   if (!owner?.isConnected) return;
@@ -31,19 +48,14 @@ export function focusOverlayOwner(owner: HTMLElement | null): void {
   owner.focus(options);
 }
 
-/** Restore an overlay's owner without overriding an action's focus transfer. */
-export function restoreOverlayFocus(event: Event, owner: HTMLElement | null): void {
-  event.preventDefault();
+/**
+ * Restore an overlay's owner without overriding an action's focus transfer:
+ * only focus left inside the closing surface, or dropped onto the page, returns.
+ */
+export function restoreOverlayFocus(surface: Element | null, owner: HTMLElement | null): void {
   if (!owner?.isConnected) return;
-
   const active = document.activeElement;
-  const surface = event.currentTarget;
-  if (
-    active &&
-    active !== document.body &&
-    active.isConnected &&
-    !(surface instanceof HTMLElement && surface.contains(active))
-  ) {
+  if (active && active !== document.body && active.isConnected && !surface?.contains(active)) {
     return;
   }
   focusOverlayOwner(owner);
@@ -66,7 +78,8 @@ export function menuFocusOwner(menu: Element | null): HTMLElement | null {
   if (owner) return owner();
   const triggerId = menu?.getAttribute("aria-labelledby");
   const trigger = triggerId ? document.getElementById(triggerId) : null;
-  return trigger?.getAttribute("aria-haspopup") === "menu" ? trigger : null;
+  const popup = trigger?.getAttribute("aria-haspopup");
+  return popup === "true" || popup === "menu" ? trigger : null;
 }
 
 export function currentFocusOwner(): HTMLElement | null {
@@ -76,4 +89,29 @@ export function currentFocusOwner(): HTMLElement | null {
   // A selected menu item disappears as its dialog opens. The menu's semantic
   // label identifies the persistent trigger that should receive focus later.
   return menuFocusOwner(active.closest('[role="menu"]')) ?? active;
+}
+
+const TABBABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
+
+export function firstTabbable(root: Element): HTMLElement | null {
+  return root.querySelector<HTMLElement>(TABBABLE);
+}
+
+/** A layer's dismissal that the caller may veto with `preventDefault`. */
+export interface PanelEvent {
+  readonly defaultPrevented: boolean;
+  preventDefault(): void;
+}
+
+export function vetoable(): PanelEvent {
+  let prevented = false;
+  return {
+    get defaultPrevented() {
+      return prevented;
+    },
+    preventDefault() {
+      prevented = true;
+    },
+  };
 }

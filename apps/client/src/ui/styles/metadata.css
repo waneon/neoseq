@@ -983,20 +983,14 @@ button.tag-mark:focus-visible {
 }
 
 @media (max-width: 600px) {
-  /* Radix owns the desktop coordinates. On a compact viewport the property
-     editor becomes a sheet, so its positioning wrapper becomes the viewport
-     edge and the editor fills that wrapper. */
-  [data-radix-popper-content-wrapper]:has(> .property-picker),
-  [data-radix-popper-content-wrapper]:has(> .tag-picker) {
-    inset: auto 0 0 !important;
-    min-width: 0 !important;
-    transform: none !important;
-  }
-
+  /* The panel's anchored coordinates are inline. On a compact viewport the
+     property editor becomes a sheet on the viewport's bottom edge instead. */
   .property-picker,
   .tag-picker {
-    position: static !important;
+    position: fixed !important;
+    inset: auto 0 0 !important;
     width: 100% !important;
+    min-width: 0 !important;
     max-width: none !important;
   }
 

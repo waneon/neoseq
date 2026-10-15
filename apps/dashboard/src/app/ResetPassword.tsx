@@ -7,13 +7,7 @@ import { useState, type FormEvent } from "react";
 import { resetPassword, type Account } from "@/api";
 import { useI18n } from "@/i18n";
 import { Button } from "@/ui/shadcn/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/ui/shadcn/dialog";
+import { DialogSurface } from "@/ui/shadcn/dialog";
 import { Callout, TextField } from "@/ui/components";
 import { failureMessage, type Perform } from "./session";
 
@@ -47,47 +41,36 @@ export function ResetPassword({
     }
   };
 
-  // Rendered only while open, so the Radix root is always open; closing reports
-  // back through onOpenChange, and Radix owns the focus trap and the return of
+  // Rendered only while open; React Aria owns the focus trap and the return of
   // focus to the control that summoned this.
   return (
-    <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
-      <DialogContent
-        closeLabel={message("confirm.cancel")}
-        onEscapeKeyDown={(event) => {
-          if (busy) event.preventDefault();
-        }}
-        onPointerDownOutside={(event) => {
-          if (busy) event.preventDefault();
-        }}
-      >
-        <DialogHeader>
-          <DialogTitle>{message("reset.title", { username: account.username })}</DialogTitle>
-          <DialogDescription>
-            {message("reset.body", { username: account.username })}
-          </DialogDescription>
-        </DialogHeader>
-        {error && <Callout>{error}</Callout>}
-        <form className="grid gap-4" onSubmit={submit}>
-          <TextField
-            label={message("reset.newPassword")}
-            type="password"
-            autoComplete="new-password"
-            autoFocus
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-          />
-          <div className="dialog-actions">
-            <Button variant="ghost" disabled={busy} onClick={onClose}>
-              {message("confirm.cancel")}
-            </Button>
-            <Button type="submit" disabled={busy}>
-              {busy && <span className="spinner" aria-hidden />}
-              {busy ? message("reset.working") : message("reset.action")}
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
+    <DialogSurface
+      title={message("reset.title", { username: account.username })}
+      description={message("reset.body", { username: account.username })}
+      dismissible={!busy}
+      closeLabel={message("confirm.cancel")}
+      onClose={onClose}
+    >
+      {error && <Callout>{error}</Callout>}
+      <form className="grid gap-4" onSubmit={submit}>
+        <TextField
+          label={message("reset.newPassword")}
+          type="password"
+          autoComplete="new-password"
+          autoFocus
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+        />
+        <div className="dialog-actions">
+          <Button variant="ghost" disabled={busy} onClick={onClose}>
+            {message("confirm.cancel")}
+          </Button>
+          <Button type="submit" disabled={busy}>
+            {busy && <span className="spinner" aria-hidden />}
+            {busy ? message("reset.working") : message("reset.action")}
+          </Button>
+        </div>
+      </form>
+    </DialogSurface>
   );
 }

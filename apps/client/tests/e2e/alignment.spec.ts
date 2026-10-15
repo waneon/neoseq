@@ -164,8 +164,8 @@ test("settings header centers Close on the title and mirrors its edge", async ({
   ]) {
     await page.setViewportSize(size);
     const frame = (await page.locator(surface).boundingBox())!;
-    const title = (await inkBox(page, `${surface} [data-slot="dialog-title"]`))!;
-    const close = (await inkBox(page, `${surface} [data-slot="dialog-close"] svg`))!;
+    const title = (await inkBox(page, `${surface} .dialog-header h2`))!;
+    const close = (await inkBox(page, `${surface} .dialog-close svg`))!;
     const label = (await inkBox(page, `${surface} .settings-group h3`))!;
     expect(close.middle, `${size.width}px`).toBe(title.middle);
     expect(frame.x + frame.width - close.right, `${size.width}px`).toBe(title.left - frame.x);
@@ -200,8 +200,8 @@ test.describe("on a phone", () => {
     const surface = ".settings-dialog-surface";
     // A full-screen sheet has no floating edge to ring.
     await expect(page.locator(surface)).toHaveCSS("box-shadow", "none");
-    const title = await inkBox(page, `${surface} [data-slot="dialog-title"]`);
-    const close = await inkBox(page, `${surface} [data-slot="dialog-close"] svg`);
+    const title = await inkBox(page, `${surface} .dialog-header h2`);
+    const close = await inkBox(page, `${surface} .dialog-close svg`);
     const card = await page.locator(`${surface} .settings-group-links`).first().boundingBox();
     const edges = { start: card!.x, end: card!.x + card!.width };
     expect(close!.middle).toBe(title!.middle);
