@@ -27,6 +27,8 @@ import {
 } from "./generated/messages";
 import { createTemporalParser, type TemporalParser } from "./temporal";
 
+const BYTE_UNITS = ["byte", "kilobyte", "megabyte", "gigabyte", "terabyte"] as const;
+
 export { LOCALE_DEFINITIONS };
 export type { SupportedLocale };
 export type LocalePreference = "system" | SupportedLocale;
@@ -179,16 +181,29 @@ export function createLocaleRuntime(locale: SupportedLocale): LocaleRuntime {
     message,
     temporal,
     formatNumber,
-    formatBytes: (value) =>
-      `${formatNumber(value / (1024 * 1024), {
-        minimumFractionDigits: 1,
-        maximumFractionDigits: 1,
-      })} MB`,
+    formatBytes: (value) => {
+      // The unit the amount reads best in: 12 KB, 3.4 MB, 7 GB.
+      let unit = 0;
+      let amount = value;
+      while (amount >= 1024 && unit < BYTE_UNITS.length - 1) {
+        amount /= 1024;
+        unit += 1;
+      }
+      return formatNumber(amount, {
+        style: "unit",
+        unit: BYTE_UNITS[unit],
+        unitDisplay: "short",
+        maximumFractionDigits: unit > 0 && amount < 10 ? 1 : 0,
+      });
+    },
     formatLocalDate: (value, options) => {
       const [year, month, day] = value.split("-").map(Number);
       if (![year, month, day].every(Number.isFinite)) return value;
+      // Date.UTC reads years 0–99 as 1900–1999; the setter takes them literally.
+      const date = new Date(Date.UTC(2000, month - 1, day));
+      date.setUTCFullYear(year, month - 1, day);
       return formatDate(
-        new Date(Date.UTC(year, month - 1, day)),
+        date,
         "UTC",
         options ?? { weekday: "long", year: "numeric", month: "long", day: "numeric" },
       );
