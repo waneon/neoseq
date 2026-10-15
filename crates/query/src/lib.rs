@@ -1238,7 +1238,11 @@ impl GraphIndex {
                     normalized_text.get(content.value()).map_or_else(
                         || normalize_text(content.value()).contains(normalized_needle),
                         |normalized| normalized.contains(normalized_needle),
-                    )
+                    ) && (!has_attached_symbol(needle.value())
+                        || content
+                            .value()
+                            .to_lowercase()
+                            .contains(&needle.value().trim().to_lowercase()))
                 };
                 Some(Literal::from(matches).into())
             })
@@ -3024,6 +3028,23 @@ pub fn entity_iri(graph_id: &GraphId, kind: &str, id: &str) -> Result<NamedNode,
     ))
 }
 
+/// Whether a symbol in `needle` belongs to a word rather than joining two:
+/// the "++" of "C++" or the "#" of "C#", which analysis would drop and so turn
+/// into a wildcard. A joiner such as the "-" of "foo-bar" only separates words.
+fn has_attached_symbol(needle: &str) -> bool {
+    let characters: Vec<char> = needle.chars().collect();
+    characters.iter().enumerate().any(|(index, character)| {
+        let word = |offset: Option<usize>| {
+            offset
+                .and_then(|offset| characters.get(offset))
+                .is_some_and(|neighbour| neighbour.is_alphanumeric())
+        };
+        !character.is_alphanumeric()
+            && !character.is_whitespace()
+            && !(word(index.checked_sub(1)) && word(Some(index + 1)))
+    })
+}
+
 pub fn normalize_text(value: &str) -> String {
     value
         .chars()
@@ -3370,6 +3391,44 @@ mod tests {
             ("", 0),
             ("   ", 0),
             ("SHIP docs", 1),
+        ] {
+            let mut query = request(
+                "PREFIX neo: <urn:neoseq:vocab:v1:>\n\
+                 SELECT ?entity WHERE {\n\
+                   ?entity neo:content ?content .\n\
+                   FILTER(neo:matchesText(?content, ?needle))\n\
+                 } ORDER BY ?entity LIMIT 20",
+            );
+            query.bindings.insert(
+                "needle".into(),
+                RdfTerm::Literal {
+                    value: needle.into(),
+                    datatype: xsd::STRING.as_str().into(),
+                    language: None,
+                },
+            );
+            let QueryResult::Select { rows, .. } = index.execute(query).unwrap() else {
+                panic!("expected SELECT result");
+            };
+            assert_eq!(rows.len(), expected, "needle: {needle:?}");
+        }
+    }
+
+    #[test]
+    fn matches_text_keeps_symbols_attached_to_a_word() {
+        let mut graph = snapshot();
+        let block = &mut graph.pages[0].blocks[0];
+        block.markdown = "C# notes on foo bar".into();
+        block.content = vec![domain::InlineContent::Markdown {
+            value: block.markdown.clone(),
+        }];
+        let index = GraphIndex::new(&graph).unwrap();
+        for (needle, expected) in [
+            ("C++", 0),
+            ("c#", 1),
+            ("C", 1),
+            ("foo-bar", 1),
+            ("notes.", 0),
         ] {
             let mut query = request(
                 "PREFIX neo: <urn:neoseq:vocab:v1:>\n\
