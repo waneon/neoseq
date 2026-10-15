@@ -444,7 +444,8 @@ function ShellBody({
         title ??
         nextAvailableEntityName(
           message("page.untitled"),
-          namedDocuments(state.snapshot)
+          // The session's names now, not those of the render that made this callback.
+          namedDocuments(session.getState().snapshot)
             .filter((entry) => !entry.deleted)
             .map((entry) => entry.title),
         );
