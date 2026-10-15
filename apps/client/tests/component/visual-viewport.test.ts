@@ -29,7 +29,8 @@ function geometry() {
 describe("visual viewport", () => {
   it("keeps touch surfaces above a keyboard as the visible viewport resizes and pans", () => {
     const { host, viewport } = viewportWindow();
-    expect(geometry()).toEqual(["900px", "0px", "0px"]);
+    // A viewport the keyboard leaves whole takes its height from CSS.
+    expect(geometry()).toEqual(["", "0px", "0px"]);
 
     viewport.height = 560;
     viewport.dispatchEvent(new Event("resize"));
@@ -51,13 +52,13 @@ describe("visual viewport", () => {
     viewport.offsetTop = 40;
     viewport.dispatchEvent(new Event("resize"));
     viewport.dispatchEvent(new Event("scroll"));
-    expect(geometry()).toEqual(["900px", "0px", "0px"]);
+    expect(geometry()).toEqual(["", "0px", "0px"]);
 
     viewport.scale = 1;
     viewport.height = 900;
     viewport.offsetTop = 0;
     viewport.dispatchEvent(new Event("resize"));
-    expect(geometry()).toEqual(["900px", "0px", "0px"]);
+    expect(geometry()).toEqual(["", "0px", "0px"]);
   });
 
   it("releases geometry and stops updating it when tracking ends", () => {

@@ -6,7 +6,10 @@ export function trackVisualViewport(window: Window): () => void {
   const update = () => {
     // Pinch zoom belongs to the reader; it must not reflow the application.
     if (viewport.scale !== 1) return;
-    style.setProperty("--visual-viewport-height", `${viewport.height}px`);
+    // Only a viewport the keyboard shrinks needs a height of its own; otherwise
+    // `100dvh` follows a resize without waiting for this handler.
+    if (viewport.height === window.innerHeight) style.removeProperty("--visual-viewport-height");
+    else style.setProperty("--visual-viewport-height", `${viewport.height}px`);
     style.setProperty("--visual-viewport-top", `${viewport.offsetTop}px`);
     style.setProperty(
       "--visual-viewport-bottom",
