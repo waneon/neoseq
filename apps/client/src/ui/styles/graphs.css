@@ -183,7 +183,9 @@
   margin-top: auto;
   padding-block: var(--sp-4) var(--sp-7);
   background: var(--canvas);
-  margin-inline-start: calc(var(--sp-3) * -1);
+  /* A button's 14px padding and its icon's 2px inner margin: the first
+     icon's strokes start on the column edge. */
+  margin-inline-start: -16px;
 }
 
 .picker-footer .btn {

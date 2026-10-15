@@ -308,6 +308,8 @@ export function GraphPicker() {
             <TabsContent
               className="repository-panel"
               value={selected.id}
+              // Every state of the panel holds its own controls to land on.
+              tabIndex={-1}
               aria-busy={initialLoading || catalog.refreshing || importing}
             >
               {catalog.status === "failed" && (

@@ -173,6 +173,21 @@ test("settings header centers Close on the title and mirrors its edge", async ({
   }
 });
 
+test("library actions start on the heading's edge", async ({ app, page }) => {
+  await app.createGraph("Library edge");
+  await page.goto("/");
+  await expect(page.getByTestId("graph-list")).toBeVisible();
+  for (const size of [
+    { width: 1280, height: 800 },
+    { width: 412, height: 915 },
+  ]) {
+    await page.setViewportSize(size);
+    const heading = (await inkBox(page, ".picker-heading h1"))!;
+    const icon = (await inkBox(page, '[data-testid="import-graph"] svg'))!;
+    expect(icon.left, `${size.width}px`).toBe(heading.left);
+  }
+});
+
 test.describe("on a phone", () => {
   const { defaultBrowserType: _, ...phone } = devices["Pixel 7"];
   test.use(phone);
