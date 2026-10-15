@@ -66,6 +66,22 @@ describe("auto pair planner", () => {
     expect(apply("before selected after", plan!)).toBe("before [selected] after");
   });
 
+  it("types a backtick fence in prose without a stray closer", () => {
+    let value = "";
+    let caret = 0;
+    for (const typed of "```js") {
+      const plan = planAutoPair(request({ value, start: caret, end: caret, data: typed }));
+      if (plan) {
+        value = apply(value, plan);
+        caret = plan.selectionStart;
+      } else {
+        value = value.slice(0, caret) + typed + value.slice(caret);
+        caret += 1;
+      }
+    }
+    expect(value).toBe("```js");
+  });
+
   it("moves across an existing closer without changing text", () => {
     const plan = planAutoPair(request({ value: "()", start: 1, end: 1, data: ")" }));
 

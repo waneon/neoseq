@@ -84,7 +84,7 @@ describe("code editing", () => {
     expect(outdentBackspace("  a ", 4, "  ")).toBeNull();
   });
 
-  it("pairs in code but types a run of quotes whole", () => {
+  it("pairs in code but types a run of backticks or code quotes whole", () => {
     const type = (value: string, data: string, code: boolean) =>
       planAutoPair({
         value,
@@ -98,7 +98,8 @@ describe("code editing", () => {
       });
     expect(type("x = ", "(", true)).toMatchObject({ insert: "()" });
     expect(type("``", "`", true)).toBeNull();
-    expect(type("``", "`", false)).toMatchObject({ insert: "``" });
+    // A backtick run is a fence in prose too.
+    expect(type("``", "`", false)).toBeNull();
   });
 
   it("uses the body's own indent unit", () => {

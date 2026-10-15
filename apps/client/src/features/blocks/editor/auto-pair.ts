@@ -12,7 +12,7 @@ export interface AutoPairInput {
   inputType: string;
   data: string | null;
   isComposing: boolean;
-  /** Code types runs such as ``` and """ whole: a quote after its twin opens no pair. */
+  /** Code types runs such as """ whole: a quote after its twin opens no pair. */
   code?: boolean;
 }
 
@@ -268,7 +268,13 @@ export function planAutoPair(input: AutoPairInput): TextEditPlan | null {
   // would grow a surprising second delimiter.
   if (isEscaped(value, start)) return null;
   if (SYMMETRIC.has(typed) && !canOpenSymmetric(value, start, end)) return null;
-  if (input.code && SYMMETRIC.has(typed) && previousPoint(value, start) === typed) return null;
+  // A run is typed whole: ``` opens a fence in prose too, and in code """ as well.
+  if (
+    (input.code || typed === "`") &&
+    SYMMETRIC.has(typed) &&
+    previousPoint(value, start) === typed
+  )
+    return null;
 
   return {
     from: start,
