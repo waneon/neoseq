@@ -734,6 +734,7 @@ export interface MessageArgumentMap {
   "shortcuts.leaveOutline": undefined;
   "shortcuts.leaveOutlineRoute": undefined;
   "shortcuts.lineBreak": undefined;
+  "shortcuts.mergeNext": undefined;
   "shortcuts.moveDown": undefined;
   "shortcuts.moveSelection": undefined;
   "shortcuts.moveSelectionRoute": undefined;

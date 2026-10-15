@@ -4101,6 +4101,25 @@ function onKeyDown(
     }
   }
 
+  // Delete at the end joins the line below, exactly as Backspace at its start does.
+  if (
+    event.key === "Delete" &&
+    textarea.selectionStart === textarea.value.length &&
+    textarea.selectionEnd === textarea.value.length
+  ) {
+    const next = rows[rowIndexOf(rows, id) + 1];
+    const nextText = next
+      ? document.querySelector<HTMLTextAreaElement>(
+          `[data-block-id="${cssEscape(next.block.id)}"] textarea`,
+        )
+      : null;
+    if (next && next.index > 0 && nextText && !isPendingId(next.block.id)) {
+      event.preventDefault();
+      if (!editor.readonly) editor.mergeBackward(next, rows, nextText, "keyboard");
+      return;
+    }
+  }
+
   if ((event.key === "ArrowUp" || event.key === "ArrowDown") && event.altKey) {
     event.preventDefault();
     if (editor.readonly) return;

@@ -66,6 +66,7 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
         { label: message("shortcuts.collapseParent"), keys: [["←"]] },
         { label: message("shortcuts.expandChild"), keys: [["→"]] },
         { label: message("shortcuts.deleteBlock"), keys: [["⌫"]] },
+        { label: message("shortcuts.mergeNext"), keys: [["⌦"]] },
         {
           label: message("shortcuts.blockActions"),
           route: message("shortcuts.blockActionsRoute"),
