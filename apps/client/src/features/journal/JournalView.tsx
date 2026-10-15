@@ -65,13 +65,19 @@ export function JournalView() {
   // day…" forever, with no way to tell a slow open from a dead one.
   const ensure = useCallback<() => void>(() => {
     ensured.current = date;
-    void session.execute({ type: "ensure_journal", date }).catch((error: unknown) => {
-      ensured.current = null;
-      notify.failure(message("failure.openJournal"), error, {
-        label: message("common.retry"),
-        run: ensure,
-      });
-    });
+    void session.execute({ type: "ensure_journal", date }).then(
+      // The day exists now; if it later goes away, opening it ensures it again.
+      () => {
+        if (ensured.current === date) ensured.current = null;
+      },
+      (error: unknown) => {
+        ensured.current = null;
+        notify.failure(message("failure.openJournal"), error, {
+          label: message("common.retry"),
+          run: ensure,
+        });
+      },
+    );
   }, [date, message, notify, session]);
 
   useEffect(() => {

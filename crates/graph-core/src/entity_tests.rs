@@ -336,3 +336,22 @@ fn schema_8_title_reads_from_its_text_until_a_rename_moves_it_to_the_register() 
     assert_eq!(reopened.snapshot().unwrap().pages[0].title, "New plan");
     assert_eq!(reopened.snapshot().unwrap().schema_version, SCHEMA_VERSION);
 }
+
+#[test]
+fn undo_takes_back_edits_but_never_the_journal_day_a_view_opened() {
+    let mut core = new();
+    page(&mut core, "plan", "Plan");
+    let date = domain::LocalDate::new("2026-10-15").unwrap();
+    run(&mut core, Command::EnsureJournal { date: date.clone() });
+    run(&mut core, Command::Undo);
+    let snapshot = core.snapshot().unwrap();
+    assert!(snapshot.pages.iter().all(|page| page.id.as_str() != "plan"));
+    assert!(snapshot.pages.iter().any(|page| {
+        page.properties
+            .iter()
+            .any(|field| field.key.as_str() == "builtin.journal-date")
+    }));
+    // Nothing is left for undo: the journal day was never an edit.
+    run(&mut core, Command::Undo);
+    assert_eq!(core.snapshot().unwrap().pages.len(), 1);
+}

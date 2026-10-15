@@ -564,6 +564,15 @@ impl ProjectionChangeTracker {
     }
 }
 
+/// Commit origin of changes a view makes on the reader's behalf.
+const VIEW_ORIGIN: &str = "view:ensure";
+
+fn local_undo(doc: &LoroDoc) -> UndoManager {
+    let mut undo = UndoManager::new(doc);
+    undo.add_exclude_origin_prefix(VIEW_ORIGIN);
+    undo
+}
+
 pub(crate) fn configure_inline_content(doc: &LoroDoc) {
     let mut styles = StyleConfigMap::default_rich_text_config();
     styles.insert(
@@ -597,7 +606,7 @@ pub(crate) fn new_document(
 impl GraphCore {
     pub fn new(graph_id: GraphId, peer_id: u64, now: &str) -> Result<Self, CoreError> {
         let doc = new_document(&graph_id, peer_id, now)?;
-        let undo = UndoManager::new(&doc);
+        let undo = local_undo(&doc);
         Ok(Self {
             graph_id,
             doc,
@@ -632,7 +641,7 @@ impl GraphCore {
         configure_inline_content(&doc);
         doc.set_peer_id(peer_id)?;
         enable_outlines(&doc)?;
-        let undo = UndoManager::new(&doc);
+        let undo = local_undo(&doc);
         Ok(Self {
             graph_id,
             doc,
@@ -710,7 +719,7 @@ impl GraphCore {
     /// Base+Tail has been replayed: imported operations from this replica are
     /// durable graph state, not commands from the newly opened session.
     pub fn reset_local_history(&mut self) {
-        self.undo = UndoManager::new(&self.doc);
+        self.undo = local_undo(&self.doc);
         self.undo_history.clear();
         self.redo_history.clear();
     }
@@ -863,9 +872,18 @@ impl GraphCore {
                     content_only = transition.is_content_only();
                 }
                 semantic = prepared.semantic();
-                history_plan = Some(prepared.history.clone());
+                // Opening a journal day creates it; that is the view's doing,
+                // not an edit for undo to take back.
+                let view_owned = matches!(command, Command::EnsureJournal { .. });
+                if !view_owned {
+                    history_plan = Some(prepared.history.clone());
+                }
                 self.undo.group_start()?;
-                self.doc.set_next_commit_origin("local:command");
+                self.doc.set_next_commit_origin(if view_owned {
+                    VIEW_ORIGIN
+                } else {
+                    "local:command"
+                });
                 self.doc
                     .set_next_commit_message(envelope.command_id.as_str());
                 self.doc
@@ -1540,7 +1558,7 @@ impl GraphCore {
 
     fn validation_fork(&self) -> Self {
         let doc = self.doc.fork();
-        let undo = UndoManager::new(&doc);
+        let undo = local_undo(&doc);
         Self {
             graph_id: self.graph_id.clone(),
             doc,

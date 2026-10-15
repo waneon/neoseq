@@ -81,7 +81,8 @@ commands are:
 - apply query/task convenience commands through properties and tag/page/journal
   commands through their explicit structural entities, with tag deletion
   detaching its membership from every page and block;
-- undo/redo the local actor's latest command group.
+- undo/redo the local actor's latest command group; a journal day a view
+  ensured is not an edit and never enters history.
 
 Generic property commands can mutate only registry-declared user-writable
 targets. Page kind, journal identity, lifecycle timestamps, and tombstones are
