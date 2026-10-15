@@ -1,9 +1,10 @@
 use crate::GraphCore;
 use domain::{
-    BlockId, Command, CommandEnvelope, CommandId, DefaultQueryId, EntityId, GraphId, LocalDate,
-    OutlineOwner, PageId, PropertyDocument, PropertyKey, PropertyOwner, PropertyValue,
+    BlockId, Command, CommandEnvelope, CommandId, DefaultQueryId, EntityId, GraphChanges, GraphId,
+    LocalDate, OutlineOwner, PageId, PropertyDocument, PropertyKey, PropertyOwner, PropertyValue,
     QueryDefinition, QueryOwner, QueryView, QueryViewId, QueryViewKind, QueryViewOptions, TagId,
 };
+use std::collections::BTreeSet;
 
 const REPRODUCIBLE_SEEDS: &[u64] = &[
     0x02_0000_0001,
@@ -698,4 +699,69 @@ fn convergence_graph_default_query_fields_merge_independently() {
         assert_eq!(document.default_view_id.as_str(), "v-list");
     }
     assert_eq!(left.fingerprint().unwrap(), right.fingerprint().unwrap());
+}
+
+#[test]
+fn remote_sibling_insert_does_not_report_an_unseen_local_block_as_edited() {
+    let graph = GraphId::new("concurrent-sibling-mapping").unwrap();
+    let page = PageId::new("page").unwrap();
+    let owner = OutlineOwner::Page { id: page.clone() };
+    let insert = |core: &mut GraphCore, peer: u64, index: usize, markdown: &str| {
+        core.execute(
+            CommandEnvelope {
+                graph_id: graph.clone(),
+                command_id: CommandId::new(format!("insert-{peer}-{markdown}")).unwrap(),
+                command: Command::InsertBlock {
+                    owner: owner.clone(),
+                    parent: None,
+                    index,
+                    markdown: markdown.into(),
+                },
+            },
+            "insert",
+        )
+        .unwrap()
+        .result
+        .created_block
+        .unwrap()
+    };
+    let mut base = GraphCore::new(graph.clone(), 1, "base").unwrap();
+    execute(
+        &mut base,
+        &graph,
+        1,
+        0,
+        Command::EnsurePage {
+            page_id: page.clone(),
+            title: "Page".into(),
+        },
+    );
+    let shared = insert(&mut base, 1, 0, "shared");
+    let snapshot = base.export_snapshot().unwrap();
+    let mut left = GraphCore::from_snapshot(graph.clone(), 2, &snapshot).unwrap();
+    let mut right = GraphCore::from_snapshot(graph.clone(), 3, &snapshot).unwrap();
+
+    insert(&mut left, 2, 1, "typing");
+    let remote = insert(&mut right, 3, 1, "peer");
+    execute(
+        &mut right,
+        &graph,
+        3,
+        1,
+        Command::EditMarkdown {
+            owner: owner.clone(),
+            block_id: shared.clone(),
+            markdown: "shared!".into(),
+        },
+    );
+    let (_, publication) = left
+        .import_remote_with_publication(&right.export_all().unwrap())
+        .unwrap();
+
+    let GraphChanges::Refresh { blocks, .. } = publication else {
+        panic!("a remote import publishes a refresh");
+    };
+    let mapped: BTreeSet<_> = blocks.iter().map(|block| block.block_id.clone()).collect();
+    // The unseen local block is absent: none of its text came from the import.
+    assert_eq!(mapped, BTreeSet::from([shared, remote]));
 }

@@ -267,7 +267,9 @@ never retry the semantic command after receiving an applied result.
 `GraphChanges` installs final semantic content and derived fields or names a
 refresh scope. Actual document deltas supply sequential text mappings for local
 edits, batches, undo/redo, and remote imports. Positions count Unicode scalars or
-one page-reference atom. Structural refreshes retain known text mappings; a
+one page-reference atom. A remote import maps only text its operations wrote;
+Loro's replay of a concurrent local block creation resends that text whole, and
+is not an edit. Structural refreshes retain known text mappings; a
 history replacement establishes a new baseline. The frontend does not infer
 impact from command variants or diff rendered snapshots to recover causality.
 The runtime publishes the exact pending bytes immediately after authoritative

@@ -27,7 +27,7 @@ use domain::{
     validate_property_shape, validate_property_target, validate_property_write,
 };
 use loro::{
-    Container, ContainerID, ContainerTrait, ExpandType, ExportMode, IdSpan, Index, LoroDoc,
+    Container, ContainerID, ContainerTrait, ExpandType, ExportMode, ID, IdSpan, Index, LoroDoc,
     LoroEncodeError, LoroError, LoroMap, LoroText, LoroTree, LoroValue, StyleConfig,
     StyleConfigMap, Subscription, TextDelta, TreeID, TreeParentId, UndoManager, ValueOrContainer,
     VersionVector, event::Diff,
@@ -35,7 +35,7 @@ use loro::{
 use query::{IndexChange, IndexDelta, IndexUnit, IndexUnitId, derive_plan_source};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashSet, VecDeque},
     sync::{Arc, Mutex},
 };
 use thiserror::Error;
@@ -427,7 +427,13 @@ impl ProjectionChangeTracker {
         }
     }
 
-    fn content_mappings(&self, doc: &LoroDoc) -> ContentMappings {
+    /// `written` limits mappings to text containers an operation wrote; `None`
+    /// trusts every text event.
+    fn content_mappings(
+        &self,
+        doc: &LoroDoc,
+        written: Option<&HashSet<ContainerID>>,
+    ) -> ContentMappings {
         let captured = self
             .captured
             .lock()
@@ -438,6 +444,7 @@ impl ProjectionChangeTracker {
             let Some(delta) = &change.text else { continue };
             if change.unknown
                 || !matches!(change.path.last(), Some((_, Index::Key(key))) if key.as_ref() == "content")
+                || written.is_some_and(|written| !written.contains(&change.target))
             {
                 continue;
             }
@@ -875,7 +882,7 @@ impl GraphCore {
             }
         }
 
-        let content_mappings = change_tracker.content_mappings(&self.doc);
+        let content_mappings = change_tracker.content_mappings(&self.doc, None);
         let changes = change_tracker.finish(&self.doc);
         let update = if self.doc.oplog_vv() == before {
             Vec::new()
@@ -993,7 +1000,18 @@ impl GraphCore {
         if status.pending.is_some() {
             return Err(CoreError::MissingDependencies);
         }
-        let mappings = change_tracker.content_mappings(&self.doc);
+        // A remote tree op concurrent with a local block creation makes Loro
+        // replay that creation and resend the block's text as one full insert,
+        // although no imported op touched it.
+        let written: HashSet<_> = status
+            .success
+            .iter()
+            .flat_map(|(peer, (start, end))| {
+                self.doc
+                    .get_changed_containers_in(ID::new(*peer, *start), (end - start) as usize)
+            })
+            .collect();
+        let mappings = change_tracker.content_mappings(&self.doc, Some(&written));
         let mut changes = change_tracker.finish(&self.doc);
         // Merged text can cross its limit without either side exceeding it,
         // which the summary reports as a conflict.
