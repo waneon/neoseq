@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearAuthSession,
   readAuthSession,
+  retryRevocations,
   signOut,
   validateAuthSession,
   writeAuthSession,
@@ -105,5 +106,25 @@ describe("remote authentication storage", () => {
         headers: { Authorization: "Bearer opaque-test-token" },
       }),
     );
+  });
+
+  it("delivers a sign-out made offline once the server can be reached", async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new TypeError("offline");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    writeAuthSession(REPOSITORY, session("persistent"));
+    signOut(REPOSITORY, "https://sync.example.test");
+    await vi.waitFor(() =>
+      expect(localStorage.getItem("neoseq.remote-revocations.v1")).not.toBeNull(),
+    );
+
+    fetchMock.mockImplementation(async () => new Response(null, { status: 204 }));
+    await retryRevocations();
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      new URL("https://sync.example.test/v1/auth/logout"),
+      expect.objectContaining({ headers: { Authorization: "Bearer opaque-test-token" } }),
+    );
+    expect(localStorage.getItem("neoseq.remote-revocations.v1")).toBeNull();
   });
 });

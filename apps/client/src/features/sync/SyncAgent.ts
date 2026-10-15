@@ -67,7 +67,7 @@ const HEARTBEAT_MS = 10_000;
 const TRANSPORT_TIMEOUT_MS = 60_000;
 const CLOSE_PAUSED = 4002;
 /** How often a revoked member asks whether access came back. */
-const REVOKED_RECHECK_MS = 60_000;
+const REVOKED_RECHECK_MS = 10_000;
 const CLOSE_INCOMPATIBLE = 4003;
 const CLOSE_REPLACED = 4005;
 

@@ -79,18 +79,60 @@ export function clearAuthSession(repositoryId: string): void {
   window.dispatchEvent(new CustomEvent("neoseq:auth-changed", { detail: repositoryId }));
 }
 
+const REVOCATIONS_KEY = "neoseq.remote-revocations.v1";
+
+interface Revocation {
+  server_url: string;
+  token: string;
+}
+
+function readRevocations(storage: Storage): Revocation[] {
+  try {
+    return JSON.parse(storage.getItem(REVOCATIONS_KEY) ?? "[]") as Revocation[];
+  } catch {
+    return [];
+  }
+}
+
+/** Whether the server no longer accepts the token. */
+async function revoke({ server_url, token }: Revocation): Promise<boolean> {
+  try {
+    const response = await fetch(new URL("/v1/auth/logout", `${server_url}/`), {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      keepalive: true,
+    });
+    return response.ok || response.status === 401;
+  } catch {
+    return false;
+  }
+}
+
+/** Asks again for every revocation a disconnected sign-out could not deliver. */
+export async function retryRevocations(): Promise<void> {
+  for (const storage of [localStorage, sessionStorage]) {
+    const pending = readRevocations(storage);
+    if (pending.length === 0) continue;
+    const left: Revocation[] = [];
+    for (const revocation of pending) if (!(await revoke(revocation))) left.push(revocation);
+    if (left.length) storage.setItem(REVOCATIONS_KEY, JSON.stringify(left));
+    else storage.removeItem(REVOCATIONS_KEY);
+  }
+}
+
 /** Signs this browser out: the session is gone here at once, and the server is
- * asked to revoke it so a copied token stops working too. Offline, the local
- * sign-out still stands. */
+ * asked to revoke it so a copied token stops working too. Offline, the request
+ * waits in the same storage the session lived in until the browser is back. */
 export function signOut(repositoryId: string, serverUrl: string): void {
   const session = readAuthSession(repositoryId);
   clearAuthSession(repositoryId);
   if (!session) return;
-  void fetch(new URL("/v1/auth/logout", `${serverUrl}/`), {
-    method: "POST",
-    headers: { Authorization: `Bearer ${session.token}` },
-    keepalive: true,
-  }).catch(() => undefined);
+  const revocation = { server_url: serverUrl, token: session.token };
+  void revoke(revocation).then((done) => {
+    if (done) return;
+    const storage = session.persistence === "persistent" ? localStorage : sessionStorage;
+    storage.setItem(REVOCATIONS_KEY, JSON.stringify([...readRevocations(storage), revocation]));
+  });
 }
 
 /** Confirms a remembered credential before opening a new transport. Network
@@ -127,6 +169,8 @@ export async function validateAuthSession(
 }
 
 if (typeof window !== "undefined") {
+  window.addEventListener("online", () => void retryRevocations());
+  void retryRevocations();
   window.addEventListener("storage", (event) => {
     if (!event.key?.startsWith(AUTH_PREFIX)) return;
     window.dispatchEvent(
