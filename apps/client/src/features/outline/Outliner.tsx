@@ -4770,6 +4770,13 @@ function BlockRow({
         const decoded = decodeOutlineClipboard(event.clipboardData);
         if (decoded.kind === "text" || view.readonly || pending || codeMode) return;
         event.preventDefault();
+        // The pasted blocks take the place of selected text; a block whose
+        // whole text was selected is then empty, and the paste replaces it.
+        const textarea = event.currentTarget;
+        if (textarea.selectionStart !== textarea.selectionEnd) {
+          replaceTextRange(textarea, "", textarea.selectionStart, textarea.selectionEnd, "end");
+          actions.current.onInput(row, textarea.value, textarea);
+        }
         if (decoded.kind === "fragment") {
           actions.current.pasteFragment(row, decoded.fragment);
         } else {
