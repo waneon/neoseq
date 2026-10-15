@@ -528,7 +528,9 @@ export function parseMarkdownOutline(source: string): OutlineClipboardItem[] | n
   const lines = source.replaceAll("\r\n", "\n").replaceAll("\r", "\n").split("\n");
   while (lines[0]?.trim() === "") lines.shift();
   while (lines.at(-1)?.trim() === "") lines.pop();
-  if (lines.length === 0) return null;
+  // One line is text: "2024. That year" or "- note" pasted mid-sentence is
+  // what was typed, not a one-item list.
+  if (lines.length <= 1) return null;
 
   const result: OutlineClipboardItem[] = [];
   const levels: number[] = [];
@@ -566,7 +568,8 @@ export function parseMarkdownOutline(source: string): OutlineClipboardItem[] | n
     current.markdown += `\n${sliceColumns(line, current.contentIndent)}`;
   }
 
-  return result.map(({ depth, markdown }) => ({ depth, markdown }));
+  // A blank line between items separates them; it belongs to neither.
+  return result.map(({ depth, markdown }) => ({ depth, markdown: markdown.replace(/\n+$/, "") }));
 }
 
 function parseMarker(line: string): ParsedMarker | null {

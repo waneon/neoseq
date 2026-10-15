@@ -125,6 +125,18 @@ describe("outline clipboard codecs", () => {
     expect(parseMarkdownOutline("- one\ntwo")).toBeNull();
   });
 
+  it("leaves one line to the browser even when it starts like a list item", () => {
+    expect(parseMarkdownOutline("2024. That year")).toBeNull();
+    expect(parseMarkdownOutline("- note\n")).toBeNull();
+  });
+
+  it("keeps the blank line between loose items out of both", () => {
+    expect(parseMarkdownOutline("- a\n\n- b")).toEqual([
+      { depth: 0, markdown: "a" },
+      { depth: 0, markdown: "b" },
+    ]);
+  });
+
   it("builds a lossless fragment and readable standard representations", () => {
     const page: PageSnapshot = {
       id: "home",
