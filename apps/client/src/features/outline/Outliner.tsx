@@ -4424,6 +4424,7 @@ function handleEnter(editor: EditorContext, row: OutlineRow, textarea: HTMLTextA
     // queued commands write exactly what the rows show.
     if (boundary.index === 0) {
       editor.enqueuePendingInsert(row, split.head, "before", "keyboard");
+      editor.activateBlock(id, 0, "keyboard");
       return;
     }
     editor.onInput(row, split.head.markdown, textarea);
@@ -4444,6 +4445,9 @@ function handleEnter(editor: EditorContext, row: OutlineRow, textarea: HTMLTextA
     row.hasChildren && !row.collapsed,
     "keyboard",
   );
+  // Enter at the very start opens a line above; the caret stays at the start
+  // of the text, which moved down with its block.
+  if (boundary.index === 0) editor.activateBlock(id, 0, "keyboard");
 }
 
 interface PendingOutlineProjection {
