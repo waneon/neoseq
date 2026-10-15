@@ -618,7 +618,7 @@ describe("property picker", () => {
     // says so; a bare name would instead have become user.<name>.
     await user.type(within(picker).getByLabelText("Property key"), "user.Bad!");
     expect(await within(picker).findByTestId("props-error")).toHaveTextContent(
-      "must use builtin.* or user.*",
+      "uses English letters, numbers, and hyphens",
     );
   });
 
