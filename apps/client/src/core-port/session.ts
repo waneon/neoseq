@@ -381,7 +381,8 @@ export class GraphSession {
     this.syncAgent = null;
     await this.opening?.catch(() => undefined);
     await this.queue.catch(() => undefined);
-    if (this.handle && this.state.save.kind !== "unsaved") {
+    // Closing runs storage maintenance, which belongs to the lease holder alone.
+    if (this.handle && this.state.save.kind !== "unsaved" && this.lease?.mode === "exclusive") {
       try {
         await this.port.closeGraph({ graph_handle: this.handle });
       } catch {

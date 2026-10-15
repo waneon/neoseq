@@ -59,6 +59,9 @@ interface OpenState {
   nextCursor: number;
   pending?: PendingWrite;
   remote: boolean;
+  /** The last stored update this core contains. A checkpoint covers no more,
+   * however far another tab's writes have advanced the log. */
+  appliedThrough: number;
   /** Outbox records the frame in flight carries; its Ack retires them all. */
   frame?: { message_id: string; covers: string[] };
 }
@@ -265,6 +268,7 @@ async function openGraph(request: OpenGraphRequest) {
     events: [],
     nextCursor: 1,
     remote: false,
+    appliedThrough: recovery.appliedThrough,
   };
   states.set(handle, state);
   return {
@@ -417,6 +421,7 @@ async function recover(
   core.resetLocalHistory();
   return {
     core,
+    appliedThrough: validThrough,
     report: {
       checkpoint_sequence: checkpointSequence,
       replayed_updates: replayedUpdates,
@@ -467,6 +472,7 @@ async function recoverIntact(
   core.resetLocalHistory();
   return {
     core,
+    appliedThrough: validThrough,
     report: {
       checkpoint_sequence: checkpoint.local_sequence,
       replayed_updates: updates.length,
@@ -561,6 +567,7 @@ async function persistPending(state: OpenState) {
   push(state, "local", { type: "semantic", name: pending.semantic, command_id: pending.commandId });
   push(state, "local", { type: "saved_locally", ...receipt });
   state.pending = undefined;
+  state.appliedThrough = Math.max(state.appliedThrough, receipt.local_sequence);
   try {
     await maybeCompact(state);
   } catch {
@@ -589,7 +596,8 @@ async function maybeCompact(state: OpenState, force = false): Promise<void> {
   ) {
     return;
   }
-  const through = metadata.next_sequence - 1;
+  const through = state.appliedThrough;
+  if (through <= metadata.compacted_through) return;
   const checkpoint = ownedBuffer(
     state.remote ? state.core.exportSnapshot() : state.core.exportGcCheckpoint(),
   );
@@ -899,6 +907,7 @@ async function syncImport(payload: { graph_handle: string; bytes: ArrayBuffer | 
   state.core.validateUpdate(bytes);
   const receipt = await state.repository.appendUpdate(state.storageKey, ownedBuffer(bytes), now());
   const changes = JSON.parse(state.core.importUpdate(bytes));
+  state.appliedThrough = Math.max(state.appliedThrough, receipt.local_sequence);
   push(state, "remote", { type: "remote_imported" });
   push(state, "remote", { type: "saved_locally", ...receipt });
   try {
@@ -934,7 +943,7 @@ async function syncReplace(payload: {
   );
   candidate.resetLocalHistory();
   try {
-    await state.repository.replaceHistory(
+    state.appliedThrough = await state.repository.replaceHistory(
       state.storageKey,
       checkpoint,
       payload.history_epoch,

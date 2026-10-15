@@ -722,7 +722,7 @@ export class IndexedDbGraphRepository {
     rebasedTail: ArrayBuffer,
     schemaVersion: number,
     now: string,
-  ): Promise<void> {
+  ): Promise<number> {
     this.hooks?.before?.("checkpoint");
     const [checkpointDigest, tailDigest] = await Promise.all([
       checksum(checkpoint),
@@ -794,6 +794,7 @@ export class IndexedDbGraphRepository {
     await complete(transaction);
     database.close();
     this.hooks?.after?.("checkpoint");
+    return checkpointSequence;
   }
 
   async quarantine(record: QuarantineRecord): Promise<void> {

@@ -142,8 +142,43 @@ async function verifyOutboxIndexUpgrade() {
   await repository.deleteLocal(graph);
 }
 
+/** A second open of the graph, closed after the writer moved on, must not
+ * install a checkpoint that claims the writer's newer updates. */
+async function verifyStaleReaderCompaction() {
+  const graph = graphId("stale-reader");
+  const writer = new TestCoreWorker();
+  const reader = new TestCoreWorker();
+  const fresh = new TestCoreWorker();
+  try {
+    const written = await writer.openGraph(openRequest(graph, 301));
+    const execute = (page: string) =>
+      writer.execute({
+        graph_handle: written.graph_handle,
+        command: ensurePage(graph, `create-${page}`, page),
+        timeout_ms: 1_000,
+      });
+    await execute("first");
+    const read = await reader.openGraph(openRequest(graph, 302));
+    for (const page of ["second", "third"]) await execute(page);
+    await reader.closeGraph({ graph_handle: read.graph_handle });
+    const reopened = await fresh.openGraph(openRequest(graph, 303));
+    const titles = (reopened.summary as { pages: { title: string }[] }).pages
+      .map((page) => page.title)
+      .sort();
+    assert(
+      JSON.stringify(titles) === JSON.stringify(["first", "second", "third"]),
+      `a stale reader's close lost the writer's updates: ${titles.join(", ")}`,
+    );
+  } finally {
+    writer.terminate();
+    reader.terminate();
+    fresh.terminate();
+  }
+}
+
 export async function runIndexedDbPersistenceCorpus() {
   await verifyOutboxIndexUpgrade();
+  await verifyStaleReaderCompaction();
   const graph = graphId("indexeddb-corpus");
   const creator = new TestCoreWorker();
   const opened = await creator.openGraph(openRequest(graph, 201));

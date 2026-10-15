@@ -234,7 +234,9 @@ Base remains usable; the next checkpoint reclaims the now-obsolete generation.
 Metadata reads, snapshot export, and checkpoint installation in this maintenance
 path are best effort after append; their failure never changes an already durable
 command into a rejected response. Clean close also attempts maintenance, but
-correctness does not depend on close firing.
+correctness does not depend on close firing. A checkpoint claims only the Tail
+its own document has applied, never the log's newest sequence, and only the
+lease holder runs maintenance.
 
 Remote replicas use the same checkpoint and Tail retention mechanism with a
 snapshot that preserves causal history. Unacknowledged outbox entries pin their
