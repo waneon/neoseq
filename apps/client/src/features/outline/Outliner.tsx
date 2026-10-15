@@ -45,7 +45,7 @@ import {
 } from "lucide-react";
 import type { GraphSession } from "../../core-port/session";
 import { CorePortFailure } from "../../core-worker";
-import type { Command, SplitPlacement } from "../../core-port/commands";
+import type { Command, InlineContent, SplitPlacement } from "../../core-port/commands";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -69,6 +69,7 @@ import type {
 import {
   findBlock,
   findOutline,
+  projectInlineContent,
   sameHeaders,
   queryDocument,
   sameOutlineOwner,
@@ -202,6 +203,11 @@ import {
   useContentBuffer,
   type BlockContentSession,
 } from "../blocks/editor/content-session";
+import {
+  inlineSelection,
+  readInlineClipboard,
+  writeInlineClipboard,
+} from "../blocks/editor/inline-clipboard";
 import { buildSlashItems, filterSlashItems, type SlashItem } from "../blocks/editor/slash-commands";
 import { createQueryCommand } from "../query/commands";
 import { preparePageCompletion } from "../blocks/editor/completion-edit";
@@ -413,6 +419,9 @@ interface EditorContext {
   dismissTransient(): void;
   pasteOutline(row: OutlineRow, items: OutlineClipboardItem[]): void;
   pasteFragment(row: OutlineRow, fragment: OutlineFragment): void;
+  /** Copies or cuts text inside a block, keeping the page references it holds. */
+  copyInline(row: OutlineRow, event: ClipboardEvent<HTMLTextAreaElement>, cut: boolean): void;
+  pasteInline(row: OutlineRow, textarea: HTMLTextAreaElement, content: InlineContent[]): void;
   menu: {
     addChild(row: OutlineRow): void;
     indent(row: OutlineRow): void;
@@ -2525,6 +2534,44 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
         message(chosen.present ? "failure.lastEdit" : "failure.addTag"),
       );
     },
+    copyInline: (row, event, cut) => {
+      const textarea = event.currentTarget;
+      const { selectionStart, selectionEnd } = textarea;
+      if (selectionStart === selectionEnd) return;
+      const id = row.block.id;
+      const target = contentSessionsFor(session).open(owner, id, row.block.content);
+      const projection = projectBuffer(target.buffer, editorDirectory.current);
+      const selection = inlineSelection(
+        target.buffer,
+        projection.markdown,
+        projection.pageReferences,
+        selectionStart,
+        selectionEnd,
+      );
+      const text = projection.markdown.slice(selectionStart, selectionEnd);
+      const graphId = session.getState().snapshot.graph_id;
+      if (!writeInlineClipboard(event.clipboardData, graphId, text, selection.content)) return;
+      event.preventDefault();
+      if (!cut || readonly || isPendingId(id)) return;
+      replaceInline(target, textarea, selection, [], selectionStart);
+      scheduleFlush(id);
+    },
+    pasteInline: (row, textarea, content) => {
+      const id = row.block.id;
+      const target = contentSessionsFor(session).open(owner, id, row.block.content);
+      const projection = projectBuffer(target.buffer, editorDirectory.current);
+      const { selectionStart, selectionEnd } = textarea;
+      const selection = inlineSelection(
+        target.buffer,
+        projection.markdown,
+        projection.pageReferences,
+        selectionStart,
+        selectionEnd,
+      );
+      const inserted = projectInlineContent(content, editorDirectory.current).markdown;
+      replaceInline(target, textarea, selection, content, selectionStart + inserted.length);
+      scheduleFlush(id);
+    },
     closePage: () => setPageRequest(null),
     setPageActive: setPageActiveState,
     acceptPage: (row, option) => {
@@ -4261,6 +4308,18 @@ function runOutlineVimSurface(
   editor.runVimStructure(command.type, row, rows, command.count);
 }
 
+/** Applies an inline edit and puts the caret after it in the same task. */
+function replaceInline(
+  target: BlockContentSession,
+  textarea: HTMLTextAreaElement,
+  selection: { index: number; delete: number },
+  content: InlineContent[],
+  caret: number,
+) {
+  flushSync(() => target.splice(selection.index, selection.delete, content));
+  textarea.setSelectionRange(caret, caret);
+}
+
 function handleEnter(editor: EditorContext, row: OutlineRow, textarea: HTMLTextAreaElement) {
   const id = row.block.id;
   const draft = editor.draftOf(row);
@@ -4408,6 +4467,7 @@ type BlockRowActions = Pick<
   EditorContext,
   | "activateBlock"
   | "activationEntrance"
+  | "copyInline"
   | "flushNow"
   | "onBulletPointerDown"
   | "onCompositionEnd"
@@ -4419,6 +4479,7 @@ type BlockRowActions = Pick<
   | "openProperties"
   | "openMenu"
   | "pasteFragment"
+  | "pasteInline"
   | "pasteOutline"
   | "pendingCaret"
   | "publishSelection"
@@ -4670,7 +4731,19 @@ function BlockRow({
       onCompositionStart={() => actions.current.onCompositionStart(row)}
       onCompositionEnd={(event) => actions.current.onCompositionEnd(row, event.currentTarget)}
       onKeyDown={(event) => actions.current.onKeyDown(row, event)}
+      onCopy={(event) => {
+        if (!codeMode) actions.current.copyInline(row, event, false);
+      }}
+      onCut={(event) => {
+        if (!codeMode) actions.current.copyInline(row, event, true);
+      }}
       onPaste={(event) => {
+        const inline = readInlineClipboard(event.clipboardData, view.graphId);
+        if (inline && !view.readonly && !pending && !codeMode) {
+          event.preventDefault();
+          actions.current.pasteInline(row, event.currentTarget, inline);
+          return;
+        }
         const decoded = decodeOutlineClipboard(event.clipboardData);
         if (decoded.kind === "text" || view.readonly || pending || codeMode) return;
         event.preventDefault();
