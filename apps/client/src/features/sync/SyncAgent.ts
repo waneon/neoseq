@@ -5,7 +5,7 @@ import type { OutlineOwner } from "../../core-port/snapshot";
 import { SCHEMA_VERSION } from "../../generated/graph-schema";
 import { PROTOCOL_VERSION, SUBPROTOCOL } from "../../generated/sync-protocol";
 import { readAuthSession, validateAuthSession } from "./auth";
-import { downloadRemoteCheckpoint, type RemoteCheckpoint } from "./api";
+import { downloadRemoteCheckpoint, listRemoteGraphs, type RemoteCheckpoint } from "./api";
 import { randomUUID } from "@/lib/crypto";
 
 export type RemoteSyncState =
@@ -66,6 +66,8 @@ type PresenceValue = Omit<PeerPresence, "session_id" | "principal" | "username" 
 const HEARTBEAT_MS = 10_000;
 const TRANSPORT_TIMEOUT_MS = 60_000;
 const CLOSE_PAUSED = 4002;
+/** How often a revoked member asks whether access came back. */
+const REVOKED_RECHECK_MS = 60_000;
 const CLOSE_INCOMPATIBLE = 4003;
 const CLOSE_REPLACED = 4005;
 
@@ -90,6 +92,7 @@ export class SyncAgent {
   /** This session's own caret, until it leaves the writing surface. */
   private ownPresence: PresenceValue | null = null;
   private ownPresenceSentAt = 0;
+  private revokedCheckedAt = 0;
   private presenceTimer: ReturnType<typeof setInterval> | null = null;
   private current: SyncAgentState = {
     sync: { kind: "pending", count: 0 },
@@ -110,6 +113,7 @@ export class SyncAgent {
     window.addEventListener("online", this.onOnline);
     window.addEventListener("offline", this.onOffline);
     window.addEventListener("neoseq:auth-changed", this.onAuthChanged);
+    document.addEventListener("visibilitychange", this.onVisible);
     this.presenceTimer = setInterval(() => {
       this.expirePresence();
       if (this.ownPresence && Date.now() - this.ownPresenceSentAt >= PRESENCE_REFRESH_MS) {
@@ -147,6 +151,7 @@ export class SyncAgent {
     window.removeEventListener("online", this.onOnline);
     window.removeEventListener("offline", this.onOffline);
     window.removeEventListener("neoseq:auth-changed", this.onAuthChanged);
+    document.removeEventListener("visibilitychange", this.onVisible);
     if (this.retryTimer) clearTimeout(this.retryTimer);
     if (this.presenceTimer) clearInterval(this.presenceTimer);
     this.abandonSocket("graph closed");
@@ -412,7 +417,11 @@ export class SyncAgent {
   }
 
   private maintainConnectivity(): void {
-    if (this.stopped || this.current.live === "paused") return;
+    if (this.stopped) return;
+    if (this.current.live === "paused") {
+      if (Date.now() - this.revokedCheckedAt >= REVOKED_RECHECK_MS) void this.recheckAccess();
+      return;
+    }
     const socket = this.socket;
     const now = Date.now();
     if (
@@ -514,13 +523,41 @@ export class SyncAgent {
     this.abandonSocket("offline");
     this.scheduleReconnect();
   };
-  private onAuthChanged = () => {
-    this.abandonSocket("credentials changed");
+  private onAuthChanged = () => this.resume("credentials changed");
+
+  private resume(reason: string): void {
+    this.abandonSocket(reason);
     this.patch({ live: "connecting", sync: { kind: "pending", count: 0 } });
     void this.refreshPending()
       .then(() => this.connect())
       .catch((error: unknown) => this.failToStart(error));
+  }
+
+  private onVisible = () => {
+    if (document.visibilityState === "visible") void this.recheckAccess();
   };
+
+  /**
+   * A revoked member resumes once invited back. The catalog answers quietly,
+   * so asking never flickers the status the way a refused connection would.
+   */
+  private async recheckAccess(): Promise<void> {
+    const sync = this.current.sync;
+    if (this.stopped || sync.kind !== "paused" || sync.reason !== "revoked") return;
+    this.revokedCheckedAt = Date.now();
+    const auth = readAuthSession(this.connection.repository_id);
+    if (!auth) return;
+    try {
+      const catalog = await listRemoteGraphs(this.connection.server_url, auth);
+      const current = this.current.sync;
+      if (current.kind !== "paused" || current.reason !== "revoked") return;
+      if (catalog.graphs.some((graph) => graph.graph_id === this.graphId)) {
+        this.resume("access restored");
+      }
+    } catch {
+      // Unreachable or still refused: the next check asks again.
+    }
+  }
 }
 
 /** Applies the single synchronization action carried by a Welcome. Keeping this

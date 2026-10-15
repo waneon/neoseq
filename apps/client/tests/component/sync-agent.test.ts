@@ -310,3 +310,23 @@ it("drops a peer's caret as soon as it is withdrawn", async () => {
   await settle();
   expect(delegate.changed.mock.lastCall![0].presence.size).toBe(0);
 });
+
+it("resumes a revoked member once the catalog lists the graph again", async () => {
+  const { socket } = await start();
+  socket.open();
+  await settle();
+  socket.receive({
+    Error: { code: "membership_revoked", diagnostic: "revoked", recoverable: false },
+  });
+  await settle();
+  expect(Socket.instances).toHaveLength(1);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json({ graphs: [{ graph_id: "graph", display_name: "Graph", role: "editor" }] }),
+    ),
+  );
+  await vi.advanceTimersByTimeAsync(61_000);
+  await settle();
+  expect(Socket.instances).toHaveLength(2);
+});
