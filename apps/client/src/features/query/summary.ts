@@ -139,10 +139,11 @@ function valueText(
       return context.formatDate(value.value);
     case "relative":
       return relativeDateLabel(relativeDateId(value.value), context.message);
+    // An unchosen tag or page is a value still to be given, like empty text.
     case "tag":
-      return tagName(value.value, context);
+      return value.value ? tagName(value.value, context) : "";
     case "page":
-      return pageName(value.value, context);
+      return value.value ? pageName(value.value, context) : "";
     case "list":
       return describeList(field, value.values, context);
   }
