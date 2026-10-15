@@ -10,6 +10,7 @@
 // deleted, indented or outdented as one. A caret and a selection never coexist:
 // taking one drops the other, so Delete can only ever mean one thing.
 
+import { caretOnEdgeLine } from "../../ui/textarea-caret";
 import { replaceTextRange } from "../blocks/editor/scripted-text";
 import {
   memo,
@@ -4089,10 +4090,10 @@ function onKeyDown(
   }
 
   if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-    const value = textarea.value;
-    const caret = textarea.selectionStart;
-    const atFirstLine = !value.slice(0, caret).includes("\n");
-    const atLastLine = !value.slice(caret).includes("\n");
+    // A wrapped paragraph's lines are lines: the arrows move through them
+    // before they leave the block.
+    const atFirstLine = caretOnEdgeLine(textarea, "first");
+    const atLastLine = caretOnEdgeLine(textarea, "last");
     const position = rowIndexOf(rows, id);
     if (event.key === "ArrowUp" && atFirstLine && position > 0) {
       event.preventDefault();

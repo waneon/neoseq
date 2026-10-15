@@ -114,3 +114,18 @@ export function textareaCaretRect(
     height: Math.max(lineHeight * scaleY, 1),
   });
 }
+
+/**
+ * Whether the caret sits on the textarea's first or last visual line, counting
+ * soft wraps as lines. Without layout to measure, only hard line breaks count.
+ */
+export function caretOnEdgeLine(textarea: HTMLTextAreaElement, edge: "first" | "last"): boolean {
+  const { value, selectionStart: caret } = textarea;
+  const hardEdge =
+    edge === "first" ? !value.slice(0, caret).includes("\n") : !value.slice(caret).includes("\n");
+  if (!hardEdge) return false;
+  const here = textareaCaretRect(textarea, caret);
+  const end = textareaCaretRect(textarea, edge === "first" ? 0 : value.length);
+  if (!here || !end) return true;
+  return Math.abs(here.top - end.top) < here.height / 2;
+}
