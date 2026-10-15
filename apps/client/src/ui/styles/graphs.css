@@ -142,6 +142,8 @@
 
 .repository-panel {
   display: grid;
+  /* One column the panel's width, never a long graph name's. */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--sp-3);
   border-top: 1px solid var(--line);
 }
