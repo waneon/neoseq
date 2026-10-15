@@ -58,10 +58,10 @@ in
     };
     javascript = {
       enable = true;
-      package = pkgs.nodejs_22;
+      package = pkgs.nodejs_26;
       pnpm = {
         enable = true;
-        package = pkgs.pnpm_10;
+        package = pkgs.pnpm_12;
         install.enable = true;
       };
     };
@@ -129,7 +129,7 @@ in
   # (`with-test-database`).
   services.postgres = {
     enable = true;
-    package = pkgs.postgresql_17;
+    package = pkgs.postgresql_18;
     initialDatabases = [ { name = "neoseq"; } ];
   };
 

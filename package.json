@@ -2,7 +2,7 @@
   "name": "neoseq-workspace",
   "private": true,
   "license": "AGPL-3.0-only",
-  "packageManager": "pnpm@10.34.5",
+  "packageManager": "pnpm@12.9.0",
   "devDependencies": {
     "@formatjs/icu-messageformat-parser": "^3.5.21",
     "spdx-expression-parse": "^5.0.0"

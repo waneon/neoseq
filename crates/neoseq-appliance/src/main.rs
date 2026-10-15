@@ -15,7 +15,7 @@ use tokio::{
 
 mod identity;
 
-const POSTGRES_MAJOR: &str = "17";
+const POSTGRES_MAJOR: &str = "18";
 const POSTGRES_USER: &str = "neoseq";
 const POSTGRES_DATABASE: &str = "neoseq";
 const POSTGRES_DATA_DIR: &str = "/var/lib/neoseq/postgres/data";

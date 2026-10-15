@@ -77,7 +77,7 @@ The `neoseq-server` output builds the release service and appliance lifecycle
 controller together and installs both binaries in one Nix store artifact.
 Forward-only PostgreSQL migrations are embedded in the service and run
 transactionally before readiness. On Linux, the all-in-one output combines this
-artifact with the two static sites, Caddy, `tini`, PostgreSQL 17, and the minimal
+artifact with the two static sites, Caddy, `tini`, PostgreSQL 18, and the minimal
 runtime closure; build tools are not copied into the image.
 For local development, the supervised sync server waits for the persistent
 PostgreSQL service and exposes an HTTP readiness probe.

@@ -6,7 +6,7 @@
   coreutils,
   dashboard,
   dockerTools,
-  postgresql_17,
+  postgresql_18,
   server,
   tini,
 }:
@@ -25,7 +25,7 @@ dockerTools.buildLayeredImage {
     cacert
     caddy
     coreutils
-    postgresql_17
+    postgresql_18
     server
     tini
   ];
