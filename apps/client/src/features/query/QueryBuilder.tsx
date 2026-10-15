@@ -47,6 +47,7 @@ import {
   PLAN_MAX_DEPTH,
   PLAN_SUBJECTS,
   replaceNode,
+  aggregatesFor,
   countConditions,
   groupDepth,
   type PlanColumnSource,
@@ -189,6 +190,7 @@ export function QueryBuilder({
           <SummaryColumns
             plan={plan}
             propertyKeys={propertyKeys}
+            propertyTypes={propertyTypes}
             readonly={readonly}
             onChange={onChange}
           />
@@ -220,11 +222,13 @@ interface BuilderContext {
 function SummaryColumns({
   plan,
   propertyKeys,
+  propertyTypes,
   readonly,
   onChange,
 }: {
   plan: QueryPlan;
   propertyKeys: string[];
+  propertyTypes: PropertyTypes;
   readonly: boolean;
   onChange: (plan: QueryPlan) => void;
 }) {
@@ -251,7 +255,7 @@ function SummaryColumns({
               ...(column.aggregate && aggregates === 1
                 ? []
                 : [{ value: "group", label: message("query.groupBy") }]),
-              ...(["count", "sum", "avg", "min", "max"] as const).map((aggregate) => ({
+              ...aggregatesFor(column.source, propertyTypes).map((aggregate) => ({
                 value: aggregate,
                 label: aggregateLabel(aggregate, message),
               })),
@@ -272,7 +276,12 @@ function SummaryColumns({
             }))}
             onValueChange={(value) => {
               const source = sources.find((source) => columnSourceKey(source) === value);
-              if (source) update(column.id, { source });
+              if (!source) return;
+              // A computation the new field cannot take falls back to counting it.
+              const fits =
+                !column.aggregate ||
+                aggregatesFor(source, propertyTypes).includes(column.aggregate);
+              update(column.id, fits ? { source } : { source, aggregate: "count" });
             }}
           />
           <Button

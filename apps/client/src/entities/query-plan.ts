@@ -8,6 +8,7 @@
 import type { GraphSnapshot, PropertyValueType } from "../core-port/snapshot";
 import type {
   BuiltQueryPlan,
+  PlanAggregate,
   PlanColumn,
   PlanColumnSource,
   PlanCondition,
@@ -194,6 +195,19 @@ export function operatorsFor(field: PlanField, types?: PropertyTypes): PlanOpera
   if (type === "page" || type === "tag") return REFERENCE_OPERATORS;
   if (field.kind === "property" && stringChoicesOf(field.key).length > 0) return CHOICE_OPERATORS;
   return TEXT_OPERATORS;
+}
+
+/** What a summary can compute over a column: counting fits any value; arithmetic only numbers; extremes numbers and dates. */
+export function aggregatesFor(source: PlanColumnSource, types?: PropertyTypes): PlanAggregate[] {
+  const type =
+    source.kind === "sibling_index"
+      ? "integer"
+      : source.kind === "property"
+        ? fieldType(source, types)
+        : null;
+  if (type === "number" || type === "integer") return ["count", "sum", "avg", "min", "max"];
+  if (type === "date") return ["count", "min", "max"];
+  return ["count"];
 }
 
 /** Operators that stand alone: the field's presence *is* the whole condition. */

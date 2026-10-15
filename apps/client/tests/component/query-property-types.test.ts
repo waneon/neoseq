@@ -2,7 +2,9 @@
 
 import { expect, it } from "vitest";
 import { EMPTY_SNAPSHOT, type GraphSnapshot } from "../../src/core-port/snapshot";
+import { orderSemanticsForField } from "../../src/entities/query-ordering";
 import {
+  aggregatesFor,
   defaultValueForField,
   graphPropertyTypes,
   operatorsFor,
@@ -32,4 +34,17 @@ it("offers number and checkbox comparisons for graph-defined properties", () => 
   expect(defaultValueForField(estimate, types)).toEqual({ type: "number", value: 0 });
   expect(operatorsFor({ kind: "property", key: "user.reviewed" }, types)).toContain("is_true");
   expect(operatorsFor({ kind: "property", key: "user.unknown" }, types)).toContain("contains");
+});
+
+it("sorts and summarizes graph-defined properties as their type", () => {
+  const types = graphPropertyTypes(snapshot);
+  const estimate = { kind: "property", key: "user.estimate" } as const;
+  expect(orderSemanticsForField(estimate, types)).toEqual({ kind: "number" });
+  expect(aggregatesFor(estimate, types)).toEqual(["count", "sum", "avg", "min", "max"]);
+  expect(aggregatesFor({ kind: "content" }, types)).toEqual(["count"]);
+  expect(aggregatesFor({ kind: "property", key: "builtin.task-deadline" }, types)).toEqual([
+    "count",
+    "min",
+    "max",
+  ]);
 });

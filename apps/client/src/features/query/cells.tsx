@@ -21,7 +21,6 @@ import {
   outlineOwnerKey,
   pageTitle,
 } from "../../core-port/snapshot";
-import { valueTypeOf } from "../../entities/properties";
 import type { PlanAggregate, PlanColumnSource } from "../../entities/query-plan";
 import {
   isTaskDateKey,
@@ -131,6 +130,7 @@ export function resultViewRows(
 }
 
 const XSD_DATE = "http://www.w3.org/2001/XMLSchema#date";
+const XSD_BOOLEAN = "http://www.w3.org/2001/XMLSchema#boolean";
 
 /**
  * What a thing is called. A journal page is named by the reader's own date
@@ -238,7 +238,14 @@ export function CellValue({
    */
   row?: ResultRow;
 }): ReactNode {
-  if (!terms?.length) return <span className="query-empty-cell">—</span>;
+  if (!terms?.length) {
+    // Counting or adding up nothing is zero; an average or an extreme of nothing is absent.
+    return column.aggregate === "count" || column.aggregate === "sum" ? (
+      <span className="query-num">0</span>
+    ) : (
+      <span className="query-empty-cell">—</span>
+    );
+  }
   if (column.source?.kind === "tags" && !column.aggregate) {
     return (
       <span className="query-tags">
@@ -305,7 +312,7 @@ function TermValue({
     );
   }
   if (column.aggregate === "count" || column.aggregate === "sum" || column.aggregate === "avg") {
-    return <span className="query-num">{term ? formatNumber(term.value) : "0"}</span>;
+    return <span className="query-num">{formatNumber(term.value)}</span>;
   }
 
   const key = column.source?.kind === "property" ? column.source.key : null;
@@ -333,7 +340,7 @@ function TermValue({
   if (key && isTaskDateKey(key) && term.kind === "literal" && term.datatype === XSD_DATE) {
     return <DueValue taskKey={key} date={term.value} column={column} context={context} row={row} />;
   }
-  if (key && valueTypeOf(key) === "checkbox" && term.kind === "literal") {
+  if (term.kind === "literal" && term.datatype === XSD_BOOLEAN) {
     const checked = term.value === "true";
     return (
       <span className="query-check" data-checked={checked}>

@@ -9,7 +9,7 @@
 
 import type { RdfTerm } from "../generated/core-port";
 import { orderingOf, stringChoicesOf, valueTypeOf } from "./properties";
-import type { PlanColumn, PlanColumnSource, PlanField } from "./query-plan";
+import type { PlanColumn, PlanColumnSource, PlanField, PropertyTypes } from "./query-plan";
 import { TASK_PRIORITY_KEY } from "./tasks";
 
 export type OrderSemantics =
@@ -20,7 +20,7 @@ export type OrderSemantics =
   | { kind: "text" }
   | { kind: "entity_label" };
 
-function propertyOrderSemantics(key: string): OrderSemantics {
+function propertyOrderSemantics(key: string, types?: PropertyTypes): OrderSemantics {
   if (orderingOf(key)?.kind === "choice_order") {
     return {
       kind: "ranked",
@@ -30,7 +30,7 @@ function propertyOrderSemantics(key: string): OrderSemantics {
       missing: key === TASK_PRIORITY_KEY ? "below" : "last",
     };
   }
-  switch (valueTypeOf(key)) {
+  switch (valueTypeOf(key) ?? types?.get(key)) {
     case "number":
       return { kind: "number" };
     case "date":
@@ -44,7 +44,7 @@ function propertyOrderSemantics(key: string): OrderSemantics {
   }
 }
 
-function sourceOrderSemantics(source: PlanColumnSource): OrderSemantics {
+function sourceOrderSemantics(source: PlanColumnSource, types?: PropertyTypes): OrderSemantics {
   switch (source.kind) {
     case "sibling_index":
       return { kind: "number" };
@@ -54,14 +54,17 @@ function sourceOrderSemantics(source: PlanColumnSource): OrderSemantics {
     case "tags":
       return { kind: "entity_label" };
     case "property":
-      return propertyOrderSemantics(source.key);
+      return propertyOrderSemantics(source.key, types);
     default:
       return { kind: "text" };
   }
 }
 
-/** The semantic order of a condition field when a canonical entity list uses it. */
-export function orderSemanticsForField(field: PlanField): OrderSemantics {
+/**
+ * The semantic order of a condition field when a canonical entity list uses it.
+ * `types` names the graph-defined properties the registry does not.
+ */
+export function orderSemanticsForField(field: PlanField, types?: PropertyTypes): OrderSemantics {
   switch (field.kind) {
     case "sibling_index":
       return { kind: "number" };
@@ -70,7 +73,7 @@ export function orderSemanticsForField(field: PlanField): OrderSemantics {
     case "ancestor":
       return { kind: "entity_label" };
     case "property":
-      return propertyOrderSemantics(field.key);
+      return propertyOrderSemantics(field.key, types);
     case "content":
       return { kind: "text" };
   }
@@ -78,6 +81,7 @@ export function orderSemanticsForField(field: PlanField): OrderSemantics {
 
 export function orderSemanticsForColumn(
   column: Pick<PlanColumn, "source" | "aggregate">,
+  types?: PropertyTypes,
 ): OrderSemantics {
   switch (column.aggregate) {
     case "count":
@@ -85,7 +89,7 @@ export function orderSemanticsForColumn(
     case "avg":
       return { kind: "number" };
     default:
-      return sourceOrderSemantics(column.source);
+      return sourceOrderSemantics(column.source, types);
   }
 }
 

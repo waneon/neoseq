@@ -59,11 +59,13 @@ import {
   decodePlan,
   encodePlan,
   graphPropertyKeys,
+  graphPropertyTypes,
   queryFieldId,
   queryFieldsFor,
   QUERY_PLAN_VERSION,
   withColumn,
   withoutColumn,
+  type PropertyTypes,
   type QueryPlan,
 } from "../../entities/query-plan";
 import { useNotify } from "../notify/context";
@@ -414,9 +416,12 @@ function QueryPanelSurface({
   );
 
   const select = result && result.kind !== "ask" ? result : null;
+  // Stable across edits that do not change a property's type.
+  const typesKey = JSON.stringify([...graphPropertyTypes(state.snapshot)]);
+  const propertyTypes = useMemo<PropertyTypes>(() => new Map(JSON.parse(typesKey)), [typesKey]);
   const columns = useMemo(
-    () => (select ? resultColumns(select, activeView, message) : []),
-    [select, activeView, message],
+    () => (select ? resultColumns(select, activeView, message, propertyTypes) : []),
+    [select, activeView, message, propertyTypes],
   );
   /** Where a row states its own task status, which is what settles a moment. */
   const statusVariable = columns.find(
@@ -524,9 +529,9 @@ function QueryPanelSurface({
     return queryFieldsFor(result.subject, graphPropertyKeys(state.snapshot)).map((field) => ({
       id: queryFieldId(field),
       field,
-      ordering: orderSemanticsForField(field),
+      ordering: orderSemanticsForField(field, propertyTypes),
     }));
-  }, [result, state.snapshot]);
+  }, [propertyTypes, result, state.snapshot]);
   const listSorts = useMemo(() => {
     const stored = canEditCurrentView ? (activeView.options.list_sort ?? []) : localListSorts;
     const orderableFields = new Set(listSortFields.map((field) => field.id));
@@ -1380,11 +1385,12 @@ export function resultColumns(
   select: Exclude<SparqlQueryResult, { kind: "ask" }>,
   view: QueryView,
   message: ReturnType<typeof useI18n>["message"],
+  types?: PropertyTypes,
 ): ResultColumn[] {
   const widths = new Map(view.columns.map((column) => [column.variable, column.width]));
   if (select.kind === "built") {
     return select.columns.map((column) => {
-      const ordering = orderSemanticsForColumn(column);
+      const ordering = orderSemanticsForColumn(column, types);
       return {
         variable: column.id,
         label: columnLabel(column, select.subject, message),
