@@ -1033,6 +1033,25 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
     [activateBlock, message, notify, session],
   );
 
+  // A focused block that leaves the outline — undone, deleted elsewhere — hands
+  // the caret to the nearest row above it, so the next keystroke has a place.
+  const shownRows = useRef(rows);
+  useEffect(() => {
+    const before = shownRows.current;
+    shownRows.current = rows;
+    const focused = focusedRef.current;
+    if (!focused || isPendingId(focused) || rows.some((row) => row.block.id === focused)) return;
+    const position = rowIndexOf(before, focused);
+    if (position < 0) return;
+    const remaining = new Set(rows.map((row) => row.block.id));
+    const fallback =
+      before
+        .slice(0, position)
+        .reverse()
+        .find((row) => remaining.has(row.block.id)) ?? rows[0];
+    activateBlock(fallback?.block.id ?? null, undefined, "programmatic");
+  }, [activateBlock, rows]);
+
   const clearSelection = useCallback(() => {
     anchorId.current = null;
     if (selectedRef.current.size > 0) {
