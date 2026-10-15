@@ -57,7 +57,7 @@ register has its own exact envelope version; the enclosed domain `QueryPlan`
 must be a bounded JSON object with a positive version, but a syntactically valid
 future plan version remains opaque data that the server accepts and relays.
 
-The server reads document schemas v7 and v8 and admits only schema v8 writers.
+The server reads document schemas v7 through v9 and admits only schema v9 writers.
 Legacy page and tag containers remain in their original storage homes so upgrades
 preserve CRDT identities and offline history. New documents use a shared entity
 root with a page/tag kind register.

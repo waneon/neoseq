@@ -3,7 +3,7 @@
 ## Canonical Graph
 
 Each graph maps to one Loro document and is an independent storage, export, and
-synchronization unit. The current writer schema is v8. New documents have three roots:
+synchronization unit. The current writer schema is v9. New documents have three roots:
 
 ```text
 meta: Map { graph_id, schema_version }
@@ -12,6 +12,7 @@ graph_settings: Map { schema_version, default_queries }
 
 DocumentRecord
   kind: page | tag
+  name: String
   root: NodeData
   outline: MovableTree<NodeData>
   defaults: PropertyBag
@@ -22,13 +23,16 @@ search indexes, summaries, and UI state are disposable projections. A document
 has one authoritative name, property bag, and outline. Page/tag DTO variants
 remain presentation and command aliases for the same stable ID.
 
-Readers support schema 7 and 8. Existing schema-7 `pages` and `tags` container
+Readers support schema 7, 8 and 9. Existing schema-7 `pages` and `tags` container
 homes remain valid and are read in place, preserving tree IDs and offline causal
 history. Their original home supplies the kind until an explicit conversion
-writes it. New entities always use the common root. The first subsequent local
-command records schema 8 in the same durable update; opening a replica does not
-invent migration operations. Recovery checkpoints retain history when upgrading
-storage metadata. Live synchronization requires writer schema 8 on both ends.
+writes it. New entities always use the common root. A document's name is the
+last-writer-wins `name` register, so concurrent renames settle on one name; a
+schema-8 document keeps its name in the root text until its next rename writes
+the register and empties that text. The first subsequent local command records
+the writer schema in the same durable update; opening a replica does not invent
+migration operations. Recovery checkpoints retain history when upgrading storage
+metadata. Live synchronization requires the current writer schema on both ends.
 Portable archive import also retains its explicit schema-6 property conversion.
 
 ## Graph Settings

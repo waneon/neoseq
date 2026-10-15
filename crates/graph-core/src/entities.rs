@@ -28,25 +28,29 @@ pub(crate) fn kind(record: &LoroMap) -> EntityKind {
     }
 }
 
+/// A document's name is one last-writer-wins register (schema 9; schema-7 tags
+/// already stored theirs so). A schema-8 document that has not been renamed
+/// since still holds its name as the root text.
 pub(crate) fn name(record: &LoroMap) -> Option<String> {
-    match root(record).get("content") {
-        Some(ValueOrContainer::Container(Container::Text(text))) => Some(text.to_string()),
-        _ => match record.get("name") {
-            Some(ValueOrContainer::Value(loro::LoroValue::String(value))) => {
-                Some(value.to_string())
-            }
+    match record.get("name") {
+        Some(ValueOrContainer::Value(loro::LoroValue::String(value))) => Some(value.to_string()),
+        _ => match root(record).get("content") {
+            Some(ValueOrContainer::Container(Container::Text(text))) => Some(text.to_string()),
             _ => None,
         },
     }
 }
 
+/// Concurrent renames resolve to one of the names, never a merge of both. The
+/// legacy root text is emptied so the register stays the only home.
 pub(crate) fn set_name(record: &LoroMap, name: &str) -> Result<(), CoreError> {
-    if record.get("root").is_none() {
-        record.insert("name", name)?;
-    } else {
-        let text = root(record).ensure_mergeable_text("content")?;
+    record.insert("name", name)?;
+    if record.get("root").is_some()
+        && let Some(ValueOrContainer::Container(Container::Text(text))) =
+            root(record).get("content")
+        && text.len_unicode() > 0
+    {
         text.delete(0, text.len_unicode())?;
-        text.insert(0, name)?;
     }
     Ok(())
 }

@@ -765,3 +765,47 @@ fn remote_sibling_insert_does_not_report_an_unseen_local_block_as_edited() {
     // The unseen local block is absent: none of its text came from the import.
     assert_eq!(mapped, BTreeSet::from([shared, remote]));
 }
+
+#[test]
+fn concurrent_renames_settle_on_one_name() {
+    let graph = GraphId::new("concurrent-title").unwrap();
+    let page = PageId::new("page").unwrap();
+    let mut base = GraphCore::new(graph.clone(), 1, "base").unwrap();
+    execute(
+        &mut base,
+        &graph,
+        1,
+        0,
+        Command::EnsurePage {
+            page_id: page.clone(),
+            title: "Doc".into(),
+        },
+    );
+    let snapshot = base.export_snapshot().unwrap();
+    let mut left = GraphCore::from_snapshot(graph.clone(), 2, &snapshot).unwrap();
+    let mut right = GraphCore::from_snapshot(graph.clone(), 3, &snapshot).unwrap();
+    for (core, peer, title) in [(&mut left, 2, "Alpha"), (&mut right, 3, "Beta")] {
+        execute(
+            core,
+            &graph,
+            peer,
+            1,
+            Command::RenamePage {
+                page_id: page.clone(),
+                title: title.into(),
+            },
+        );
+    }
+    let left_update = left.export_all().unwrap();
+    let right_update = right.export_all().unwrap();
+    left.import_remote(&right_update).unwrap();
+    right.import_remote(&left_update).unwrap();
+
+    let title = |core: &GraphCore| core.snapshot().unwrap().pages[0].title.clone();
+    assert_eq!(title(&left), title(&right));
+    assert!(
+        ["Alpha", "Beta"].contains(&title(&left).as_str()),
+        "{}",
+        title(&left)
+    );
+}

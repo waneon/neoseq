@@ -304,7 +304,12 @@ fn validate_metadata(doc: &LoroDoc, graph_id: &GraphId) -> Result<(), CoreError>
 /// A page record without its blocks; returns its outline.
 fn validate_page_header(page_id: &PageId, page: &LoroMap) -> Result<LoroTree, CoreError> {
     let root = required_child_map(page, "root", &format!("page {page_id} root"))?;
-    let title = required_child_text(&root, "content", &format!("page {page_id} title"))?;
+    let text = required_child_text(&root, "content", &format!("page {page_id} title"))?;
+    let register = match page.get("name") {
+        None => None,
+        Some(ValueOrContainer::Value(LoroValue::String(name))) => Some(name.to_string()),
+        Some(_) => return Err(invalid(format!("page {page_id} name is invalid"))),
+    };
     let properties =
         required_child_map(&root, "properties", &format!("page {page_id} properties"))?;
     let tag_refs =
@@ -323,10 +328,16 @@ fn validate_page_header(page_id: &PageId, page: &LoroMap) -> Result<LoroTree, Co
     if kind != "regular" && kind != "journal" {
         return Err(invalid(format!("page {page_id} kind is invalid")));
     }
+    let require_name = !deleted && kind == "regular";
+    if let Some(name) = &register {
+        validate_entity_name(name, "page", require_name, true)?;
+    }
+    // Without a register the schema-8 text is the name; beside one it is an
+    // emptied leftover that still may not hold an atom.
     validate_entity_name(
-        &title.to_string(),
+        &text.to_string(),
         "page",
-        !deleted && kind == "regular",
+        register.is_none() && require_name,
         false,
     )?;
     required_child_tree(page, "outline", &format!("page {page_id} outline"))
@@ -734,8 +745,8 @@ fn validate_entity_name(
             "{entity} name contains the reserved page-reference atom"
         )));
     }
-    // A page title is collaborative text, so concurrent valid edits may exceed
-    // the command limit. A tag name is one atomic register and cannot.
+    // A schema-8 page title was collaborative text, so concurrent valid edits
+    // may exceed the command limit. A name register is atomic and cannot.
     if enforce_atomic_limit && value.len() > MAX_ENTITY_NAME_BYTES {
         return Err(CoreError::TextTooLong);
     }

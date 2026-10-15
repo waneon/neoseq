@@ -51,7 +51,7 @@ Reference marks use `ExpandType::None`. A valid mark covers exactly one reserved
 object-replacement character and carries one valid `PageId`. Invalid remote or
 forward data is quarantined and never becomes a reference projection or query
 fact. The current schema requires every writer to preserve the reserved atom;
-this representation was introduced in schema v6 and remains part of schema v8.
+this representation was introduced in schema v6 and remains part of schema v9.
 
 ## Derived Consumers
 

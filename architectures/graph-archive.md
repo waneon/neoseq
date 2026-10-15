@@ -72,9 +72,9 @@ manifest contract. A future reader may add an explicitly supported archive or
 payload version, but it must preserve the copy-only identity rule and validate
 the complete staged graph before installation. Export and import remain adapter
 operations outside CorePort because they package and install platform storage.
-The archive reader supports document schemas 6, 7, and 8. Schema 6 conversion
-belongs to portable import; live recovery also reads schema 7 while requiring
-schema 8 writers for synchronization. The conversion preserves
+The archive reader supports document schemas 6 through 9. Schema 6 conversion
+belongs to portable import; live recovery also reads schemas 7 and 8 while
+requiring schema 9 writers for synchronization. The conversion preserves
 entity and tree identities, reference marks, empty fields, set membership, query
 documents and view state, tag defaults, and lifecycle metadata. Invalid or
 orphaned legacy property slots fail rather than disappearing. It leaves the

@@ -540,15 +540,13 @@ impl ProjectionChangeTracker {
                 let record = records.get(key).and_then(value_into_map)?;
                 (record.id() == *container).then_some((key.as_ref(), record))
             }) {
-                let name_changed = match crate::entities::root(&record).get("content") {
-                    Some(ValueOrContainer::Container(Container::Text(text))) => {
-                        text.id() == change.target
-                    }
-                    _ => {
-                        change.target == record.id()
-                            && change.map_keys.iter().any(|key| key == "name")
-                    }
-                };
+                let name_changed = (change.target == record.id()
+                    && change.map_keys.iter().any(|key| key == "name"))
+                    || matches!(
+                        crate::entities::root(&record).get("content"),
+                        Some(ValueOrContainer::Container(Container::Text(text)))
+                            if text.id() == change.target
+                    );
                 if !created.contains(id)
                     && (name_changed
                         || (change.target == record.id()
@@ -1728,10 +1726,7 @@ impl GraphCore {
         let properties = root.ensure_mergeable_map("properties")?;
         let outline = page.ensure_mergeable_tree("outline")?;
         outline.enable_fractional_index(0);
-        replace_text(
-            &root.ensure_mergeable_text("content")?,
-            title.unwrap_or_default(),
-        )?;
+        crate::entities::set_name(&page, title.unwrap_or_default())?;
         set_single(
             &properties,
             &key("builtin.page-kind"),

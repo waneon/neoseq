@@ -599,7 +599,7 @@ fn duplicate_page_name_is_merge_total_and_reported_as_data() {
 }
 
 #[test]
-fn concurrent_page_title_growth_is_merge_total_and_reported_as_data() {
+fn concurrent_page_title_renames_are_merge_total_and_stay_within_the_limit() {
     let graph_id = GraphId::new("merge-law-page-title-limit").unwrap();
     let page_id = PageId::new("page").unwrap();
     let harness = MergeLawHarness::with_ancestor(graph_id, |ancestor| {
@@ -620,20 +620,11 @@ fn concurrent_page_title_growth_is_merge_total_and_reported_as_data() {
             |right| {
                 right.execute(Command::RenamePage {
                     page_id: page_id.clone(),
-                    title: "r".repeat(1_024),
+                    title: "m".repeat(1_024),
                 });
             },
         )
-        .assert_merge_closed(
-            vec![GraphConflict::TextLimitExceeded {
-                target: TextTarget::PageTitle {
-                    page_id: page_id.clone(),
-                },
-                actual_bytes: 2_048,
-                limit: 1_024,
-            }],
-            Vec::new(),
-        );
+        .assert_merge_closed(Vec::new(), Vec::new());
 
     harness
         .observe_recovery(
@@ -646,18 +637,11 @@ fn concurrent_page_title_growth_is_merge_total_and_reported_as_data() {
             |right| {
                 right.execute(Command::RenamePage {
                     page_id: page_id.clone(),
-                    title: "r".repeat(1_024),
+                    title: "m".repeat(1_024),
                 });
             },
         )
-        .assert_merge_closed(
-            vec![GraphConflict::TextLimitExceeded {
-                target: TextTarget::PageTitle { page_id },
-                actual_bytes: 2_048,
-                limit: 1_024,
-            }],
-            Vec::new(),
-        );
+        .assert_merge_closed(Vec::new(), Vec::new());
 }
 
 #[test]

@@ -294,3 +294,45 @@ fn legacy_tag_converts_in_place_without_recreating_its_tree() {
         "Legacy text"
     );
 }
+
+#[test]
+fn schema_8_title_reads_from_its_text_until_a_rename_moves_it_to_the_register() {
+    let mut core = new();
+    page(&mut core, "plan", "Plan");
+    let record = core.require_page(&id("plan")).unwrap();
+    // The shape a schema-8 writer left: the name only in the root text.
+    record.delete("name").unwrap();
+    crate::entities::root(&record)
+        .ensure_mergeable_text("content")
+        .unwrap()
+        .insert(0, "Old plan")
+        .unwrap();
+    core.doc
+        .get_map("meta")
+        .insert("schema_version", 8_i64)
+        .unwrap();
+    core.doc.commit();
+    let mut core =
+        GraphCore::from_snapshot(core.graph_id().clone(), 2, &core.export_snapshot().unwrap())
+            .unwrap();
+    assert_eq!(core.snapshot().unwrap().pages[0].title, "Old plan");
+
+    run(
+        &mut core,
+        Command::RenamePage {
+            page_id: id("plan"),
+            title: "New plan".into(),
+        },
+    );
+    let record = core.require_page(&id("plan")).unwrap();
+    assert_eq!(crate::entities::name(&record).as_deref(), Some("New plan"));
+    let text = crate::entities::root(&record)
+        .ensure_mergeable_text("content")
+        .unwrap();
+    assert_eq!(text.to_string(), "");
+    let reopened =
+        GraphCore::from_snapshot(core.graph_id().clone(), 3, &core.export_snapshot().unwrap())
+            .unwrap();
+    assert_eq!(reopened.snapshot().unwrap().pages[0].title, "New plan");
+    assert_eq!(reopened.snapshot().unwrap().schema_version, SCHEMA_VERSION);
+}
