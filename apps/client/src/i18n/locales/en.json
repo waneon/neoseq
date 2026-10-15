@@ -693,7 +693,6 @@
   "shortcuts.cycleTask": "Cycle task status",
   "shortcuts.moveDown": "Move block down",
   "shortcuts.moveSelection": "Move the selection",
-  "shortcuts.moveSelectionRoute": "drag any selected bullet",
   "shortcuts.moveUp": "Move block up",
   "shortcuts.newBlock": "New block",
   "shortcuts.newPage": "New page",

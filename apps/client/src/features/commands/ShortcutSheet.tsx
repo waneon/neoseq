@@ -83,7 +83,10 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
         },
         {
           label: message("shortcuts.moveSelection"),
-          route: message("shortcuts.moveSelectionRoute"),
+          keys: [
+            ["⌥", "↑"],
+            ["⌥", "↓"],
+          ],
         },
         { label: message("shortcuts.deleteSelection"), keys: [["⌫"]] },
         { label: message("shortcuts.indent"), keys: [["⇥"]] },

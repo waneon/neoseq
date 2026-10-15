@@ -434,6 +434,8 @@ interface EditorContext {
     indentSelection(inputMethod: InputMethod): void;
     outdentSelection(inputMethod: InputMethod): void;
     removeSelection(inputMethod: InputMethod): void;
+    /** Moves a run of selected siblings one place, keeping it selected. */
+    moveSelection(delta: -1 | 1): void;
     copySelection(inputMethod: InputMethod): void;
   };
 }
@@ -3061,6 +3063,30 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
           message("failure.outdentBlock"),
         );
       },
+      moveSelection: (delta) => {
+        const roots = selectionRoots(rowsRef.current, selectedRef.current);
+        const parentId = roots[0]?.parentId ?? null;
+        if (roots.length === 0 || roots.some((root) => root.parentId !== parentId)) return;
+        const siblings = parentId
+          ? (findBlock(outlineRef.current, parentId)?.children ?? [])
+          : outlineRef.current.blocks;
+        const first = roots[0].index;
+        const last = roots[roots.length - 1].index;
+        // Only an unbroken run moves as one; a scattered one has no single place.
+        if (last - first + 1 !== roots.length) return;
+        if (delta < 0 ? first === 0 : last === siblings.length - 1) return;
+        const after = delta < 0 ? (siblings[first - 2]?.id ?? null) : siblings[last + 1].id;
+        void run(
+          {
+            type: "move_blocks",
+            block_ids: roots.map((root) => root.block.id),
+            owner,
+            parent: parentId,
+            after,
+          },
+          message("failure.moveBlocks", { count: roots.length }),
+        );
+      },
       removeSelection: (_inputMethod) => {
         const roots = selectionRoots(rowsRef.current, selectedRef.current);
         if (roots.length === 0) return;
@@ -3365,6 +3391,11 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
       if (readonly) return;
       if (event.shiftKey) editor.menu.outdentSelection("keyboard");
       else editor.menu.indentSelection("keyboard");
+      return;
+    }
+    if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+      event.preventDefault();
+      if (!readonly) editor.menu.moveSelection(event.key === "ArrowUp" ? -1 : 1);
       return;
     }
     if (event.key === "ArrowUp" || event.key === "ArrowDown") {

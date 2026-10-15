@@ -693,7 +693,6 @@
   "shortcuts.cycleTask": "할 일 상태 전환",
   "shortcuts.moveDown": "블록 아래로 이동",
   "shortcuts.moveSelection": "선택한 블록 이동",
-  "shortcuts.moveSelectionRoute": "선택된 불릿을 드래그",
   "shortcuts.moveUp": "블록 위로 이동",
   "shortcuts.newBlock": "새 블록",
   "shortcuts.newPage": "새 페이지",
