@@ -21,6 +21,8 @@ use std::collections::{BTreeMap, HashSet};
 const PLAN_MAX_NODES: usize = 256;
 const PLAN_MAX_COLUMNS: usize = 128;
 pub(crate) const SUBJECT_VARIABLE: &str = "q_subject";
+/// Groups the summary rows whose grouping value is absent.
+const ABSENT_GROUP: &str = "urn:neoseq:query:absent";
 pub const DERIVED_SOURCE_PROVENANCE: &str = domain::QUERY_PLAN_SOURCE_PROVENANCE;
 
 /// A builder result bound that is valid by construction.
@@ -355,6 +357,14 @@ fn validate_node(
             if !operators_for(field).contains(op) {
                 return Err(invalid_plan("operator is not valid for its field"));
             }
+            if field_type(field) == FieldType::Graph
+                && [value, value2]
+                    .into_iter()
+                    .flatten()
+                    .any(|value| !graph_value_fits(*op, value))
+            {
+                return Err(invalid_plan("value type is not valid for its operator"));
+            }
             let takes_value = !matches!(
                 op,
                 PlanOperator::IsSet
@@ -428,8 +438,15 @@ fn value_matches_field(field: &PlanField, value: &PlanValue) -> bool {
     if matches!(value, PlanValue::List { .. }) {
         return matches!(
             field_type(field),
-            FieldType::String | FieldType::Choice | FieldType::Page | FieldType::Tag
+            FieldType::String
+                | FieldType::Choice
+                | FieldType::Page
+                | FieldType::Tag
+                | FieldType::Graph
         );
+    }
+    if field_type(field) == FieldType::Graph {
+        return !matches!(value, PlanValue::Tag { .. });
     }
     matches!(
         (field_type(field), value),
@@ -496,6 +513,22 @@ fn validate_column_source(
     Ok(())
 }
 
+/// A graph-defined property has no declared type; its values are stored
+/// typed, so a condition compares as the type its own value carries.
+fn graph_value_fits(op: PlanOperator, value: &PlanValue) -> bool {
+    use PlanOperator::{Between, Contains, EndsWith, Gt, Gte, Lt, Lte, NotContains, StartsWith};
+    match op {
+        Contains | NotContains | StartsWith | EndsWith => {
+            matches!(value, PlanValue::Text { .. })
+        }
+        Gt | Gte | Lt | Lte | Between => matches!(
+            value,
+            PlanValue::Number { .. } | PlanValue::Date { .. } | PlanValue::Relative { .. }
+        ),
+        _ => true,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FieldType {
     String,
@@ -506,6 +539,8 @@ enum FieldType {
     Page,
     Tag,
     Integer,
+    /// A property only the graph defines.
+    Graph,
 }
 
 fn field_type(field: &PlanField) -> FieldType {
@@ -529,7 +564,7 @@ fn field_type(field: &PlanField) -> FieldType {
                     FieldType::String
                 }
             })
-            .unwrap_or(FieldType::String),
+            .unwrap_or(FieldType::Graph),
     }
 }
 
@@ -547,6 +582,24 @@ fn operators_for(field: &PlanField) -> &'static [PlanOperator] {
         FieldType::Page | FieldType::Tag | FieldType::Choice => {
             &[Equals, NotEquals, AnyOf, IsSet, IsEmpty]
         }
+        FieldType::Graph => &[
+            Contains,
+            NotContains,
+            Equals,
+            NotEquals,
+            StartsWith,
+            EndsWith,
+            AnyOf,
+            Gt,
+            Gte,
+            Lt,
+            Lte,
+            Between,
+            IsTrue,
+            IsFalse,
+            IsSet,
+            IsEmpty,
+        ],
         FieldType::String => &[
             Contains,
             NotContains,
@@ -612,7 +665,7 @@ impl<'a> PlanCompiler<'a> {
             named(rdf::TYPE.as_str())?,
             subject_type,
         )]);
-        let (mut pattern, _) = self.apply_node(root, &plan.where_clause)?;
+        let (pattern, _) = self.apply_node(root, &plan.where_clause)?;
         if plan.grain == QueryGrain::Entity {
             // Cardinality is fixed before any display field is read. Neither a
             // repeated relation nor an absent field can change membership.
@@ -625,49 +678,113 @@ impl<'a> PlanCompiler<'a> {
             );
         }
 
-        let mut projection_variables = Vec::new();
-        let mut grouped_variables = Vec::new();
-        let mut aggregates = Vec::new();
+        // A missing value would fail SUM, AVG, MIN, and MAX over the whole
+        // group, so each aggregate reads only the subjects that have its value
+        // and joins back on the group. A group key is never unbound: an absent
+        // value groups under a sentinel that is unbound again on the way out.
+        let absent = named(ABSENT_GROUP)?;
+        let mut groups = Vec::new();
+        let mut keyed = pattern;
+        let mut keys = Vec::new();
         for (index, column) in plan.columns.iter().enumerate() {
-            let variable = Variable::new(column_variable(index)).map_err(term_error)?;
-            if let Some(aggregate) = column.aggregate {
-                let inner = if matches!(column.source, PlanColumnSource::Subject) {
-                    self.subject_variable.clone()
-                } else {
-                    self.local("a")
-                };
-                if !matches!(column.source, PlanColumnSource::Subject) {
-                    pattern = self.apply_column(pattern, column, inner.clone())?;
-                }
-                projection_variables.push(variable.clone());
-                aggregates.push((variable, aggregate_expression(aggregate, inner)));
+            if column.aggregate.is_some() {
                 continue;
             }
-
-            pattern = self.apply_column(pattern, column, variable.clone())?;
-            projection_variables.push(variable.clone());
-            grouped_variables.push(variable.clone());
+            let variable = Variable::new(column_variable(index)).map_err(term_error)?;
+            keyed = self.apply_column(keyed, column, variable.clone())?;
+            let companion = Variable::new(format!("q_time_{}", variable.as_str()));
+            groups.push(variable);
             if let Some(time_key) = moment_time_key(column) {
-                let companion =
-                    Variable::new(format!("q_time_{}", variable.as_str())).map_err(term_error)?;
-                pattern = optional(
-                    pattern,
+                let companion = companion.map_err(term_error)?;
+                keyed = optional(
+                    keyed,
                     bgp([triple(
                         self.subject_variable.clone(),
                         property_predicate(time_key)?,
                         companion.clone(),
                     )]),
                 );
-                projection_variables.push(companion.clone());
-                grouped_variables.push(companion);
+                groups.push(companion);
             }
         }
+        for group in &groups {
+            let key = Variable::new(format!("{}_key", group.as_str())).map_err(term_error)?;
+            keyed = GraphPattern::Extend {
+                inner: Box::new(keyed),
+                variable: key.clone(),
+                expression: Expression::Coalesce(vec![group.clone().into(), absent.clone().into()]),
+            };
+            keys.push(key);
+        }
 
-        let summary = GraphPattern::Group {
-            inner: Box::new(pattern),
-            variables: grouped_variables,
-            aggregates,
+        let mut main_aggregates = Vec::new();
+        let mut measured = Vec::new();
+        for (index, column) in plan.columns.iter().enumerate() {
+            let Some(aggregate) = column.aggregate else {
+                continue;
+            };
+            let variable = Variable::new(column_variable(index)).map_err(term_error)?;
+            let Some(predicate) = column_predicate(&column.source, self.subject)? else {
+                main_aggregates.push((
+                    variable,
+                    aggregate_expression(aggregate, self.subject_variable.clone()),
+                ));
+                continue;
+            };
+            let value = self.local("a");
+            let inner = join(
+                keyed.clone(),
+                bgp([triple(
+                    self.subject_variable.clone(),
+                    predicate,
+                    value.clone(),
+                )]),
+            );
+            let mut projected = keys.clone();
+            projected.push(variable.clone());
+            measured.push(GraphPattern::Project {
+                inner: Box::new(GraphPattern::Group {
+                    inner: Box::new(inner),
+                    variables: keys.clone(),
+                    aggregates: vec![(variable, aggregate_expression(aggregate, value))],
+                }),
+                variables: projected,
+            });
+        }
+
+        let mut summary = GraphPattern::Group {
+            inner: Box::new(keyed),
+            variables: keys.clone(),
+            aggregates: main_aggregates,
         };
+        for aggregate in measured {
+            summary = optional(summary, aggregate);
+        }
+        let never = Variable::new_unchecked("q_never");
+        for (group, key) in groups.iter().zip(&keys) {
+            summary = GraphPattern::Extend {
+                inner: Box::new(summary),
+                variable: group.clone(),
+                expression: Expression::If(
+                    Box::new(Expression::SameTerm(
+                        Box::new(key.clone().into()),
+                        Box::new(absent.clone().into()),
+                    )),
+                    Box::new(never.clone().into()),
+                    Box::new(key.clone().into()),
+                ),
+            };
+        }
+        let mut projection_variables = Vec::new();
+        for (index, column) in plan.columns.iter().enumerate() {
+            let variable = Variable::new(column_variable(index)).map_err(term_error)?;
+            projection_variables.push(variable.clone());
+            if column.aggregate.is_none() && moment_time_key(column).is_some() {
+                projection_variables.push(
+                    Variable::new(format!("q_time_{}", variable.as_str())).map_err(term_error)?,
+                );
+            }
+        }
         Ok(LogicalQuery::select(summary, projection_variables)
             .limit(plan.limit.get())
             .build())
@@ -785,7 +902,8 @@ impl<'a> PlanCompiler<'a> {
                 .filter(|member| !member.is_empty())
                 .take(PLAN_ANY_OF_MAX)
                 .map(|member| self.list_member(field, member))
-                .collect::<Result<Vec<_>, _>>()?;
+                .collect::<Result<Vec<_>, _>>()?
+                .concat();
             if members.is_empty() {
                 return Ok((base, false));
             }
@@ -804,7 +922,7 @@ impl<'a> PlanCompiler<'a> {
             ));
         }
 
-        if matches!(op, PlanOperator::Equals) && equals_by_term(field) {
+        if matches!(op, PlanOperator::Equals) && equals_by_term(field, value) {
             let object = self.scalar_term(value)?;
             let relation = relation(self.subject_variable.clone(), predicate, object);
             return Ok((join(base, relation), true));
@@ -913,19 +1031,34 @@ impl<'a> PlanCompiler<'a> {
         }
     }
 
-    fn list_member(&mut self, field: &PlanField, member: &str) -> Result<Expression, QueryError> {
+    fn list_member(
+        &mut self,
+        field: &PlanField,
+        member: &str,
+    ) -> Result<Vec<Expression>, QueryError> {
+        let text = PlanValue::Text {
+            value: member.to_owned(),
+        };
         let value = match field_type(field) {
+            // An untyped list names either text or a page.
+            FieldType::Graph => {
+                let page = PlanValue::Page {
+                    value: member.to_owned(),
+                };
+                return Ok(vec![
+                    self.scalar_expression(&text)?,
+                    self.scalar_expression(&page)?,
+                ]);
+            }
             FieldType::Page => PlanValue::Page {
                 value: member.to_owned(),
             },
             FieldType::Tag => PlanValue::Tag {
                 value: member.to_owned(),
             },
-            _ => PlanValue::Text {
-                value: member.to_owned(),
-            },
+            _ => text,
         };
-        self.scalar_expression(&value)
+        Ok(vec![self.scalar_expression(&value)?])
     }
 
     fn local(&mut self, prefix: &str) -> Variable {
@@ -1049,8 +1182,12 @@ fn lowercase_string(expression: Expression) -> Expression {
     lowercase(Expression::FunctionCall(Function::Str, vec![expression]))
 }
 
-fn equals_by_term(field: &PlanField) -> bool {
-    !matches!(field_type(field), FieldType::Number | FieldType::Integer)
+fn equals_by_term(field: &PlanField, value: &PlanValue) -> bool {
+    match field_type(field) {
+        FieldType::Number | FieldType::Integer => false,
+        FieldType::Graph => !matches!(value, PlanValue::Number { .. }),
+        _ => true,
+    }
 }
 
 fn aggregate_expression(aggregate: PlanAggregate, inner: Variable) -> AggregateExpression {

@@ -3934,6 +3934,127 @@ mod tests {
         assert!(entities[0].subject.is_some());
     }
 
+    /// The page fixture with a second page that has none of its properties.
+    fn sparse_snapshot() -> GraphSnapshot {
+        let mut snapshot = snapshot();
+        let mut bare = snapshot.pages[0].clone();
+        bare.id = PageId::new("bare").unwrap();
+        bare.properties = PropertyBag::new();
+        bare.tags.clear();
+        bare.blocks.clear();
+        snapshot.pages.push(bare);
+        snapshot
+    }
+
+    fn page_plan(
+        grain: &str,
+        columns: serde_json::Value,
+        conditions: serde_json::Value,
+    ) -> BuiltQueryPlan {
+        let mut plan = built_plan(grain, columns);
+        plan.subject = PlanSubject::Page;
+        plan.where_clause = serde_json::from_value(serde_json::json!({
+            "id": "root", "kind": "group", "match": "all", "children": conditions
+        }))
+        .unwrap();
+        plan
+    }
+
+    #[test]
+    fn graph_defined_properties_compare_as_the_type_their_values_carry() {
+        let index = GraphIndex::new(&sparse_snapshot()).unwrap();
+        let subject = serde_json::json!([{"id": "subject", "source": {"kind": "subject"}}]);
+        for condition in [
+            serde_json::json!({"field": {"kind": "property", "key": "user.count"}, "op": "equals", "value": {"type": "number", "value": 3.5}}),
+            serde_json::json!({"field": {"kind": "property", "key": "user.count"}, "op": "between", "value": {"type": "number", "value": 3}, "value2": {"type": "number", "value": 4}}),
+            serde_json::json!({"field": {"kind": "property", "key": "user.flag"}, "op": "is_true"}),
+            serde_json::json!({"field": {"kind": "property", "key": "user.link"}, "op": "equals", "value": {"type": "page", "value": "missing-page"}}),
+            serde_json::json!({"field": {"kind": "property", "key": "user.link"}, "op": "any_of", "value": {"type": "list", "values": ["missing-page"]}}),
+            serde_json::json!({"field": {"kind": "property", "key": "user.alias"}, "op": "any_of", "value": {"type": "list", "values": ["two"]}}),
+        ] {
+            let mut condition = condition;
+            condition["id"] = "c".into();
+            condition["kind"] = "condition".into();
+            let plan = page_plan(
+                "entity",
+                subject.clone(),
+                serde_json::json!([condition.clone()]),
+            );
+            let QueryResult::Built { rows, .. } =
+                index.execute_authored(built_request(plan)).unwrap()
+            else {
+                panic!("expected built result")
+            };
+            assert!(
+                matches!(&rows[..], [row] if matches!(&row.subject, Some(QueryEntityRef::Page { id }) if id == "today")),
+                "{condition}"
+            );
+        }
+        let contains_number = page_plan(
+            "entity",
+            subject,
+            serde_json::json!([{"id": "c", "kind": "condition", "field": {"kind": "property", "key": "user.count"}, "op": "contains", "value": {"type": "number", "value": 3}}]),
+        );
+        assert!(
+            index
+                .execute_authored(built_request(contains_number))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn summary_aggregates_read_only_the_subjects_that_have_the_value() {
+        let index = GraphIndex::new(&sparse_snapshot()).unwrap();
+        let measure = |aggregate: &str| {
+            let plan = page_plan(
+                "summary",
+                serde_json::json!([
+                    {"id": "pages", "source": {"kind": "subject"}, "aggregate": "count"},
+                    {"id": "value", "source": {"kind": "property", "key": "user.count"}, "aggregate": aggregate}
+                ]),
+                serde_json::json!([]),
+            );
+            let QueryResult::Built { rows, .. } =
+                index.execute_authored(built_request(plan)).unwrap()
+            else {
+                panic!("expected built result")
+            };
+            assert_eq!(rows.len(), 1);
+            assert!(
+                matches!(&rows[0].values["pages"][..], [RdfTerm::Literal { value, .. }] if value == "2")
+            );
+            match &rows[0].values["value"][..] {
+                [RdfTerm::Literal { value, .. }] => value.parse::<f64>().unwrap(),
+                other => panic!("{aggregate}: {other:?}"),
+            }
+        };
+        for aggregate in ["sum", "avg", "min", "max"] {
+            assert_eq!(measure(aggregate), 3.5, "{aggregate}");
+        }
+        assert_eq!(measure("count"), 1.0);
+
+        // A missing grouping value is a group of its own, and each group reads its own values.
+        let plan = page_plan(
+            "summary",
+            serde_json::json!([
+                {"id": "flag", "source": {"kind": "property", "key": "user.flag"}},
+                {"id": "total", "source": {"kind": "property", "key": "user.count"}, "aggregate": "sum"}
+            ]),
+            serde_json::json!([]),
+        );
+        let QueryResult::Built { mut rows, .. } =
+            index.execute_authored(built_request(plan)).unwrap()
+        else {
+            panic!("expected built result")
+        };
+        rows.sort_by_key(|row| row.values["flag"].len());
+        assert!(rows[0].values["flag"].is_empty());
+        assert!(rows[0].values["total"].is_empty());
+        assert!(
+            matches!(&rows[1].values["total"][..], [RdfTerm::Literal { value, .. }] if value.parse::<f64>().unwrap() == 3.5)
+        );
+    }
+
     #[test]
     fn entity_membership_is_independent_of_fields_and_repeated_values() {
         let mut snapshot = snapshot();

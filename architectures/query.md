@@ -187,6 +187,14 @@ at execution. A plan declares its result grain independently of its renderer:
   remove entities, or change which entities survive the limit.
 - `summary` groups explicit fields and requires at least one `count`, `sum`,
   `avg`, `min`, or `max` aggregate. Its rows carry no editable subject identity.
+  Each aggregate reads only the subjects that have its value, so a missing value
+  neither fails the aggregate nor counts as zero; a missing grouping value forms
+  its own group.
+
+A registry property has its declared type. A graph-defined property has none in
+the plan grammar: the compiler accepts any operator whose value shape is coherent
+and compares as the type the condition's value carries, matching the typed values
+the graph stores. The builder offers operators by the type the graph stores.
 
 There is no independent distinct flag or list aggregate in v2. Raw bindings become the query's
 initial solution mapping and are never inserted through string substitution.
@@ -280,8 +288,8 @@ replace a clean draft; they cannot overwrite newer unsaved input in the same
 view. When persistence catches up, the draft becomes clean and follows later
 remote edits again. Switching views adopts that view's own definition.
 
-Ordering semantics are derived rather than stored. The selected field and the
-property registry resolve to one semantic order: declared choices use their
+Ordering semantics are derived rather than stored. The selected field, the
+property registry, and the graph's stored property types resolve to one semantic order: declared choices use their
 stored-value rank, numbers and dates use typed value order, references use their
 resolved label, and ordinary text uses text collation. Rendering is a separate
 projection, so a translated label cannot change a ranked order. A table compares
