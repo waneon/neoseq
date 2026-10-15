@@ -1,5 +1,14 @@
 import { documentTitle } from "../../core-port/snapshot";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { NumberField } from "@/ui/NumberField";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import {
   ArrowLeftIcon,
   CalendarIcon,
@@ -1071,24 +1080,30 @@ function ValueInput({
       />
     );
   }
+  const commitOnEnter = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter" && !event.nativeEvent.isComposing) onCommit(value);
+  };
+  if (type === "number") {
+    return (
+      <NumberField
+        autoFocus
+        aria-label={label}
+        value={value.type === "number" ? value.value : 0}
+        readOnly={readonly}
+        onValue={(next) => onChange({ type: "number", value: next })}
+        onKeyDown={commitOnEnter}
+      />
+    );
+  }
   return (
     <Input
       autoFocus
-      type={type === "number" ? "number" : "text"}
+      type="text"
       aria-label={label}
       value={String(value.value)}
       readOnly={readonly}
-      onChange={(event) => {
-        const next = event.target.value;
-        onChange(
-          type === "number"
-            ? { type: "number", value: Number(next) }
-            : { type: "string", value: next },
-        );
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" && !event.nativeEvent.isComposing) onCommit(value);
-      }}
+      onChange={(event) => onChange({ type: "string", value: event.target.value })}
+      onKeyDown={commitOnEnter}
     />
   );
 }
@@ -1218,22 +1233,17 @@ function RepeatValueInput({
 
   return (
     <div className="property-repeat-editor">
-      <Input
+      <NumberField
         autoFocus
-        type="number"
         min={1}
         max={999}
         inputMode="numeric"
         aria-label={message("task.repeatCount")}
         data-testid="repeat-count"
-        value={String(interval.count)}
+        value={interval.count}
         readOnly={readonly}
-        onChange={(event) => {
-          const count = Number(event.target.value);
-          if (Number.isInteger(count) && count >= 1 && count <= 999) {
-            setInterval({ ...interval, count });
-          }
-        }}
+        valid={(count) => Number.isInteger(count) && count >= 1 && count <= 999}
+        onValue={(count) => setInterval({ ...interval, count })}
         onKeyDown={(event) => {
           if (event.key === "Enter" && !event.nativeEvent.isComposing) commit(interval);
         }}

@@ -1,4 +1,5 @@
 import { useId, useMemo, useState, type KeyboardEvent } from "react";
+import { NumberField } from "@/ui/NumberField";
 import { parseDate, parseTime, Time, type CalendarDate } from "@internationalized/date";
 import { DateInput, DateSegment, I18nProvider, Switch, TimeField } from "react-aria-components";
 import { CalendarIcon, ClockIcon, RepeatIcon, SearchIcon, Trash2Icon } from "lucide-react";
@@ -317,21 +318,16 @@ export function TaskMomentPicker({
                 </Switch>
                 <div className="moment-repeat-controls">
                   <RepeatIcon aria-hidden />
-                  <Input
-                    type="number"
+                  <NumberField
                     min={1}
                     max={999}
                     inputMode="numeric"
                     aria-label={message("task.repeatCount")}
                     data-testid="moment-repeat-count"
-                    value={String(repeatDraft.count)}
+                    value={repeatDraft.count}
                     disabled={disabled || repeat === null}
-                    onChange={(event) => {
-                      const count = Number(event.target.value);
-                      if (Number.isInteger(count) && count >= 1 && count <= 999) {
-                        setRepeatValue({ ...repeatDraft, count });
-                      }
-                    }}
+                    valid={(count) => Number.isInteger(count) && count >= 1 && count <= 999}
+                    onValue={(count) => setRepeatValue({ ...repeatDraft, count })}
                   />
                   <MenuSelect
                     className="moment-repeat-unit"

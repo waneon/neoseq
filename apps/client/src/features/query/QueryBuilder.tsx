@@ -1,4 +1,5 @@
 import { namedDocuments } from "../../entities/names";
+import { NumberField } from "@/ui/NumberField";
 import { useMemo, useRef, useState } from "react";
 import { MoreHorizontalIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react";
 import { AnchoredPanel } from "@/ui/anchored-panel";
@@ -165,21 +166,17 @@ export function QueryBuilder({
           }
         />
         <span className="qb-word">{message("query.upTo")}</span>
-        <Input
+        <NumberField
           // Utilities size the shared field; here it is a word-sized token.
           className="qb-limit h-7 w-[72px] font-medium tabular-nums"
-          type="number"
           min={1}
           max={PLAN_LIMIT_MAX}
           value={plan.limit}
           readOnly={readonly}
           aria-label={message("query.limit")}
           data-testid="qb-limit"
-          onChange={(event) => {
-            const next = Number(event.target.value);
-            if (!Number.isFinite(next)) return;
-            onChange({ ...plan, limit: Math.min(PLAN_LIMIT_MAX, Math.max(1, Math.round(next))) });
-          }}
+          valid={(limit) => Number.isInteger(limit) && limit >= 1 && limit <= PLAN_LIMIT_MAX}
+          onValue={(limit) => onChange({ ...plan, limit })}
         />
       </div>
       {plan.grain === "summary" && (
@@ -819,14 +816,13 @@ function Operand({
 
   if (type === "number" || type === "integer") {
     return (
-      <Input
+      <NumberField
         className="qb-number-input"
-        type="number"
         value={value.type === "number" ? value.value : 0}
         readOnly={readonly}
         aria-label={message("query.valueLabel")}
         data-testid="qb-value"
-        onChange={(event) => onChange({ type: "number", value: Number(event.target.value) })}
+        onValue={(next) => onChange({ type: "number", value: next })}
       />
     );
   }
