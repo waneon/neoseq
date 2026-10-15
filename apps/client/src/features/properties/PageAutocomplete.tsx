@@ -215,10 +215,10 @@ export function PageAutocomplete({
                       {option.convert
                         ? message("entity.convertAndApply", { name: option.label })
                         : option.create
-                          ? message("properties.createEntity", {
-                              kind: message(kind === "tag" ? "common.tag" : "common.page"),
-                              name: option.label,
-                            })
+                          ? message(
+                              kind === "tag" ? "properties.createTag" : "properties.createPage",
+                              { name: option.label },
+                            )
                           : option.label}
                     </span>
                   </span>

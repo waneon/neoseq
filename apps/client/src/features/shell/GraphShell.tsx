@@ -68,6 +68,7 @@ import { Input } from "@/ui/shadcn/input";
 import { Button } from "@/ui/shadcn/button";
 import { Kbd } from "@/ui/kbd";
 import { graphPath } from "../graphs/routing";
+import { DocumentNameConflicts } from "./DocumentNameConflicts";
 import { findRepository, LOCAL_REPOSITORY_ID } from "../repositories/directory";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/ui/shadcn/tooltip";
 import {
@@ -1510,39 +1511,6 @@ function ShellLoading() {
         </>
       )}
     </div>
-  );
-}
-
-function DocumentNameConflicts() {
-  const snapshot = useSessionSelector((state) => state.snapshot, sameHeaders);
-  const { repositoryId = LOCAL_REPOSITORY_ID, graphId = "" } = useParams();
-  const { message } = useI18n();
-  const conflicts = snapshot.conflicts.flatMap((conflict) => {
-    if (conflict.kind === "duplicate_entity_name")
-      return [{ name: conflict.canonical_name, ids: conflict.entity_ids }];
-    return [];
-  });
-  if (!conflicts.length) return null;
-  return (
-    <aside className="document-name-conflicts" role="status" data-testid="document-name-conflicts">
-      <p>{message("entity.nameConflicts")}</p>
-      {conflicts.map((conflict) => (
-        <p key={conflict.name}>
-          {conflict.ids.map((id, index) => {
-            const tag = snapshot.tags.some((tag) => tag.id === id);
-            return (
-              <span key={id}>
-                {index > 0 ? " · " : ""}
-                <Link to={graphPath(repositoryId, graphId, `${tag ? "t" : "p"}/${id}`)}>
-                  {tag ? "#" : ""}
-                  {conflict.name} ({message(tag ? "common.tag" : "common.page")})
-                </Link>
-              </span>
-            );
-          })}
-        </p>
-      ))}
-    </aside>
   );
 }
 

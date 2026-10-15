@@ -311,8 +311,9 @@ export interface MessageArgumentMap {
   "properties.checked": undefined;
   "properties.chooseType": undefined;
   "properties.clear": undefined;
-  "properties.createEntity": { readonly "kind": string | number; readonly "name": string | number };
+  "properties.createPage": { readonly "name": string | number };
   "properties.createProperty": { readonly "key": string | number };
+  "properties.createTag": { readonly "name": string | number };
   "properties.dateOn": { readonly "date": string | number };
   "properties.datePlaceholder": undefined;
   "properties.dateText": undefined;

@@ -54,7 +54,7 @@ async function createCustomProperty(
   } else if (type === "page") {
     const input = within(picker).getByTestId("page-autocomplete");
     await user.type(input, value);
-    await user.click(await screen.findByRole("option", { name: `Create Page “${value}”` }));
+    await user.click(await screen.findByRole("option", { name: `Create page “${value}”` }));
   } else {
     const input = within(picker).getByLabelText(`${name} value`);
     await user.clear(input);

@@ -247,10 +247,7 @@ export function TagPicker({
                     option.kind === "convert"
                       ? message("entity.convertAndApply", { name: option.name })
                       : option.kind === "create"
-                        ? message("properties.createEntity", {
-                            kind: message("common.tag"),
-                            name: option.name,
-                          })
+                        ? message("properties.createTag", { name: option.name })
                         : option.name
                   }
                   aria-selected={false}
@@ -272,10 +269,7 @@ export function TagPicker({
                     {option.kind === "convert"
                       ? message("entity.convertAndApply", { name: option.name })
                       : option.kind === "create"
-                        ? message("properties.createEntity", {
-                            kind: message("common.tag"),
-                            name: option.name,
-                          })
+                        ? message("properties.createTag", { name: option.name })
                         : option.name}
                   </span>
                   {option.kind === "existing" && tagGroup(option.tag) && (
