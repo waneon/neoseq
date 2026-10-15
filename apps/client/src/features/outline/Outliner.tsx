@@ -986,6 +986,25 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
     [clearVisualLineState, dispatchDraft, keymap, readonly, revealNavigationTarget, vim.reset],
   );
 
+  // A collaborator removed the block being written in; its draft now lives in
+  // a new block where that one stood, and the caret follows it there.
+  useEffect(
+    () =>
+      contentSessionsFor(session).onRecovered((from, blockId) => {
+        if (!sameOutlineOwner(from.owner, ownerRef.current)) return;
+        const focused = focusedRef.current;
+        if (focused === from.blockId || focused === null) {
+          activateBlock(blockId, undefined, "programmatic");
+        }
+        notify.show({
+          tone: "info",
+          key: "draft-recovered",
+          title: message("outline.draftRecovered"),
+        });
+      }),
+    [activateBlock, message, notify, session],
+  );
+
   const clearSelection = useCallback(() => {
     anchorId.current = null;
     if (selectedRef.current.size > 0) {

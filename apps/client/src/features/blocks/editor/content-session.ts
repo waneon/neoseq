@@ -5,10 +5,12 @@ import type { GraphSession } from "../../../core-port/session";
 import type { UnsavedEdit } from "../../../core-port/unsaved";
 import { CorePortFailure } from "../../../core-worker";
 import { ActivityHold } from "../../../lib/activity";
+import { outlineIndex } from "../../../core-port/outline-index";
 import {
   findBlock,
   findOutline,
   outlineOwnerKey,
+  type GraphSnapshot,
   type ContentRangeChange,
   type BlockSnapshot,
   type OutlineOwner,
@@ -135,6 +137,14 @@ export class ContentSessions {
   private readonly pending = new Map<BlockContentSession, number>();
   /** Buffers sent to the graph and not yet acknowledged, oldest first. */
   private readonly submitted = new Map<BlockContentSession, ContentBuffer[]>();
+  /** Drafts whose block another replica removed, with where it stood. */
+  private readonly orphans = new Map<
+    BlockContentSession,
+    { parentId: string | null; index: number }
+  >();
+  private readonly recoveredListeners = new Set<
+    (from: BlockContentSession, blockId: string) => void
+  >();
   private readonly unavailable = new Map<BlockContentSession, string>();
   /** Input that no submission has carried to the graph yet is unsettled work. */
   private readonly unsavedInput = new ActivityHold();
@@ -155,6 +165,7 @@ export class ContentSessions {
     graph.preserveUnsaved(() => this.unsaved());
     let revision = graph.getState().canonicalRevision;
     let directory = graph.getState().snapshot.page_directory ?? [];
+    let previous = graph.getState().snapshot;
     const unsubscribe = graph.subscribe(() => {
       const state = graph.getState();
       if (state.status === "closed") {
@@ -173,8 +184,17 @@ export class ContentSessions {
           const target = this.target(owner, id);
           const canonical = this.canonical(owner, id);
           if (!canonical) {
+            // Local commands carry an id; a block removed without one was
+            // removed by another replica while this draft was being written.
+            const position =
+              typeof state.lastChange?.commandId === "string"
+                ? undefined
+                : positionIn(previous, owner, id);
             if (bufferIsClean(buffer) && !this.pending.has(target)) next.delete(id);
-            else
+            else if (position) {
+              this.orphans.set(target, position);
+              if (!this.pending.has(target)) this.recover(target);
+            } else
               this.unavailable.set(
                 target,
                 "The edited block is no longer available. Your draft has been retained.",
@@ -227,7 +247,65 @@ export class ContentSessions {
           this.replace(owner, next);
       }
       directory = nextDirectory;
+      previous = state.snapshot;
     });
+  }
+
+  /** Reports a draft given a new block after its own was removed elsewhere. */
+  onRecovered(listener: (from: BlockContentSession, blockId: string) => void): () => void {
+    this.recoveredListeners.add(listener);
+    return () => this.recoveredListeners.delete(listener);
+  }
+
+  /** Writes an orphaned draft into a new block where its own block stood. */
+  private recover(target: BlockContentSession): void {
+    const graph = this.graph;
+    const position = this.orphans.get(target);
+    if (!graph || !position) return;
+    this.orphans.delete(target);
+    let content: InlineContent[] = [];
+    void graph
+      .executePrepared(() => {
+        const buffer = this.buffers(target.owner).get(target.blockId);
+        if (!buffer) return null;
+        content = inlineContent(bufferAtoms(buffer));
+        const outline = findOutline(graph.getState().snapshot, target.owner);
+        const parent =
+          position.parentId && outline && findBlock(outline, position.parentId)
+            ? position.parentId
+            : null;
+        const siblings = (parent ? findBlock(outline!, parent)?.children : outline?.blocks) ?? [];
+        return {
+          type: "insert_block",
+          owner: target.owner,
+          parent,
+          index: Math.min(position.index, siblings.length),
+          markdown: "",
+        };
+      })
+      .then(async (result) => {
+        const blockId = result?.created_block;
+        if (!blockId) return;
+        if (content.length) {
+          await graph.execute({
+            type: "splice_block_content",
+            owner: target.owner,
+            block_id: blockId,
+            index: 0,
+            delete: 0,
+            insert: content,
+          });
+        }
+        this.unavailable.delete(target);
+        this.set(target, undefined);
+        for (const listener of this.recoveredListeners) listener(target, blockId);
+      })
+      .catch(() =>
+        this.unavailable.set(
+          target,
+          "The edited block is no longer available. Your draft has been retained.",
+        ),
+      );
   }
 
   setComposing(target: BlockContentSession, composing: boolean): void {
@@ -340,6 +418,10 @@ export class ContentSessions {
       if (submitted && !(error instanceof CorePortFailure && error.applied)) {
         if (submittedActions.length) this.retryActions.set(target, submittedActions);
         target.replace(restoreBuffer(submitted, target.buffer));
+        if (this.orphans.has(target)) {
+          this.recover(target);
+          return { newerInput: false };
+        }
       }
       throw error;
     } finally {
@@ -490,4 +572,14 @@ export function useContentBuffer(target: BlockContentSession | null): ContentBuf
     target?.getSnapshot ?? noBuffer,
     target?.getSnapshot ?? noBuffer,
   );
+}
+
+function positionIn(
+  snapshot: GraphSnapshot,
+  owner: OutlineOwner,
+  blockId: string,
+): { parentId: string | null; index: number } | undefined {
+  const outline = findOutline(snapshot, owner);
+  const row = outline && outlineIndex(outline.blocks).get(blockId);
+  return row ? { parentId: row.parentId, index: row.index } : undefined;
 }

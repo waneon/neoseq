@@ -272,6 +272,7 @@
   "outline.outdent": "내어쓰기",
   "outline.outline": "개요",
   "outline.pendingTypedLost": "{reason} 입력한 내용은 보관되지 않았습니다.",
+  "outline.draftRecovered": "다른 사용자가 작성 중이던 블록을 지웠습니다. 입력한 내용은 그 자리의 새 블록에 있습니다.",
   "outline.selection": "{count, plural, other {블록 #개 선택됨}}",
   "outline.tags": "태그",
   "page.actions": "페이지 작업",

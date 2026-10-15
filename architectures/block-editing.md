@@ -37,7 +37,9 @@ equal edit history. Local deletions remove observed source atoms and preserve
 concurrent insertions. Native composition keeps its original input projection;
 canonical mappings accumulate until composition ends. A missing mapping across
 a changed dirty source, or deletion of its target, retains the draft and refuses
-to submit stale positions. Clean sources can be replaced directly.
+to submit stale positions. When another replica deleted the target, the draft is
+written into a new block where the target stood and the caret follows it.
+Clean sources can be replaced directly.
 
 Submission lowers the current pieces inside the graph command queue, after
 preceding canonical publications. Separate text edits remain separate ordered

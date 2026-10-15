@@ -257,6 +257,7 @@ export interface MessageArgumentMap {
   "outline.copySelection": { readonly "count": number };
   "outline.deleteBlock": undefined;
   "outline.deleteSelection": { readonly "count": number };
+  "outline.draftRecovered": undefined;
   "outline.engineMissingId": undefined;
   "outline.expand": undefined;
   "outline.indent": undefined;

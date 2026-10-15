@@ -272,6 +272,7 @@
   "outline.outdent": "Outdent",
   "outline.outline": "Outline",
   "outline.pendingTypedLost": "{reason} Anything typed into them was not kept.",
+  "outline.draftRecovered": "Someone removed the block you were writing in. Your text is in a new block where it was.",
   "outline.selection": "{count, plural, one {# block selected} other {# blocks selected}}",
   "outline.tags": "Tags",
   "page.actions": "Page actions",
