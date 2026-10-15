@@ -546,11 +546,13 @@ export class GraphSession {
     );
     if (missing.length === 0) return;
 
+    // Reads do not depend on each other: send them together rather than paying
+    // a worker round trip per owner.
+    const responses = await Promise.all(
+      missing.map((owner) => this.port.readOutline({ graph_handle: this.handle, owner })),
+    );
     let snapshot = this.state.snapshot;
-    for (const owner of missing) {
-      const response = await this.port.readOutline({ graph_handle: this.handle, owner });
-      snapshot = mergeOutline(snapshot, response.outline);
-    }
+    for (const response of responses) snapshot = mergeOutline(snapshot, response.outline);
     const hydratedOutlines = new Set(this.state.hydratedOutlines);
     for (const owner of missing) hydratedOutlines.add(outlineOwnerKey(owner));
     this.patch({ snapshot, hydratedOutlines, revision: this.state.revision + 1 });

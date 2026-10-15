@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect } from "react";
+import { useCallback, useLayoutEffect, useMemo } from "react";
 import { useImmediateState } from "../../../../lib/react";
 import {
   initialVimState,
@@ -44,5 +44,5 @@ export function useVimSession(enabled: boolean): VimSession {
     [setState, stateRef],
   );
 
-  return { state, interpret, reset };
+  return useMemo(() => ({ state, interpret, reset }), [state, interpret, reset]);
 }

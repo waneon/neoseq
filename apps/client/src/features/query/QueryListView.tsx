@@ -6,6 +6,7 @@
 // presentation. A page, tag, aggregate, or hand-written row keeps the generic
 // result fallback, but table-only column choices never supplement a block.
 
+import { memo } from "react";
 import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
 import { findOutline, findBlock, stringValue } from "../../core-port/snapshot";
 import { useI18n } from "../../i18n";
@@ -30,7 +31,9 @@ import {
 } from "./edit";
 import { useProgressiveRows } from "./progressive-rows";
 
-export function QueryListView({
+export const QueryListView = memo(QueryListViewBody);
+
+function QueryListViewBody({
   rows,
   context,
   editor,
@@ -190,7 +193,9 @@ export function QueryListView({
 }
 
 /** A non-block or aggregate SELECT keeps the query-shaped list fallback. */
-export function QueryGenericListView({
+export const QueryGenericListView = memo(QueryGenericListViewBody);
+
+function QueryGenericListViewBody({
   columns,
   rows,
   context,

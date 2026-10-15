@@ -10,6 +10,13 @@
 <html lang="en" spellcheck="false">
   <head>
     <meta charset="UTF-8" />
+    <!--
+      Hash routing builds every link's href by asking for the document's <base>.
+      Without one that lookup scans the whole DOM, once per rendered link. This
+      element changes nothing (`_self` is the default target); it only makes the
+      lookup end here.
+    -->
+    <base target="_self" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />

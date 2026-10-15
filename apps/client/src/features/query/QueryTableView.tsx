@@ -47,7 +47,7 @@
 // The saved view supplies ordered columns and rows directly to the native table.
 // The resize gesture starts from the browser's measured widths.
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState, memo } from "react";
 import {
   ArrowDownIcon,
   ArrowUpRightIcon,
@@ -84,7 +84,9 @@ type ColumnDrag = {
   seamBefore?: string | null;
 } | null;
 
-export function QueryTableView({
+export const QueryTableView = memo(QueryTableViewBody);
+
+function QueryTableViewBody({
   columns,
   rows,
   context,

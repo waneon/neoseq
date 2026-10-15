@@ -14,7 +14,14 @@ import { documentTitle } from "../../core-port/snapshot";
 
 import { RepeatIcon } from "lucide-react";
 import type { BlockSnapshot, PropertyValue } from "../../core-port/snapshot";
-import { dateValue, findPage, isDeleted, pageTitle, stringValue } from "../../core-port/snapshot";
+import {
+  dateValue,
+  findPage,
+  isDeleted,
+  pageTitle,
+  sameHeaders,
+  stringValue,
+} from "../../core-port/snapshot";
 import { isGenericProperty } from "../../entities/properties";
 import {
   isSettledStatus,
@@ -47,7 +54,8 @@ export function BlockChips({
   /** Fields already rendered by the owning surface as dedicated controls. */
   representedKeys?: readonly string[];
 }) {
-  const snapshot = useSessionSelector((state) => state.snapshot);
+  // Chips name pages, so only a change to the graph's headers repaints them.
+  const snapshot = useSessionSelector((state) => state.snapshot, sameHeaders);
   const { message, formatJournalDate, formatTimeOfDay } = useI18n();
   const tiers = useDueTiers();
   const status = stringValue(block.properties, TASK_STATUS_KEY);

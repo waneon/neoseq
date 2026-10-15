@@ -135,6 +135,8 @@ export class ContentSessions {
   private readonly unavailable = new Map<BlockContentSession, string>();
   /** Input that no submission has carried to the graph yet is unsettled work. */
   private readonly unsavedInput = new ActivityHold();
+  /** Owner-qualified keys of buffers holding unsaved input. */
+  private readonly dirty = new Set<string>();
   private readonly compositions = new Map<
     BlockContentSession,
     {
@@ -368,16 +370,22 @@ export class ContentSessions {
   }
 
   private replace(owner: OutlineOwner, buffers: ReadonlyMap<string, ContentBuffer>): void {
-    if (this.buffers(owner) === buffers) return;
-    const next = buffers;
-    this.owners.set(outlineOwnerKey(owner), next);
-    this.ownerRefs.set(outlineOwnerKey(owner), owner);
+    const previous = this.buffers(owner);
+    if (previous === buffers) return;
+    const ownerKey = outlineOwnerKey(owner);
+    this.owners.set(ownerKey, buffers);
+    this.ownerRefs.set(ownerKey, owner);
     this.revision += 1;
-    this.unsavedInput.set(
-      [...this.owners.values()].some((owned) =>
-        [...owned.values()].some((buffer) => !bufferIsClean(buffer)),
-      ),
-    );
+    // Only entries that changed can change whether input is unsaved.
+    for (const [blockId, buffer] of buffers) {
+      if (previous.get(blockId) === buffer) continue;
+      if (bufferIsClean(buffer)) this.dirty.delete(`${ownerKey}\n${blockId}`);
+      else this.dirty.add(`${ownerKey}\n${blockId}`);
+    }
+    for (const blockId of previous.keys()) {
+      if (!buffers.has(blockId)) this.dirty.delete(`${ownerKey}\n${blockId}`);
+    }
+    this.unsavedInput.set(this.dirty.size > 0);
     for (const listener of this.listeners) listener();
   }
 

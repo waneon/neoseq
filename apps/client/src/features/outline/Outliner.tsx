@@ -26,6 +26,7 @@ import {
   type RefObject,
 } from "react";
 import { flushSync } from "react-dom";
+
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ArrowDownIcon,
@@ -67,6 +68,7 @@ import type {
 import {
   findBlock,
   findOutline,
+  sameHeaders,
   queryDocument,
   sameOutlineOwner,
   stringValue,
@@ -418,23 +420,43 @@ interface EditorContext {
   };
 }
 
-export function Outliner({
-  owner,
-  blocks,
-  scrollElement,
-}: {
+interface OutlinerProps {
   owner: OutlineOwner;
   blocks: BlockSnapshot[];
   scrollElement: HTMLElement | null;
-}) {
+}
+
+/**
+ * Callers name the owner with a fresh literal. One outline is one document, so
+ * it re-renders only when its blocks or scroll container change, and its rows
+ * see one owner identity for as long as it is mounted.
+ */
+export const Outliner = memo(
+  OutlinerView,
+  (left, right) =>
+    left.owner.kind === right.owner.kind &&
+    left.owner.id === right.owner.id &&
+    left.blocks === right.blocks &&
+    left.scrollElement === right.scrollElement,
+);
+
+function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps) {
+  const ownerKind = ownerProp.kind;
+  const ownerId = ownerProp.id;
+  const owner = useMemo(
+    () => ({ kind: ownerKind, id: ownerId }) as OutlineOwner,
+    [ownerKind, ownerId],
+  );
   const session = useSession();
+  // An outline follows its own document and the names it can reference; an
+  // edit to another document on screen leaves it alone.
   const state = useSessionSelector(
     (current) => current,
     (left, right) =>
-      left.snapshot === right.snapshot &&
       left.mode === right.mode &&
-      left.revision === right.revision &&
-      left.presence === right.presence,
+      left.presence === right.presence &&
+      findOutline(left.snapshot, owner) === findOutline(right.snapshot, owner) &&
+      sameHeaders(left.snapshot, right.snapshot),
   );
   const commands = useCommands();
   const history = useHistoryActions();

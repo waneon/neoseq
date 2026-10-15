@@ -432,7 +432,10 @@ and the canonical session revision captured when execution begins in the command
 queue. The scheduling revision never labels the answer. A stale frame remains
 visible while its replacement runs and is interpreted solely by its own
 descriptor; a newer draft cannot relabel its fields or grant editing authority.
-Request identity and execution tokens prevent superseded work from replacing it.
+Request identity and execution tokens prevent superseded work from replacing it,
+and work superseded before it starts never reaches the core. A re-run whose rows
+and descriptors equal the displayed answer keeps that answer's value, so views
+derived from it do not re-render.
 Predicate-level dependency tracking is a future optimization and must preserve
 this conservative invalidation behavior.
 

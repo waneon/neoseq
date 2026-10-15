@@ -28,7 +28,7 @@ import type {
   QueryViewOptions,
   QueryViewSort,
 } from "../../core-port/snapshot";
-import { findOutline, outlineOwnerKey } from "../../core-port/snapshot";
+import { findOutline, outlineOwnerKey, sameHeaders } from "../../core-port/snapshot";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -71,7 +71,7 @@ import { useSession, useSessionSelector } from "../shell/session-context";
 import { useHistoryActions } from "../history/context";
 import { useI18n } from "../../i18n";
 import { useDueTiers } from "../settings/preferences";
-import { useLatest } from "../../lib/react";
+import { useLatest, useStableCallback } from "../../lib/react";
 import { QueryBuilder } from "./QueryBuilder";
 import { columnChoices, QueryColumnsControl, type ColumnChoice } from "./QueryColumnsControl";
 import { QueryGenericListView, QueryListView } from "./QueryListView";
@@ -161,13 +161,27 @@ function QueryPanelSurface({
 }: QueryPanelProps) {
   const { owner, document, seedPlan } = binding;
   const session = useSession();
+  // An answer reads the graph's headers and the documents its rows live in.
+  // Writing elsewhere leaves it alone; while its conditions are open it follows
+  // every change, because the builder offers every property in the graph.
+  const followed = useRef<{ all: boolean; owners: readonly OutlineOwner[] }>({
+    all: true,
+    owners: [],
+  });
   const state = useSessionSelector(
     (current) => current,
     (left, right) =>
-      left.snapshot === right.snapshot &&
       left.mode === right.mode &&
       left.status === right.status &&
-      left.hydratedOutlines === right.hydratedOutlines,
+      (left.snapshot === right.snapshot ||
+        (!followed.current.all &&
+          sameHeaders(left.snapshot, right.snapshot) &&
+          followed.current.owners.every(
+            (owner) =>
+              findOutline(left.snapshot, owner) === findOutline(right.snapshot, owner) &&
+              left.hydratedOutlines.has(outlineOwnerKey(owner)) ===
+                right.hydratedOutlines.has(outlineOwnerKey(owner)),
+          ))),
   );
   const notify = useNotify();
   const history = useHistoryActions();
@@ -473,6 +487,7 @@ function QueryPanelSurface({
       ].sort((left, right) => outlineOwnerKey(left).localeCompare(outlineOwnerKey(right))),
     [resultRows],
   );
+  followed.current = { all: editing, owners: resultBlockOwners };
 
   // Canonical content carries stable page-reference spans that the RDF text
   // cannot retain. Lists also need the full block's task marks and metadata.
@@ -768,11 +783,22 @@ function QueryPanelSurface({
     reorderViews(next);
   };
 
-  const hidden = new Set(
-    activeView.columns.filter((column) => column.hidden).map((column) => column.variable),
+  const hidden = useMemo(
+    () =>
+      new Set(
+        activeView.columns.filter((column) => column.hidden).map((column) => column.variable),
+      ),
+    [activeView.columns],
   );
   /** What this table draws. A canonical block list has no column projection. */
-  const shownColumns = columns.filter((column) => !hidden.has(column.variable));
+  const shownColumns = useMemo(
+    () => columns.filter((column) => !hidden.has(column.variable)),
+    [columns, hidden],
+  );
+  const orderedColumns = useMemo(
+    () => inViewOrder(shownColumns, activeView),
+    [shownColumns, activeView],
+  );
 
   /**
    * Every column this table could draw, and which of them it does. The plan's
@@ -966,6 +992,14 @@ function QueryPanelSurface({
   const tabbed = variant === "page" || views.length > 1;
   const conditionCount = plan ? countConditions(plan.where) : 0;
 
+  // The table is memoized; its handlers keep one identity across renders.
+  const tableHandlers = {
+    sort: useStableCallback(setTableSorts),
+    resize: useStableCallback(setColumnWidths),
+    hide: useStableCallback((variable: string) => setColumn(variable, { hidden: true })),
+    move: useStableCallback(moveColumn),
+    reorder: useStableCallback(reorderColumns),
+  };
   const resultLabel = answerLabel({ frame, error, loading, run }, visibleRows.length, message);
   const resultCanCollapse = Boolean(
     error || result?.kind === "ask" || (select && visibleRows.length > 0),
@@ -1268,7 +1302,7 @@ function QueryPanelSurface({
         )}
         {!error && select && visibleRows.length > 0 && activeView.kind === "table" && (
           <QueryTableView
-            columns={inViewOrder(shownColumns, activeView)}
+            columns={orderedColumns}
             rows={visibleRows}
             context={cellContext}
             editor={resultEditor}
@@ -1276,13 +1310,11 @@ function QueryPanelSurface({
             compact={activeView.options.compact}
             wrap={activeView.options.wrap}
             sorts={tableSorts}
-            onSort={setTableSorts}
-            onResize={canEditCurrentView ? setColumnWidths : undefined}
-            onHide={
-              canEditCurrentView ? (variable) => setColumn(variable, { hidden: true }) : undefined
-            }
-            onMove={canEditCurrentView ? moveColumn : undefined}
-            onReorder={canEditCurrentView ? reorderColumns : undefined}
+            onSort={tableHandlers.sort}
+            onResize={canEditCurrentView ? tableHandlers.resize : undefined}
+            onHide={canEditCurrentView ? tableHandlers.hide : undefined}
+            onMove={canEditCurrentView ? tableHandlers.move : undefined}
+            onReorder={canEditCurrentView ? tableHandlers.reorder : undefined}
           />
         )}
         {!error && select && visibleRows.length > 0 && canonicalBlockView && (

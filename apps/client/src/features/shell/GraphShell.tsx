@@ -3,7 +3,6 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
-  useReducer,
   useRef,
   useState,
   useSyncExternalStore,
@@ -52,6 +51,7 @@ import {
   journalDate,
   pageKind,
   pageTitle,
+  sameHeaders,
   type TagSnapshot,
 } from "../../core-port/snapshot";
 import {
@@ -263,7 +263,8 @@ function ShellBody({
       left.status === right.status &&
       left.mode === right.mode &&
       left.readonlyReason === right.readonlyReason &&
-      left.snapshot === right.snapshot &&
+      // The shell names documents; it never reads their writing.
+      sameHeaders(left.snapshot, right.snapshot) &&
       left.recovery === right.recovery,
   );
   const navigate = useNavigate();
@@ -290,7 +291,6 @@ function ShellBody({
     }
   });
   const sidebarRef = useRef<HTMLElement>(null);
-  const [, refreshCommandContext] = useReducer((revision: number) => revision + 1, 0);
   const blockProperties = useRef(createContextualHandlerRegistry<(key?: string) => void>());
   const pageProperties = useRef<((key?: string) => void) | null>(null);
   const pageActions = useRef<PageActions | null>(null);
@@ -485,21 +485,14 @@ function ShellBody({
       openShortcuts: () => setOverlay("shortcuts"),
       openSettings,
       createPage: () => void createPageRef.current(),
-      registerBlockProperties: (handler) => {
-        const release = blockProperties.current.register(handler);
-        refreshCommandContext();
-        return () => {
-          release();
-          refreshCommandContext();
-        };
-      },
+      // Availability is read when the palette builds its catalog, so moving
+      // the caret between blocks does not repaint the shell.
+      registerBlockProperties: (handler) => blockProperties.current.register(handler),
       setPageProperties: (handler) => {
         pageProperties.current = handler;
-        refreshCommandContext();
       },
       setPageActions: (actions) => {
         pageActions.current = actions;
-        refreshCommandContext();
       },
       availability: () => ({
         properties:
@@ -1502,7 +1495,7 @@ function ShellLoading() {
 }
 
 function DocumentNameConflicts() {
-  const snapshot = useSessionSelector((state) => state.snapshot);
+  const snapshot = useSessionSelector((state) => state.snapshot, sameHeaders);
   const { repositoryId = LOCAL_REPOSITORY_ID, graphId = "" } = useParams();
   const { message } = useI18n();
   const conflicts = snapshot.conflicts.flatMap((conflict) => {

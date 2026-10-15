@@ -234,7 +234,7 @@ export function useQueryResultEditor({
   const [active, setActive, activeRef] = useImmediateState<ActiveEdit | null>(null);
   // Re-render for the block being edited here, not for typing anywhere else in
   // the graph: every visible query owns one of these editors.
-  useContentBuffer(active?.phase === "markdown" ? active.content : null);
+  const activeBuffer = useContentBuffer(active?.phase === "markdown" ? active.content : null);
   const request = useRef(0);
   const preserveOnNextBlur = useRef(false);
   const mounted = useRef(true);
@@ -794,41 +794,74 @@ export function useQueryResultEditor({
     });
   }, [activeBlockKey, begin, commands]);
 
-  const presentedActive =
-    active?.phase === "markdown"
-      ? { ...active, draft: project(active).markdown, references: project(active).pageReferences }
-      : active;
-  return {
-    active: presentedActive,
-    activeBlock,
-    message,
-    keymap,
-    vim,
-    bindingFor,
-    bindingForDirect,
-    isActive,
-    begin,
-    setDraft,
-    setComposing,
-    setCompleting,
-    preserveDraftForPresentationChange,
-    consumePresentationChangeIntent,
-    commit,
-    cycleTask: () => {
-      const current = activeRef.current;
-      if (current?.phase !== "markdown" || current.saving) return;
-      const block = blockFrom(session.getState(), current.binding.block);
-      if (block) {
-        void commit(false, undefined, cycleTaskCommand(current.binding.block.owner, block));
-      }
-    },
-    acceptSlash,
-    acceptTag,
-    acceptPage,
-    runHistory,
-    retry,
-    cancel,
-  };
+  const presentedActive = useMemo(
+    () =>
+      active?.phase === "markdown"
+        ? { ...active, draft: project(active).markdown, references: project(active).pageReferences }
+        : active,
+    // The draft is projected from the buffer, which undo and remote edits move.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [active, project, activeBuffer],
+  );
+  const cycleTask = useCallback(() => {
+    const current = activeRef.current;
+    if (current?.phase !== "markdown" || current.saving) return;
+    const block = blockFrom(session.getState(), current.binding.block);
+    if (block) {
+      void commit(false, undefined, cycleTaskCommand(current.binding.block.owner, block));
+    }
+  }, [activeRef, commit, session]);
+  // Result views are memoized on this object, so it changes only with them.
+  return useMemo(
+    () => ({
+      active: presentedActive,
+      activeBlock,
+      message,
+      keymap,
+      vim,
+      bindingFor,
+      bindingForDirect,
+      isActive,
+      begin,
+      setDraft,
+      setComposing,
+      setCompleting,
+      preserveDraftForPresentationChange,
+      consumePresentationChangeIntent,
+      commit,
+      cycleTask,
+      acceptSlash,
+      acceptTag,
+      acceptPage,
+      runHistory,
+      retry,
+      cancel,
+    }),
+    [
+      presentedActive,
+      activeBlock,
+      message,
+      keymap,
+      vim,
+      bindingFor,
+      bindingForDirect,
+      isActive,
+      begin,
+      setDraft,
+      setComposing,
+      setCompleting,
+      preserveDraftForPresentationChange,
+      consumePresentationChangeIntent,
+      commit,
+      cycleTask,
+      acceptSlash,
+      acceptTag,
+      acceptPage,
+      runHistory,
+      retry,
+      cancel,
+    ],
+  );
 }
 
 export function QueryEditPortals({ editor }: { editor: QueryResultEditor }) {

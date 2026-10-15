@@ -442,10 +442,15 @@ loaded and no component arrives with its own look.
 
 Session publications have independent render clocks. Components subscribe to
 the smallest snapshot, outline, save, sync, presence, or canonical-revision
-selection they consume. Outline structure is flattened only when its tree,
-collapse state, or pending structural operations change; row-local drafts do not
-rebuild that projection. One contextual block menu belongs to the outline rather
-than to every mounted row.
+selection they consume. A re-read outline keeps every block whose value did not
+change, so identity marks what an edit touched. Views that name documents (the
+shell, chips, directories) compare only headers; an outline follows its own
+document; a query panel follows headers and the documents its rows come from.
+Each outline has one owner identity while mounted, and its rows re-render only
+when their own block or position changes. Outline structure is flattened only
+when its tree, collapse state, or pending structural operations change;
+row-local drafts do not rebuild that projection. One contextual block menu
+belongs to the outline rather than to every mounted row.
 
 Unbounded graph collections keep complete search and command inputs but expose a
 bounded initial DOM. Page and tag directories and query answers expand in fixed

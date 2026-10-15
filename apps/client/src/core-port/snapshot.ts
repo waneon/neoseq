@@ -169,15 +169,101 @@ export function mergePage(snapshot: GraphSnapshot, page: PageSnapshot): GraphSna
 }
 
 export function mergeOutline(snapshot: GraphSnapshot, outline: OutlineSnapshot): GraphSnapshot {
+  const current = findOutline(snapshot, outline.owner);
+  const blocks = shareBlocks(current?.blocks ?? [], outline.blocks);
+  if (current && blocks === current.blocks) return snapshot;
   return {
     ...snapshot,
     pages: snapshot.pages.map((page) =>
-      page.id === outline.owner.id ? { ...page, blocks: outline.blocks } : page,
+      page.id === outline.owner.id ? { ...page, blocks } : page,
     ),
-    tags: snapshot.tags.map((tag) =>
-      tag.id === outline.owner.id ? { ...tag, blocks: outline.blocks } : tag,
-    ),
+    tags: snapshot.tags.map((tag) => (tag.id === outline.owner.id ? { ...tag, blocks } : tag)),
   };
+}
+
+/**
+ * Whether two snapshots agree on everything outside outline contents: the
+ * headers, directory, settings, and conflicts a summary carries. Views of the
+ * graph's documents rather than their writing compare with this.
+ */
+export function sameHeaders(left: GraphSnapshot, right: GraphSnapshot): boolean {
+  if (left === right) return true;
+  return (
+    left.page_directory === right.page_directory &&
+    left.settings === right.settings &&
+    left.conflicts === right.conflicts &&
+    sameItems(
+      left.pages,
+      right.pages,
+      (a, b) =>
+        a.id === b.id && a.title === b.title && a.properties === b.properties && a.tags === b.tags,
+    ) &&
+    sameItems(
+      left.tags,
+      right.tags,
+      (a, b) =>
+        a.id === b.id &&
+        a.name === b.name &&
+        a.properties === b.properties &&
+        a.defaults === b.defaults,
+    )
+  );
+}
+
+function sameItems<T>(left: readonly T[], right: readonly T[], same: (a: T, b: T) => boolean) {
+  return (
+    left === right ||
+    (left.length === right.length && left.every((item, index) => same(item, right[index])))
+  );
+}
+
+/**
+ * Keeps every previous block whose value a re-read did not change, so views
+ * keyed on block identity re-render only what an edit touched.
+ */
+export function shareBlocks(
+  previous: readonly BlockSnapshot[],
+  next: BlockSnapshot[],
+): BlockSnapshot[] {
+  if (previous.length === 0) return next;
+  const before = new Map<string, BlockSnapshot>();
+  const remember = (blocks: readonly BlockSnapshot[]) => {
+    for (const block of blocks) {
+      before.set(block.id, block);
+      remember(block.children);
+    }
+  };
+  remember(previous);
+  const share = (
+    blocks: BlockSnapshot[],
+    prior: readonly BlockSnapshot[] | undefined,
+  ): BlockSnapshot[] => {
+    let unchanged = prior?.length === blocks.length;
+    const shared = blocks.map((block, index): BlockSnapshot => {
+      const old = before.get(block.id);
+      const children = share(block.children, old?.children);
+      const kept =
+        old &&
+        children === old.children &&
+        old.markdown === block.markdown &&
+        sameValue(old.content, block.content) &&
+        sameValue(old.page_references, block.page_references) &&
+        sameValue(old.properties, block.properties) &&
+        sameValue(old.tags, block.tags)
+          ? old
+          : children === block.children
+            ? block
+            : { ...block, children };
+      if (kept !== prior?.[index]) unchanged = false;
+      return kept;
+    });
+    return unchanged ? (prior as BlockSnapshot[]) : shared;
+  };
+  return share(next, previous);
+}
+
+function sameValue(left: unknown, right: unknown): boolean {
+  return left === right || JSON.stringify(left) === JSON.stringify(right);
 }
 
 function propertyField(bag: PropertyField[], key: string): PropertyField | undefined {
@@ -232,8 +318,20 @@ export function isDeleted(page: PageSnapshot): boolean {
   return singleValue(page.properties, "builtin.deleted-at") !== undefined;
 }
 
+const documentIndexes = new WeakMap<readonly { id: string }[], ReadonlyMap<string, unknown>>();
+
+/** Looks a document up by ID; the index lives as long as the immutable list it reads. */
+function byId<T extends { id: string }>(documents: readonly T[], id: string): T | undefined {
+  let index = documentIndexes.get(documents) as ReadonlyMap<string, T> | undefined;
+  if (!index) {
+    index = new Map(documents.map((document) => [document.id, document]));
+    documentIndexes.set(documents, index);
+  }
+  return index.get(id);
+}
+
 export function findPage(snapshot: GraphSnapshot, pageId: string): PageSnapshot | undefined {
-  return snapshot.pages.find((page) => page.id === pageId);
+  return byId(snapshot.pages, pageId);
 }
 
 export function outlineOwnerKey(owner: OutlineOwner): string {
@@ -263,11 +361,11 @@ export function findBlock(
 }
 
 export function findTag(snapshot: GraphSnapshot, tagId: string): TagSnapshot | undefined {
-  return snapshot.tags.find((tag) => tag.id === tagId);
+  return byId(snapshot.tags, tagId);
 }
 
 export function documentTitle(snapshot: GraphSnapshot, id: string): string {
-  const entry = snapshot.page_directory?.find((entry) => entry.id === id);
+  const entry = snapshot.page_directory && byId(snapshot.page_directory, id);
   if (entry) return entry.title;
   const page = findPage(snapshot, id);
   return page ? pageTitle(page) : (findTag(snapshot, id)?.name ?? id);

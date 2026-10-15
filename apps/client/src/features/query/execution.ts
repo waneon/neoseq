@@ -139,7 +139,16 @@ export class QueryExecutionStore {
       (frame) => {
         const current = this.entries.get(owner);
         if (current?.pending?.token !== token) return;
-        current.result = { signature, frame };
+        // Most re-runs after an edit elsewhere return the same answer. Keeping
+        // its value lets every view derived from it stay as it is.
+        const previous = current.result;
+        const same =
+          previous?.signature === signature &&
+          answerValue(previous.frame.result) === answerValue(frame.result);
+        current.result = {
+          signature,
+          frame: same ? { ...frame, result: previous.frame.result } : frame,
+        };
         current.error = null;
         current.pending = null;
         this.touch(owner);
@@ -209,6 +218,11 @@ export class QueryExecutionStore {
       this.versions.delete(disposable[0]);
     }
   }
+}
+
+/** An answer's rows and descriptors, without the revision that produced them. */
+function answerValue(result: QueryFrame["result"]): string {
+  return JSON.stringify({ ...result, revision: 0, frontier: "" });
 }
 
 export function queryExecutionStore(session: GraphSession): QueryExecutionStore {

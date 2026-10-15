@@ -7,6 +7,18 @@ export function useLatest<T>(value: T) {
   return current;
 }
 
+/**
+ * A function with one identity for the component's lifetime that always runs
+ * the latest render's closure. For event handlers handed to memoized children;
+ * it must not be called during render.
+ */
+export function useStableCallback<Args extends unknown[], Result>(
+  callback: (...args: Args) => Result,
+): (...args: Args) => Result {
+  const latest = useLatest(callback);
+  return useCallback((...args: Args) => latest.current(...args), [latest]);
+}
+
 /** React state whose current value is also available within the same browser event. */
 export function useImmediateState<T>(initial: T | (() => T)) {
   const [value, setValue] = useState(initial);
