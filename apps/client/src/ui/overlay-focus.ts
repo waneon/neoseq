@@ -49,7 +49,21 @@ export function restoreOverlayFocus(event: Event, owner: HTMLElement | null): vo
   focusOverlayOwner(owner);
 }
 
+const menuOwners = new WeakMap<Element, () => HTMLElement | null>();
+
+/**
+ * A ref naming where focus belongs once a menu is gone, for a menu whose
+ * trigger is a placeholder rather than the control that summoned it.
+ */
+export function menuOwnerRef(owner: () => HTMLElement | null) {
+  return (menu: Element | null) => {
+    if (menu) menuOwners.set(menu, owner);
+  };
+}
+
 export function menuFocusOwner(menu: Element | null): HTMLElement | null {
+  const owner = menu && menuOwners.get(menu);
+  if (owner) return owner();
   const triggerId = menu?.getAttribute("aria-labelledby");
   const trigger = triggerId ? document.getElementById(triggerId) : null;
   return trigger?.getAttribute("aria-haspopup") === "menu" ? trigger : null;

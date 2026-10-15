@@ -148,7 +148,7 @@ import { hasMarkdownSyntax } from "../markdown/profile";
 import { BlockBody, BlockRowFrame } from "../blocks/BlockPresentation";
 import { BlockTextArea } from "../blocks/editor/BlockTextArea";
 import { useTextAreaSize } from "@/ui/textarea-size";
-import { restoreOverlayFocus } from "@/ui/overlay-focus";
+import { menuOwnerRef, restoreOverlayFocus } from "@/ui/overlay-focus";
 import {
   caretForVerticalEntry,
   normalCaretAfterEdit,
@@ -5167,6 +5167,10 @@ function BlockMenu({
   const selectionCount = editor.selectionCount;
   const rect = measureAnchor(editor.menuAnchor);
   const focusOwner = editor.menuAnchor?.owner;
+  const textarea = () =>
+    focusOwner instanceof HTMLTextAreaElement
+      ? focusOwner
+      : document.querySelector<HTMLTextAreaElement>(`#row-${CSS.escape(row.block.id)} textarea`);
 
   return (
     <DropdownMenu
@@ -5185,6 +5189,7 @@ function BlockMenu({
         />
       </DropdownMenuTrigger>
       <DropdownMenuContent
+        ref={menuOwnerRef(textarea)}
         align="start"
         onCloseAutoFocus={(event) => {
           event.preventDefault();
@@ -5193,13 +5198,7 @@ function BlockMenu({
             return;
           }
           if (editor.focusedId !== null && editor.focusedId !== row.block.id) return;
-          const textarea =
-            focusOwner instanceof HTMLTextAreaElement
-              ? focusOwner
-              : document.querySelector<HTMLTextAreaElement>(
-                  `#row-${CSS.escape(row.block.id)} textarea`,
-                );
-          restoreOverlayFocus(event, textarea);
+          restoreOverlayFocus(event, textarea());
         }}
       >
         {selected && selectionCount > 1 ? (
