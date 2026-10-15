@@ -330,3 +330,16 @@ it("resumes a revoked member once the catalog lists the graph again", async () =
   await settle();
   expect(Socket.instances).toHaveLength(2);
 });
+
+it("withdraws a held caret as the page goes away", async () => {
+  const { agent, socket } = await start();
+  socket.open();
+  await settle();
+  socket.receive(welcome);
+  await settle();
+  await agent.publishPresence({ block_id: "block", anchor: 0, head: 0 });
+  await settle();
+  window.dispatchEvent(new Event("pagehide"));
+  const last = socket.sent.at(-1)!;
+  expect("Presence" in last && last.Presence.expires_in_ms).toBe(0);
+});

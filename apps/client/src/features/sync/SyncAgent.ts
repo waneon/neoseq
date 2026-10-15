@@ -60,7 +60,7 @@ interface SyncAgentDelegate extends WelcomeTarget {
 const MAX_RECONNECT_MS = 30_000;
 const PRESENCE_TTL_MS = 10_000;
 /** A held caret is announced again well within its TTL, which also reaches peers who joined since. */
-const PRESENCE_REFRESH_MS = 4_000;
+const PRESENCE_REFRESH_MS = 2_000;
 
 type PresenceValue = Omit<PeerPresence, "session_id" | "principal" | "username" | "expires_at">;
 const HEARTBEAT_MS = 10_000;
@@ -92,6 +92,8 @@ export class SyncAgent {
   /** This session's own caret, until it leaves the writing surface. */
   private ownPresence: PresenceValue | null = null;
   private ownPresenceSentAt = 0;
+  /** This transport's withdrawal, encoded ahead so a closing page can send it at once. */
+  private withdrawal: { socket: WebSocket; frame: ArrayBuffer } | null = null;
   private revokedCheckedAt = 0;
   private presenceTimer: ReturnType<typeof setInterval> | null = null;
   private current: SyncAgentState = {
@@ -114,6 +116,7 @@ export class SyncAgent {
     window.addEventListener("offline", this.onOffline);
     window.addEventListener("neoseq:auth-changed", this.onAuthChanged);
     document.addEventListener("visibilitychange", this.onVisible);
+    window.addEventListener("pagehide", this.onPageHide);
     this.presenceTimer = setInterval(() => {
       this.expirePresence();
       if (this.ownPresence && Date.now() - this.ownPresenceSentAt >= PRESENCE_REFRESH_MS) {
@@ -152,6 +155,7 @@ export class SyncAgent {
     window.removeEventListener("offline", this.onOffline);
     window.removeEventListener("neoseq:auth-changed", this.onAuthChanged);
     document.removeEventListener("visibilitychange", this.onVisible);
+    window.removeEventListener("pagehide", this.onPageHide);
     if (this.retryTimer) clearTimeout(this.retryTimer);
     if (this.presenceTimer) clearInterval(this.presenceTimer);
     this.abandonSocket("graph closed");
@@ -207,7 +211,26 @@ export class SyncAgent {
       },
     });
     if (this.isCurrent(socket) && socket.readyState === WebSocket.OPEN) socket.send(frame);
+    if (this.ownPresence && this.withdrawal?.socket !== socket) {
+      const withdrawal = await this.port.encodeSyncMessage({
+        Presence: {
+          expires_in_ms: 0,
+          payload: [
+            ...new TextEncoder().encode(
+              JSON.stringify({ session_id: this.transportSessionId, principal: auth.principal }),
+            ),
+          ],
+        },
+      });
+      if (this.isCurrent(socket)) this.withdrawal = { socket, frame: withdrawal };
+    }
   }
+
+  private onPageHide = () => {
+    const withdrawal = this.withdrawal;
+    if (!this.ownPresence || !withdrawal || withdrawal.socket !== this.socket) return;
+    if (withdrawal.socket.readyState === WebSocket.OPEN) withdrawal.socket.send(withdrawal.frame);
+  };
 
   private connect(): void {
     if (this.stopped || this.socket) return;
