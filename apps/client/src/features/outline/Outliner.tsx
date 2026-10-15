@@ -3430,6 +3430,11 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
           tabIndex={-1}
           onKeyDown={onSelectionKeyDown}
           onCopy={onCopySelection}
+          onCut={(event) => {
+            if (selected.size === 0 || readonly) return;
+            onCopySelection(event);
+            if (event.defaultPrevented) editor.menu.removeSelection("keyboard");
+          }}
           onPointerDownCapture={(event) => {
             const target = event.target;
             if (!(target instanceof HTMLElement)) return;
