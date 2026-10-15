@@ -20,9 +20,8 @@
 // popups; the corollary is that one value may not have two popups either.
 
 import type { BlockSnapshot, OutlineOwner } from "../../core-port/snapshot";
-import { dateValue, stringValue } from "../../core-port/snapshot";
 import { MinusIcon } from "lucide-react";
-import type { Command, PropertyChange } from "../../core-port/commands";
+import type { Command } from "../../core-port/commands";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,15 +31,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/ui/shadcn/dropdown-menu";
-import {
-  advanceDate,
-  parseRepeat,
-  TASK_DEADLINE_KEY,
-  TASK_REPEAT_KEY,
-  TASK_SCHEDULED_KEY,
-  TASK_STATUS_KEY,
-  TASK_STATUSES,
-} from "../../entities/tasks";
+import { TASK_STATUSES } from "../../entities/tasks";
+import { nextOccurrence, taskStatusCommand } from "./commands";
 import { useI18n } from "../../i18n";
 import { useNotify } from "../notify/context";
 import { useSession, useSessionSelector } from "../shell/session-context";
@@ -90,7 +82,7 @@ export function TaskStatusMenu({
   const session = useSession();
   const notify = useNotify();
   const { message, formatJournalDate } = useI18n();
-  const entity = { kind: "block", owner, id: block.id } as const;
+  const recurs = nextOccurrence(block) !== undefined;
 
   const run = async (command: Command) => {
     try {
@@ -102,55 +94,17 @@ export function TaskStatusMenu({
     }
   };
 
-  const setStatus = (value: string): Command => ({
-    type: "set_property",
-    owner: entity,
-    key: TASK_STATUS_KEY,
-    value: { type: "string", value },
-  });
-
-  const repeat = parseRepeat(stringValue(block.properties, TASK_REPEAT_KEY) ?? "");
-  const scheduled = dateValue(block.properties, TASK_SCHEDULED_KEY);
-  const deadline = dateValue(block.properties, TASK_DEADLINE_KEY);
-  const recurs = repeat !== null && (scheduled !== undefined || deadline !== undefined);
-
-  /** One completed occurrence is one property transition and one undo item. */
-  const advance = async () => {
-    if (!repeat) return;
-    const changes: PropertyChange[] = [];
-    const rolled = (key: string, date: string) => {
-      changes.push({
-        key,
-        value: { type: "date", value: advanceDate(date, repeat) },
-      });
-    };
-    if (scheduled !== undefined) rolled(TASK_SCHEDULED_KEY, scheduled);
-    if (deadline !== undefined) rolled(TASK_DEADLINE_KEY, deadline);
-    if (status !== "todo") {
-      changes.push({ key: TASK_STATUS_KEY, value: { type: "string", value: "todo" } });
-    }
-    const committed = await run({ type: "set_properties", owner: entity, changes });
-    if (!committed) return;
-    // The one visible thing a completed occurrence does is move a date the user
-    // may not be looking at, so the roll-forward says where it went.
-    const next = scheduled ?? deadline;
-    if (next !== undefined) {
-      notify.show({
-        tone: "info",
-        key: `task-repeat-${block.id}`,
-        title: message("task.repeatRolled", {
-          date: formatJournalDate(advanceDate(next, repeat)),
-        }),
-      });
-    }
-  };
-
-  const choose = (value: string) => {
-    if (value === "done" && recurs) {
-      void advance();
-      return;
-    }
-    void run(setStatus(value));
+  const choose = async (value: string) => {
+    // Completing a recurring occurrence moves a date the user may not be
+    // looking at, so the roll-forward says where it went.
+    const next = value === "done" ? nextOccurrence(block) : undefined;
+    const committed = await run(taskStatusCommand(owner, block, value));
+    if (!committed || next === undefined) return;
+    notify.show({
+      tone: "info",
+      key: `task-repeat-${block.id}`,
+      title: message("task.repeatRolled", { date: formatJournalDate(next) }),
+    });
   };
 
   // A value the core holds that is not one of the suggested four is still a
@@ -168,7 +122,7 @@ export function TaskStatusMenu({
           sitting at `done` — silently did nothing. */}
       <DropdownMenuRadioGroup value={status}>
         {options.map((option) => (
-          <DropdownMenuRadioItem key={option} value={option} onSelect={() => choose(option)}>
+          <DropdownMenuRadioItem key={option} value={option} onSelect={() => void choose(option)}>
             <TaskStatusGlyph status={option} />
             {option === "done" && recurs
               ? message("task.completeOccurrence")
@@ -179,7 +133,7 @@ export function TaskStatusMenu({
       <DropdownMenuSeparator />
       <DropdownMenuItem
         data-testid="remove-status"
-        onSelect={() => void run({ type: "remove_property", owner: entity, key: TASK_STATUS_KEY })}
+        onSelect={() => void run(taskStatusCommand(owner, block, undefined))}
       >
         <MinusIcon aria-hidden />
         {message("task.removeStatus")}
