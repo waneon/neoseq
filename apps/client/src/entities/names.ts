@@ -39,3 +39,8 @@ export function namedDocuments(snapshot: GraphSnapshot): PageDirectoryEntry[] {
     );
   return [...entries.values()];
 }
+
+/** Whether a document with this ID existed and was deleted, so it can be restored. */
+export function wasDeleted(snapshot: GraphSnapshot, id: string): boolean {
+  return (snapshot.page_directory ?? []).some((entry) => entry.id === id && entry.deleted);
+}

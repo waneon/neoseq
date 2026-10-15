@@ -4,7 +4,7 @@ import { Navigate, useNavigate, useParams } from "react-router";
 import { FolderIcon, InfoIcon, MoreHorizontalIcon, PaletteIcon, Trash2Icon } from "lucide-react";
 import type { TagSnapshot } from "../../core-port/snapshot";
 import { findTag, outlineOwnerKey, queryDocument, stringValue } from "../../core-port/snapshot";
-import { canonicalEntityName, namedDocuments } from "../../entities/names";
+import { canonicalEntityName, namedDocuments, wasDeleted } from "../../entities/names";
 import { configuredTimezone } from "../../entities/journal";
 import { tagPlan } from "../../entities/query-plan";
 import { tagGroup } from "../../entities/tag-identity";
@@ -77,7 +77,7 @@ export function TagView() {
         detail={message("tags.missingDetail")}
         graphId={graphId}
         actions={
-          state.mode !== "readonly" ? (
+          state.mode !== "readonly" && wasDeleted(state.snapshot, tagId) ? (
             <Button
               data-testid="restore-tag"
               onClick={() =>

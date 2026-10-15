@@ -1,4 +1,5 @@
 import { EntityKindMenuItem } from "./EntityKindMenuItem";
+import { wasDeleted } from "../../entities/names";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router";
 import { InfoIcon, MoreHorizontalIcon, Settings2Icon, Trash2Icon } from "lucide-react";
@@ -93,6 +94,8 @@ export function PageView() {
 function MissingTombstone({ graphId, pageId }: { graphId: string; pageId: string }) {
   const session = useSession();
   const readonly = useSessionSelector((state) => state.mode === "readonly");
+  // Only a deleted page can come back; an address that never named one cannot.
+  const deleted = useSessionSelector((state) => wasDeleted(state.snapshot, pageId));
   const notify = useNotify();
   const { message } = useI18n();
   return (
@@ -101,7 +104,7 @@ function MissingTombstone({ graphId, pageId }: { graphId: string; pageId: string
       detail={message("page.missingDetail")}
       graphId={graphId}
       actions={
-        !readonly ? (
+        !readonly && deleted ? (
           <Button
             data-testid="restore-page"
             onClick={() =>
