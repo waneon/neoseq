@@ -71,7 +71,11 @@ import {
   type BlockTagOption,
 } from "../blocks/editor/BlockCompletions";
 import { preparePageCompletion } from "../blocks/editor/completion-edit";
-import { useContentSessions, type BlockContentSession } from "../blocks/editor/content-session";
+import {
+  contentSessionsFor,
+  useContentBuffer,
+  type BlockContentSession,
+} from "../blocks/editor/content-session";
 import {
   bufferCommand,
   bufferIsClean,
@@ -223,11 +227,14 @@ export function useQueryResultEditor({
 }): QueryResultEditor {
   const commands = useCommands();
   const history = useHistoryActions();
-  const contentSessions = useContentSessions(session);
+  const contentSessions = contentSessionsFor(session);
   const notify = useNotify();
   const keymap = useEditorKeymap();
   const vim = useVimSession(keymap === "vim");
   const [active, setActive, activeRef] = useImmediateState<ActiveEdit | null>(null);
+  // Re-render for the block being edited here, not for typing anywhere else in
+  // the graph: every visible query owns one of these editors.
+  useContentBuffer(active?.phase === "markdown" ? active.content : null);
   const request = useRef(0);
   const preserveOnNextBlur = useRef(false);
   const mounted = useRef(true);

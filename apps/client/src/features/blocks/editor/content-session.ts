@@ -445,6 +445,13 @@ export function useContentSessions(graph: GraphSession, owner?: OutlineOwner): C
   return sessions;
 }
 
-export function useContentBuffer(target: BlockContentSession): ContentBuffer | undefined {
-  return useSyncExternalStore(target.subscribe, target.getSnapshot, target.getSnapshot);
+const noSubscription = () => () => {};
+const noBuffer = () => undefined;
+
+export function useContentBuffer(target: BlockContentSession | null): ContentBuffer | undefined {
+  return useSyncExternalStore(
+    target?.subscribe ?? noSubscription,
+    target?.getSnapshot ?? noBuffer,
+    target?.getSnapshot ?? noBuffer,
+  );
 }

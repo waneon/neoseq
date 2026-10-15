@@ -1,5 +1,5 @@
 import { useMemo, useSyncExternalStore } from "react";
-import { nowLocalTime, todayLocalDate } from "../../entities/journal";
+import { forgetSystemTimezone, nowLocalTime, todayLocalDate } from "../../entities/journal";
 import { subscribeAppSettings } from "../../entities/settings";
 import { useConfiguredTimezone } from "../settings/preferences";
 
@@ -10,6 +10,7 @@ const currentMinute = () => Math.floor(Date.now() / MINUTE_MS);
 
 function tick() {
   clearTimeout(timer);
+  forgetSystemTimezone();
   for (const listener of listeners) listener();
   if (listeners.size > 0) timer = setTimeout(tick, MINUTE_MS - (Date.now() % MINUTE_MS));
 }
