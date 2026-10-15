@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { listGraphs, registerRemoteCatalog, type GraphSummary } from "../../core-port/directory";
+import {
+  listGraphs,
+  registerRemoteCatalog,
+  subscribeGraphDirectory,
+  type GraphSummary,
+} from "../../core-port/directory";
 import type { Repository } from "../repositories/directory";
 import { listRemoteGraphs, RemoteApiError } from "../sync/api";
 import { clearAuthSession, readAuthSession } from "../sync/auth";
@@ -134,6 +139,16 @@ export function useRepositoryCatalogs(selected: Repository | undefined) {
     if (!selected || requests.current.has(selected.id)) return;
     refresh(selected);
   }, [refresh, selected]);
+
+  // Another tab creating, renaming or deleting a local graph changes this list.
+  // A remote catalog comes from its server, and loading it writes the directory.
+  useEffect(
+    () =>
+      subscribeGraphDirectory(() => {
+        if (selected?.kind === "local") refresh(selected);
+      }),
+    [refresh, selected],
+  );
 
   useEffect(
     () => () => {

@@ -422,8 +422,9 @@ shared mutable graph store.
 locale, journal timezone/date format, shortcut overrides, and the presentation
 preferences that tint the outline thread and the task moment chips. A pre-v4
 default-query field remains only as a one-way import bridge. Graph display names
-belong to the browser graph directory; graph content, settings, and metadata
-belong to the core.
+belong to the browser graph directory, one storage key per graph so tabs never
+overwrite each other's entries; graph content, settings, and metadata belong to
+the core.
 
 A colour preference stores the _name_ of a tone declared in `ui/app.css`, never a
 colour. The surface carries that name as a `data-palette` attribute and CSS resolves

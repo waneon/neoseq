@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../src/core-port/directory", () => ({
   listGraphs: mocks.listGraphs,
   registerRemoteCatalog: mocks.registerRemoteCatalog,
+  subscribeGraphDirectory: () => () => {},
 }));
 vi.mock("../../src/features/sync/api", async (original) => ({
   ...(await original<typeof import("../../src/features/sync/api")>()),

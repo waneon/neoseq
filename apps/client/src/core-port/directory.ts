@@ -44,46 +44,85 @@ interface DirectoryEntry {
   status?: "active" | "read_only";
 }
 
-const DIRECTORY_KEY = "neoseq.graph-directory.v2";
+/** One key per graph: tabs registering or renaming different graphs at once
+ * write different keys and cannot overwrite each other's entries. */
+const ENTRY_PREFIX = "neoseq.graph-directory.v3:";
+const SHARED_DIRECTORY_KEY = "neoseq.graph-directory.v2";
 const LEGACY_DIRECTORY_KEY = "neoseq.graph-directory.v1";
 
 function entryKey(ref: GraphRef): string {
   return JSON.stringify([ref.repository_id, ref.graph_id]);
 }
 
-function readEntries(): Record<string, DirectoryEntry> {
-  try {
-    const raw = localStorage.getItem(DIRECTORY_KEY);
-    if (raw) return JSON.parse(raw) as Record<string, DirectoryEntry>;
-    const legacyRaw = localStorage.getItem(LEGACY_DIRECTORY_KEY);
-    if (!legacyRaw) return {};
-    const legacy = JSON.parse(legacyRaw) as Record<
+/** Moves the earlier single-key directories into per-graph keys once. */
+function splitSharedDirectory(): void {
+  const shared = localStorage.getItem(SHARED_DIRECTORY_KEY);
+  const legacy = localStorage.getItem(LEGACY_DIRECTORY_KEY);
+  if (shared === null && legacy === null) return;
+  const entries: DirectoryEntry[] = [];
+  if (shared !== null) {
+    entries.push(...Object.values(JSON.parse(shared) as Record<string, DirectoryEntry>));
+  } else {
+    const old = JSON.parse(legacy!) as Record<
       string,
       { name: string; created_at: string; kind?: "local" | "remote" }
     >;
-    const migrated: Record<string, DirectoryEntry> = {};
-    for (const [graphId, entry] of Object.entries(legacy)) {
+    for (const [graphId, entry] of Object.entries(old)) {
       // Old remote connections were origin-scoped and cannot be assigned to a
       // repository account safely. Their durable replicas remain discoverable
       // from Worker metadata; only trustworthy local display names migrate.
       if (entry.kind === "remote") continue;
-      const next: DirectoryEntry = {
+      entries.push({
         repository_id: LOCAL_REPOSITORY_ID,
         graph_id: graphId,
         name: entry.name,
         created_at: entry.created_at,
-      };
-      migrated[entryKey(next)] = next;
+      });
     }
-    localStorage.setItem(DIRECTORY_KEY, JSON.stringify(migrated));
-    return migrated;
+  }
+  for (const entry of entries) {
+    const key = ENTRY_PREFIX + entryKey(entry);
+    if (localStorage.getItem(key) === null) localStorage.setItem(key, JSON.stringify(entry));
+  }
+  localStorage.removeItem(SHARED_DIRECTORY_KEY);
+  localStorage.removeItem(LEGACY_DIRECTORY_KEY);
+}
+
+function readEntries(): Record<string, DirectoryEntry> {
+  const entries: Record<string, DirectoryEntry> = {};
+  try {
+    splitSharedDirectory();
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (!key?.startsWith(ENTRY_PREFIX)) continue;
+      const raw = localStorage.getItem(key);
+      if (raw) entries[key.slice(ENTRY_PREFIX.length)] = JSON.parse(raw) as DirectoryEntry;
+    }
   } catch {
-    return {};
+    // An unreadable directory names graphs by ID; their replicas remain.
+  }
+  return entries;
+}
+
+function readEntry(ref: GraphRef): DirectoryEntry | undefined {
+  try {
+    splitSharedDirectory();
+    const raw = localStorage.getItem(ENTRY_PREFIX + entryKey(ref));
+    return raw ? (JSON.parse(raw) as DirectoryEntry) : undefined;
+  } catch {
+    return undefined;
   }
 }
 
-function writeEntries(entries: Record<string, DirectoryEntry>): void {
-  localStorage.setItem(DIRECTORY_KEY, JSON.stringify(entries));
+function writeEntries(entries: readonly DirectoryEntry[]): void {
+  for (const entry of entries) {
+    localStorage.setItem(ENTRY_PREFIX + entryKey(entry), JSON.stringify(entry));
+  }
+  for (const listener of listeners) listener();
+}
+
+function removeEntry(ref: GraphRef): void {
+  localStorage.removeItem(ENTRY_PREFIX + entryKey(ref));
   for (const listener of listeners) listener();
 }
 
@@ -96,7 +135,7 @@ export function subscribeGraphDirectory(listener: () => void): () => void {
 
 if (typeof window !== "undefined") {
   window.addEventListener("storage", (event) => {
-    if (event.key !== null && event.key !== DIRECTORY_KEY) return;
+    if (event.key !== null && !event.key.startsWith(ENTRY_PREFIX)) return;
     for (const listener of listeners) listener();
   });
 }
@@ -120,18 +159,16 @@ export function registerRemoteCatalog(
   repositoryId: string,
   graphs: ReadonlyArray<Pick<GraphSummary, "id" | "name" | "created_at" | "role" | "status">>,
 ): void {
-  const entries = readEntries();
-  for (const graph of graphs) {
-    const ref = { repository_id: repositoryId, graph_id: graph.id };
-    entries[entryKey(ref)] = {
-      ...ref,
+  writeEntries(
+    graphs.map((graph) => ({
+      repository_id: repositoryId,
+      graph_id: graph.id,
       name: graph.name.trim(),
       created_at: graph.created_at,
       role: graph.role,
       status: graph.status,
-    };
-  }
-  writeEntries(entries);
+    })),
+  );
 }
 
 function registerGraphEntry(
@@ -141,15 +178,15 @@ function registerGraphEntry(
   createdAt: string,
   access?: Pick<GraphSummary, "role" | "status">,
 ): GraphSummary {
-  const entries = readEntries();
-  const ref = { repository_id: repositoryId, graph_id: id };
-  entries[entryKey(ref)] = {
-    ...ref,
-    name: name.trim(),
-    created_at: createdAt,
-    ...access,
-  };
-  writeEntries(entries);
+  writeEntries([
+    {
+      repository_id: repositoryId,
+      graph_id: id,
+      name: name.trim(),
+      created_at: createdAt,
+      ...access,
+    },
+  ]);
   return {
     id,
     repository_id: repositoryId,
@@ -166,16 +203,16 @@ export function renameGraph(first: string, second: string, third?: string): void
   const repositoryId = third === undefined ? LOCAL_REPOSITORY_ID : first;
   const id = third === undefined ? first : second;
   const name = third === undefined ? second : third;
-  const entries = readEntries();
   const ref = { repository_id: repositoryId, graph_id: id };
-  const key = entryKey(ref);
-  entries[key] = {
-    ...entries[key],
-    ...ref,
-    name: name.trim(),
-    created_at: entries[key]?.created_at ?? new Date().toISOString(),
-  };
-  writeEntries(entries);
+  const existing = readEntry(ref);
+  writeEntries([
+    {
+      ...existing,
+      ...ref,
+      name: name.trim(),
+      created_at: existing?.created_at ?? new Date().toISOString(),
+    },
+  ]);
 }
 
 export function graphName(id: string): string;
@@ -185,7 +222,7 @@ export function graphName(first: string, second?: string): string {
     repository_id: second === undefined ? LOCAL_REPOSITORY_ID : first,
     graph_id: second === undefined ? first : second,
   };
-  return readEntries()[entryKey(ref)]?.name ?? ref.graph_id;
+  return readEntry(ref)?.name ?? ref.graph_id;
 }
 
 export function graphConnection(
@@ -194,7 +231,7 @@ export function graphConnection(
 ): RemoteGraphConnection | null {
   const repository = findRepository(repositoryId);
   if (repository?.kind !== "remote") return null;
-  const entry = readEntries()[entryKey({ repository_id: repositoryId, graph_id: graphId })];
+  const entry = readEntry({ repository_id: repositoryId, graph_id: graphId });
   return {
     repository_id: repository.id,
     server_url: repository.origin,
@@ -207,7 +244,7 @@ export function graphConnection(
 
 /** Whether this browser holds the local graph, by its directory entry or its stored data. */
 export async function localGraphExists(id: string): Promise<boolean> {
-  if (readEntries()[entryKey({ repository_id: LOCAL_REPOSITORY_ID, graph_id: id })]) return true;
+  if (readEntry({ repository_id: LOCAL_REPOSITORY_ID, graph_id: id })) return true;
   const worker = new CoreWorker();
   try {
     return (await worker.listGraphs()).some(
@@ -279,9 +316,7 @@ export async function deleteGraph(first: string, second?: string): Promise<void>
       worker.terminate();
     }
   });
-  const entries = readEntries();
-  delete entries[entryKey(ref)];
-  writeEntries(entries);
+  removeEntry(ref);
 }
 
 export async function exportGraphArchive(
