@@ -1393,7 +1393,7 @@ export function resultColumns(
       const ordering = orderSemanticsForColumn(column, types);
       return {
         variable: column.id,
-        label: columnLabel(column, select.subject, message),
+        label: columnLabel(column, select.subject, message, types),
         source: column.source,
         aggregate: column.aggregate,
         timeColumn: column.time_column,

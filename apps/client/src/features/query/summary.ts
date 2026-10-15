@@ -118,7 +118,11 @@ export function conditionPhrase(
   }
   return {
     field: fieldLabel(condition.field, subject, message),
-    operator: operatorLabel(condition.op, message),
+    operator: operatorLabel(
+      condition.op,
+      message,
+      fieldType(condition.field, graphPropertyTypes(context.snapshot)),
+    ),
     value,
   };
 }

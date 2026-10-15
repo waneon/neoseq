@@ -385,6 +385,8 @@ export interface MessageArgumentMap {
   "query.aggregate.count": undefined;
   "query.aggregate.max": undefined;
   "query.aggregate.min": undefined;
+  "query.aggregate.number.max": undefined;
+  "query.aggregate.number.min": undefined;
   "query.aggregate.sum": undefined;
   "query.aggregateOf": { readonly "aggregate": string | number; readonly "field": string | number };
   "query.and": undefined;
@@ -470,6 +472,10 @@ export interface MessageArgumentMap {
   "query.op.lte": undefined;
   "query.op.not_contains": undefined;
   "query.op.not_equals": undefined;
+  "query.op.number.gt": undefined;
+  "query.op.number.gte": undefined;
+  "query.op.number.lt": undefined;
+  "query.op.number.lte": undefined;
   "query.op.starts_with": undefined;
   "query.openEmptyResult": undefined;
   "query.openResult": { readonly "name": string | number };

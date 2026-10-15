@@ -31,6 +31,7 @@ import {
   emptyGroup,
   fieldKindsFor,
   fieldType,
+  sourceType,
   graphPropertyKeys,
   queryFieldId,
   queryFieldsFor,
@@ -257,7 +258,7 @@ function SummaryColumns({
                 : [{ value: "group", label: message("query.groupBy") }]),
               ...aggregatesFor(column.source, propertyTypes).map((aggregate) => ({
                 value: aggregate,
-                label: aggregateLabel(aggregate, message),
+                label: aggregateLabel(aggregate, message, sourceType(column.source, propertyTypes)),
               })),
             ]}
             onValueChange={(value) =>
@@ -691,7 +692,11 @@ function FilterRow({
               testId="qb-operator"
               options={operatorsFor(condition.field, context.propertyTypes).map((op) => ({
                 value: op,
-                label: operatorLabel(op, message),
+                label: operatorLabel(
+                  op,
+                  message,
+                  fieldType(condition.field, context.propertyTypes),
+                ),
               }))}
               onValueChange={(value) => {
                 const op = value as PlanCondition["op"];

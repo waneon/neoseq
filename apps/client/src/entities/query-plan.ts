@@ -197,14 +197,15 @@ export function operatorsFor(field: PlanField, types?: PropertyTypes): PlanOpera
   return TEXT_OPERATORS;
 }
 
+/** The value type a column reads, where it has one beyond an entity or text. */
+export function sourceType(source: PlanColumnSource, types?: PropertyTypes): PlanFieldType | null {
+  if (source.kind === "sibling_index") return "integer";
+  return source.kind === "property" ? fieldType(source, types) : null;
+}
+
 /** What a summary can compute over a column: counting fits any value; arithmetic only numbers; extremes numbers and dates. */
 export function aggregatesFor(source: PlanColumnSource, types?: PropertyTypes): PlanAggregate[] {
-  const type =
-    source.kind === "sibling_index"
-      ? "integer"
-      : source.kind === "property"
-        ? fieldType(source, types)
-        : null;
+  const type = sourceType(source, types);
   if (type === "number" || type === "integer") return ["count", "sum", "avg", "min", "max"];
   if (type === "date") return ["count", "min", "max"];
   return ["count"];

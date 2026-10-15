@@ -10,15 +10,18 @@ import type { QueryAnswer } from "./execution";
 import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
 import { propertyDisplayName } from "../properties/property-display";
 import { priorityLabel, statusLabel } from "../tasks/labels";
-import type {
-  PlanAggregate,
-  PlanColumn,
-  PlanColumnSource,
-  PlanField,
-  PlanFieldKind,
-  PlanOperator,
-  PlanRelativeDate,
-  PlanSubject,
+import {
+  sourceType,
+  type PlanAggregate,
+  type PlanColumn,
+  type PlanColumnSource,
+  type PlanField,
+  type PlanFieldKind,
+  type PlanFieldType,
+  type PlanOperator,
+  type PlanRelativeDate,
+  type PlanSubject,
+  type PropertyTypes,
 } from "../../entities/query-plan";
 
 export function subjectLabel(subject: PlanSubject, message: MessageFunction): string {
@@ -58,9 +61,19 @@ export function fieldLabel(
   return fieldKindLabel(field.kind, subject, message);
 }
 
-export function operatorLabel(op: PlanOperator, message: MessageFunction): string {
+/** Ordering reads as before and after for a date and as more and less for a number. */
+export function operatorLabel(
+  op: PlanOperator,
+  message: MessageFunction,
+  type?: PlanFieldType | null,
+): string {
+  if ((type === "number" || type === "integer") && NUMBER_ORDER.has(op)) {
+    return message(`query.op.number.${op}` as `query.op.number.${"gt" | "gte" | "lt" | "lte"}`);
+  }
   return message(`query.op.${op}` as `query.op.${typeof op}`);
 }
+
+const NUMBER_ORDER = new Set<PlanOperator>(["gt", "gte", "lt", "lte"]);
 
 /** A stored choice reads the way its own feature writes it, never as raw text. */
 export function choiceLabel(key: string, choice: string, message: MessageFunction): string {
@@ -86,7 +99,14 @@ export function columnSourceLabel(
   );
 }
 
-export function aggregateLabel(aggregate: PlanAggregate, message: MessageFunction): string {
+export function aggregateLabel(
+  aggregate: PlanAggregate,
+  message: MessageFunction,
+  type?: PlanFieldType | null,
+): string {
+  if ((type === "number" || type === "integer") && (aggregate === "min" || aggregate === "max")) {
+    return message(`query.aggregate.number.${aggregate}`);
+  }
   return message(`query.aggregate.${aggregate}` as `query.aggregate.${typeof aggregate}`);
 }
 
@@ -95,12 +115,13 @@ export function columnLabel(
   column: PlanColumn,
   subject: PlanSubject,
   message: MessageFunction,
+  types?: PropertyTypes,
 ): string {
   if (column.label && column.label.trim().length > 0) return column.label;
   const base = columnSourceLabel(column.source, subject, message);
   if (!column.aggregate) return base;
   return message("query.aggregateOf", {
-    aggregate: aggregateLabel(column.aggregate, message),
+    aggregate: aggregateLabel(column.aggregate, message, sourceType(column.source, types)),
     field: base,
   });
 }
