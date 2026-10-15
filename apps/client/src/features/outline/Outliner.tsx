@@ -4565,7 +4565,13 @@ function projectPendingOperations(
     const sourceIndex = result.findIndex((row) => row.block.id === entry.anchorId);
     if (sourceIndex < 0) continue;
     const source = result[sourceIndex];
-    if (entry.kind === "split") content.set(entry.anchorId, entry.source);
+    // A split at the start leaves the anchor's text whole and the caret in it,
+    // so input that races the acknowledgement shows there.
+    if (entry.kind === "split")
+      content.set(
+        entry.anchorId,
+        (entry.mode === "before" && drafts.get(entry.anchorId)) || entry.source,
+      );
     let insertAt = entry.mode === "before" ? sourceIndex : sourceIndex + 1;
     if (entry.mode === "sibling") {
       while (insertAt < result.length && result[insertAt].depth > source.depth) insertAt += 1;
