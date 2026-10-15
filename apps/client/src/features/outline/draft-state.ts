@@ -26,9 +26,11 @@ interface PendingCreationOperationBase extends PendingOutlineOperationBase {
   mode: "before" | "child" | "sibling";
   /** Authoritative content expected on the newly created block. */
   created: InlineContentProjection;
-  /** Indent/outdent keys typed before the real id arrived. */
-  structural: readonly ("indent" | "outdent")[];
+  /** Outline keys pressed before the real id arrived, replayed in order. */
+  deferred: readonly DeferredOutlineKey[];
 }
+
+export type DeferredOutlineKey = "indent" | "outdent" | "up" | "down" | "undo" | "redo";
 
 export interface PendingInsertOperation extends PendingCreationOperationBase {
   kind: "insert";
@@ -121,7 +123,7 @@ export type OutlineDraftAction =
   | { type: "discard-head"; tempId: string }
   | { type: "complete-merge"; id: string }
   | { type: "fail-merge"; id: string }
-  | { type: "queue-structural"; tempId: string; kind: "indent" | "outdent" }
+  | { type: "defer-key"; tempId: string; key: DeferredOutlineKey }
   | { type: "abandon-pending" };
 
 function without<K, V>(source: ReadonlyMap<K, V>, keys: readonly K[]): Map<K, V> {
@@ -253,12 +255,12 @@ export function applyOutlineDraftAction(
         pendingOperations: state.pendingOperations.slice(1),
       };
     }
-    case "queue-structural":
+    case "defer-key":
       return {
         ...state,
         pendingOperations: state.pendingOperations.map((operation) =>
           operation.kind !== "merge" && operation.tempId === action.tempId
-            ? { ...operation, structural: [...operation.structural, action.kind] }
+            ? { ...operation, deferred: [...operation.deferred, action.key] }
             : operation,
         ),
       };

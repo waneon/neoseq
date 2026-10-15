@@ -44,7 +44,7 @@ describe("outline draft state", () => {
       mode: "sibling" as const,
       created: { markdown: "next", pageReferences: [] },
       dispatched: false,
-      structural: [],
+      deferred: [],
     };
     let state = outlineDraftReducer(initialOutlineDraftState, {
       type: "enqueue",
@@ -101,7 +101,7 @@ describe("outline draft state", () => {
         mode: "sibling",
         created: { markdown: "lost", pageReferences: [] },
         dispatched: false,
-        structural: [],
+        deferred: [],
       },
     });
     state = outlineDraftReducer(state, { type: "abandon-pending" });
@@ -122,7 +122,7 @@ describe("outline draft state", () => {
         mode: "sibling",
         created: { markdown: "typed", pageReferences: [] },
         dispatched: true,
-        structural: [],
+        deferred: [],
       },
     });
 
@@ -178,7 +178,7 @@ describe("outline draft state", () => {
       mode: "sibling" as const,
       created: { markdown: "tail", pageReferences: [] },
       dispatched: true,
-      structural: [],
+      deferred: [],
     };
     let state = outlineDraftReducer(initialOutlineDraftState, {
       type: "enqueue",

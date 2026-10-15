@@ -107,6 +107,7 @@ import {
 } from "./interaction-state";
 import {
   useOutlineDraftState,
+  type DeferredOutlineKey,
   type OutlineDraftAction,
   type PendingCreationOperation,
   type PendingOutlineOperation,
@@ -398,7 +399,7 @@ interface EditorContext {
     textarea: HTMLTextAreaElement,
     inputMethod: InputMethod,
   ): void;
-  queuePendingStructural(tempId: string, kind: "indent" | "outdent"): void;
+  deferPendingKey(tempId: string, key: DeferredOutlineKey): void;
   runVimStructure(
     kind: "delete" | "indent" | "outdent",
     row: OutlineRow,
@@ -1301,10 +1302,10 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
         const pendingCreation = readDraftState().pendingOperations.find(
           (operation) => operation.kind !== "merge" && operation.tempId === head.tempId,
         );
-        const structural =
+        const deferred =
           pendingCreation && pendingCreation.kind !== "merge"
-            ? pendingCreation.structural
-            : head.structural;
+            ? pendingCreation.deferred
+            : head.deferred;
         const typed = readDraft(head.tempId)?.markdown ?? head.created.markdown;
         const wasFocused = focusedRef.current === head.tempId;
         const active = document.activeElement;
@@ -1414,24 +1415,36 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
             if (composing.current) scheduleFlush(realId);
             else flushNow(realId);
           }
-          // Structural keys typed before acknowledgement replay in order and
-          // must reconcile before the next pending insert computes its
-          // parent/index from the snapshot.
-          for (const kind of structural) {
-            await session
-              .execute({
-                type: kind === "indent" ? "indent_blocks" : "outdent_blocks",
-                owner: ownerRef.current,
-                block_ids: [realId],
-              })
-              .catch((error: unknown) => {
-                notify.failure(
-                  kind === "indent"
-                    ? message("failure.indentBlock")
-                    : message("failure.outdentBlock"),
-                  error,
+          // Keys pressed before acknowledgement replay in order and must
+          // reconcile before the next pending insert computes its parent/index
+          // from the snapshot.
+          for (const key of deferred) {
+            if (key === "undo" || key === "redo") {
+              if (!(await flushNow(realId))) break;
+              await history
+                .run(key, { kind: "outline", owner: ownerRef.current, blockId: realId })
+                .catch((error: unknown) =>
+                  notify.failure(message(key === "undo" ? "failure.undo" : "failure.redo"), error),
                 );
-              });
+              continue;
+            }
+            const rows = flattenOutline(
+              findOutline(session.getState().snapshot, ownerRef.current) ?? outlineRef.current,
+              collapsedRef.current,
+            );
+            const row = rows.find((entry) => entry.block.id === realId);
+            const command: Command | null | undefined =
+              key === "indent" || key === "outdent"
+                ? {
+                    type: key === "indent" ? "indent_blocks" : "outdent_blocks",
+                    owner: ownerRef.current,
+                    block_ids: [realId],
+                  }
+                : row && siblingMove(rows, row, key === "up" ? -1 : 1, ownerRef.current);
+            if (!command) continue;
+            await session.execute(command).catch((error: unknown) => {
+              notify.failure(message(DEFERRED_KEY_FAILURE[key]), error);
+            });
           }
         } else {
           dispatchDraft({ type: "discard-head", tempId: head.tempId });
@@ -1450,6 +1463,7 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
     commitDraftWith,
     dispatchDraft,
     flushNow,
+    history,
     message,
     notify,
     retainAppliedResult,
@@ -2781,7 +2795,7 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
             mode,
             created: EMPTY_PROJECTION,
             dispatched: false,
-            structural: [],
+            deferred: [],
           },
         });
         // The block is created empty and its content is typed input, so a
@@ -2817,7 +2831,7 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
             source: leading ? tail : head,
             created: leading ? head : tail,
             dispatched: false,
-            structural: [],
+            deferred: [],
           },
         });
         activateBlock(tempId, 0, inputMethod);
@@ -2894,8 +2908,8 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
       });
       dispatchPending();
     },
-    queuePendingStructural: (tempId, kind) => {
-      dispatchDraft({ type: "queue-structural", tempId, kind });
+    deferPendingKey: (tempId, key) => {
+      dispatchDraft({ type: "defer-key", tempId, key });
     },
     runVimStructure: (kind, row, allRows, count) => {
       if (readonly || isPendingId(row.block.id)) return;
@@ -3007,23 +3021,12 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
       },
       move: (row, delta) => {
         flushNow(row.block.id);
-        const target = row.index + delta;
-        if (target < 0 || target >= row.siblingCount) return;
-        const stationary = rowsRef.current.filter(
-          (candidate) => candidate.parentId === row.parentId && candidate.block.id !== row.block.id,
-        );
-        const after = target === 0 ? null : stationary[target - 1]?.block.id;
-        if (target > 0 && after === undefined) return;
-        void run(
-          {
-            type: "move_blocks",
-            block_ids: [row.block.id],
-            owner,
-            parent: row.parentId,
-            after: after ?? null,
-          },
-          delta < 0 ? message("failure.moveBlockUp") : message("failure.moveBlockDown"),
-        );
+        const command = siblingMove(rowsRef.current, row, delta, owner);
+        if (command)
+          void run(
+            command,
+            delta < 0 ? message("failure.moveBlockUp") : message("failure.moveBlockDown"),
+          );
       },
       remove: (row, allRows) => {
         const position = rowIndexOf(allRows, row.block.id);
@@ -3673,13 +3676,13 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
           onIndent={() => {
             if (composing.current) return;
             if (isPendingId(editingRow.block.id)) {
-              editor.queuePendingStructural(editingRow.block.id, "indent");
+              editor.deferPendingKey(editingRow.block.id, "indent");
             } else editor.menu.indent(editingRow);
           }}
           onOutdent={() => {
             if (composing.current) return;
             if (isPendingId(editingRow.block.id)) {
-              editor.queuePendingStructural(editingRow.block.id, "outdent");
+              editor.deferPendingKey(editingRow.block.id, "outdent");
             } else editor.menu.outdent(editingRow);
           }}
           onMenu={(trigger) => {
@@ -4037,12 +4040,20 @@ function onKeyDown(
   }
   if (handleCodeKey(editor, row, rows, event)) return;
   if (editor.keymap === "vim" && handleOutlineVim(editor, row, rows, event)) return;
-  // Pending rows accept text and the core outline idioms (Enter, Tab)
-  // until the insert is acknowledged; other structural keys are ignored.
+  // Pending rows accept text and Enter until the insert is acknowledged; Tab,
+  // moves and history wait for the real id. Other structural keys are ignored.
   if (isPendingId(row.block.id)) {
+    const history = bindingMatches(event, bindings.redo)
+      ? "redo"
+      : bindingMatches(event, bindings.undo)
+        ? "undo"
+        : null;
     if (event.key === "Tab") {
       event.preventDefault();
-      editor.queuePendingStructural(row.block.id, event.shiftKey ? "outdent" : "indent");
+      editor.deferPendingKey(row.block.id, event.shiftKey ? "outdent" : "indent");
+    } else if (history) {
+      event.preventDefault();
+      if (!editor.readonly) editor.deferPendingKey(row.block.id, history);
     } else if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       if (!editor.readonly) handleEnter(editor, row, event.currentTarget);
@@ -4056,8 +4067,9 @@ function onKeyDown(
         editor.mergeBackward(row, rows, event.currentTarget, "keyboard");
       }
     } else if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
-      // Moves need a real id; swallow only the structural cases.
       event.preventDefault();
+      if (!editor.readonly)
+        editor.deferPendingKey(row.block.id, event.key === "ArrowUp" ? "up" : "down");
     }
     return;
   }
@@ -4515,6 +4527,30 @@ function handleEnter(editor: EditorContext, row: OutlineRow, textarea: HTMLTextA
   // Enter at the very start opens a line above; the caret stays at the start
   // of the text, which moved down with its block.
   if (boundary.index === 0) editor.activateBlock(id, 0, "keyboard");
+}
+
+const DEFERRED_KEY_FAILURE = {
+  indent: "failure.indentBlock",
+  outdent: "failure.outdentBlock",
+  up: "failure.moveBlockUp",
+  down: "failure.moveBlockDown",
+} as const;
+
+/** Moves a block one place among its siblings; nothing past either end. */
+function siblingMove(
+  rows: readonly OutlineRow[],
+  row: OutlineRow,
+  delta: number,
+  owner: OutlineOwner,
+): Command | null {
+  const target = row.index + delta;
+  if (target < 0 || target >= row.siblingCount) return null;
+  const stationary = rows.filter(
+    (candidate) => candidate.parentId === row.parentId && candidate.block.id !== row.block.id,
+  );
+  const after = target === 0 ? null : stationary[target - 1]?.block.id;
+  if (after === undefined) return null;
+  return { type: "move_blocks", block_ids: [row.block.id], owner, parent: row.parentId, after };
 }
 
 interface PendingOutlineProjection {
