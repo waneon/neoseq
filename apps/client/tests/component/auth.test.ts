@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearAuthSession,
   readAuthSession,
+  signOut,
   validateAuthSession,
   writeAuthSession,
   type AuthSession,
@@ -89,5 +90,20 @@ describe("remote authentication storage", () => {
       token: remembered.token,
     });
     expect(localStorage.getItem(KEY)).toContain(remembered.token);
+  });
+
+  it("revokes the server session when signing out", () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    writeAuthSession(REPOSITORY, session("persistent"));
+    signOut(REPOSITORY, "https://sync.example.test");
+    expect(readAuthSession(REPOSITORY)).toBeNull();
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL("https://sync.example.test/v1/auth/logout"),
+      expect.objectContaining({
+        method: "POST",
+        headers: { Authorization: "Bearer opaque-test-token" },
+      }),
+    );
   });
 });

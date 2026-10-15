@@ -79,6 +79,20 @@ export function clearAuthSession(repositoryId: string): void {
   window.dispatchEvent(new CustomEvent("neoseq:auth-changed", { detail: repositoryId }));
 }
 
+/** Signs this browser out: the session is gone here at once, and the server is
+ * asked to revoke it so a copied token stops working too. Offline, the local
+ * sign-out still stands. */
+export function signOut(repositoryId: string, serverUrl: string): void {
+  const session = readAuthSession(repositoryId);
+  clearAuthSession(repositoryId);
+  if (!session) return;
+  void fetch(new URL("/v1/auth/logout", `${serverUrl}/`), {
+    method: "POST",
+    headers: { Authorization: `Bearer ${session.token}` },
+    keepalive: true,
+  }).catch(() => undefined);
+}
+
 /** Confirms a remembered credential before opening a new transport. Network
  * failure preserves offline access; only an authoritative rejection or account
  * mismatch removes the session. */

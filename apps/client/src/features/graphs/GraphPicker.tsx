@@ -41,7 +41,7 @@ import {
   listRemoteGraphs,
   RemoteApiError,
 } from "../sync/api";
-import { clearAuthSession, readAuthSession, signIn, writeAuthSession } from "../sync/auth";
+import { clearAuthSession, readAuthSession, signIn, signOut, writeAuthSession } from "../sync/auth";
 import { Callout, ConfirmDialog, Dialog } from "../../ui/components";
 import { Wordmark } from "../../ui/brand";
 import { useNotify } from "../notify/context";
@@ -115,8 +115,8 @@ export function GraphPicker() {
 
   // Signing out keeps the account and its cached copies; only the session goes,
   // so the tab asks for the password again and everything is still there.
-  const signOut = (repository: RemoteRepository) => {
-    clearAuthSession(repository.id);
+  const signOutOf = (repository: RemoteRepository) => {
+    signOut(repository.id, repository.origin);
     refreshSelected();
   };
 
@@ -228,7 +228,7 @@ export function GraphPicker() {
         <DropdownMenuGroup>
           <DropdownMenuItem
             disabled={importing || !readAuthSession(remote.id)}
-            onSelect={() => signOut(remote)}
+            onSelect={() => signOutOf(remote)}
           >
             <LogOutIcon aria-hidden />
             {message("repository.signOut")}
@@ -651,7 +651,7 @@ function RepositoryDialog({
       const origin = normalizeServerOrigin(serverUrl);
       const auth = await signIn(repositoryId, origin, username, password, persistent);
       if (repository && auth.principal !== repository.account_id) {
-        clearAuthSession(repositoryId);
+        signOut(repositoryId, origin);
         throw new Error("repository account changed");
       }
       await listRemoteGraphs(origin, auth);
@@ -891,7 +891,7 @@ function ForgetRepositoryDialog({
         // recoverable by reconnecting, a replica without its directory is not.
         const replicas = (await listGraphs(repository.id)).filter((graph) => graph.cached);
         for (const replica of replicas) await deleteGraph(repository.id, replica.id);
-        clearAuthSession(repository.id);
+        signOut(repository.id, repository.origin);
         removeRemoteRepository(repository.id);
         onForgotten();
       }}
