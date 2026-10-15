@@ -876,6 +876,30 @@ mod tests {
         assert!(normalize_username("1alice").is_err());
     }
 
+    #[tokio::test]
+    async fn stored_argon2id_hashes_keep_verifying() {
+        // Written by an independent Argon2id implementation with the stored
+        // parameters; a library upgrade must not lock existing accounts out.
+        let stored = "$argon2id$v=19$m=19456,t=2,p=1$mvyGmhimMo4i3Sk5xzhYIg$9OxFJXfUETN5YGUBpovtmLtBEDauNwjSFPe43xComow";
+        assert!(
+            verify_password("correct horse battery".into(), stored.into())
+                .await
+                .unwrap()
+        );
+        assert!(
+            !verify_password("wrong".into(), stored.into())
+                .await
+                .unwrap()
+        );
+        let fresh = hash_password("correct horse battery").await.unwrap();
+        assert!(fresh.starts_with("$argon2id$v=19$m=19456,t=2,p=1$"));
+        assert!(
+            verify_password("correct horse battery".into(), fresh)
+                .await
+                .unwrap()
+        );
+    }
+
     #[test]
     fn passwords_have_no_minimum_length_but_remain_bounded() {
         assert!(validate_password("").is_ok());

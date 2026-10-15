@@ -147,7 +147,8 @@ pub fn decode(bytes: &[u8]) -> Result<DecodedArchive, ArchiveError> {
         if file.compression() != CompressionMethod::Stored || file.is_dir() {
             return Err(ArchiveError::UnsupportedCompression);
         }
-        match file.name() {
+        let name = file.name()?.into_owned();
+        match name.as_str() {
             MANIFEST_PATH => {
                 if manifest_bytes.is_some() || file.size() > MAX_MANIFEST_BYTES as u64 {
                     return Err(if file.size() > MAX_MANIFEST_BYTES as u64 {

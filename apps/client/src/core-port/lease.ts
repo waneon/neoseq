@@ -197,7 +197,8 @@ export async function withGraphLease<T>(
   try {
     lease = await acquireLease(locator, { wait: true, signal: AbortSignal.timeout(waitMs) });
   } catch (error) {
-    if (!(error instanceof DOMException) || error.name !== "TimeoutError") throw error;
+    // An abort reason is recognized by name: it may come from another realm.
+    if ((error as { name?: unknown } | null)?.name !== "TimeoutError") throw error;
     throw new CorePortFailure({
       code: "graph_already_open",
       message: "the graph is open in another tab",

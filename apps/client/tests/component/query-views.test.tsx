@@ -605,7 +605,10 @@ describe("query result views", () => {
 
     await user.click(screen.getByTestId("query-sort-trigger"));
     const panel = await screen.findByTestId("query-sort-panel");
-    fireEvent.pointerDown(within(panel).getByTestId("query-sort-add"), { button: 0 });
+    fireEvent.pointerDown(within(panel).getByTestId("query-sort-add"), {
+      button: 0,
+      pointerType: "mouse",
+    });
     // The list sorter consumes the filter catalog, not the projected Text/Page
     // columns. Feature-only documents such as Query never enter either catalog.
     expect(await screen.findByRole("option", { name: "Tag" })).toBeInTheDocument();
