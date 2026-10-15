@@ -37,12 +37,12 @@ describe("failure copy", () => {
   it.each([
     {
       code: "page_name_conflict",
-      reason: "A page with that name already exists.",
+      reason: "A document with that name already exists.",
       misleadingDiagnostic: "tag name already exists",
     },
     {
       code: "tag_name_conflict",
-      reason: "A tag with that name already exists.",
+      reason: "A document with that name already exists.",
       misleadingDiagnostic: "page name already exists",
     },
     {

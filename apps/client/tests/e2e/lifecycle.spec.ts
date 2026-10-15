@@ -45,7 +45,7 @@ test("duplicate page names are rejected without changing either page", async ({ 
   const title = page.getByTestId("page-title");
   await title.fill("  project   notes  ");
   await title.press("Enter");
-  await expect(page.getByRole("alert")).toContainText("A page with that name already exists.");
+  await expect(page.getByRole("alert")).toContainText("A document with that name already exists.");
   await expect(title).toHaveValue("Draft");
   await page.reload();
   await expect(title).toHaveValue("Draft");

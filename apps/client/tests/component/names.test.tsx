@@ -17,7 +17,9 @@ describe("unique page and tag names", () => {
     await user.keyboard("{Enter}");
 
     await waitFor(() =>
-      expect(screen.getByRole("alert")).toHaveTextContent("A page with that name already exists."),
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "A document with that name already exists.",
+      ),
     );
     expect(title).toHaveValue("Home");
   });
