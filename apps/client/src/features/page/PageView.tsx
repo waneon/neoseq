@@ -1,3 +1,4 @@
+import { useDocumentTitle } from "../../ui/document-title";
 import { EntityKindMenuItem } from "./EntityKindMenuItem";
 import { wasDeleted } from "../../entities/names";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
@@ -258,6 +259,8 @@ function PageTitle({ page }: { page: PageSnapshot }) {
   const authoritative = pageTitle(page);
   const isJournal = pageKind(page) === "journal";
   const { message, formatJournalDate } = useI18n();
+  const day = isJournal ? journalDate(page) : undefined;
+  useDocumentTitle(day ? formatJournalDate(day) : authoritative);
   const location = useLocation();
   const navigate = useNavigate();
   const naming = (location.state as { name?: boolean } | null)?.name === true;
@@ -271,7 +274,6 @@ function PageTitle({ page }: { page: PageSnapshot }) {
     // view supplies the heading itself; reached by id, as a reference resolves it,
     // this is the only thing that would render, and it must be the same date in
     // the same format the user chose.
-    const day = journalDate(page);
     return <h1 data-testid="journal-title">{day ? formatJournalDate(day) : authoritative}</h1>;
   }
 

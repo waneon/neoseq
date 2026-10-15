@@ -11,6 +11,7 @@ import { findJournalPage, outlineOwnerKey } from "../../core-port/snapshot";
 import { useToday } from "../time/use-local-clock";
 import { addDays, dayDifference } from "../../entities/calendar";
 import { useI18n } from "../../i18n";
+import { useDocumentTitle } from "../../ui/document-title";
 import { isValidLocalDate } from "../../entities/calendar";
 import { useNotify } from "../notify/context";
 import { DocumentHeader, PageBody, Tombstone } from "../page/PageView";
@@ -50,6 +51,7 @@ export function JournalView() {
 
   const valid = isValidLocalDate(date);
   const page = valid ? findJournalPage(state.snapshot, date) : undefined;
+  useDocumentTitle(valid ? formatJournalDate(date) : null);
 
   useEffect(() => {
     const previous = previousToday.current;

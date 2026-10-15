@@ -1,3 +1,4 @@
+import { useDocumentTitle } from "../../ui/document-title";
 import { EntityKindMenuItem } from "../page/EntityKindMenuItem";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router";
@@ -218,6 +219,7 @@ function TagTitle({ tag }: { tag: TagSnapshot }) {
   );
   const notify = useNotify();
   const { message } = useI18n();
+  useDocumentTitle(tag.name);
   return (
     <EditableTitle
       value={tag.name}

@@ -253,7 +253,6 @@ const LocaleContext = createContext<LocaleContextValue>({
 function applyDocumentLocale(runtime: LocaleRuntime): void {
   document.documentElement.lang = runtime.locale;
   document.documentElement.dir = runtime.direction;
-  document.title = runtime.message("app.title");
 }
 
 export function applyInitialDocumentLocale(): void {
