@@ -185,11 +185,17 @@ canonical block in one transition. The outliner reads the same latest snapshot
 from async callbacks and React rendering; it has no independent force-render path.
 
 IME composition remains local until a composition boundary. Normal typing uses
-a short debounce, submits block ID plus text-range intent, then reconciles with
-the authoritative core event while preserving the selection. Input typed into an
-open completion is held, so accepting a choice commits the text and the choice
-as one edit; a menu that closes without a choice releases it to the debounce.
-Leaving the route or hiding the page saves all waiting input at once. Structural commands
+a short debounce with a bounded wait, submits block ID plus text-range intent,
+then reconciles with the authoritative core event while preserving the selection.
+Input typed into an open completion is held, so accepting a choice commits the
+text and the choice as one edit; a menu that closes without a choice releases it
+to the debounce. Leaving the route or hiding the page saves all waiting input at
+once. A closing page may end the worker before that write lands, so hiding also
+records every unacknowledged edit synchronously in `localStorage`: block text
+with the bases it applies from, and title and query-definition commands that
+state a final value. The next writable session replays the record once. Other
+debounced editors (titles, query builders, Settings) keep a local draft and share
+one deferred-command path with the same leave and hide behavior. Structural commands
 cross CorePort immediately and may render optimistically only when the inverse
 is known.
 

@@ -17,7 +17,7 @@ import { PageProperties } from "../properties/PageProperties";
 import { AutoHeight } from "../../ui/auto-height";
 import { ConfirmDialog, Dialog } from "../../ui/components";
 import { Button } from "@/ui/shadcn/button";
-import { EditableTitle } from "../../ui/EditableTitle";
+import { EditableTitle } from "../shell/EditableTitle";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -250,7 +250,6 @@ function PageQuery({ page }: { page: PageSnapshot }) {
 }
 
 function PageTitle({ page }: { page: PageSnapshot }) {
-  const session = useSession();
   const readonly = useSessionSelector((state) => state.mode === "readonly");
   const notify = useNotify();
   const authoritative = pageTitle(page);
@@ -280,9 +279,7 @@ function PageTitle({ page }: { page: PageSnapshot }) {
       testId="page-title"
       readonly={readonly}
       autoSelect={naming}
-      onCommit={(title) =>
-        session.execute({ type: "rename_page", page_id: page.id, title }).then(() => undefined)
-      }
+      rename={(title) => ({ type: "rename_page", page_id: page.id, title })}
       onError={(error) => notify.failure(message("failure.renamePage"), error)}
     />
   );

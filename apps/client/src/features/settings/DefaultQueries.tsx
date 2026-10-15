@@ -23,7 +23,7 @@
 // lays its name, conditions and layout out below it. Here the conditions are the
 // point of opening it, so they are always shown; folding them is the journal's.
 
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -75,6 +75,7 @@ import {
 import { planSummary, summaryLabel } from "../query/summary";
 import { useNotify } from "../notify/context";
 import { useSession, useSessionSelector } from "../shell/session-context";
+import { useDeferredCommand } from "../shell/deferred-command";
 import { useI18n } from "../../i18n";
 import { randomUUID } from "@/lib/crypto";
 
@@ -184,10 +185,23 @@ function DefaultQueryRow({
     query.document.views.find((view) => view.id === query.document.default_view_id) ??
     query.document.views[0]!;
   const storedPlan = activeView.definition.plan;
-  const plan = useMemo(
+  const savedPlan = useMemo(
     () => (storedPlan ? decodePlan(storedPlan.payload, storedPlan.version) : null),
     [storedPlan],
   );
+  // Typing edits these drafts; the graph hears of them after a pause, so a
+  // keystroke never waits on a round trip that would overwrite the next one.
+  const [planDraft, setPlanDraft] = useState<QueryPlan | null>(null);
+  const [titleDraft, setTitleDraft] = useState<string | null>(null);
+  const plan = planDraft ?? savedPlan;
+  const title = titleDraft ?? query.title;
+  const planDraftPayload = planDraft && encodePlan(planDraft);
+  useEffect(() => {
+    if (planDraftPayload !== null && planDraftPayload === storedPlan?.payload) setPlanDraft(null);
+  }, [planDraftPayload, storedPlan?.payload]);
+  useEffect(() => {
+    if (titleDraft === query.title) setTitleDraft(null);
+  }, [titleDraft, query.title]);
   const unsupportedPlan = storedPlan != null && plan === null;
   const today = useToday();
   // The same request the journal will make, so the two share one execution: the
@@ -221,7 +235,7 @@ function DefaultQueryRow({
     : unsupportedPlan
       ? { lead: message("query.unsupportedPlan"), detail: null }
       : { lead: "SPARQL", detail: null };
-  const name = query.title || summaryLabel(summary);
+  const name = title || summaryLabel(summary);
 
   const owner = { kind: "graph_default", default_query_id: query.id } as const;
   const executeCommand = (command: Parameters<typeof session.execute>[0]): Promise<void> =>
@@ -234,14 +248,36 @@ function DefaultQueryRow({
   const save = (command: Parameters<typeof session.execute>[0]): void => {
     void executeCommand(command);
   };
+  const saveFailed = (cause: unknown) => notify.failure(message("failure.saveQuery"), cause);
+  useDeferredCommand(
+    planDraftPayload !== null && planDraftPayload !== storedPlan?.payload
+      ? {
+          type: "set_query_plan",
+          owner,
+          view_id: activeView.id,
+          plan: { version: QUERY_PLAN_VERSION, payload: planDraftPayload },
+        }
+      : null,
+    `plan:${query.id}:${activeView.id}`,
+    saveFailed,
+  );
+  useDeferredCommand(
+    titleDraft !== null && titleDraft !== query.title
+      ? { type: "rename_default_query", default_query_id: query.id, title: titleDraft }
+      : null,
+    `title:${query.id}`,
+    saveFailed,
+  );
   /** The plan is authority; its marked SPARQL is regenerated beside it. */
-  const commitPlan = (next: QueryPlan): Promise<void> =>
-    executeCommand({
+  const commitPlan = (next: QueryPlan): Promise<void> => {
+    setPlanDraft(null);
+    return executeCommand({
       type: "set_query_plan",
       owner,
       view_id: activeView.id,
       plan: { version: QUERY_PLAN_VERSION, payload: encodePlan(next) },
     });
+  };
 
   const hiddenVariables = new Set(
     activeView.columns.filter((column) => column.hidden).map((column) => column.variable),
@@ -321,7 +357,7 @@ function DefaultQueryRow({
           <span className="default-query-text">
             <span className="default-query-name">{name}</span>
             {/* Named, the question still says what it asks. */}
-            {query.title && <span className="default-query-question">{question}</span>}
+            {title && <span className="default-query-question">{question}</span>}
           </span>
           {count && (
             <span
@@ -408,18 +444,12 @@ function DefaultQueryRow({
             </label>
             <Input
               id={`${bodyId}-name`}
-              value={query.title}
+              value={title}
               placeholder={question}
               maxLength={MAX_DEFAULT_QUERY_TITLE}
               data-testid="default-query-title"
               disabled={readonly}
-              onChange={(event) =>
-                save({
-                  type: "rename_default_query",
-                  default_query_id: query.id,
-                  title: event.target.value,
-                })
-              }
+              onChange={(event) => setTitleDraft(event.target.value)}
             />
           </div>
           {/* The builder names its own parts; a label above it would repeat them. */}
@@ -430,7 +460,7 @@ function DefaultQueryRow({
                 plan={plan}
                 snapshot={state.snapshot}
                 readonly={readonly}
-                onChange={commitPlan}
+                onChange={setPlanDraft}
               />
             ) : (
               // A question written by a build that had a SPARQL editor. It still

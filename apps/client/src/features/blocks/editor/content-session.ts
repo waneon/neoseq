@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 import type { Command, InlineContent } from "../../../core-port/commands";
 import type { CommandResult } from "../../../generated/core-port";
 import type { GraphSession } from "../../../core-port/session";
+import type { UnsavedEdit } from "../../../core-port/unsaved";
 import { CorePortFailure } from "../../../core-worker";
 import { ActivityHold } from "../../../lib/activity";
 import {
@@ -132,6 +133,8 @@ export class ContentSessions {
   private revision = 0;
   private readonly retryActions = new Map<BlockContentSession, readonly Command[]>();
   private readonly pending = new Map<BlockContentSession, number>();
+  /** Buffers sent to the graph and not yet acknowledged, oldest first. */
+  private readonly submitted = new Map<BlockContentSession, ContentBuffer[]>();
   private readonly unavailable = new Map<BlockContentSession, string>();
   /** Input that no submission has carried to the graph yet is unsettled work. */
   private readonly unsavedInput = new ActivityHold();
@@ -149,6 +152,7 @@ export class ContentSessions {
 
   constructor(private readonly graph?: GraphSession) {
     if (!graph) return;
+    graph.preserveUnsaved(() => this.unsaved());
     let revision = graph.getState().canonicalRevision;
     let directory = graph.getState().snapshot.page_directory ?? [];
     const unsubscribe = graph.subscribe(() => {
@@ -315,6 +319,7 @@ export class ContentSessions {
         if (commands.length === 0) return null;
         this.retryActions.delete(target);
         submitted = buffer;
+        this.submitted.set(target, [...(this.submitted.get(target) ?? []), buffer]);
         this.pending.set(target, (this.pending.get(target) ?? 0) + 1);
         target.replace(settleBuffer(buffer));
         return commands.length === 1 ? commands[0] : { type: "batch", commands };
@@ -339,12 +344,35 @@ export class ContentSessions {
       throw error;
     } finally {
       if (submitted) {
+        const inFlight = (this.submitted.get(target) ?? []).filter((entry) => entry !== submitted);
+        if (inFlight.length) this.submitted.set(target, inFlight);
+        else this.submitted.delete(target);
         const pending = (this.pending.get(target) ?? 1) - 1;
         if (pending === 0) this.pending.delete(target);
         else this.pending.set(target, pending);
         this.release(target);
       }
     }
+  }
+
+  /** Every block whose input the graph has not acknowledged, from what it knew. */
+  private unsaved(): UnsavedEdit[] {
+    const edits: UnsavedEdit[] = [];
+    for (const [key, buffers] of this.owners) {
+      const owner = this.ownerRefs.get(key)!;
+      for (const [id, buffer] of buffers) {
+        const inFlight = this.submitted.get(this.target(owner, id)) ?? [];
+        if (inFlight.length === 0 && bufferIsClean(buffer)) continue;
+        edits.push({
+          kind: "content",
+          owner,
+          block_id: id,
+          bases: [...inFlight, buffer].map((entry) => inlineContent(entry.source)),
+          content: inlineContent(bufferAtoms(buffer)),
+        });
+      }
+    }
+    return edits;
   }
 
   hasPendingActions(target: BlockContentSession): boolean {

@@ -104,6 +104,7 @@ import {
 import {
   useOutlineDraftState,
   type OutlineDraftAction,
+  type PendingCreationOperation,
   type PendingOutlineOperation,
 } from "./draft-state";
 import {
@@ -206,7 +207,10 @@ import { preparePageCompletion } from "../blocks/editor/completion-edit";
 import { MobileEditorToolbar } from "./MobileEditorToolbar";
 import { useCompactLayout } from "@/ui/use-compact-layout";
 
+const EMPTY_PROJECTION: InlineContentProjection = { markdown: "", pageReferences: [] };
 const FLUSH_DEBOUNCE_MS = 400;
+/** Continuous typing still reaches the graph, and peers, this often. */
+const FLUSH_MAX_WAIT_MS = 2000;
 /** How far a bullet must travel before a click becomes a drag. */
 const DRAG_THRESHOLD_PX = 4;
 /**
@@ -364,8 +368,9 @@ interface EditorContext {
   insertRootBlock(index: number, inputMethod: InputMethod): void;
   enqueuePendingInsert(
     row: OutlineRow,
-    tail: string,
-    asChild: boolean,
+    /** What the new block will hold; empty for a fresh line. */
+    content: InlineContentProjection,
+    mode: PendingCreationOperation["mode"],
     inputMethod: InputMethod,
   ): void;
   enqueuePendingSplit(
@@ -599,7 +604,15 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
     0,
   );
   const mounted = useRef(true);
-  const flushTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  /** Each block's debounce timer and when its unsaved input began waiting. */
+  const flushTimers = useRef(
+    new Map<string, { timer: ReturnType<typeof setTimeout>; since: number }>(),
+  );
+  const cancelFlush = useCallback((id: string) => {
+    const scheduled = flushTimers.current.get(id);
+    if (scheduled) clearTimeout(scheduled.timer);
+    flushTimers.current.delete(id);
+  }, []);
   const pendingCaret = useRef<number | null>(null);
   /**
    * A press that lands in a settled line is a pointer-owned entrance — the reader
@@ -799,11 +812,7 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
 
   const flushNow = useCallback(
     (id: string) => {
-      const timer = flushTimers.current.get(id);
-      if (timer) {
-        clearTimeout(timer);
-        flushTimers.current.delete(id);
-      }
+      cancelFlush(id);
       return flush(id);
     },
     [flush],
@@ -811,17 +820,19 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
 
   const scheduleFlush = useCallback(
     (id: string) => {
-      const timer = flushTimers.current.get(id);
-      if (timer) clearTimeout(timer);
-      flushTimers.current.set(
-        id,
-        setTimeout(() => {
+      const since = flushTimers.current.get(id)?.since ?? Date.now();
+      cancelFlush(id);
+      const delay = Math.min(FLUSH_DEBOUNCE_MS, since + FLUSH_MAX_WAIT_MS - Date.now());
+      const timer = setTimeout(
+        () => {
           flushTimers.current.delete(id);
           flush(id);
-        }, FLUSH_DEBOUNCE_MS),
+        },
+        Math.max(0, delay),
       );
+      flushTimers.current.set(id, { timer, since });
     },
-    [flush],
+    [cancelFlush, flush],
   );
 
   /**
@@ -831,11 +842,7 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
    */
   const stageDraftSplice = useCallback(
     (id: string, next: string): Command | null => {
-      const timer = flushTimers.current.get(id);
-      if (timer) {
-        clearTimeout(timer);
-        flushTimers.current.delete(id);
-      }
+      cancelFlush(id);
       if (readDraft(id)?.markdown !== next) dispatchDraft({ type: "edit", id, value: next });
       const buffer = readDraftState().buffers.get(id);
       const command = buffer && bufferCommand(buffer, ownerRef.current, id);
@@ -848,9 +855,7 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
 
   const commitDraftWith = useCallback(
     async (id: string, next: string, action: Command | null, failure: string) => {
-      const timer = flushTimers.current.get(id);
-      if (timer) clearTimeout(timer);
-      flushTimers.current.delete(id);
+      cancelFlush(id);
       if (readDraft(id)?.markdown !== next) dispatchDraft({ type: "edit", id, value: next });
       try {
         await contentSessionsFor(session)
@@ -870,7 +875,7 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
       mounted.current = false;
       if (revealTimer.current) clearTimeout(revealTimer.current);
       if (presenceTimer.current !== null) clearTimeout(presenceTimer.current);
-      for (const timer of flushTimers.current.values()) clearTimeout(timer);
+      for (const { timer } of flushTimers.current.values()) clearTimeout(timer);
       flushTimers.current.clear();
       // Leaving the route must not throw away input: a debounced keystroke, or
       // one held while a completion menu was open. The command still runs,
@@ -885,7 +890,7 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
   useEffect(() => {
     const save = () => {
       if (document.visibilityState !== "hidden" || composing.current) return;
-      for (const timer of flushTimers.current.values()) clearTimeout(timer);
+      for (const { timer } of flushTimers.current.values()) clearTimeout(timer);
       flushTimers.current.clear();
       for (const id of readDraftState().buffers.keys()) void flushRef.current(id);
     };
@@ -1161,11 +1166,7 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
           dispatchPending();
         })
         .catch((error: unknown) => {
-          const timer = flushTimers.current.get(head.targetId);
-          if (timer) {
-            clearTimeout(timer);
-            flushTimers.current.delete(head.targetId);
-          }
+          cancelFlush(head.targetId);
           flushSync(() => {
             dispatchDraft({ type: "fail-merge", id: head.id });
             activateBlock(head.sourceId, 0, "programmatic");
@@ -2607,11 +2608,7 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
         const completing =
           !editsAsCode(row.block.id, value) && updateCompletions(row.block.id, value, textarea);
         if (completing) {
-          const timer = flushTimers.current.get(row.block.id);
-          if (timer) {
-            clearTimeout(timer);
-            flushTimers.current.delete(row.block.id);
-          }
+          cancelFlush(row.block.id);
         } else {
           scheduleFlush(row.block.id);
         }
@@ -2619,11 +2616,7 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
     },
     onCompositionStart: (row) => {
       composing.current = true;
-      const timer = flushTimers.current.get(row.block.id);
-      if (timer) {
-        clearTimeout(timer);
-        flushTimers.current.delete(row.block.id);
-      }
+      cancelFlush(row.block.id);
     },
     onCompositionEnd: (row, textarea) => {
       composing.current = false;
@@ -2652,7 +2645,7 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
     },
     pasteOutline,
     pasteFragment,
-    enqueuePendingInsert: (row, tail, asChild, inputMethod) => {
+    enqueuePendingInsert: (row, content, mode, inputMethod) => {
       pendingSeq.current += 1;
       const tempId = `${PENDING_PREFIX}${pendingSeq.current}`;
       // Enter must return with the new textarea already mounted and focused;
@@ -2665,12 +2658,24 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
             id: tempId,
             tempId,
             anchorId: row.block.id,
-            mode: asChild ? "child" : "sibling",
-            created: { markdown: tail, pageReferences: [] },
+            mode,
+            created: EMPTY_PROJECTION,
             dispatched: false,
             structural: [],
           },
         });
+        // The block is created empty and its content is typed input, so a
+        // reference keeps its identity rather than becoming Markdown text.
+        if (content.markdown) {
+          dispatchDraft({
+            type: "splice",
+            id: tempId,
+            source: [],
+            index: 0,
+            delete: 0,
+            insert: contentFromProjection(content.markdown, content.pageReferences),
+          });
+        }
         activateBlock(tempId, 0, inputMethod);
       });
       dispatchPending();
@@ -2715,9 +2720,7 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
         preparingMerge.current = true;
         void Promise.all(
           dirty.map((id) => {
-            const timer = flushTimers.current.get(id);
-            if (timer) clearTimeout(timer);
-            flushTimers.current.delete(id);
+            cancelFlush(id);
             return contentSessionsFor(session).target(ownerRef.current, id).submit();
           }),
         )
@@ -2845,7 +2848,7 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
           next.delete(row.block.id);
           return next;
         });
-        editor.enqueuePendingInsert(row, "", true, "context_menu");
+        editor.enqueuePendingInsert(row, EMPTY_PROJECTION, "child", "context_menu");
       },
       indent: (row) => {
         flushNow(row.block.id);
@@ -4214,7 +4217,8 @@ function runOutlineVimSurface(
   if (editor.readonly || isPendingId(row.block.id)) return;
   if (command.type === "open") {
     editor.flushNow(row.block.id);
-    if (command.side === "after") editor.enqueuePendingInsert(row, "", false, "keyboard");
+    if (command.side === "after")
+      editor.enqueuePendingInsert(row, EMPTY_PROJECTION, "sibling", "keyboard");
     else {
       editor.enqueuePendingSplit(
         row,
@@ -4245,19 +4249,35 @@ function handleEnter(editor: EditorContext, row: OutlineRow, textarea: HTMLTextA
     // new block goes below and takes the caret, exactly as it would have had
     // there been text. (A split at index 0 would instead insert *above* and
     // strand the caret on the wrong row.)
-    editor.enqueuePendingInsert(row, "", row.hasChildren && !row.collapsed, "keyboard");
+    editor.enqueuePendingInsert(
+      row,
+      EMPTY_PROJECTION,
+      row.hasChildren && !row.collapsed ? "child" : "sibling",
+      "keyboard",
+    );
     return;
   }
   const caretUtf16 = textarea.selectionStart;
   const boundary = canonicalContentBoundary(draft, editor.pageReferencesOf(row.block), caretUtf16);
   const split = splitInlineContentProjection(draft, editor.pageReferencesOf(row.block), boundary);
   if (isPendingId(id)) {
-    // The pending block's head moves locally; once its real id arrives the
-    // queued split follows the baseline reconciliation in session order.
+    // A block still being created has no canonical text to split. The head it
+    // keeps is a local edit and the tail becomes a block of its own, so the
+    // queued commands write exactly what the rows show.
+    if (boundary.index === 0) {
+      editor.enqueuePendingInsert(row, split.head, "before", "keyboard");
+      return;
+    }
     editor.onInput(row, split.head.markdown, textarea);
-  } else {
-    editor.flushNow(id);
+    editor.enqueuePendingInsert(
+      row,
+      split.tail,
+      row.hasChildren && !row.collapsed ? "child" : "sibling",
+      "keyboard",
+    );
+    return;
   }
+  editor.flushNow(id);
   editor.enqueuePendingSplit(
     row,
     boundary.index,

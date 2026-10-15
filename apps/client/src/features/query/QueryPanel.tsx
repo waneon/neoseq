@@ -85,7 +85,7 @@ import { answerLabel, columnLabel, fieldLabel } from "./labels";
 import { orderBlockRows, orderResultRows, type ListSortField } from "./ordering";
 import { queryResultsAreOpen, rememberQueryResultsOpen, useQueryConditions } from "./presentation";
 import { planSummary, summaryLabel, type QuerySummary } from "./summary";
-import { scheduleActivity } from "@/lib/activity";
+import { useDeferredCommand } from "../shell/deferred-command";
 import { randomUUID } from "@/lib/crypto";
 
 const PLAN_SAVE_DEBOUNCE_MS = 600;
@@ -388,33 +388,24 @@ function QueryPanelSurface({
       .execute(next.length === 1 ? next[0] : { type: "batch", commands: next })
       .then(() => undefined);
   };
-  const saveDefinition = useLatest((payload: string) =>
-    writeDefinition((target) => ({
-      type: "set_query_plan",
-      owner: target,
-      view_id: activeView.id,
-      plan: { version: QUERY_PLAN_VERSION, payload },
-    })).catch((cause: unknown) => notify.failure(message("failure.saveQuery"), cause)),
-  );
-
   // One command per pause in the editing, never one per keystroke — and never
   // one at all for a seed nobody has touched, which is what lets a tag page be
   // opened, read, and left without writing anything.
-  useEffect(() => {
-    if (!plan || !canEditDefinition || !shaped.current) return;
-    const payload = encodePlan(plan);
-    if (payload === storedPayload) return;
-    const save = scheduleActivity(() => saveDefinition.current(payload), PLAN_SAVE_DEBOUNCE_MS);
-    return save.cancel;
-  }, [
-    canEditDefinition,
+  const unsavedPayload =
+    plan && canEditDefinition && shaped.current ? encodePlan(plan) : storedPayload;
+  useDeferredCommand(
+    unsavedPayload === storedPayload || unsavedPayload === null
+      ? null
+      : {
+          type: "set_query_plan",
+          owner,
+          view_id: activeView.id,
+          plan: { version: QUERY_PLAN_VERSION, payload: unsavedPayload },
+        },
     activeView.id,
-    viewExecutionKey,
-    plan,
-    saveDefinition,
-    session,
-    storedPayload,
-  ]);
+    (cause) => notify.failure(message("failure.saveQuery"), cause),
+    PLAN_SAVE_DEBOUNCE_MS,
+  );
 
   const select = result && result.kind !== "ask" ? result : null;
   const columns = useMemo(

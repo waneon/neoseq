@@ -14,7 +14,7 @@ import { LOCAL_REPOSITORY_ID } from "../repositories/directory";
 import { ConfirmDialog, Dialog } from "../../ui/components";
 import { Button } from "@/ui/shadcn/button";
 import { elementAnchor } from "@/ui/anchored";
-import { EditableTitle } from "../../ui/EditableTitle";
+import { EditableTitle } from "../shell/EditableTitle";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -212,7 +212,6 @@ function TagBody({ tag, graphId }: { tag: TagSnapshot; graphId: string }) {
 }
 
 function TagTitle({ tag }: { tag: TagSnapshot }) {
-  const session = useSession();
   const state = useSessionSelector(
     (current) => current,
     (left, right) => left.snapshot === right.snapshot && left.mode === right.mode,
@@ -241,9 +240,7 @@ function TagTitle({ tag }: { tag: TagSnapshot }) {
         });
         return false;
       }}
-      onCommit={(name) =>
-        session.execute({ type: "rename_tag", tag_id: tag.id, name }).then(() => undefined)
-      }
+      rename={(name) => ({ type: "rename_tag", tag_id: tag.id, name })}
       onError={(error) => {
         notify.failure(message("failure.renameTag", { name: tag.name }), error);
       }}

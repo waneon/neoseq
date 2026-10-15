@@ -36,8 +36,14 @@ import {
 import type { Command } from "./commands";
 import { envelope } from "./commands";
 import type { GraphChanges, GraphSnapshot, OutlineOwner } from "./snapshot";
-import { EMPTY_SNAPSHOT, mergeOutline, mergeSummary, outlineOwnerKey } from "./snapshot";
+import { EMPTY_SNAPSHOT, findBlock, mergeOutline, mergeSummary, outlineOwnerKey } from "./snapshot";
 import { applyContentUpdates } from "./content-patch";
+import { forgetUnsaved, keepUnsaved, readUnsaved, type UnsavedEdit } from "./unsaved";
+import {
+  contentAtoms,
+  contentEditCommand,
+  sameContent,
+} from "../features/blocks/editor/content-buffer";
 import { acquireLease, type Lease, type LeaseMode } from "./lease";
 import { LOCAL_REPOSITORY_ID } from "../features/repositories/directory";
 import { randomUUID } from "@/lib/crypto";
@@ -131,6 +137,9 @@ export class GraphSession {
   private listeners = new Set<() => void>();
   private syncAgent: SyncAgent | null = null;
   private readonly sessionId = `neoseq-client:${tabId()}:${randomUUID()}`;
+  private readonly unsavedSources = new Set<() => UnsavedEdit[]>();
+  private unsavedKept = false;
+  private unsavedRestored = false;
 
   constructor(
     public readonly graphId: string,
@@ -199,6 +208,9 @@ export class GraphSession {
         recovery: opened.recovery,
       });
       void this.refreshCapabilities().catch(() => undefined);
+      window.addEventListener("pagehide", this.keepUnsavedNow);
+      document.addEventListener("visibilitychange", this.visibilityChanged);
+      this.restoreUnsaved();
       if (this.remote && syncPort) {
         this.syncAgent = new SyncAgent(
           this.graphId,
@@ -363,6 +375,8 @@ export class GraphSession {
 
   private async closeNow(): Promise<void> {
     this.closeRequested = true;
+    window.removeEventListener("pagehide", this.keepUnsavedNow);
+    document.removeEventListener("visibilitychange", this.visibilityChanged);
     this.syncAgent?.stop();
     this.syncAgent = null;
     await this.opening?.catch(() => undefined);
@@ -521,7 +535,68 @@ export class GraphSession {
       await this.reconcile(this.state.save, { kind: "all-hydrated-outlines" }, true);
       const remoteReadonly = this.remote?.role === "viewer" || this.remote?.status === "read_only";
       this.patch(accessFor(remoteReadonly, this.lease?.mode ?? "readonly"));
+      this.restoreUnsaved();
     });
+  }
+
+  /**
+   * Registers input an editor holds before the graph accepts it. The source is
+   * read synchronously when the page hides, so it must answer from memory.
+   */
+  preserveUnsaved(source: () => UnsavedEdit[]): () => void {
+    this.unsavedSources.add(source);
+    return () => this.unsavedSources.delete(source);
+  }
+
+  private keepUnsavedNow = (): void => {
+    if (this.state.status !== "ready" || this.state.mode !== "exclusive") return;
+    const edits = [...this.unsavedSources].flatMap((source) => source());
+    keepUnsaved(this.repositoryId, this.graphId, edits);
+    this.unsavedKept = edits.length > 0;
+  };
+
+  // A page that comes back owns its input again; its editors keep saving it.
+  private visibilityChanged = (): void => {
+    if (document.visibilityState === "hidden") this.keepUnsavedNow();
+    else if (this.unsavedKept) {
+      forgetUnsaved(this.repositoryId, this.graphId);
+      this.unsavedKept = false;
+    }
+  };
+
+  /** Replays input a previous page kept, once this tab may write. */
+  private restoreUnsaved(): void {
+    if (this.unsavedRestored || this.state.mode !== "exclusive") return;
+    this.unsavedRestored = true;
+    const edits = readUnsaved(this.repositoryId, this.graphId);
+    if (edits.length === 0) return;
+    void this.enqueue(async () => {
+      for (const edit of edits) {
+        try {
+          const command = edit.kind === "command" ? edit.command : await this.resumeContent(edit);
+          if (command) await this.executeNow(command);
+        } catch (error) {
+          console.warn("an edit kept from a closed page was not restored", error);
+        }
+      }
+      forgetUnsaved(this.repositoryId, this.graphId);
+    }).catch(() => undefined);
+  }
+
+  private async resumeContent(
+    edit: Extract<UnsavedEdit, { kind: "content" }>,
+  ): Promise<Command | null> {
+    const { outline } = await this.port.readOutline({
+      graph_handle: this.handle,
+      owner: edit.owner,
+    });
+    const block = findBlock(outline, edit.block_id);
+    if (!block) return null;
+    const current = contentAtoms(block.content);
+    const known = edit.bases.some((base) => sameContent(contentAtoms(base), current));
+    return known
+      ? contentEditCommand(edit.owner, edit.block_id, block.content, edit.content)
+      : null;
   }
 
   private async hydrateOutlineNow(owner: OutlineOwner): Promise<void> {

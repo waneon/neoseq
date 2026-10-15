@@ -65,6 +65,8 @@ export class ActivityHold {
 
 export interface ScheduledActivity {
   cancel(): void;
+  /** Runs the waiting work now, unless it already ran or was cancelled. */
+  flush(): void;
 }
 
 /**
@@ -74,19 +76,26 @@ export interface ScheduledActivity {
  */
 export function scheduleActivity(run: () => unknown, delay: number): ScheduledActivity {
   const end = begin();
-  const timer = setTimeout(() => {
+  let done = false;
+  const fire = () => {
+    if (done) return;
+    done = true;
+    clearTimeout(timer);
     try {
       const result = run();
       if (result instanceof Promise) trackActivity(result);
     } finally {
       end();
     }
-  }, delay);
+  };
+  const timer = setTimeout(fire, delay);
   return {
     cancel: () => {
+      done = true;
       clearTimeout(timer);
       end();
     },
+    flush: fire,
   };
 }
 

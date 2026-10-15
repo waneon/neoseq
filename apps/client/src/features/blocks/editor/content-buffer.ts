@@ -225,6 +225,35 @@ export function bufferCommand(
     : { type: "splice_block_contents", owner, splices };
 }
 
+/** The one splice that turns `from` into `to`; null when they already agree. */
+export function contentEditCommand(
+  owner: OutlineOwner,
+  blockId: string,
+  from: readonly InlineContent[],
+  to: readonly InlineContent[],
+): Command | null {
+  const before = contentAtoms(from);
+  const after = contentAtoms(to);
+  const same = (left: ContentAtom, right: ContentAtom) => sameContent([left], [right]);
+  let start = 0;
+  while (start < before.length && start < after.length && same(before[start], after[start]))
+    start++;
+  let end = 0;
+  while (
+    end < before.length - start &&
+    end < after.length - start &&
+    same(before[before.length - 1 - end], after[after.length - 1 - end])
+  )
+    end++;
+  const buffer = spliceBuffer(
+    createContentBuffer(from),
+    start,
+    before.length - start - end,
+    inlineContent(after.slice(start, after.length - end)),
+  );
+  return bufferCommand(buffer, owner, blockId);
+}
+
 /** Reattach input typed after a submission to the original, unaccepted source. */
 export function restoreBuffer(original: ContentBuffer, newer: ContentBuffer): ContentBuffer {
   let result = original;
