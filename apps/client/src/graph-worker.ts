@@ -115,6 +115,9 @@ self.onmessage = async (event: MessageEvent<Message>) => {
           await ensureWasm();
           value = await closeGraph(payload as CloseGraphRequest);
           break;
+        case "release_graph":
+          value = releaseGraph(payload as { graph_handle: string });
+          break;
         case "retry_pending":
           await ensureWasm();
           value = await retryPending(payload as { graph_handle: string });
@@ -663,6 +666,14 @@ async function closeGraph(request: CloseGraphRequest) {
   state.core.free();
   states.delete(request.graph_handle);
   return { closed: true };
+}
+
+/** Lets go of a handle without maintenance: a tab without the lease never writes storage. */
+function releaseGraph(payload: { graph_handle: string }) {
+  const state = requireState(payload.graph_handle);
+  state.core.free();
+  states.delete(payload.graph_handle);
+  return null;
 }
 
 async function retryPending(payload: { graph_handle: string }) {

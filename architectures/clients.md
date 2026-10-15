@@ -119,7 +119,10 @@ expiry is stored with it and checked before use. The password is never retained,
 and no credential enters graph data or URLs. The user never enters or manages a
 transport token. Canonical note data remains in the Loro repository.
 One tab holds the writable lease per repository-qualified graph and a
-competing tab is read-only. The lease is a Web Lock where the browser offers
+competing tab is read-only. Only the holder writes storage, replays kept input,
+or syncs. A read-only tab reloads its replica from storage when the holder
+announces a save over a BroadcastChannel, and takes the lease once the holder
+releases it. The lease is a Web Lock where the browser offers
 one; in an insecure context, where Web Locks, `crypto.randomUUID`,
 `crypto.subtle`, and the asynchronous clipboard are all absent, tabs elect a
 holder over a BroadcastChannel, identifiers and digests come from `lib/crypto`,

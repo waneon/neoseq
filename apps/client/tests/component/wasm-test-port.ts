@@ -289,6 +289,11 @@ export class WasmTestPort implements SessionPort {
     return { closed: true };
   }
 
+  async releaseGraph(graphHandle: string): Promise<void> {
+    this.requireState(graphHandle).core.free();
+    this.state = null;
+  }
+
   exportSnapshot(): Uint8Array<ArrayBuffer> {
     return ownedBytes(this.requireOpen().core.exportSnapshot());
   }

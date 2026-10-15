@@ -80,6 +80,7 @@ export type WorkerOperation =
   | "query"
   | "subscribe"
   | "close_graph"
+  | "release_graph"
   | "retry_pending"
   | "list_graphs"
   | "delete_graph"
@@ -147,6 +148,10 @@ export class CoreWorker implements CorePort {
 
   closeGraph(request: CloseGraphRequest): Promise<CloseGraphResponse> {
     return this.request("close_graph", request);
+  }
+
+  releaseGraph(graphHandle: string): Promise<void> {
+    return this.request("release_graph", { graph_handle: graphHandle });
   }
 
   retryPending(graphHandle: string): Promise<SavedReceipt> {

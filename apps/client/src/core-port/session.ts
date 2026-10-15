@@ -49,6 +49,14 @@ import { LOCAL_REPOSITORY_ID } from "../features/repositories/directory";
 import { randomUUID } from "@/lib/crypto";
 
 const COMMAND_TIMEOUT_MS = 10_000;
+/** A following tab reloads once the holder's burst of saves pauses. */
+const RELOAD_DEBOUNCE_MS = 250;
+
+function savedChannel(repositoryId: string, graphId: string): BroadcastChannel | null {
+  return typeof BroadcastChannel === "function"
+    ? new BroadcastChannel(`neoseq:graph-saved:${JSON.stringify([repositoryId, graphId])}`)
+    : null;
+}
 
 export type SaveState =
   | { kind: "saved"; sequence: number }
@@ -91,6 +99,8 @@ export interface QueryFrame {
 
 export interface SessionPort extends CorePort {
   retryPending(graphHandle: string): Promise<SavedReceipt>;
+  /** Drops a handle without storage maintenance. */
+  releaseGraph?(graphHandle: string): Promise<void>;
   storageCapabilities?(graphHandle: string): Promise<StorageCapabilitiesDto>;
   configureSync?(graphHandle: string): Promise<void>;
   syncState?(graphHandle: string): Promise<SyncState>;
@@ -140,6 +150,8 @@ export class GraphSession {
   private readonly unsavedSources = new Set<() => UnsavedEdit[]>();
   private unsavedKept = false;
   private unsavedRestored = false;
+  private stopFollowing = () => {};
+  private savedAnnouncer: BroadcastChannel | null = null;
 
   constructor(
     public readonly graphId: string,
@@ -180,53 +192,26 @@ export class GraphSession {
 
   private async openNow(): Promise<void> {
     try {
-      this.lease = await acquireLease({ repository_id: this.repositoryId, graph_id: this.graphId });
+      this.lease = await acquireLease(this.locator());
       if (this.closeRequested) return;
-      const opened = await this.port.openGraph({
-        contract_version: CORE_PORT_VERSION,
-        locator: { repository_id: this.repositoryId, graph_id: this.graphId },
-        peer_id: randomPeerId(),
-      });
-      this.handle = opened.graph_handle;
+      const opened = await this.openReplica();
       if (this.closeRequested) return;
-      const remoteReadonly = this.remote?.role === "viewer" || this.remote?.status === "read_only";
-      let hasServerBase = true;
-      let syncPort: RequiredSyncPort | null = null;
-      if (this.remote) {
-        syncPort = requireSyncPort(this.port);
-        await syncPort.configureSync(this.handle);
-        // A local replica without a server-approved Base may contain an empty
-        // bootstrap document. Keep it immutable until Welcome atomically
-        // installs the authoritative checkpoint.
-        hasServerBase = (await syncPort.syncState(this.handle)).has_server_base;
-      }
+      const hasServerBase = await this.configureRemote();
       this.patch({
         status: "ready",
-        ...accessFor(remoteReadonly, this.lease.mode, hasServerBase),
+        ...accessFor(this.remoteReadonly(), this.lease.mode, hasServerBase),
         snapshot: mergeSummary(opened.summary),
         capabilities: opened.capabilities ?? null,
         recovery: opened.recovery,
+        ...(this.remote && this.lease.mode === "readonly"
+          ? { sync: { kind: "local" as const }, live: "local" as const }
+          : {}),
       });
       void this.refreshCapabilities().catch(() => undefined);
       window.addEventListener("pagehide", this.keepUnsavedNow);
       document.addEventListener("visibilitychange", this.visibilityChanged);
-      this.restoreUnsaved();
-      if (this.remote && syncPort) {
-        this.syncAgent = new SyncAgent(
-          this.graphId,
-          this.handle,
-          this.sessionId,
-          this.remote,
-          syncPort,
-          {
-            applyRemote: (bytes, current) => this.applyRemote(bytes, current),
-            replaceRemote: (checkpoint, historyEpoch, serverVersionVector, current) =>
-              this.replaceRemote(checkpoint, historyEpoch, serverVersionVector, current),
-            changed: (sync) => this.patch(sync),
-          },
-        );
-        this.syncAgent.start();
-      }
+      if (this.lease.mode === "exclusive") this.startWriting();
+      else this.followWriter();
     } catch (error) {
       if (!this.closeRequested) {
         this.lease?.release();
@@ -234,6 +219,119 @@ export class GraphSession {
         this.patch({ status: "error", error: toPortError(error) });
       }
     }
+  }
+
+  private locator() {
+    return { repository_id: this.repositoryId, graph_id: this.graphId };
+  }
+
+  private remoteReadonly(): boolean {
+    return this.remote?.role === "viewer" || this.remote?.status === "read_only";
+  }
+
+  private async openReplica() {
+    const opened = await this.port.openGraph({
+      contract_version: CORE_PORT_VERSION,
+      locator: this.locator(),
+      peer_id: randomPeerId(),
+    });
+    this.handle = opened.graph_handle;
+    this.cursor = 0;
+    return opened;
+  }
+
+  /** Whether the replica has a server-approved Base; a local graph always does. */
+  private async configureRemote(): Promise<boolean> {
+    if (!this.remote) return true;
+    const syncPort = requireSyncPort(this.port);
+    await syncPort.configureSync(this.handle);
+    // A local replica without a server-approved Base may contain an empty
+    // bootstrap document. Keep it immutable until Welcome atomically
+    // installs the authoritative checkpoint.
+    return (await syncPort.syncState(this.handle)).has_server_base;
+  }
+
+  /** The lease holder alone writes storage, so only it replays kept input and syncs. */
+  private startWriting(): void {
+    this.restoreUnsaved();
+    if (!this.remote) return;
+    this.syncAgent = new SyncAgent(
+      this.graphId,
+      this.handle,
+      this.sessionId,
+      this.remote,
+      requireSyncPort(this.port),
+      {
+        applyRemote: (bytes, current) => this.applyRemote(bytes, current),
+        replaceRemote: (checkpoint, historyEpoch, serverVersionVector, current) =>
+          this.replaceRemote(checkpoint, historyEpoch, serverVersionVector, current),
+        changed: (sync) => this.patch(sync),
+      },
+    );
+    this.syncAgent.start();
+  }
+
+  /**
+   * A tab without the lease reads what the holder writes: each save the holder
+   * announces reloads this replica from storage, and once the holder lets go
+   * this tab takes the lease and becomes the writer.
+   */
+  private followWriter(): void {
+    const channel = savedChannel(this.repositoryId, this.graphId);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (channel) {
+      channel.onmessage = () => {
+        clearTimeout(timer);
+        timer = setTimeout(
+          () => void this.enqueue(() => this.reloadNow()).catch(() => undefined),
+          RELOAD_DEBOUNCE_MS,
+        );
+      };
+    }
+    const waiting = new AbortController();
+    this.stopFollowing = () => {
+      channel?.close();
+      clearTimeout(timer);
+      waiting.abort();
+    };
+    acquireLease(this.locator(), { wait: true, signal: waiting.signal }).then(
+      (lease) => {
+        if (waiting.signal.aborted || this.closeRequested) {
+          lease.release();
+          return;
+        }
+        this.stopFollowing();
+        void this.enqueue(() => this.takeOverNow(lease)).catch(() => undefined);
+      },
+      () => undefined,
+    );
+  }
+
+  private async reloadNow(): Promise<void> {
+    if (this.closeRequested || this.state.status !== "ready") return;
+    await this.port.releaseGraph?.(this.handle);
+    const opened = await this.openReplica();
+    await this.reconcile(this.state.save, { kind: "all-hydrated-outlines" }, true);
+    this.patch({ recovery: opened.recovery });
+  }
+
+  private async takeOverNow(lease: Lease): Promise<void> {
+    if (this.closeRequested) {
+      lease.release();
+      return;
+    }
+    this.lease?.release();
+    this.lease = lease;
+    await this.reloadNow();
+    const hasServerBase = await this.configureRemote();
+    this.patch(accessFor(this.remoteReadonly(), lease.mode, hasServerBase));
+    this.startWriting();
+  }
+
+  /** Tells a tab following this one that storage holds something new. */
+  private announceSaved(): void {
+    this.savedAnnouncer ??= savedChannel(this.repositoryId, this.graphId);
+    this.savedAnnouncer?.postMessage(null);
   }
 
   /**
@@ -375,6 +473,8 @@ export class GraphSession {
 
   private async closeNow(): Promise<void> {
     this.closeRequested = true;
+    this.stopFollowing();
+    this.savedAnnouncer?.close();
     window.removeEventListener("pagehide", this.keepUnsavedNow);
     document.removeEventListener("visibilitychange", this.visibilityChanged);
     this.syncAgent?.stop();
@@ -449,7 +549,10 @@ export class GraphSession {
       // must acknowledge created identities even while exact bytes await retry.
       // The editor adopts canonical identities at local completion. Transport
       // work must not leave its pending projection beside the published tree.
-      if (status.status === "saved_locally") this.syncAgent?.wake();
+      if (status.status === "saved_locally") {
+        this.syncAgent?.wake();
+        this.announceSaved();
+      }
       return result;
     } catch (error) {
       if (error instanceof CorePortFailure && error.applied) throw error;
@@ -516,6 +619,7 @@ export class GraphSession {
       if (!importRemote) throw new Error("remote import is unavailable");
       const receipt = await importRemote.call(this.port, this.handle, bytes);
       await this.publishChanges(receipt.changes, this.state.save, null);
+      this.announceSaved();
     });
   }
 
@@ -537,8 +641,8 @@ export class GraphSession {
         serverVersionVector,
       );
       await this.reconcile(this.state.save, { kind: "all-hydrated-outlines" }, true);
-      const remoteReadonly = this.remote?.role === "viewer" || this.remote?.status === "read_only";
-      this.patch(accessFor(remoteReadonly, this.lease?.mode ?? "readonly"));
+      this.patch(accessFor(this.remoteReadonly(), this.lease?.mode ?? "readonly"));
+      this.announceSaved();
       this.restoreUnsaved();
     });
   }
