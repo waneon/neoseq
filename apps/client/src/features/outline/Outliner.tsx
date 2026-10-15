@@ -1244,26 +1244,20 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
       return;
     }
     if (isPendingId(head.anchorId)) return;
-    // A preceding queued structural command may have reconciled after the
-    // component's last render. Compute the next insert from GraphSession's
-    // current snapshot, not the render-time page ref, so parent/index cannot
-    // lag behind an indent or outdent that just completed.
-    const currentOutline =
-      findOutline(session.getState().snapshot, ownerRef.current) ?? outlineRef.current;
-    const source = flattenOutline(currentOutline, collapsedRef.current).find(
-      (row) => row.block.id === head.anchorId,
-    );
-    if (!source) {
-      // The anchor block disappeared (e.g. undo); pending edits cannot land.
-      abandonPending("The block it would follow is gone.");
-      return;
-    }
-    dispatchDraft({ type: "mark-dispatched", id: head.id });
-    pendingDispatching.current = true;
+    // Placement is computed inside the session queue, against the snapshot every
+    // earlier job published: a remote import or structural command queued ahead
+    // may move the anchor, and an index from an older snapshot would place the
+    // new block on the wrong side of it.
     const placement: SplitPlacement =
       head.mode === "before" ? "before" : head.mode === "child" ? "first_child" : "after";
-    const command: Command =
-      head.kind === "insert"
+    const commandFor = (): Command | null => {
+      const currentOutline =
+        findOutline(session.getState().snapshot, ownerRef.current) ?? outlineRef.current;
+      const source = flattenOutline(currentOutline, collapsedRef.current).find(
+        (row) => row.block.id === head.anchorId,
+      );
+      if (!source) return null;
+      return head.kind === "insert"
         ? {
             type: "insert_block",
             owner: ownerRef.current,
@@ -1279,10 +1273,24 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
             index: head.splitIndex,
             placement,
           };
+    };
+    const anchorGone = "The block it would follow is gone.";
+    if (!commandFor()) {
+      // The anchor block disappeared (e.g. undo); pending edits cannot land.
+      abandonPending(anchorGone);
+      return;
+    }
+    dispatchDraft({ type: "mark-dispatched", id: head.id });
+    pendingDispatching.current = true;
     session
-      .execute(command)
+      .executePrepared(commandFor)
       .catch(retainAppliedResult)
       .then(async (result) => {
+        if (!result) {
+          pendingDispatching.current = false;
+          abandonPending(anchorGone);
+          return;
+        }
         const realId = result.created_block;
         const pendingCreation = readDraftState().pendingOperations.find(
           (operation) => operation.kind !== "merge" && operation.tempId === head.tempId,
