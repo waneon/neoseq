@@ -82,7 +82,8 @@ named after renderer shapes. Layout is a property of a view. A second view is an
 independent saved question: it may begin as a copy, but later authoring,
 execution, columns, and presentation never alter its siblings.
 
-Saved views are tabs over one answer; the current tab is underlined. The tabs
+Saved views are tabs over one answer; the current tab is underlined in the
+accent. The tabs
 appear permanently on a page and whenever an inline query has multiple views.
 They contain views only; a visible action to add a view sits beside them. Choosing another tab changes the view; pressing the
 current tab opens operations for that view, such as rename, duplicate, move, and
@@ -124,9 +125,10 @@ so the first movement causes no jump. Saved view data owns its query fields,
 layout, sort, column order, visibility, and explicit widths.
 
 Result cells quote writing and therefore use content ink, while headers remain
-quiet. Cells align within the full row rather than hanging from its top. List
-rows hang from a content indent; table rules span the object because grid
-structure, unlike outline hierarchy, depends on full-width tracks.
+quiet. Cells align within the full row rather than hanging from its top. Both
+layouts open on a hairline. List bullets start where the header's words do and
+keep the outline's slot; table rules span the object because grid structure,
+unlike outline hierarchy, depends on full-width tracks.
 
 Every table value inhabits the same cell frame. The table owns that frame's row
 height, padding, typography, clipping, and interaction state; semantic

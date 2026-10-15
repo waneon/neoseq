@@ -1,6 +1,8 @@
 /* A query is a derived answer inside writing: one hairline frame, no inner
    bands. On a tag page it is the page's body and drops the frame. */
 .query-block {
+  /* Where the header's words and the list's bullets begin. */
+  --query-inset: var(--sp-3);
   container-type: inline-size;
   min-width: 0;
   margin: var(--sp-1) 0 var(--sp-3);
@@ -11,15 +13,12 @@
 }
 
 .query-block[data-variant="page"] {
+  --query-inset: 0px;
   margin: 0 0 var(--sp-6);
   border-radius: 0;
   background: none;
   box-shadow: none;
   overflow: visible;
-}
-
-.query-block[data-variant="page"] .query-header {
-  padding-inline-start: 0;
 }
 
 /* Saved views are tabs over one answer: the current one is underlined. */
@@ -79,13 +78,13 @@
 
 .query-view-tab[aria-selected="true"] {
   color: var(--ink);
-  box-shadow: inset 0 -2px 0 var(--ink);
+  box-shadow: inset 0 -2px 0 var(--accent);
   border-radius: var(--r-1) var(--r-1) 0 0;
 }
 
 .query-view-tab[aria-selected="true"]:focus-visible {
   box-shadow:
-    inset 0 -2px 0 var(--ink),
+    inset 0 -2px 0 var(--accent),
     var(--focus-inset);
 }
 
@@ -207,7 +206,7 @@
   flex-wrap: wrap;
   gap: var(--sp-1) var(--sp-3);
   min-height: 44px;
-  padding: var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-3);
+  padding: var(--sp-1) var(--sp-1) var(--sp-1) var(--query-inset);
 }
 
 .query-heading {
@@ -437,8 +436,8 @@ button.query-disclosure:hover {
 }
 
 @container (max-width: 440px) {
-  .query-header {
-    padding-inline-start: var(--sp-2);
+  .query-block:not([data-variant="page"]) :is(.query-header, .query-list) {
+    --query-inset: var(--sp-2);
   }
 }
 
@@ -1366,11 +1365,14 @@ button.query-disclosure:hover {
   pointer-events: none;
 }
 
+/* Like the table's head rule and the empty state, a hairline opens the answer;
+   bullets start where the header's words do. */
 .query-list {
   display: grid;
   gap: 0;
   margin: 0;
-  padding: 0 0 0 var(--slot);
+  padding: var(--sp-1) 0 0 var(--query-inset);
+  border-top: 1px solid var(--line);
   list-style: none;
 }
 
@@ -1381,6 +1383,18 @@ button.query-disclosure:hover {
 
 .query-list[data-compact="true"] .query-list-row {
   padding-block: 0;
+}
+
+/* The outline trades bullets for touch handles on narrow screens; a result row
+   has no handle, so it keeps its bullet and the default slot. */
+@media (max-width: 840px) {
+  .query-list {
+    --slot: 20px;
+  }
+
+  .query-list-row .outline-bullet {
+    display: inline-flex;
+  }
 }
 
 .query-list-row .outline-bullet {
