@@ -165,7 +165,6 @@ fn core_port_native_contract_suite_matches_current_golden() {
         })
         .unwrap();
     assert_eq!(queried.result["kind"], "built");
-    assert_eq!(queried.result["grain"], "entity");
     assert_eq!(queried.result["columns"][0]["id"], "text");
     assert_eq!(
         queried.result["rows"][0]["subject"],

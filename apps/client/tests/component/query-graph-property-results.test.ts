@@ -1,4 +1,4 @@
-// Graph-defined properties filter and summarize as the type they are stored with.
+// Graph-defined properties filter as the type they are stored with.
 
 import { expect, it } from "vitest";
 import { defaultPlan, newCondition } from "../../src/entities/query-plan";
@@ -74,24 +74,4 @@ it("filters by each graph-defined property type", async () => {
   expect(
     await matching(property("user.link"), "any_of", { type: "list", values: ["other"] }),
   ).toEqual(["first"]);
-});
-
-it("summarizes a property only some subjects have", async () => {
-  const { session } = await mountTypedGraph();
-  const measure = async (column: PlanColumn) => {
-    const plan = { ...defaultPlan("block"), grain: "summary" as const, columns: [column] };
-    const result = (await session.query({
-      kind: "built",
-      plan,
-      today: "2026-01-05",
-    })) as BuiltQueryResult;
-    return result.rows[0].values[column.id].map((term) => term.value);
-  };
-  for (const aggregate of ["sum", "avg", "min", "max"] as const) {
-    const values = await measure({ id: "v", source: property("user.estimate"), aggregate });
-    expect(values.map(Number), aggregate).toEqual([3]);
-  }
-  expect(await measure({ id: "v", source: property("user.due"), aggregate: "max" })).toEqual([
-    "2026-01-02",
-  ]);
 });

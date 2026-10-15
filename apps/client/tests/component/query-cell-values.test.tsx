@@ -1,4 +1,4 @@
-// A cell reads a value by its own type and an empty summary by what it computes.
+// A cell reads a value by its own type.
 
 import { render } from "@testing-library/react";
 import { expect, it } from "vitest";
@@ -34,13 +34,4 @@ it("shows a graph-defined checkbox as a check", () => {
     />,
   );
   expect(container.querySelector(".query-check")).toHaveTextContent("properties.checked");
-});
-
-it("counts and adds up nothing as zero, and averages nothing as absent", () => {
-  const cell = (aggregate: ResultColumn["aggregate"]) =>
-    render(<CellValue terms={[]} column={column({ aggregate })} context={context} />).container
-      .textContent;
-  expect(cell("count")).toBe("0");
-  expect(cell("sum")).toBe("0");
-  expect(cell("avg")).toBe("—");
 });

@@ -80,17 +80,10 @@ export function orderSemanticsForField(field: PlanField, types?: PropertyTypes):
 }
 
 export function orderSemanticsForColumn(
-  column: Pick<PlanColumn, "source" | "aggregate">,
+  column: Pick<PlanColumn, "source">,
   types?: PropertyTypes,
 ): OrderSemantics {
-  switch (column.aggregate) {
-    case "count":
-    case "sum":
-    case "avg":
-      return { kind: "number" };
-    default:
-      return sourceOrderSemantics(column.source, types);
-  }
+  return sourceOrderSemantics(column.source, types);
 }
 
 const NUMERIC_DATATYPE = /#(?:double|decimal|integer|float|long|int)$/u;

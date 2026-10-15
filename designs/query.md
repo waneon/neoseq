@@ -46,7 +46,7 @@ controls the surface may state permanently and who owns authoring.
 ## Question and Answer Controls
 
 The query builder reads as a sentence: `Find [subject]`, its filters, then
-`Show [grain] up to [limit]`. Each filter is one phrase — field, comparison, and
+`Show up to [limit]`. Each filter is one phrase — field, comparison, and
 value, written as the caption writes them — and pressing it opens an editor for
 that filter alone; one just added opens on its value. The word before each
 filter is how it combines (`where`, `and`, `or`, or `none of` before an
@@ -57,10 +57,8 @@ list of the subject's fields, ending in a filter group. Removal is present at
 the hand beside each phrase. Builder state that has no semantic effect is
 omitted from storage.
 
-The question explicitly returns entities or a summary. An entity answer has one
-row per selected thing; a summary states its grouping fields and scalar
-aggregates and is read-only. These are different questions, so their choice
-belongs in the builder. Repeated entity fields need no aggregation control.
+A question returns entities, one row per selected thing. Repeated fields share
+one cell; there is no aggregation.
 
 How the answer is read belongs on its toolbar. The labeled layout menu selects
 Table or List and holds density and wrapping preferences. Columns and Sort have
@@ -97,15 +95,15 @@ management actions.
 ## Table and List Views
 
 Table and List are two readings of the same answer. Switching layout preserves
-the selected entities or summary groups. Entity table columns add or remove
+the selected entities. Entity table columns add or remove
 display fields and control their visibility for that view; repeated values share
 one cell and retain their individual references. Column choices do not change
-the answer's membership or row count. Summary fields and aggregates belong to
-the question; structural bookkeeping is not an entity display column.
+the answer's membership or row count. Structural bookkeeping is not an entity
+display column.
 
 An entity block list has no column-visibility control because it presents blocks
-using the outline's content language. Summary and other result lists present
-their returned fields without becoming editable blocks.
+using the outline's content language. Page, tag, and hand-written result lists
+present their returned fields without becoming editable blocks.
 
 An answer may remain visible while a changed question runs. Its labels, value
 meaning, and editing authority continue to describe the execution that produced

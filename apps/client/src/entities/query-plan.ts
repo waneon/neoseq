@@ -8,7 +8,6 @@
 import type { GraphSnapshot, PropertyValueType } from "../core-port/snapshot";
 import type {
   BuiltQueryPlan,
-  PlanAggregate,
   PlanColumn,
   PlanColumnSource,
   PlanCondition,
@@ -29,7 +28,6 @@ import {
 } from "../generated/core-port";
 export { PLAN_ANY_OF_MAX, PLAN_LIMIT_MAX, PLAN_MAX_CONDITIONS, PLAN_MAX_DEPTH, QUERY_PLAN_VERSION };
 export type {
-  PlanAggregate,
   PlanColumn,
   PlanColumnSource,
   PlanCondition,
@@ -195,20 +193,6 @@ export function operatorsFor(field: PlanField, types?: PropertyTypes): PlanOpera
   if (type === "page" || type === "tag") return REFERENCE_OPERATORS;
   if (field.kind === "property" && stringChoicesOf(field.key).length > 0) return CHOICE_OPERATORS;
   return TEXT_OPERATORS;
-}
-
-/** The value type a column reads, where it has one beyond an entity or text. */
-export function sourceType(source: PlanColumnSource, types?: PropertyTypes): PlanFieldType | null {
-  if (source.kind === "sibling_index") return "integer";
-  return source.kind === "property" ? fieldType(source, types) : null;
-}
-
-/** What a summary can compute over a column: counting fits any value; arithmetic only numbers; extremes numbers and dates. */
-export function aggregatesFor(source: PlanColumnSource, types?: PropertyTypes): PlanAggregate[] {
-  const type = sourceType(source, types);
-  if (type === "number" || type === "integer") return ["count", "sum", "avg", "min", "max"];
-  if (type === "date") return ["count", "min", "max"];
-  return ["count"];
 }
 
 /** Operators that stand alone: the field's presence *is* the whole condition. */
@@ -505,9 +489,7 @@ export function withColumn(plan: QueryPlan, source: PlanColumnSource): QueryPlan
 /** The plan with one column gone. The last one standing is never dropped. */
 export function withoutColumn(plan: QueryPlan, id: string): QueryPlan {
   if (plan.columns.length <= 1) return plan;
-  const columns = plan.columns.filter((column) => column.id !== id);
-  if (plan.grain === "summary" && !columns.some((column) => column.aggregate)) return plan;
-  return { ...plan, columns };
+  return { ...plan, columns: plan.columns.filter((column) => column.id !== id) };
 }
 
 // ── Serialization ─────────────────────────────────────────────────────────────
@@ -543,15 +525,12 @@ function validPlan(value: unknown): value is QueryPlan {
   if (typeof value !== "object" || value === null) return false;
   const plan = value as Partial<QueryPlan>;
   if (plan.version !== QUERY_PLAN_VERSION) return false;
-  if (plan.grain !== "entity" && plan.grain !== "summary") return false;
+  // A stored summary no longer reads; its query shows as unsupported.
+  if (plan.grain !== "entity") return false;
   if (!PLAN_SUBJECTS.includes(plan.subject as PlanSubject)) return false;
   if (!plan.where || !validNode(plan.where)) return false;
   if (!Array.isArray(plan.columns) || plan.columns.length === 0) return false;
   if (!plan.columns.every(validColumn)) return false;
-  if (plan.grain === "entity" && plan.columns.some((column) => column.aggregate !== undefined))
-    return false;
-  if (plan.grain === "summary" && !plan.columns.some((column) => column.aggregate !== undefined))
-    return false;
   if (typeof plan.limit !== "number" || plan.limit < 1 || plan.limit > PLAN_LIMIT_MAX) return false;
   if (countConditions(plan.where) > PLAN_MAX_CONDITIONS) return false;
   if (groupDepth(plan.where) > PLAN_MAX_DEPTH) return false;
@@ -582,11 +561,5 @@ function validColumn(value: unknown): value is PlanColumn {
   if (typeof value !== "object" || value === null) return false;
   const column = value as PlanColumn;
   if (typeof column.id !== "string" || column.id.length === 0) return false;
-  if (typeof column.source !== "object" || column.source === null) return false;
-  if (
-    column.aggregate !== undefined &&
-    !["count", "sum", "avg", "min", "max"].includes(column.aggregate)
-  )
-    return false;
-  return true;
+  return typeof column.source === "object" && column.source !== null;
 }

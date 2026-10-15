@@ -307,7 +307,6 @@ describe("query result blocks", () => {
     };
     harness.port.queryResult = {
       kind: "built",
-      grain: "entity",
       subject: "block",
       columns: [
         { id: "text", source: { kind: "content" } },
@@ -399,7 +398,6 @@ describe("query result blocks", () => {
     };
     harness.port.queryResult = {
       kind: "built",
-      grain: "entity",
       subject: "block",
       columns: [
         { id: "text", source: { kind: "content" } },
@@ -503,7 +501,6 @@ describe("query result blocks", () => {
 
     harness.port.queryResult = {
       kind: "built",
-      grain: "entity",
       subject: "block",
       columns: [
         { id: "text", source: { kind: "content" } },

@@ -21,7 +21,7 @@ import {
   outlineOwnerKey,
   pageTitle,
 } from "../../core-port/snapshot";
-import type { PlanAggregate, PlanColumnSource } from "../../entities/query-plan";
+import type { PlanColumnSource } from "../../entities/query-plan";
 import {
   isTaskDateKey,
   isTimeOfDay,
@@ -59,7 +59,6 @@ export interface ResultColumn {
   label: string;
   /** What the plan asked for. Absent for a hand-written query. */
   source?: PlanColumnSource;
-  aggregate?: PlanAggregate;
   /** The result descriptor names the companion; renderers never invent one. */
   timeColumn?: string;
   /** The value's semantic order, kept separate from the words rendered below. */
@@ -238,15 +237,8 @@ export function CellValue({
    */
   row?: ResultRow;
 }): ReactNode {
-  if (!terms?.length) {
-    // Counting or adding up nothing is zero; an average or an extreme of nothing is absent.
-    return column.aggregate === "count" || column.aggregate === "sum" ? (
-      <span className="query-num">0</span>
-    ) : (
-      <span className="query-empty-cell">—</span>
-    );
-  }
-  if (column.source?.kind === "tags" && !column.aggregate) {
+  if (!terms?.length) return <span className="query-empty-cell">—</span>;
+  if (column.source?.kind === "tags") {
     return (
       <span className="query-tags">
         {terms.map((term, index) => (
@@ -311,10 +303,6 @@ function TermValue({
       </EntityLink>
     );
   }
-  if (column.aggregate === "count" || column.aggregate === "sum" || column.aggregate === "avg") {
-    return <span className="query-num">{formatNumber(term.value)}</span>;
-  }
-
   const key = column.source?.kind === "property" ? column.source.key : null;
   if (key === TASK_STATUS_KEY && term.kind === "literal") {
     return (

@@ -7,21 +7,15 @@ import {
 import { defaultPlan, decodePlan, QUERY_PLAN_VERSION } from "../../src/entities/query-plan";
 
 describe("query plan grain", () => {
-  it("preserves explicit entity and summary identity across persistence", () => {
+  it("reads entity plans and leaves a stored summary unsupported", () => {
     const entity = defaultPlan("block");
-    expect(decodePlan(JSON.stringify(entity), QUERY_PLAN_VERSION)?.grain).toBe("entity");
+    expect(decodePlan(JSON.stringify(entity), QUERY_PLAN_VERSION)).not.toBeNull();
     const summary = {
       ...entity,
       grain: "summary",
       columns: [{ id: "count", source: { kind: "subject" }, aggregate: "count" }],
     };
-    expect(decodePlan(JSON.stringify(summary), QUERY_PLAN_VERSION)?.grain).toBe("summary");
-    expect(
-      decodePlan(JSON.stringify({ ...summary, grain: "entity" }), QUERY_PLAN_VERSION),
-    ).toBeNull();
-    expect(
-      decodePlan(JSON.stringify({ ...entity, grain: "summary" }), QUERY_PLAN_VERSION),
-    ).toBeNull();
+    expect(decodePlan(JSON.stringify(summary), QUERY_PLAN_VERSION)).toBeNull();
   });
 
   it("does not reinterpret a v1 query whose renderer used to choose its row grain", () => {

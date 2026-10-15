@@ -96,7 +96,6 @@ async function tableRow(harness: Harness): Promise<void> {
   const blockId = await installResultBlock(harness);
   harness.port.queryResult = {
     kind: "built",
-    grain: "entity",
     subject: "block",
     columns: [
       { id: "text", source: { kind: "content" } },

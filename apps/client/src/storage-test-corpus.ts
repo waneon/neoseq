@@ -446,10 +446,7 @@ export async function runWorkerCorePortCorpus() {
     },
   });
   assert(golden.transcript.query === "built_entity_result", "golden query result changed");
-  assert(
-    built.result.kind === "built" && built.result.grain === "entity",
-    "built answer lost its grain",
-  );
+  assert(built.result.kind === "built", "built answer changed kind");
   assert(
     built.result.rows.length === 1 &&
       built.result.rows[0].subject?.kind === "page" &&

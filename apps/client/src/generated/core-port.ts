@@ -102,16 +102,15 @@ export type PlanColumnSource =
   | { kind: "tags" }
   | { kind: "parent" }
   | { kind: "sibling_index" };
-export type PlanAggregate = "count" | "sum" | "avg" | "min" | "max";
-export interface PlanColumn { id: string; source: PlanColumnSource; label?: string; aggregate?: PlanAggregate; }
-export type QueryGrain = "entity" | "summary";
+export interface PlanColumn { id: string; source: PlanColumnSource; label?: string; }
+export type QueryGrain = "entity";
 export interface BuiltQueryPlan { version: number; grain: QueryGrain; subject: PlanSubject; where: PlanGroup; columns: PlanColumn[]; limit: number; }
 export interface BuiltQueryRequest { kind: "built"; plan: BuiltQueryPlan; today: string; budget?: Partial<QueryBudget>; }
 export interface SparqlQueryRequest { kind: "raw_sparql"; language: "sparql-1.1/neoseq-v1"; source: string; bindings?: Record<string, RdfTerm>; budget?: Partial<QueryBudget>; }
 export type AuthoredQueryRequest = BuiltQueryRequest | SparqlQueryRequest;
-export interface BuiltResultColumn { id: string; source: PlanColumnSource; label?: string; aggregate?: PlanAggregate; time_column?: string; }
-export interface BuiltResultRow { subject: QueryEntityRef | null; values: Record<string, RdfTerm[]>; }
-export interface BuiltQueryResult { kind: "built"; grain: QueryGrain; subject: PlanSubject; columns: BuiltResultColumn[]; rows: BuiltResultRow[]; revision: number; frontier: string; }
+export interface BuiltResultColumn { id: string; source: PlanColumnSource; label?: string; time_column?: string; }
+export interface BuiltResultRow { subject: QueryEntityRef; values: Record<string, RdfTerm[]>; }
+export interface BuiltQueryResult { kind: "built"; subject: PlanSubject; columns: BuiltResultColumn[]; rows: BuiltResultRow[]; revision: number; frontier: string; }
 export type SparqlQueryResult =
   | BuiltQueryResult
   | { kind: "select"; variables: string[]; rows: Array<Record<string, RdfTerm>>; revision: number; frontier: string }

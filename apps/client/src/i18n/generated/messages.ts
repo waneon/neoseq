@@ -379,16 +379,7 @@ export interface MessageArgumentMap {
   "query.actions": undefined;
   "query.addFilter": undefined;
   "query.addSort": undefined;
-  "query.addSummaryField": undefined;
   "query.addValue": undefined;
-  "query.aggregate.avg": undefined;
-  "query.aggregate.count": undefined;
-  "query.aggregate.max": undefined;
-  "query.aggregate.min": undefined;
-  "query.aggregate.number.max": undefined;
-  "query.aggregate.number.min": undefined;
-  "query.aggregate.sum": undefined;
-  "query.aggregateOf": { readonly "aggregate": string | number; readonly "field": string | number };
   "query.and": undefined;
   "query.answer": undefined;
   "query.ascending": undefined;
@@ -432,11 +423,7 @@ export interface MessageArgumentMap {
   "query.filterGroupHint": undefined;
   "query.find": undefined;
   "query.findColumn": undefined;
-  "query.grain": undefined;
-  "query.grain.entity": undefined;
-  "query.grain.summary": undefined;
   "query.groupActions": undefined;
-  "query.groupBy": undefined;
   "query.hideColumn": undefined;
   "query.hideSource": undefined;
   "query.joiner.all": undefined;
@@ -498,7 +485,6 @@ export interface MessageArgumentMap {
   "query.removeCondition": { readonly "field": string | number };
   "query.removeGroup": undefined;
   "query.removeSort": { readonly "column": string | number };
-  "query.removeSummaryField": undefined;
   "query.removeValue": { readonly "value": string | number };
   "query.renameView": undefined;
   "query.resetWidth": undefined;
@@ -509,6 +495,7 @@ export interface MessageArgumentMap {
   "query.running": undefined;
   "query.searchFields": undefined;
   "query.section": undefined;
+  "query.show": undefined;
   "query.showMoreResults": { readonly "count": string | number };
   "query.showSource": undefined;
   "query.slashQuery": undefined;
@@ -526,10 +513,8 @@ export interface MessageArgumentMap {
   "query.subject.tag": undefined;
   "query.subjectLabel": undefined;
   "query.summaryAny": { readonly "conditions": string | number };
-  "query.summaryFields": undefined;
   "query.summaryMore": { readonly "count": string | number };
   "query.summaryNone": { readonly "conditions": string | number };
-  "query.summaryOperation": undefined;
   "query.summaryQuoted": { readonly "value": string | number };
   "query.unsupportedPlan": undefined;
   "query.upTo": undefined;

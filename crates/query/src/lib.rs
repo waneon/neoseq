@@ -6,10 +6,9 @@ pub mod plan;
 
 pub use logical::{LogicalQuery, LogicalSelect};
 pub use plan::{
-    AuthoredQueryRequest, BuiltQueryPlan, BuiltResultColumn, DERIVED_SOURCE_PROVENANCE,
-    PlanAggregate, PlanColumn, PlanColumnSource, PlanField, PlanLimit, PlanMatch, PlanNode,
-    PlanOperator, PlanRelativeDate, PlanSubject, PlanValue, QueryGrain, RelativeDateUnit,
-    derive_plan_source,
+    AuthoredQueryRequest, BuiltQueryPlan, BuiltResultColumn, DERIVED_SOURCE_PROVENANCE, PlanColumn,
+    PlanColumnSource, PlanField, PlanLimit, PlanMatch, PlanNode, PlanOperator, PlanRelativeDate,
+    PlanSubject, PlanValue, QueryGrain, RelativeDateUnit, derive_plan_source,
 };
 
 use domain::{
@@ -157,7 +156,6 @@ impl LogicalQueryRequest {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum QueryResult {
     Built {
-        grain: QueryGrain,
         subject: PlanSubject,
         columns: Vec<BuiltResultColumn>,
         rows: Vec<BuiltResultRow>,
@@ -181,7 +179,7 @@ pub enum QueryResult {
 /// summary row has no canonical write target. Empty fields remain empty vectors.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BuiltResultRow {
-    pub subject: Option<QueryEntityRef>,
+    pub subject: QueryEntityRef,
     pub values: BTreeMap<String, Vec<RdfTerm>>,
 }
 
@@ -1056,7 +1054,6 @@ impl GraphIndex {
                     id: column.id.clone(),
                     source: column.source.clone(),
                     label: column.label.clone(),
-                    aggregate: column.aggregate,
                     time_column,
                 }
             })
@@ -1065,73 +1062,47 @@ impl GraphIndex {
         let mut remaining = ResultBudget::new(budget);
         for row in rows {
             let mut values = BTreeMap::new();
-            let subject = if plan.grain == QueryGrain::Entity {
-                let Some(
-                    term @ RdfTerm::Iri {
-                        value,
-                        entity: Some(entity),
-                    },
-                ) = row.get(plan::SUBJECT_VARIABLE)
-                else {
-                    return Err(QueryError::InvalidTerm(
-                        "entity selection lost its subject".into(),
-                    ));
-                };
-                remaining.record(term)?;
-                let subject = NamedNode::new(value).map_err(term_error)?;
-                for (column, descriptor) in plan.columns.iter().zip(&columns) {
-                    let field = if matches!(column.source, PlanColumnSource::Subject) {
-                        remaining.record(term)?;
-                        vec![term.clone()]
-                    } else {
-                        self.project_field(&subject, &column.source, plan.subject, &mut remaining)?
-                    };
-                    values.insert(column.id.clone(), field);
-                    if let (Some(key), Some(id)) =
-                        (plan::moment_time_key(column), &descriptor.time_column)
-                    {
-                        values.insert(
-                            id.clone(),
-                            self.project_field(
-                                &subject,
-                                &PlanColumnSource::Property { key: key.into() },
-                                plan.subject,
-                                &mut remaining,
-                            )?,
-                        );
-                    }
-                }
-                Some(entity.clone())
-            } else {
-                for (index, (column, descriptor)) in plan.columns.iter().zip(&columns).enumerate() {
-                    let variable = plan::column_variable(index);
-                    let field = row
-                        .get(&variable)
-                        .map(|term| -> Result<_, QueryError> {
-                            remaining.record(term)?;
-                            Ok(vec![term.clone()])
-                        })
-                        .transpose()?
-                        .unwrap_or_default();
-                    values.insert(column.id.clone(), field);
-                    if let Some(id) = &descriptor.time_column {
-                        let field = row
-                            .get(&format!("q_time_{variable}"))
-                            .map(|term| -> Result<_, QueryError> {
-                                remaining.record(term)?;
-                                Ok(vec![term.clone()])
-                            })
-                            .transpose()?
-                            .unwrap_or_default();
-                        values.insert(id.clone(), field);
-                    }
-                }
-                None
+            let Some(
+                term @ RdfTerm::Iri {
+                    value,
+                    entity: Some(entity),
+                },
+            ) = row.get(plan::SUBJECT_VARIABLE)
+            else {
+                return Err(QueryError::InvalidTerm(
+                    "entity selection lost its subject".into(),
+                ));
             };
-            output.push(BuiltResultRow { subject, values });
+            remaining.record(term)?;
+            let iri = NamedNode::new(value).map_err(term_error)?;
+            for (column, descriptor) in plan.columns.iter().zip(&columns) {
+                let field = if matches!(column.source, PlanColumnSource::Subject) {
+                    remaining.record(term)?;
+                    vec![term.clone()]
+                } else {
+                    self.project_field(&iri, &column.source, plan.subject, &mut remaining)?
+                };
+                values.insert(column.id.clone(), field);
+                if let (Some(key), Some(id)) =
+                    (plan::moment_time_key(column), &descriptor.time_column)
+                {
+                    values.insert(
+                        id.clone(),
+                        self.project_field(
+                            &iri,
+                            &PlanColumnSource::Property { key: key.into() },
+                            plan.subject,
+                            &mut remaining,
+                        )?,
+                    );
+                }
+            }
+            output.push(BuiltResultRow {
+                subject: entity.clone(),
+                values,
+            });
         }
         let result = QueryResult::Built {
-            grain: plan.grain,
             subject: plan.subject,
             columns,
             rows: output,
@@ -3860,10 +3831,10 @@ mod tests {
         assert_eq!(logical_result, index.execute(raw).unwrap());
     }
 
-    fn built_plan(grain: &str, columns: serde_json::Value) -> BuiltQueryPlan {
+    fn built_plan(columns: serde_json::Value) -> BuiltQueryPlan {
         serde_json::from_value(serde_json::json!({
             "version": domain::QUERY_PLAN_VERSION,
-            "grain": grain,
+            "grain": "entity",
             "subject": "block",
             "where": { "id": "root", "kind": "group", "match": "all", "children": [] },
             "columns": columns,
@@ -3881,15 +3852,10 @@ mod tests {
     }
 
     #[test]
-    fn built_predicates_keep_the_raw_query_semantics_across_result_grains() {
+    fn built_predicates_keep_the_raw_query_semantics() {
         let index = GraphIndex::new(&snapshot()).unwrap();
-        let mut plan = built_plan(
-            "summary",
-            serde_json::json!([
-                {"id": "text", "source": {"kind": "content"}},
-                {"id": "total", "source": {"kind": "subject"}, "aggregate": "count"}
-            ]),
-        );
+        let mut plan =
+            built_plan(serde_json::json!([{"id": "text", "source": {"kind": "content"}}]));
         plan.where_clause = serde_json::from_value(serde_json::json!({
             "id": "root", "kind": "group", "match": "all", "children": [
                 {"id": "status", "kind": "condition", "field": {"kind": "property", "key": "builtin.task-status"}, "op": "equals", "value": {"type": "text", "value": "todo"}},
@@ -3902,8 +3868,8 @@ mod tests {
                 ]}
             ]
         })).unwrap();
-        let QueryResult::Built { rows: summary, .. } =
-            index.execute_authored(built_request(plan.clone())).unwrap()
+        let QueryResult::Built { rows: entities, .. } =
+            index.execute_authored(built_request(plan)).unwrap()
         else {
             panic!("expected built result")
         };
@@ -3913,25 +3879,14 @@ mod tests {
             .to_owned();
         let QueryResult::Select { rows: raw, .. } = index.execute(request(&format!(
             "PREFIX neo: <{NEO_NS}> PREFIX prop: <{PROPERTY_NS}> PREFIX xsd: <http://www.w3.org/2001/XMLSchema#> \
-             SELECT ?text (COUNT(DISTINCT ?block) AS ?total) WHERE {{ \
-             ?block a neo:Block; prop:builtin.task-status \"todo\". \
+             SELECT ?text WHERE {{ \
+             ?block a neo:Block; prop:builtin.task-status \"todo\"; neo:content ?text. \
              FILTER(EXISTS {{?block neo:tag <{missing}>}} || EXISTS {{?block prop:builtin.task-deadline ?date. FILTER(?date <= \"2026-08-18\"^^xsd:date)}}) \
-             FILTER NOT EXISTS {{?block prop:user.done ?done}} \
-             OPTIONAL {{?block neo:content ?text}} }} GROUP BY ?text"
+             FILTER NOT EXISTS {{?block prop:user.done ?done}} }}"
         ))).unwrap() else { panic!("expected SELECT") };
-        assert_eq!(summary.len(), 1);
-        assert_eq!(summary[0].values["text"], vec![raw[0]["text"].clone()]);
-        assert_eq!(summary[0].values["total"], vec![raw[0]["total"].clone()]);
-        plan.grain = QueryGrain::Entity;
-        plan.columns.retain(|column| column.aggregate.is_none());
-        let QueryResult::Built { rows: entities, .. } =
-            index.execute_authored(built_request(plan)).unwrap()
-        else {
-            panic!("expected built result")
-        };
         assert_eq!(entities.len(), 1);
-        assert_eq!(entities[0].values["text"], summary[0].values["text"]);
-        assert!(entities[0].subject.is_some());
+        assert_eq!(raw.len(), 1);
+        assert_eq!(entities[0].values["text"], vec![raw[0]["text"].clone()]);
     }
 
     /// The page fixture with a second page that has none of its properties.
@@ -3946,12 +3901,8 @@ mod tests {
         snapshot
     }
 
-    fn page_plan(
-        grain: &str,
-        columns: serde_json::Value,
-        conditions: serde_json::Value,
-    ) -> BuiltQueryPlan {
-        let mut plan = built_plan(grain, columns);
+    fn page_plan(columns: serde_json::Value, conditions: serde_json::Value) -> BuiltQueryPlan {
+        let mut plan = built_plan(columns);
         plan.subject = PlanSubject::Page;
         plan.where_clause = serde_json::from_value(serde_json::json!({
             "id": "root", "kind": "group", "match": "all", "children": conditions
@@ -3975,23 +3926,18 @@ mod tests {
             let mut condition = condition;
             condition["id"] = "c".into();
             condition["kind"] = "condition".into();
-            let plan = page_plan(
-                "entity",
-                subject.clone(),
-                serde_json::json!([condition.clone()]),
-            );
+            let plan = page_plan(subject.clone(), serde_json::json!([condition.clone()]));
             let QueryResult::Built { rows, .. } =
                 index.execute_authored(built_request(plan)).unwrap()
             else {
                 panic!("expected built result")
             };
             assert!(
-                matches!(&rows[..], [row] if matches!(&row.subject, Some(QueryEntityRef::Page { id }) if id == "today")),
+                matches!(&rows[..], [row] if matches!(&row.subject, QueryEntityRef::Page { id } if id == "today")),
                 "{condition}"
             );
         }
         let contains_number = page_plan(
-            "entity",
             subject,
             serde_json::json!([{"id": "c", "kind": "condition", "field": {"kind": "property", "key": "user.count"}, "op": "contains", "value": {"type": "number", "value": 3}}]),
         );
@@ -4003,7 +3949,6 @@ mod tests {
 
         // "Is not" compares a value; the bare page has none to compare.
         let not_equals = page_plan(
-            "entity",
             serde_json::json!([{"id": "subject", "source": {"kind": "subject"}}]),
             serde_json::json!([{"id": "c", "kind": "condition", "field": {"kind": "property", "key": "user.count"}, "op": "not_equals", "value": {"type": "number", "value": 1}}]),
         );
@@ -4013,60 +3958,7 @@ mod tests {
             panic!("expected built result")
         };
         assert!(
-            matches!(&rows[..], [row] if matches!(&row.subject, Some(QueryEntityRef::Page { id }) if id == "today"))
-        );
-    }
-
-    #[test]
-    fn summary_aggregates_read_only_the_subjects_that_have_the_value() {
-        let index = GraphIndex::new(&sparse_snapshot()).unwrap();
-        let measure = |aggregate: &str| {
-            let plan = page_plan(
-                "summary",
-                serde_json::json!([
-                    {"id": "pages", "source": {"kind": "subject"}, "aggregate": "count"},
-                    {"id": "value", "source": {"kind": "property", "key": "user.count"}, "aggregate": aggregate}
-                ]),
-                serde_json::json!([]),
-            );
-            let QueryResult::Built { rows, .. } =
-                index.execute_authored(built_request(plan)).unwrap()
-            else {
-                panic!("expected built result")
-            };
-            assert_eq!(rows.len(), 1);
-            assert!(
-                matches!(&rows[0].values["pages"][..], [RdfTerm::Literal { value, .. }] if value == "2")
-            );
-            match &rows[0].values["value"][..] {
-                [RdfTerm::Literal { value, .. }] => value.parse::<f64>().unwrap(),
-                other => panic!("{aggregate}: {other:?}"),
-            }
-        };
-        for aggregate in ["sum", "avg", "min", "max"] {
-            assert_eq!(measure(aggregate), 3.5, "{aggregate}");
-        }
-        assert_eq!(measure("count"), 1.0);
-
-        // A missing grouping value is a group of its own, and each group reads its own values.
-        let plan = page_plan(
-            "summary",
-            serde_json::json!([
-                {"id": "flag", "source": {"kind": "property", "key": "user.flag"}},
-                {"id": "total", "source": {"kind": "property", "key": "user.count"}, "aggregate": "sum"}
-            ]),
-            serde_json::json!([]),
-        );
-        let QueryResult::Built { mut rows, .. } =
-            index.execute_authored(built_request(plan)).unwrap()
-        else {
-            panic!("expected built result")
-        };
-        rows.sort_by_key(|row| row.values["flag"].len());
-        assert!(rows[0].values["flag"].is_empty());
-        assert!(rows[0].values["total"].is_empty());
-        assert!(
-            matches!(&rows[1].values["total"][..], [RdfTerm::Literal { value, .. }] if value.parse::<f64>().unwrap() == 3.5)
+            matches!(&rows[..], [row] if matches!(&row.subject, QueryEntityRef::Page { id } if id == "today"))
         );
     }
 
@@ -4080,23 +3972,17 @@ mod tests {
         let index = GraphIndex::new(&snapshot).unwrap();
         let text = serde_json::json!({"id": "text", "source": {"kind": "content"}});
         let QueryResult::Built { rows: plain, .. } = index
-            .execute_authored(built_request(built_plan(
-                "entity",
-                serde_json::json!([text]),
-            )))
+            .execute_authored(built_request(built_plan(serde_json::json!([text]))))
             .unwrap()
         else {
             panic!("expected built result")
         };
         let QueryResult::Built { rows, columns, .. } = index
-            .execute_authored(built_request(built_plan(
-                "entity",
-                serde_json::json!([
-                    text,
-                    {"id": "tags", "source": {"kind": "tags"}},
-                    {"id": "missing", "source": {"kind": "property", "key": "user.missing"}}
-                ]),
-            )))
+            .execute_authored(built_request(built_plan(serde_json::json!([
+                text,
+                {"id": "tags", "source": {"kind": "tags"}},
+                {"id": "missing", "source": {"kind": "property", "key": "user.missing"}}
+            ]))))
             .unwrap()
         else {
             panic!("expected built result")
@@ -4130,10 +4016,8 @@ mod tests {
         tag.name = "Later".into();
         snapshot.tags.push(tag);
         let index = GraphIndex::new(&snapshot).unwrap();
-        let mut plan = built_plan(
-            "entity",
-            serde_json::json!([{ "id": "tags", "source": {"kind": "tags"} }]),
-        );
+        let mut plan =
+            built_plan(serde_json::json!([{ "id": "tags", "source": {"kind": "tags"} }]));
         plan.limit = PlanLimit::new(1).unwrap();
         let QueryResult::Built { rows, .. } = index.execute_authored(built_request(plan)).unwrap()
         else {
@@ -4164,14 +4048,11 @@ mod tests {
         ]);
         let index = GraphIndex::new(&snapshot).unwrap();
         let QueryResult::Built { rows, .. } = index
-            .execute_authored(built_request(built_plan(
-                "entity",
-                serde_json::json!([
-                    {"id": "aliases", "source": {"kind": "property", "key": "user.alias"}},
-                    {"id": "number", "source": {"kind": "property", "key": "user.number"}},
-                    {"id": "reference", "source": {"kind": "property", "key": "user.reference"}}
-                ]),
-            )))
+            .execute_authored(built_request(built_plan(serde_json::json!([
+                {"id": "aliases", "source": {"kind": "property", "key": "user.alias"}},
+                {"id": "number", "source": {"kind": "property", "key": "user.number"}},
+                {"id": "reference", "source": {"kind": "property", "key": "user.reference"}}
+            ]))))
             .unwrap()
         else {
             panic!("expected built result")
@@ -4196,27 +4077,6 @@ mod tests {
     }
 
     #[test]
-    fn summary_grouping_is_explicit_and_has_no_editable_entity_identity() {
-        let mut snapshot = snapshot();
-        let mut second = snapshot.pages[0].blocks[0].clone();
-        second.id = BlockId::new("todo-2").unwrap();
-        snapshot.pages[0].blocks.push(second);
-        let index = GraphIndex::new(&snapshot).unwrap();
-        let QueryResult::Built { grain, rows, columns, .. } = index.execute_authored(built_request(built_plan("summary", serde_json::json!([
-            {"id": "text", "source": {"kind": "content"}},
-            {"id": "total", "source": {"kind": "subject"}, "aggregate": "count", "label": "My total"}
-        ])))).unwrap() else { panic!("expected built result") };
-        assert_eq!(grain, QueryGrain::Summary);
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].subject, None);
-        assert!(
-            matches!(&rows[0].values["total"][0], RdfTerm::Literal {value, ..} if value == "2")
-        );
-        assert_eq!(columns[1].aggregate, Some(PlanAggregate::Count));
-        assert_eq!(columns[1].label.as_deref(), Some("My total"));
-    }
-
-    #[test]
     fn result_descriptor_carries_column_identity_and_moment_companion() {
         let mut snapshot = snapshot();
         let block = &mut snapshot.pages[0].blocks[0];
@@ -4231,10 +4091,15 @@ mod tests {
             ),
         ]);
         let index = GraphIndex::new(&snapshot).unwrap();
-        let QueryResult::Built { rows, columns, .. } = index.execute_authored(built_request(built_plan("entity", serde_json::json!([
-            {"id": "마감 🗓", "source": {"kind": "property", "key": "builtin.task-deadline"}},
-            {"id": "마감 🗓:time", "source": {"kind": "content"}}
-        ])))).unwrap() else { panic!("expected built result") };
+        let QueryResult::Built { rows, columns, .. } = index
+            .execute_authored(built_request(built_plan(serde_json::json!([
+                {"id": "마감 🗓", "source": {"kind": "property", "key": "builtin.task-deadline"}},
+                {"id": "마감 🗓:time", "source": {"kind": "content"}}
+            ]))))
+            .unwrap()
+        else {
+            panic!("expected built result")
+        };
         assert_eq!(columns[0].id, "마감 🗓");
         let time_column = columns[0].time_column.as_ref().unwrap();
         assert_ne!(time_column, &columns[1].id);
@@ -4256,13 +4121,10 @@ mod tests {
                     .collect(),
             }));
         let index = GraphIndex::new(&snapshot).unwrap();
-        let mut request = built_request(built_plan(
-            "entity",
-            serde_json::json!([
-                {"id": "left", "source": {"kind": "property", "key": "user.left"}},
-                {"id": "right", "source": {"kind": "property", "key": "user.right"}}
-            ]),
-        ));
+        let mut request = built_request(built_plan(serde_json::json!([
+            {"id": "left", "source": {"kind": "property", "key": "user.left"}},
+            {"id": "right", "source": {"kind": "property", "key": "user.right"}}
+        ])));
         let AuthoredQueryRequest::Built { budget, .. } = &mut request else {
             unreachable!()
         };
@@ -4290,7 +4152,6 @@ mod tests {
             },
         ] {
             let mut request = built_request(built_plan(
-                "entity",
                 serde_json::json!([{ "id": "text", "source": {"kind": "content"} }]),
             ));
             let AuthoredQueryRequest::Built { budget: target, .. } = &mut request else {

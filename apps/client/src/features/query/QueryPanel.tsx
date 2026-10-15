@@ -355,10 +355,7 @@ function QueryPanelSurface({
   const error = holdFrame ? null : incomingError;
   const result = frame?.result ?? null;
   const canonicalBlockView =
-    activeView.kind === "list" &&
-    result?.kind === "built" &&
-    result.grain === "entity" &&
-    result.subject === "block";
+    activeView.kind === "list" && result?.kind === "built" && result.subject === "block";
 
   const execute = (command: (target: QueryOwnerRef) => Command): Promise<void> =>
     session.execute(command(owner)).then(() => undefined);
@@ -524,8 +521,7 @@ function QueryPanelSurface({
     return stored.filter((sort) => orderableVariables.has(sort.variable));
   }, [activeView.options.sort, columns, localTableSorts, canEditCurrentView]);
   const listSortFields = useMemo<ListSortField[]>(() => {
-    if (result?.kind !== "built" || result.grain !== "entity" || result.subject !== "block")
-      return [];
+    if (result?.kind !== "built" || result.subject !== "block") return [];
     return queryFieldsFor(result.subject, graphPropertyKeys(state.snapshot)).map((field) => ({
       id: queryFieldId(field),
       field,
@@ -822,8 +818,7 @@ function QueryPanelSurface({
    * A list has nothing to choose between — it draws canonical entities, not a
    * grid — so it has no panel and does not participate in this projection.
    */
-  const choosesColumns =
-    activeView.kind === "table" && canEditDefinition && plan?.grain === "entity";
+  const choosesColumns = activeView.kind === "table" && canEditDefinition && plan !== null;
   const choices =
     choosesColumns && plan
       ? columnChoices(
@@ -881,8 +876,8 @@ function QueryPanelSurface({
     if (!canEditDefinition) return false;
     if (
       plan &&
-      JSON.stringify([plan.grain, plan.subject, plan.columns]) !==
-        JSON.stringify([next.grain, next.subject, next.columns]) &&
+      JSON.stringify([plan.subject, plan.columns]) !==
+        JSON.stringify([next.subject, next.columns]) &&
       !(await settleResultEditor())
     )
       return false;
@@ -1374,7 +1369,7 @@ function unwritten(plan: QueryPlan | null): boolean {
  */
 function answerDescriptor(result: SparqlQueryResult | null): string {
   if (result?.kind === "built") {
-    return JSON.stringify([result.kind, result.grain, result.subject, result.columns]);
+    return JSON.stringify([result.kind, result.subject, result.columns]);
   }
   return JSON.stringify(
     result?.kind === "select" ? [result.kind, result.variables] : (result?.kind ?? null),
@@ -1393,9 +1388,8 @@ export function resultColumns(
       const ordering = orderSemanticsForColumn(column, types);
       return {
         variable: column.id,
-        label: columnLabel(column, select.subject, message, types),
+        label: columnLabel(column, select.subject, message),
         source: column.source,
-        aggregate: column.aggregate,
         timeColumn: column.time_column,
         ordering,
         sortable: true,

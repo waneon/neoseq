@@ -14,7 +14,7 @@ Command intent
     -> disposable indexes and UI views
 
 Raw SPARQL -> LogicalQuery -> generic typed bindings
-Builder QueryPlan -> entity selection + typed value vectors | summary groups
+Builder QueryPlan -> entity selection + typed value vectors
 ```
 
 ## Canonical State
@@ -104,10 +104,9 @@ outline read therefore costs its own outline at any graph size.
 
 ## Query Representation
 
-The query builder persists a versioned typed `QueryPlan` with explicit entity or
-summary grain. Entity execution selects and limits identities before extracting
-repeated fields as typed vectors. Summary execution groups and aggregates with
-no editable entity identity. Switching renderer does not change the question.
+The query builder persists a versioned typed `QueryPlan`. Execution selects and
+limits entity identities before extracting repeated fields as typed vectors.
+Switching renderer does not change the question.
 Raw SPARQL remains a separate generic binding surface. Both paths share the
 budgeted relational evaluator; generated source is explanatory, not executable
 authority for typed entity extraction.

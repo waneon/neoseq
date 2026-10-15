@@ -24,19 +24,14 @@ import { offeredChoices } from "../../entities/tasks";
 import {
   appendNode,
   columnKindsFor,
-  columnSourceKey,
-  columnSourcesFor,
-  defaultPlan,
   defaultValueForField,
   emptyGroup,
   fieldKindsFor,
   fieldType,
-  sourceType,
   graphPropertyKeys,
   queryFieldId,
   queryFieldsFor,
   newCondition,
-  nextColumnId,
   operatorsFor,
   operatorTakesList,
   operatorTakesRange,
@@ -48,12 +43,9 @@ import {
   PLAN_MAX_DEPTH,
   PLAN_SUBJECTS,
   replaceNode,
-  aggregatesFor,
   countConditions,
   groupDepth,
   type PlanColumnSource,
-  type PlanAggregate,
-  type PlanColumn,
   type PlanCondition,
   type PlanField,
   type PlanGroup,
@@ -69,8 +61,6 @@ import { useI18n } from "../../i18n";
 import { PageAutocomplete } from "../properties/PageAutocomplete";
 import {
   choiceLabel,
-  aggregateLabel,
-  columnSourceLabel,
   fieldLabel,
   operatorLabel,
   RELATIVE_DATE_PRESETS,
@@ -149,28 +139,7 @@ export function QueryBuilder({
       />
 
       <div className="qb-line qb-output">
-        <span className="qb-word">{message("query.grain")}</span>
-        <MenuSelect
-          className="qb-token"
-          value={plan.grain}
-          label={message("query.grain")}
-          testId="qb-grain"
-          disabled={readonly}
-          options={[
-            { value: "entity", label: message("query.grain.entity") },
-            { value: "summary", label: message("query.grain.summary") },
-          ]}
-          onValueChange={(grain) =>
-            onChange({
-              ...plan,
-              grain: grain as QueryPlan["grain"],
-              columns:
-                grain === "summary"
-                  ? [{ id: "count", source: { kind: "subject" }, aggregate: "count" }]
-                  : defaultPlan(plan.subject).columns,
-            })
-          }
-        />
+        <span className="qb-word">{message("query.show")}</span>
         <span className="qb-word">{message("query.upTo")}</span>
         <NumberField
           // Utilities size the shared field; here it is a word-sized token.
@@ -185,18 +154,6 @@ export function QueryBuilder({
           onValue={(limit) => onChange({ ...plan, limit })}
         />
       </div>
-      {plan.grain === "summary" && (
-        <div className="qb-summary">
-          <span className="qb-word">{message("query.summaryFields")}</span>
-          <SummaryColumns
-            plan={plan}
-            propertyKeys={propertyKeys}
-            propertyTypes={propertyTypes}
-            readonly={readonly}
-            onChange={onChange}
-          />
-        </div>
-      )}
     </div>
   );
 }
@@ -220,105 +177,6 @@ interface BuilderContext {
   setAdding: (group: string | null) => void;
 }
 
-function SummaryColumns({
-  plan,
-  propertyKeys,
-  propertyTypes,
-  readonly,
-  onChange,
-}: {
-  plan: QueryPlan;
-  propertyKeys: string[];
-  propertyTypes: PropertyTypes;
-  readonly: boolean;
-  onChange: (plan: QueryPlan) => void;
-}) {
-  const { message } = useI18n();
-  const sources: PlanColumnSource[] = [
-    { kind: "subject" },
-    ...columnSourcesFor(plan.subject, propertyKeys),
-  ];
-  const aggregates = plan.columns.filter((column) => column.aggregate !== undefined).length;
-  const update = (id: string, patch: Partial<PlanColumn>) =>
-    onChange({
-      ...plan,
-      columns: plan.columns.map((column) => (column.id === id ? { ...column, ...patch } : column)),
-    });
-  return (
-    <div className="qb-summary-fields" data-testid="qb-summary-fields">
-      {plan.columns.map((column) => (
-        <div className="qb-summary-row" key={column.id}>
-          <MenuSelect
-            value={column.aggregate ?? "group"}
-            label={message("query.summaryOperation")}
-            disabled={readonly}
-            options={[
-              ...(column.aggregate && aggregates === 1
-                ? []
-                : [{ value: "group", label: message("query.groupBy") }]),
-              ...aggregatesFor(column.source, propertyTypes).map((aggregate) => ({
-                value: aggregate,
-                label: aggregateLabel(aggregate, message, sourceType(column.source, propertyTypes)),
-              })),
-            ]}
-            onValueChange={(value) =>
-              update(column.id, {
-                aggregate: value === "group" ? undefined : (value as PlanAggregate),
-              })
-            }
-          />
-          <MenuSelect
-            value={columnSourceKey(column.source)}
-            label={message("query.fieldLabel")}
-            disabled={readonly}
-            options={sources.map((source) => ({
-              value: columnSourceKey(source),
-              label: columnSourceLabel(source, plan.subject, message),
-            }))}
-            onValueChange={(value) => {
-              const source = sources.find((source) => columnSourceKey(source) === value);
-              if (!source) return;
-              // A computation the new field cannot take falls back to counting it.
-              const fits =
-                !column.aggregate ||
-                aggregatesFor(source, propertyTypes).includes(column.aggregate);
-              update(column.id, fits ? { source } : { source, aggregate: "count" });
-            }}
-          />
-          <Button
-            size="icon"
-            className="qb-remove"
-            disabled={readonly || Boolean(column.aggregate && aggregates === 1)}
-            aria-label={message("query.removeSummaryField")}
-            onClick={() =>
-              onChange({ ...plan, columns: plan.columns.filter((item) => item.id !== column.id) })
-            }
-          >
-            <XIcon aria-hidden />
-          </Button>
-        </div>
-      ))}
-      <Button
-        variant="ghost"
-        className="qb-add-btn"
-        disabled={readonly}
-        onClick={() =>
-          onChange({
-            ...plan,
-            columns: [
-              ...plan.columns,
-              { id: nextColumnId(plan, "group"), source: { kind: "content" } },
-            ],
-          })
-        }
-      >
-        <PlusIcon aria-hidden />
-        {message("query.addSummaryField")}
-      </Button>
-    </div>
-  );
-}
-
 /** Changing what a query looks for drops the fields the new subject cannot ask. */
 function retarget(plan: QueryPlan, subject: PlanSubject): QueryPlan {
   if (subject === plan.subject) return plan;
@@ -330,13 +188,6 @@ function retarget(plan: QueryPlan, subject: PlanSubject): QueryPlan {
     return { ...node, children };
   };
   const columns = plan.columns.filter((column) => sources.has(column.source.kind));
-  if (plan.grain === "summary" && !columns.some((column) => column.aggregate)) {
-    columns.push({
-      id: nextColumnId(plan, "count"),
-      source: { kind: "subject" },
-      aggregate: "count",
-    });
-  }
   return {
     ...plan,
     subject,

@@ -56,7 +56,7 @@ describe("query result editing", () => {
         activeDefinition(tableDocument).plan!.payload,
         activeDefinition(tableDocument).plan!.version,
       )!;
-      const aggregatePlan = {
+      const tagsPlan = {
         ...tablePlan,
         columns: [...tablePlan.columns, { id: "tags", source: { kind: "tags" as const } }],
       };
@@ -68,7 +68,7 @@ describe("query result editing", () => {
           id: harness.queryBlockId,
         },
         view_id: "all",
-        plan: { version: QUERY_PLAN_VERSION, payload: JSON.stringify(aggregatePlan) },
+        plan: { version: QUERY_PLAN_VERSION, payload: JSON.stringify(tagsPlan) },
       });
       const nestedPlan = storedDefinition(harness)!.plan!;
       await harness.session.execute({

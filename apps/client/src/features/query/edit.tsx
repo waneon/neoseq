@@ -305,7 +305,6 @@ export function useQueryResultEditor({
   const bindingFor = useCallback(
     (subject: QueryEntityRef | undefined, column: ResultColumn): QueryEditBinding | null => {
       if (!column.source) return null;
-      if (column.aggregate) return null;
       if (
         column.source.kind !== "content" &&
         column.source.kind !== "property" &&

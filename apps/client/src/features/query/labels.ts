@@ -10,18 +10,15 @@ import type { QueryAnswer } from "./execution";
 import { TASK_PRIORITY_KEY, TASK_STATUS_KEY } from "../../entities/tasks";
 import { propertyDisplayName } from "../properties/property-display";
 import { priorityLabel, statusLabel } from "../tasks/labels";
-import {
-  sourceType,
-  type PlanAggregate,
-  type PlanColumn,
-  type PlanColumnSource,
-  type PlanField,
-  type PlanFieldKind,
-  type PlanFieldType,
-  type PlanOperator,
-  type PlanRelativeDate,
-  type PlanSubject,
-  type PropertyTypes,
+import type {
+  PlanColumn,
+  PlanColumnSource,
+  PlanField,
+  PlanFieldKind,
+  PlanFieldType,
+  PlanOperator,
+  PlanRelativeDate,
+  PlanSubject,
 } from "../../entities/query-plan";
 
 export function subjectLabel(subject: PlanSubject, message: MessageFunction): string {
@@ -99,31 +96,14 @@ export function columnSourceLabel(
   );
 }
 
-export function aggregateLabel(
-  aggregate: PlanAggregate,
-  message: MessageFunction,
-  type?: PlanFieldType | null,
-): string {
-  if ((type === "number" || type === "integer") && (aggregate === "min" || aggregate === "max")) {
-    return message(`query.aggregate.number.${aggregate}`);
-  }
-  return message(`query.aggregate.${aggregate}` as `query.aggregate.${typeof aggregate}`);
-}
-
 /** A column's heading: the user's own word when they gave one. */
 export function columnLabel(
   column: PlanColumn,
   subject: PlanSubject,
   message: MessageFunction,
-  types?: PropertyTypes,
 ): string {
   if (column.label && column.label.trim().length > 0) return column.label;
-  const base = columnSourceLabel(column.source, subject, message);
-  if (!column.aggregate) return base;
-  return message("query.aggregateOf", {
-    aggregate: aggregateLabel(column.aggregate, message, sourceType(column.source, types)),
-    field: base,
-  });
+  return columnSourceLabel(column.source, subject, message);
 }
 
 /** The relative days the date editor offers, in the order it offers them. */

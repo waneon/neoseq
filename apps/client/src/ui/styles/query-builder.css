@@ -3,8 +3,6 @@
    how it combines; pressing it opens an editor for that filter alone. */
 .query-builder {
   --qb-combiner: 56px;
-  container-type: inline-size;
-  container-name: query-authoring;
   display: grid;
   gap: var(--sp-2);
   min-width: 0;
@@ -307,13 +305,6 @@ button.qb-filter:focus-visible {
   border-radius: 0 0 var(--r-2) var(--r-2) !important;
 }
 
-.qb-summary,
-.qb-summary-fields {
-  display: grid;
-  min-width: 0;
-  gap: var(--sp-2);
-}
-
 .qb-add-btn.btn {
   width: fit-content;
   max-width: 100%;
@@ -415,13 +406,6 @@ button.qb-filter:focus-visible {
   height: 12px;
 }
 
-.qb-summary-row {
-  display: grid;
-  grid-template-columns: minmax(104px, 0.8fr) minmax(132px, 1.4fr) var(--control-h);
-  gap: var(--sp-2);
-  min-width: 0;
-}
-
 @media (max-width: 640px) {
   .query-builder {
     padding: var(--sp-3);
@@ -441,20 +425,5 @@ button.qb-filter:focus-visible {
   .qb-chip button {
     min-width: 24px;
     min-height: 24px;
-  }
-}
-
-@container query-authoring (max-width: 400px) {
-  .qb-summary-row {
-    grid-template-columns: minmax(0, 1fr) var(--control-h);
-  }
-
-  .qb-summary-row > .menu-select {
-    grid-column: 1;
-  }
-
-  .qb-summary-row > .qb-remove {
-    grid-column: 2;
-    grid-row: 1;
   }
 }

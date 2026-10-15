@@ -3,7 +3,7 @@
 // A block result resolves its canonical BlockSnapshot and passes through the
 // same row/body presentation as the outline. Query columns are not used to
 // reconstruct a partial block: direct block fields belong to the native block
-// presentation. A page, tag, aggregate, or hand-written row keeps the generic
+// presentation. A page, tag, or hand-written row keeps the generic
 // result fallback, but table-only column choices never supplement a block.
 
 import { memo } from "react";
@@ -192,7 +192,7 @@ function QueryListViewBody({
   );
 }
 
-/** A non-block or aggregate SELECT keeps the query-shaped list fallback. */
+/** A non-block or hand-written result keeps the query-shaped list fallback. */
 export const QueryGenericListView = memo(QueryGenericListViewBody);
 
 function QueryGenericListViewBody({

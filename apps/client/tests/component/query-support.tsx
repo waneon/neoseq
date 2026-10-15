@@ -33,7 +33,6 @@ export async function mountPage(custom?: ReactElement): Promise<PageHarness> {
   // real query engine.
   harness.port.queryResult = {
     kind: "built",
-    grain: "entity",
     subject: "block",
     columns: [],
     rows: [],
@@ -116,7 +115,6 @@ export async function withResult(
   const resultBlockId = createdBlock(inserted);
   harness.port.queryResult = {
     kind: "built",
-    grain: "entity",
     subject: "block",
     columns: [
       { id: "text", source: { kind: "content" } },

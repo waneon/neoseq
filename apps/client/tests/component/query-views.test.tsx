@@ -15,49 +15,7 @@ import {
 } from "./query-support";
 
 describe("query result views", () => {
-  it("keeps explicit summary grain when switching between table and list", async () => {
-    const harness = await withResult();
-    harness.port.queryResult = null;
-    const user = userEvent.setup();
-    await chooseFromMenu(user, screen.getByTestId("qb-grain"), "Counts");
-    await waitFor(() => {
-      const plan = decodePlan(storedDefinition(harness)!.plan!.payload, QUERY_PLAN_VERSION);
-      expect(plan?.grain).toBe("summary");
-      expect(plan?.columns).toEqual([
-        { id: "count", source: { kind: "subject" }, aggregate: "count" },
-      ]);
-    });
-    expect(screen.getByRole("button", { name: "Remove summary field" })).toBeDisabled();
-    const table = await screen.findByTestId("query-table");
-    await waitFor(() => {
-      expect(within(table).getAllByTestId("query-row")).toHaveLength(1);
-      expect(within(table).getByTestId("query-row")).toHaveTextContent("2");
-    });
-    expect(within(table).queryByTestId("query-edit-count")).not.toBeInTheDocument();
-
-    await chooseFromMenu(user, screen.getByTestId("query-view-trigger"), "List");
-    const list = await screen.findByTestId("query-list");
-    expect(within(list).getAllByTestId("query-list-row")).toHaveLength(1);
-    expect(list).toHaveTextContent("2");
-    expect(list.querySelector(".query-block-content")).toBeNull();
-    expect(lastBuiltQuery(harness)).toMatchObject({
-      kind: "built",
-      plan: { grain: "summary" },
-    });
-
-    await chooseFromMenu(user, screen.getByTestId("qb-grain"), "Each match");
-    await waitFor(() =>
-      expect(
-        within(screen.getByTestId("query-list")).getAllByTestId("query-list-row"),
-      ).toHaveLength(2),
-    );
-    expect(lastBuiltQuery(harness)).toMatchObject({
-      kind: "built",
-      plan: { grain: "entity" },
-    });
-  });
-
-  it("saves an active result before changing its question to summary grain", async () => {
+  it("saves an active result before changing what its question looks for", async () => {
     const harness = await withResult("Before");
     const user = userEvent.setup();
     await user.click(
@@ -74,24 +32,19 @@ describe("query result views", () => {
       saving = true;
       await pending;
     };
-    fireEvent.change(editor, { target: { value: "Saved before summary" } });
+    fireEvent.change(editor, { target: { value: "Saved before pages" } });
     await waitFor(() => expect(saving).toBe(true));
     harness.port.queryResult = null;
-    await chooseFromMenu(user, screen.getByTestId("qb-grain"), "Counts");
+    await chooseFromMenu(user, screen.getByTestId("qb-subject"), "Pages");
 
-    expect(screen.getByTestId("qb-grain")).toHaveTextContent("Each match");
-    expect(decodePlan(storedDefinition(harness)!.plan!.payload, QUERY_PLAN_VERSION)?.grain).toBe(
-      "entity",
-    );
+    expect(screen.getByTestId("qb-subject")).toHaveTextContent("Blocks");
+    const subject = () =>
+      decodePlan(storedDefinition(harness)!.plan!.payload, QUERY_PLAN_VERSION)?.subject;
+    expect(subject()).toBe("block");
     await harness.settle(async () => {
       const saved = new Promise<void>((resolve) => {
         const unsubscribe = harness.session.subscribe(() => {
-          const definition = storedDefinition(harness);
-          if (
-            !definition?.plan ||
-            decodePlan(definition.plan.payload, QUERY_PLAN_VERSION)?.grain !== "summary"
-          )
-            return;
+          if (subject() !== "page") return;
           unsubscribe();
           resolve();
         });
@@ -99,21 +52,12 @@ describe("query result views", () => {
       release();
       await saved;
     });
-    await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("Saved before summary"));
-    await waitFor(() =>
-      expect(decodePlan(storedDefinition(harness)!.plan!.payload, QUERY_PLAN_VERSION)?.grain).toBe(
-        "summary",
-      ),
-    );
-    await waitFor(() =>
-      expect(within(screen.getByTestId("query-table")).getByTestId("query-row")).toHaveTextContent(
-        "2",
-      ),
-    );
+    await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("Saved before pages"));
+    await waitFor(() => expect(subject()).toBe("page"));
     expect(screen.queryByTestId("query-markdown-editor")).not.toBeInTheDocument();
   });
 
-  it("keeps the executed descriptor and editor when a remote question changes grain", async () => {
+  it("keeps the executed descriptor and editor when a remote question changes", async () => {
     const harness = await withResult("Before");
     const user = userEvent.setup();
     await user.click(
@@ -122,57 +66,50 @@ describe("query result views", () => {
     const editor = await screen.findByTestId("query-markdown-editor");
     fireEvent.compositionStart(editor);
     fireEvent.change(editor, { target: { value: "Keep the active draft" } });
-    const summary = {
+    const remote = {
       ...decodePlan(storedDefinition(harness)!.plan!.payload, QUERY_PLAN_VERSION)!,
-      grain: "summary" as const,
-      columns: [
-        {
-          id: "text",
-          label: "Summary count",
-          source: { kind: "subject" as const },
-          aggregate: "count" as const,
-        },
-      ],
+      subject: "page" as const,
+      columns: [{ id: "text", label: "Remote title", source: { kind: "content" as const } }],
     };
     harness.port.queryResult = {
       kind: "built",
-      grain: "summary",
-      subject: "block",
-      columns: summary.columns,
+      subject: "page",
+      columns: remote.columns,
       rows: [
         {
-          subject: null,
+          subject: { kind: "page", id: "home" },
           values: {
             text: [
-              { kind: "literal", value: "2", datatype: "http://www.w3.org/2001/XMLSchema#integer" },
+              {
+                kind: "literal",
+                value: "Home",
+                datatype: "http://www.w3.org/2001/XMLSchema#string",
+              },
             ],
           },
         },
       ],
       revision: 9,
-      frontier: "remote-summary",
+      frontier: "remote-pages",
     };
     await harness.session.execute({
       type: "set_query_plan",
       owner: { kind: "block", owner: { kind: "page", id: "home" }, id: harness.queryBlockId },
       view_id: "all",
-      plan: { version: QUERY_PLAN_VERSION, payload: JSON.stringify(summary) },
+      plan: { version: QUERY_PLAN_VERSION, payload: JSON.stringify(remote) },
     });
     await waitFor(() =>
-      expect(lastBuiltQuery(harness)).toMatchObject({
-        kind: "built",
-        plan: { grain: "summary" },
-      }),
+      expect(lastBuiltQuery(harness)).toMatchObject({ kind: "built", plan: { subject: "page" } }),
     );
     await harness.settle();
 
     expect(screen.getByTestId("query-markdown-editor")).toBe(editor);
     expect(editor).toHaveValue("Keep the active draft");
-    expect(screen.queryByText("Summary count")).not.toBeInTheDocument();
+    expect(screen.queryByText("Remote title")).not.toBeInTheDocument();
     fireEvent.compositionEnd(editor, { data: "Keep the active draft" });
     await user.tab();
     await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("Keep the active draft"));
-    await waitFor(() => expect(screen.getByText("Summary count")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Remote title")).toBeInTheDocument());
     expect(screen.queryByTestId("query-markdown-editor")).not.toBeInTheDocument();
   });
 
@@ -192,17 +129,17 @@ describe("query result views", () => {
       });
     };
     fireEvent.change(editor, { target: { value: "Keep this correction" } });
-    await chooseFromMenu(user, screen.getByTestId("qb-grain"), "Counts");
+    await chooseFromMenu(user, screen.getByTestId("qb-subject"), "Pages");
 
     const error = await screen.findByRole("alert");
-    expect(screen.getByTestId("qb-grain")).toHaveTextContent("Each match");
+    expect(screen.getByTestId("qb-subject")).toHaveTextContent("Blocks");
     expect(editor).toHaveValue("Keep this correction");
     expect(resultBlock(harness)?.markdown).toBe("Before");
     harness.port.beforeExecute = null;
     await user.click(within(error).getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(resultBlock(harness)?.markdown).toBe("Keep this correction"));
-    expect(decodePlan(storedDefinition(harness)!.plan!.payload, QUERY_PLAN_VERSION)?.grain).toBe(
-      "entity",
+    expect(decodePlan(storedDefinition(harness)!.plan!.payload, QUERY_PLAN_VERSION)?.subject).toBe(
+      "block",
     );
   });
 
@@ -511,7 +448,6 @@ describe("query result views", () => {
     };
     harness.port.queryResult = {
       kind: "built",
-      grain: "entity",
       subject: "block",
       columns: [{ id: "priority", source: { kind: "property", key: "builtin.task-priority" } }],
       rows: ["high", undefined, "low", "medium"].map((priority) => ({
@@ -577,7 +513,6 @@ describe("query result views", () => {
     const alphaBlockId = createdBlock(inserted);
     harness.port.queryResult = {
       kind: "built",
-      grain: "entity",
       subject: "block",
       columns: [
         { id: "text", source: { kind: "content" } },

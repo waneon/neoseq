@@ -120,12 +120,15 @@ describe("the query builder", () => {
     { name: "future plan", version: QUERY_PLAN_VERSION + 1, source: "SELECT * WHERE {}" },
     { name: "v1 plan with no source", version: 1, source: "" },
     { name: "v1 plan with source", version: 1, source: "SELECT * WHERE {}" },
-  ])("keeps an unsupported $name unavailable and read-only", async ({ version, source }) => {
+    // Summaries are no longer supported; a stored one is not reinterpreted.
+    { name: "summary plan", version: QUERY_PLAN_VERSION, source: "", grain: "summary" },
+  ])("keeps an unsupported $name unavailable and read-only", async ({ version, source, grain }) => {
     const payload = JSON.stringify({
       version,
+      grain,
       subject: "block",
       where: { id: "all", kind: "group", match: "all", children: [] },
-      columns: [{ id: "tags", source: { kind: "tags" }, aggregate: "list" }],
+      columns: [{ id: "tags", source: { kind: "tags" } }],
       distinct: false,
       limit: 100,
     });
@@ -400,9 +403,8 @@ describe("the query builder", () => {
       await harness.settle(() => vi.advanceTimersByTimeAsync(600));
       const plan = decodePlan(storedDefinition(harness)!.plan!.payload, QUERY_PLAN_VERSION);
       const tags = plan?.columns.find((column) => column.source.kind === "tags");
-      // A repeated field is a value vector, without changing entity grain.
+      // A repeated field is a value vector.
       expect(tags).toBeDefined();
-      expect(tags?.aggregate).toBeUndefined();
       expect(storedDefinition(harness)?.source.startsWith(DERIVED_SOURCE_PROVENANCE)).toBe(true);
 
       // Nothing else asks for it, so switching it off takes it out of the query
@@ -442,12 +444,6 @@ describe("the query builder", () => {
     await waitFor(() => {
       const plan = decodePlan(storedDefinition(harness)!.plan!.payload, QUERY_PLAN_VERSION);
       expect(plan?.columns.some((column) => column.source.kind === "tags")).toBe(true);
-      expect(
-        plan?.columns.find((column) => column.source.kind === "tags")?.aggregate,
-      ).toBeUndefined();
-      expect(
-        plan?.columns.find((column) => column.source.kind === "content")?.aggregate,
-      ).toBeUndefined();
     });
   });
 
@@ -516,7 +512,6 @@ describe("the query builder", () => {
 
     harness.port.queryResult = {
       kind: "built",
-      grain: "entity",
       subject: "block",
       columns: [{ id: "text", source: { kind: "content" } }],
       rows: [

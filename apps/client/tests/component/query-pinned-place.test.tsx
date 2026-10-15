@@ -10,7 +10,6 @@ const owner = { kind: "page", id: "home" } as const;
 function answer(blocks: { id: string; text: string }[], revision: number) {
   return {
     kind: "built" as const,
-    grain: "entity" as const,
     subject: "block" as const,
     columns: [{ id: "text", source: { kind: "content" as const } }],
     rows: blocks.map(({ id, text }) => ({

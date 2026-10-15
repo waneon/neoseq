@@ -179,17 +179,14 @@ query(graph_handle, {
 
 The built compiler validates the complete plan grammar and constructs algebra
 directly; it never serializes or parses SPARQL. `today` resolves relative dates
-at execution. A plan declares its result grain independently of its renderer:
+at execution. A plan selects distinct subject identities in stable order,
+applies the limit, then reads each selected entity's fields from the same index
+revision. Repeated fields are typed value vectors; adding a column cannot
+multiply rows, remove entities, or change which entities survive the limit.
 
-- `entity` selects distinct subject identities in stable order, applies the
-  limit, then reads each selected entity's fields from the same index revision.
-  Repeated fields are typed value vectors; adding a column cannot multiply rows,
-  remove entities, or change which entities survive the limit.
-- `summary` groups explicit fields and requires at least one `count`, `sum`,
-  `avg`, `min`, or `max` aggregate. Its rows carry no editable subject identity.
-  Each aggregate reads only the subjects that have its value, so a missing value
-  neither fails the aggregate nor counts as zero; a missing grouping value forms
-  its own group.
+Plans do not aggregate. The payload's `grain` field is fixed to `entity` so
+builds that also read summaries keep accepting every plan written now; a stored
+summary plan no longer reads and shows as unsupported.
 
 A registry property has its declared type. A graph-defined property has none in
 the plan grammar: the compiler accepts any operator whose value shape is coherent
@@ -200,15 +197,15 @@ A comparison matches only a subject that has the field's value: "is not",
 "does not contain", and "is unchecked" never match a subject without one. Only
 "has no value" asks for absence.
 
-There is no independent distinct flag or list aggregate in v2. Raw bindings become the query's
+There is no independent distinct flag in v2. Raw bindings become the query's
 initial solution mapping and are never inserted through string substitution.
 A select result preserves declared variable order and returns unbound, IRI, or
 typed-literal cells plus index revision/frontier. Entity IRIs are additionally
 decoded to typed entity references at the CorePort boundary.
 A built answer instead carries a descriptor and rows with explicit subject
 references and typed value vectors keyed by authored column ID. The descriptor
-contains the subject kind, grain, column sources, authored labels, aggregates,
-and moment companions. Compiler variables and string separators are private;
+contains the subject kind, column sources, authored labels, and moment
+companions. Compiler variables and string separators are private;
 the client never reconstructs column meaning from their spelling.
 
 For example, a hand-authored raw request may bind `?today` and `?needle` as typed
@@ -264,12 +261,12 @@ Markdown, task marks, tags, and generic property chips. Result cells never becom
 supplemental block facts, and a table's hidden or selected columns cannot change
 the list. Children and embedded feature surfaces do not render through the
 reference; feature-only properties such as `builtin.query` are therefore neither
-chips nor recursively mounted queries. Summary, raw, and non-block results
-use a generic list over the same returned rows and columns.
+chips nor recursively mounted queries. Raw and non-block results use a generic
+list over the same returned rows and columns.
 
-The active view's columns describe its entity fields or summary. Sibling views
-never participate in a column edit. Table and List execute the identical authored
-request and preserve its result grain; changing layout never changes the question.
+The active view's columns describe its entity fields. Sibling views never
+participate in a column edit. Table and List execute the identical authored
+request; changing layout never changes the question.
 
 Every plan-carrying view is built. A view with no plan still runs and reads from
 its source, but the client offers no builder for it.
@@ -339,16 +336,15 @@ ordering, and transient resize state belong to the query view; no second table
 row or cell model reinterprets the answer.
 
 Query evaluation remains read-only. A builder-authored block result can be
-edited only when the executed answer declares entity grain and its column
-descriptor names a direct block field. The client combines the row's explicit subject,
+edited only when its column descriptor names a direct block field. The client combines the row's explicit subject,
 the descriptor, the property registry, and the current writable lease
 into an ephemeral edit binding. It never infers a write target from a variable
 name, RDF datatype, or displayed value.
 
 Direct block content writes semantic content splices; direct writable properties use
 the owner-based property commands; tag collections use `add_tag` and
-`remove_tag`. Summary rows, structural relations,
-unknown plan versions, and raw results remain read-only. SPARQL Update is
+`remove_tag`. Structural relations, unknown plan versions, and raw results
+remain read-only. SPARQL Update is
 not introduced.
 
 RDF rows are display data rather than edit baselines. An editor reads its
@@ -357,8 +353,7 @@ Content projections hydrate the distinct result owners to resolve stable
 page-reference spans. A block list uses those same canonical snapshots to
 render each block through the outline's presentation primitives. Direct block
 fields use the native block presentation.
-Selected aggregates and structural relations remain table cells rather than
-block facts. Plan-less and non-block results may use generic result cells.
+Structural relations remain table cells rather than block facts. Plan-less and non-block results may use generic result cells.
 Embedded feature surfaces and children do not render through a result reference.
 
 The outline and query surfaces share block presentation and the content-editing
@@ -394,10 +389,9 @@ invalidate query results by itself.
 ## Authoring: the Query Builder
 
 A **query plan** is the product builder's typed authored representation: a
-subject kind, a nested all/any/none tree of typed conditions, explicit entity or
-summary grain, output fields, and a bounded integer row limit. Entity values
-preserve their cardinality without aggregation. Summary authoring owns grouping
-and scalar aggregation. The generated CorePort types and
+subject kind, a nested all/any/none tree of typed conditions, output fields, and
+a bounded integer row limit. Values preserve their cardinality. The generated
+CorePort types and
 the Rust `query` crate describe the same versioned grammar.
 
 When a view carries a plan, that plan is its sole authority. The browser sends
@@ -421,14 +415,12 @@ SPARQL artifacts. Three lowering properties are contractual:
 
 - User values become typed algebra terms, never syntax fragments. A relative
   operand resolves from the request's validated local date on every execution.
-- Negation is `NOT EXISTS` over the positive pattern, so "does not contain"
-  keeps entities that carry no such value at all.
+- Negation is `NOT EXISTS` over the positive pattern, guarded by the field's
+  presence, so "does not contain" never matches an entity without a value.
 - Alternatives are a disjunction of correlated `EXISTS`, not `UNION`, so each
   branch asks its question of the subject already in hand.
 
 Entity selection and field projection are separate stages at one index frontier.
-Summary grouping belongs to its explicit algebra; it cannot be introduced by a
-table display field or removed by switching to List.
 
 ## Planning, Reactivity, and Budgets
 
