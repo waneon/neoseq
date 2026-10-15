@@ -372,6 +372,8 @@ interface EditorContext {
   onCompositionEnd(row: OutlineRow, textarea: HTMLTextAreaElement): void;
   onKeyDown(row: OutlineRow, event: KeyboardEvent<HTMLTextAreaElement>): void;
   flushNow(id: string): void;
+  /** Set by Escape: the next Tab leaves the outline instead of indenting. */
+  tabLeaves: { current: boolean };
   runHistory(id: string, redo: boolean): void;
   insertRootBlock(index: number, inputMethod: InputMethod): void;
   enqueuePendingInsert(
@@ -625,6 +627,7 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
     flushTimers.current.delete(id);
   }, []);
   const pendingCaret = useRef<number | null>(null);
+  const tabLeaves = useRef(false);
   /**
    * A press that lands in a settled line is a pointer-owned entrance — the reader
    * is going to write — but the browser hands that entrance over as a bare
@@ -2350,6 +2353,7 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
     vim,
     focusedId,
     pendingCaret,
+    tabLeaves,
     activationEntrance,
     propertyRequest,
     tagRequest,
@@ -4011,6 +4015,18 @@ function onKeyDown(
   }
   const textarea = event.currentTarget;
   const id = row.block.id;
+
+  // Tab indents, so the keyboard's way out of the outline is Escape, then Tab:
+  // that Tab moves focus as it does everywhere else. Any other key cancels it.
+  if (event.key === "Escape") {
+    editor.tabLeaves.current = true;
+    return;
+  }
+  if (event.key === "Tab" && editor.tabLeaves.current) {
+    editor.tabLeaves.current = false;
+    return;
+  }
+  editor.tabLeaves.current = false;
 
   // The platform convention for "menu for the thing I am on". Without it the
   // block's verbs would be pointer-only now that the row has no ⋯ button.

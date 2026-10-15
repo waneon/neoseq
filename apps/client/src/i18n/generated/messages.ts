@@ -729,6 +729,8 @@ export interface MessageArgumentMap {
   "shortcuts.journalPages": undefined;
   "shortcuts.jumpDate": undefined;
   "shortcuts.keyboard": undefined;
+  "shortcuts.leaveOutline": undefined;
+  "shortcuts.leaveOutlineRoute": undefined;
   "shortcuts.lineBreak": undefined;
   "shortcuts.moveDown": undefined;
   "shortcuts.moveSelection": undefined;

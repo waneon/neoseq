@@ -56,6 +56,10 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
         { label: message("shortcuts.cycleTask"), keys: [[MOD, "⏎"]] },
         { label: message("shortcuts.indent"), keys: [["⇥"]] },
         { label: message("shortcuts.outdent"), keys: [["⇧", "⇥"]] },
+        {
+          label: message("shortcuts.leaveOutline"),
+          route: message("shortcuts.leaveOutlineRoute"),
+        },
         { label: message("shortcuts.moveUp"), keys: [["⌥", "↑"]] },
         { label: message("shortcuts.moveDown"), keys: [["⌥", "↓"]] },
         { label: message("shortcuts.nextPrevBlock"), keys: [["↑"], ["↓"]] },

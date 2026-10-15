@@ -32,7 +32,9 @@ buttons, links, or list relationships.
 
 The outline exposes a multi-selectable tree with expansion state and active-row
 semantics. The editor remains the row's single tab stop, while bullets and
-collapse actions stay keyboard-reachable through explicit navigation. Menus,
+collapse actions stay keyboard-reachable through explicit navigation. Tab
+indents inside the outline; Escape, then Tab, moves focus out of it, and the
+shortcut reference says so. Menus,
 listboxes, tabs, and dialogs use their native interaction patterns rather than a
 visual imitation.
 

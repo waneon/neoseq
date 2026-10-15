@@ -684,6 +684,8 @@
   "shortcuts.journalPages": "Journal and pages",
   "shortcuts.jumpDate": "Jump to a date",
   "shortcuts.keyboard": "Keyboard shortcuts",
+  "shortcuts.leaveOutline": "Leave the outline",
+  "shortcuts.leaveOutlineRoute": "Esc, then ⇥",
   "shortcuts.lineBreak": "Line break inside a block",
   "shortcuts.cycleTask": "Cycle task status",
   "shortcuts.moveDown": "Move block down",
