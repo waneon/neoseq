@@ -186,7 +186,10 @@ from async callbacks and React rendering; it has no independent force-render pat
 
 IME composition remains local until a composition boundary. Normal typing uses
 a short debounce, submits block ID plus text-range intent, then reconciles with
-the authoritative core event while preserving the selection. Structural commands
+the authoritative core event while preserving the selection. Input typed into an
+open completion is held, so accepting a choice commits the text and the choice
+as one edit; a menu that closes without a choice releases it to the debounce.
+Leaving the route or hiding the page saves all waiting input at once. Structural commands
 cross CorePort immediately and may render optimistically only when the inverse
 is known.
 

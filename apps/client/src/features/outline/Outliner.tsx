@@ -870,15 +870,40 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
       mounted.current = false;
       if (revealTimer.current) clearTimeout(revealTimer.current);
       if (presenceTimer.current !== null) clearTimeout(presenceTimer.current);
-      const pending = [...flushTimers.current.entries()];
+      for (const timer of flushTimers.current.values()) clearTimeout(timer);
       flushTimers.current.clear();
-      for (const [, timer] of pending) clearTimeout(timer);
-      // Leaving the route must not throw away the final debounced keystroke.
-      // The command still runs, while the unmounted editor no longer updates
-      // its local baseline or reports through a surface that is gone.
-      for (const [id] of pending) flushRef.current(id);
+      // Leaving the route must not throw away input: a debounced keystroke, or
+      // one held while a completion menu was open. The command still runs,
+      // while the unmounted editor no longer updates its local baseline or
+      // reports through a surface that is gone.
+      for (const id of readDraftState().buffers.keys()) flushRef.current(id);
     };
-  }, [flushRef]);
+  }, [flushRef, readDraftState]);
+
+  // A hidden page may never come back: a closed tab or a discarded mobile app.
+  // Whatever input is still waiting saves now.
+  useEffect(() => {
+    const save = () => {
+      if (document.visibilityState !== "hidden" || composing.current) return;
+      for (const timer of flushTimers.current.values()) clearTimeout(timer);
+      flushTimers.current.clear();
+      for (const id of readDraftState().buffers.keys()) void flushRef.current(id);
+    };
+    document.addEventListener("visibilitychange", save);
+    return () => document.removeEventListener("visibilitychange", save);
+  }, [flushRef, readDraftState]);
+
+  // Typing into an open completion holds its input, so accepting a choice
+  // commits the text and the choice as one edit. A menu that closes without a
+  // choice releases that input to the ordinary save.
+  const completionBlock =
+    slashRequest?.blockId ?? hashRequest?.blockId ?? pageRequest?.blockId ?? null;
+  const heldBlock = useRef<string | null>(null);
+  useEffect(() => {
+    const held = heldBlock.current;
+    heldBlock.current = completionBlock;
+    if (held && held !== completionBlock) scheduleFlush(held);
+  }, [completionBlock, scheduleFlush]);
 
   const runHistory = useCallback(
     (id: string, redo: boolean) => {
