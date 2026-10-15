@@ -2937,6 +2937,19 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
       },
       indent: (row) => {
         flushNow(row.block.id);
+        // The block becomes the last child of the sibling above it. A collapsed
+        // sibling opens, so the block and its caret stay where the reader is.
+        const siblings = row.parentId
+          ? (findBlock(outlineRef.current, row.parentId)?.children ?? [])
+          : outlineRef.current.blocks;
+        const parent = siblings[row.index - 1]?.id;
+        if (parent && collapsedRef.current.has(parent)) {
+          setCollapsed((current) => {
+            const next = new Set(current);
+            next.delete(parent);
+            return next;
+          });
+        }
         void run(
           {
             type: "indent_blocks",
