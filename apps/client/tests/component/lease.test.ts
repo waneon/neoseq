@@ -110,6 +110,22 @@ describe("graph lease lifecycle", () => {
     successor.release();
   });
 
+  it("refuses a directory operation while another tab keeps editing", async () => {
+    Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });
+    const editor = await anotherTab();
+    const directory = await anotherTab();
+    const locator = { repository_id: "remote", graph_id: "directory-busy" };
+    const holder = await editor.acquireLease(locator);
+    const action = vi.fn(async () => {});
+    await expect(directory.withGraphLease(locator, action, 700)).rejects.toMatchObject({
+      detail: { code: "graph_already_open" },
+    });
+    // Closing the editor later must not run the operation the reader gave up on.
+    holder.release();
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    expect(action).not.toHaveBeenCalled();
+  });
+
   it("never reuses a runtime peer id after a tab session closes", async () => {
     Object.defineProperty(navigator, "locks", {
       configurable: true,

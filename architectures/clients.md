@@ -83,7 +83,8 @@ core. An incompatible replacement pauses sync and preserves local editing.
 
 Editing, directory export, and deletion acquire the same repository-qualified
 graph lease. Editors may open read-only when another tab holds it; directory
-operations wait. Web Locks and BroadcastChannel election implement the same
+operations wait briefly for this tab's closing session and otherwise refuse,
+never running after the reader gave up. Web Locks and BroadcastChannel election implement the same
 policy, and every acquired lease has a paired release.
 
 ## Browser Adapter

@@ -12,6 +12,7 @@
 // obligation to release.
 
 import type { GraphLocatorDto } from "../generated/core-port";
+import { CorePortFailure } from "../core-worker";
 import { randomUUID } from "@/lib/crypto";
 
 export type LeaseMode = "exclusive" | "readonly";
@@ -32,7 +33,7 @@ const tabLeases = new Map<string, TabLease>();
 
 export async function acquireLease(
   locator: GraphLocatorDto,
-  options: { wait?: boolean } = {},
+  options: { wait?: boolean; signal?: AbortSignal } = {},
 ): Promise<Lease> {
   const graphId = JSON.stringify([locator.repository_id, locator.graph_id]);
   if (typeof navigator === "undefined") {
@@ -41,7 +42,7 @@ export async function acquireLease(
 
   let shared = tabLeases.get(graphId);
   if (!shared) {
-    shared = createTabLease(graphId, options.wait ?? false);
+    shared = createTabLease(graphId, options.wait ?? false, options.signal);
     tabLeases.set(graphId, shared);
   }
   shared.consumers += 1;
@@ -84,23 +85,28 @@ export async function acquireLease(
   };
 }
 
-function createTabLease(graphId: string, wait: boolean): TabLease {
+function createTabLease(graphId: string, wait: boolean, signal?: AbortSignal): TabLease {
   let releaseLock: () => void = () => {};
   const held = new Promise<void>((resolve) => {
     releaseLock = resolve;
   });
   const mode = navigator.locks
-    ? webLockMode(graphId, held, wait)
+    ? webLockMode(graphId, held, wait, signal)
     : typeof BroadcastChannel === "function"
-      ? electedMode(graphId, held, wait)
+      ? electedMode(graphId, held, wait, signal)
       : Promise.resolve<LeaseMode>("exclusive");
   return { consumers: 0, mode, releaseLock, tail: Promise.resolve() };
 }
 
-function webLockMode(graphId: string, held: Promise<void>, wait: boolean): Promise<LeaseMode> {
+function webLockMode(
+  graphId: string,
+  held: Promise<void>,
+  wait: boolean,
+  signal?: AbortSignal,
+): Promise<LeaseMode> {
   return new Promise<LeaseMode>((resolve, reject) => {
     void navigator.locks
-      .request(`neoseq:graph:${graphId}`, { ifAvailable: !wait }, (lock) => {
+      .request(`neoseq:graph:${graphId}`, wait ? { signal } : { ifAvailable: true }, (lock) => {
         if (!lock) {
           resolve("readonly");
           return undefined;
@@ -123,8 +129,10 @@ async function electedMode(
   graphId: string,
   held: Promise<void>,
   wait: boolean,
+  signal?: AbortSignal,
 ): Promise<LeaseMode> {
   for (;;) {
+    signal?.throwIfAborted();
     const mode = await electionAttempt(graphId, held);
     if (mode === "exclusive" || !wait) return mode;
     // Reclaim after either a release or a closed/crashed holder. BroadcastChannel
@@ -174,12 +182,28 @@ function releaseConsumer(graphId: string, shared: TabLease): void {
   shared.releaseLock();
 }
 
+/** How long a directory operation waits for this graph's sessions to close.
+ * This tab's own closing session hands over at once; another tab's editor may
+ * never close, and an operation it releases later would surprise its reader. */
+const DIRECTORY_WAIT_MS = 3_000;
+
 /** Runs a directory operation under the same lease that protects graph sessions. */
 export async function withGraphLease<T>(
   locator: GraphLocatorDto,
   action: () => Promise<T>,
+  waitMs = DIRECTORY_WAIT_MS,
 ): Promise<T> {
-  const lease = await acquireLease(locator, { wait: true });
+  let lease: Lease;
+  try {
+    lease = await acquireLease(locator, { wait: true, signal: AbortSignal.timeout(waitMs) });
+  } catch (error) {
+    if (!(error instanceof DOMException) || error.name !== "TimeoutError") throw error;
+    throw new CorePortFailure({
+      code: "graph_already_open",
+      message: "the graph is open in another tab",
+      retryable: true,
+    });
+  }
   try {
     return await action();
   } finally {

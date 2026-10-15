@@ -62,7 +62,7 @@ import { Input } from "@/ui/shadcn/input";
 import { Button } from "@/ui/shadcn/button";
 import { MenuSelect } from "@/ui/menu-select";
 import { useNotify } from "../notify/context";
-import { useSession, useSessionState } from "../shell/session-context";
+import { useSession, useSessionSelector, useSessionState } from "../shell/session-context";
 import { ShortcutEditor } from "./ShortcutEditor";
 import {
   LOCALE_DEFINITIONS,
@@ -817,6 +817,8 @@ function DangerSection({ repositoryId, graphId }: { repositoryId: string; graphI
   const serverDeleteButtonRef = useRef<HTMLButtonElement>(null);
   const deleteStarted = useRef(false);
   const serverDeleted = useRef(false);
+  // Another tab holds the graph; deleting needs it closed there first.
+  const leased = useSessionSelector((state) => state.readonlyReason === "lease");
   const local = repositoryId === LOCAL_REPOSITORY_ID;
   const connection = graphConnection(repositoryId, graphId);
   const server = confirmDelete === "server";
@@ -845,6 +847,7 @@ function DangerSection({ repositoryId, graphId }: { repositoryId: string; graphI
             ref={deleteButtonRef}
             variant="destructive"
             data-testid="settings-delete-graph"
+            disabled={leased}
             onClick={() => setConfirmDelete("device")}
           >
             {message(local ? "settings.deleteGraph" : "settings.removeReplica")}
@@ -860,7 +863,7 @@ function DangerSection({ repositoryId, graphId }: { repositoryId: string; graphI
               ref={serverDeleteButtonRef}
               variant="destructive"
               data-testid="settings-delete-server-graph"
-              disabled={!readAuthSession(repositoryId)}
+              disabled={leased || !readAuthSession(repositoryId)}
               onClick={() => setConfirmDelete("server")}
             >
               {message("settings.deleteGraph")}
