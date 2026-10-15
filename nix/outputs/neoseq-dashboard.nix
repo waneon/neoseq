@@ -14,6 +14,7 @@ let
   pnpmLockDigest = builtins.hashFile "sha256" ../../pnpm-lock.yaml;
   applicationFiles = lib.fileset.unions [
     ../../assets/brand
+    ../../assets/fonts
     ../../package.json
     ../../patches
     ../../pnpm-lock.yaml
@@ -39,7 +40,7 @@ stdenv.mkDerivation {
     inherit version src pnpm;
     pname = "${pname}-${pnpmLockDigest}";
     fetcherVersion = 4;
-    hash = "sha256-rr6s9idlahfzNAkI06+v86/WqSD/a1rEaysznbiIucU=";
+    hash = "sha256-sDVz7DANVifkGemz8u8j9aKeRyyqZ+cQoPI/ZGrOs3Q=";
   };
 
   nativeBuildInputs = [

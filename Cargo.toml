@@ -22,7 +22,9 @@ license = "AGPL-3.0-only"
 [workspace.dependencies]
 criterion = "0.8.2"
 hex = "0.4"
+# Exact: the CRDT encoding is part of every stored graph.
 loro = "=1.16.2"
+# Exact: the query index and its evaluator answer stored queries.
 oxigraph = { version = "=0.5.11", default-features = false, features = ["js"] }
 postcard = { version = "1.1", features = ["alloc"] }
 roaring = "0.11.5"
@@ -30,16 +32,16 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.11"
+# Exact: the algebra types Oxigraph evaluates come from this same release.
 spargebra = "=0.4.7"
 thiserror = "2.0"
 ts-rs = { version = "12.0.1", features = [
   "serde-json-impl",
   "no-serde-warnings",
 ] }
-url = "2.5"
 # Exactly the `wasm-bindgen-cli` version in the locked nixpkgs.
 wasm-bindgen = "=0.2.129"
-zip = { version = "=9.0.3", default-features = false }
+zip = { version = "9.0.3", default-features = false }
 
 [profile.wasm-release]
 inherits = "release"

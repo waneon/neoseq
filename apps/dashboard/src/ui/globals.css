@@ -12,9 +12,16 @@
 
 @layer theme, base, neoseq, components, utilities;
 
-@import "pretendard/dist/web/variable/pretendardvariable.css";
 @import "tailwindcss";
 @import "./app.css" layer(neoseq);
+
+@font-face {
+  font-family: "Pretendard Variable";
+  font-weight: 45 920;
+  font-style: normal;
+  font-display: swap;
+  src: url("../../../../assets/fonts/PretendardVariable.woff2") format("woff2-variations");
+}
 
 @theme inline {
   --color-background: var(--canvas);
