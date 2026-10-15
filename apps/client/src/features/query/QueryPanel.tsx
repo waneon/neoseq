@@ -78,7 +78,13 @@ import { QueryGenericListView, QueryListView } from "./QueryListView";
 import { QuerySortControl, type SortControlEntry } from "./QuerySortControl";
 import { QueryTableView } from "./QueryTableView";
 import { QueryViewTabs } from "./QueryViewTabs";
-import { resultViewRows, type CellContext, type ResultColumn, type ResultRow } from "./cells";
+import {
+  resultViewRows,
+  type CellContext,
+  type ResultColumn,
+  type ResultRow,
+  type ResultViewRow,
+} from "./cells";
 import { QueryEditPortals, useQueryResultEditor } from "./edit";
 import { useQueryAnswer } from "./execution";
 import { answerLabel, columnLabel, fieldLabel } from "./labels";
@@ -531,18 +537,28 @@ function QueryPanelSurface({
     ? resultRows.some((row) => row.key === activeOrigin.key)
     : true;
   const pinnedRow = activeOrigin && !activeRowPresent ? activeOrigin : null;
-  const resultAndPinnedRows = useMemo(
-    () => (pinnedRow ? [...resultRows, pinnedRow] : resultRows),
-    [pinnedRow, resultRows],
+  const orderedTableRows = useMemo(
+    () => orderResultRows(resultRows, tableSorts, columns, cellContext),
+    [cellContext, columns, resultRows, tableSorts],
   );
+  const orderedListRows = useMemo(
+    () => orderBlockRows(resultRows, listSorts, listSortFields, cellContext),
+    [cellContext, listSortFields, listSorts, resultRows],
+  );
+  // A row being edited out of the answer stays where the reader is writing in
+  // it: after the rows that preceded it, not appended or re-sorted below them.
+  const shownTable = useRef<ResultViewRow[]>([]);
+  const shownList = useRef<ResultViewRow[]>([]);
   const tableRows = useMemo(
-    () => orderResultRows(resultAndPinnedRows, tableSorts, columns, cellContext),
-    [cellContext, columns, resultAndPinnedRows, tableSorts],
+    () => keepInPlace(orderedTableRows, pinnedRow, shownTable.current),
+    [orderedTableRows, pinnedRow],
   );
   const listRows = useMemo(
-    () => orderBlockRows(resultAndPinnedRows, listSorts, listSortFields, cellContext),
-    [cellContext, listSortFields, listSorts, resultAndPinnedRows],
+    () => keepInPlace(orderedListRows, pinnedRow, shownList.current),
+    [orderedListRows, pinnedRow],
   );
+  shownTable.current = tableRows;
+  shownList.current = listRows;
   const visibleRows = canonicalBlockView ? listRows : tableRows;
 
   // The heading and disclosure describe the plan currently being authored.
@@ -1424,4 +1440,20 @@ function dedupe(columns: QueryViewColumn[]): QueryViewColumn[] {
     seen.add(column.variable);
     return true;
   });
+}
+
+/** Inserts `pinned` after the rows that preceded it in `shown`, the order last on screen. */
+function keepInPlace(
+  rows: ResultViewRow[],
+  pinned: ResultViewRow | null,
+  shown: ResultViewRow[],
+): ResultViewRow[] {
+  if (!pinned) return rows;
+  const position = shown.findIndex((row) => row.key === pinned.key);
+  const preceding = new Set(shown.slice(0, Math.max(position, 0)).map((row) => row.key));
+  let at = position < 0 ? rows.length : 0;
+  rows.forEach((row, index) => {
+    if (preceding.has(row.key)) at = index + 1;
+  });
+  return [...rows.slice(0, at), pinned, ...rows.slice(at)];
 }
