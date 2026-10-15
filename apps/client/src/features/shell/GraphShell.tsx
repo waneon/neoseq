@@ -1126,13 +1126,15 @@ function BrowserHistory() {
   const location = useLocation();
   const type = useNavigationType();
   const index = (window.history.state as { idx?: number } | null)?.idx ?? 0;
-  const furthest = useRef({ key: location.key, index });
+  // The tab's history outlives a reload, so the furthest entry it holds does too.
+  const furthest = useRef({ key: location.key, index: Math.max(index, readFurthestEntry()) });
   if (furthest.current.key !== location.key) {
     // A push discards the forward entries; traversal and replacement keep them.
     furthest.current = {
       key: location.key,
       index: type === "PUSH" ? index : Math.max(furthest.current.index, index),
     };
+    writeFurthestEntry(furthest.current.index);
   }
   return (
     <div className="topbar-browse">
@@ -1550,5 +1552,23 @@ function decodeSegment(segment: string): string {
     return decodeURIComponent(segment);
   } catch {
     return segment;
+  }
+}
+
+const FURTHEST_ENTRY_KEY = "neoseq.history-furthest";
+
+function readFurthestEntry(): number {
+  try {
+    return Number(sessionStorage.getItem(FURTHEST_ENTRY_KEY) ?? 0) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeFurthestEntry(index: number): void {
+  try {
+    sessionStorage.setItem(FURTHEST_ENTRY_KEY, String(index));
+  } catch {
+    // Without storage the forward control only forgets entries across reloads.
   }
 }

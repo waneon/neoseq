@@ -47,3 +47,16 @@ test("dismissing a notification leaves Settings open", async ({ app, page }) => 
   await expect(notice).toHaveCount(0);
   await expect(second.getByTestId("settings-dialog")).toBeVisible();
 });
+
+test("Forward stays available across a reload", async ({ app, page }) => {
+  await app.createGraph("Forward after reload");
+  await app.createPage("First");
+  await app.createPage("Second");
+  await page.goBack();
+  await expect(page.getByTestId("page-title")).toHaveValue("First");
+  await page.reload();
+  const forward = page.locator(".topbar-browse").getByRole("button", { name: "Forward" });
+  await expect(forward).toBeEnabled();
+  await forward.click();
+  await expect(page.getByTestId("page-title")).toHaveValue("Second");
+});
