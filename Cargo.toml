@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
   "crates/benchmarks",
+  "crates/contract-types",
   "crates/domain",
   "crates/graph-archive",
   "crates/graph-core",

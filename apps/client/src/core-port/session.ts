@@ -12,7 +12,7 @@ import type {
   CorePortError,
   CommandResult,
   AuthoredQueryRequest,
-  SparqlQueryResult,
+  QueryResult,
   RecoveryDto,
   StorageCapabilitiesDto,
 } from "../generated/core-port";
@@ -93,7 +93,7 @@ export interface SessionState {
 /** An answer and the exact session state against which its request ran. */
 export interface QueryFrame {
   readonly request: AuthoredQueryRequest;
-  readonly result: SparqlQueryResult;
+  readonly result: QueryResult;
   readonly canonicalRevision: number;
 }
 
@@ -398,7 +398,7 @@ export class GraphSession {
    * Queries wait behind graph work queued before they start, and one aborted
    * before it starts never reaches the core.
    */
-  query(query: AuthoredQueryRequest, signal?: AbortSignal): Promise<SparqlQueryResult> {
+  query(query: AuthoredQueryRequest, signal?: AbortSignal): Promise<QueryResult> {
     return this.queryFrame(query, signal).then((frame) => frame.result);
   }
 

@@ -4,6 +4,7 @@ export type Ack = { history_epoch: number,
  * The acknowledged update's content identity.
  */
 message_id: ContentId, server_cursor: number, };
+export type AuthoredQueryRequest = { "kind": "built", plan: BuiltQueryPlan, today: LocalDate, } | { "kind": "raw_sparql", language: string, source: string, bindings?: { [key in string]: RdfTerm }, };
 export type BlockContentSplice = { block_id: BlockId, index: number, delete: number, insert: Array<InlineContent>, };
 export type BlockContentUpdate = { owner: OutlineOwner, block_id: BlockId, content: Array<InlineContent>, markdown: string, page_references: Array<PageReferenceSpan>, properties: PropertyBag, mapping: Array<ContentRangeChange>, };
 export type BlockId = string;
@@ -17,6 +18,9 @@ content: Array<InlineContent>,
  * `[[current title]]`; canonical storage never duplicates that title.
  */
 markdown: string, page_references: Array<PageReferenceSpan>, properties: PropertyBag, tags: Array<TagId>, children: Array<BlockSnapshot>, };
+export type BuiltQueryPlan = { version: number, grain: QueryGrain, subject: PlanSubject, where: Extract<PlanNode, { kind: "group" }>, columns: Array<PlanColumn>, limit: number, };
+export type BuiltResultColumn = { id: string, source: PlanColumnSource, label?: string, time_column?: string, };
+export type BuiltResultRow = { subject: QueryEntityRef, values: { [key in string]: Array<RdfTerm> }, };
 export type Cardinality = "single" | "set";
 export type Command = { "type": "set_entity_kind", id: PageId, kind: EntityKind, } | { "type": "ensure_page", page_id: PageId, title: string, } | { "type": "ensure_journal", date: LocalDate, } | { "type": "rename_page", page_id: PageId, title: string, } | { "type": "delete_page", page_id: PageId, } | { "type": "restore_page", page_id: PageId, } | { "type": "ensure_tag", tag_id: TagId, name: string, } | { "type": "rename_tag", tag_id: TagId, name: string, } | { "type": "delete_tag", tag_id: TagId, } | { "type": "restore_tag", tag_id: TagId, } | { "type": "insert_block", owner: OutlineOwner, parent: BlockId | null, index: number, markdown: string, } | { "type": "split_block", owner: OutlineOwner, block_id: BlockId, index: number, placement: SplitPlacement, } | { "type": "merge_block_backward", owner: OutlineOwner, block_id: BlockId, 
 /**
@@ -105,6 +109,15 @@ start: number, end: number,
 index: number, page_id: PageId, };
 export type PageSnapshot = { id: PageId, title: string, properties: PropertyBag, tags: Array<TagId>, blocks: Array<BlockSnapshot>, };
 export type PageSummary = { id: PageId, title: string, properties: PropertyBag, tags: Array<TagId>, };
+export type PlanColumn = { id: string, source: PlanColumnSource, label?: string, };
+export type PlanColumnSource = { "kind": "subject" } | { "kind": "content" } | { "kind": "page" } | { "kind": "property", key: string, } | { "kind": "tags" } | { "kind": "parent" } | { "kind": "sibling_index" };
+export type PlanField = { "kind": "content" } | { "kind": "property", key: string, } | { "kind": "tag" } | { "kind": "page" } | { "kind": "ancestor" } | { "kind": "sibling_index" };
+export type PlanMatch = "all" | "any" | "none";
+export type PlanNode = { "kind": "condition", id: string, field: PlanField, op: PlanOperator, value?: PlanValue, value2?: PlanValue, } | { "kind": "group", id: string, match: PlanMatch, children: Array<PlanNode>, };
+export type PlanOperator = "contains" | "not_contains" | "starts_with" | "ends_with" | "equals" | "not_equals" | "any_of" | "lt" | "lte" | "gt" | "gte" | "between" | "is_true" | "is_false" | "is_set" | "is_empty";
+export type PlanRelativeDate = { unit: RelativeDateUnit, offset: number, };
+export type PlanSubject = "block" | "page" | "tag";
+export type PlanValue = { "type": "text", value: string, } | { "type": "number", value: number, } | { "type": "date", value: string, } | { "type": "relative", value: PlanRelativeDate, } | { "type": "page", value: string, } | { "type": "tag", value: string, } | { "type": "list", values: Array<string>, };
 export type Presence = { expires_in_ms: number, payload: Array<number>, };
 export type PropertyBag = Array<PropertyField>;
 export type PropertyChange = { key: PropertyKey, value: PropertyValue | null, };
@@ -121,8 +134,11 @@ export type QueryDefinition = {
  * to Raw requires `SetQuerySource`, which replaces this value explicitly.
  */
 source: string, language: string, plan: QueryPlan | null, };
+export type QueryEntityRef = { "kind": "page", id: string, } | { "kind": "block", owner: OutlineOwner, id: string, } | { "kind": "tag", id: string, };
+export type QueryGrain = "entity";
 export type QueryOwner = { "kind": "page", id: PageId, } | { "kind": "block", owner: OutlineOwner, id: BlockId, } | { "kind": "tag", tag_id: TagId, } | { "kind": "graph_default", default_query_id: DefaultQueryId, };
 export type QueryPlan = { version: number, payload: string, };
+export type QueryResult = { "kind": "built", subject: PlanSubject, columns: Array<BuiltResultColumn>, rows: Array<BuiltResultRow>, revision: number, frontier: string, } | { "kind": "select", variables: Array<string>, rows: Array<{ [key in string]: RdfTerm }>, revision: number, frontier: string, } | { "kind": "ask", value: boolean, revision: number, frontier: string, };
 export type QueryView = { id: QueryViewId, name: string, definition: QueryDefinition, kind: QueryViewKind, position: number, columns: Array<QueryViewColumn>, options: QueryViewOptions, };
 export type QueryViewColumn = { variable: string, hidden: boolean, width: number | null, };
 export type QueryViewFieldSort = { 
@@ -161,6 +177,8 @@ export type QueryViewSort = {
  * The result variable the rows are ordered by.
  */
 variable: string, descending: boolean, };
+export type RdfTerm = { "kind": "iri", value: string, entity?: QueryEntityRef, } | { "kind": "literal", value: string, datatype: string, language?: string, };
+export type RelativeDateUnit = "day" | "week" | "month";
 export type ResyncRequired = { code: ErrorCode, server_cursor: number, history_epoch: number, diagnostic: string, };
 export type SplitPlacement = "before" | "after" | "first_child";
 export type TagId = string;

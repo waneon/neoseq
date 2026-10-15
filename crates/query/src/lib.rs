@@ -57,6 +57,7 @@ const MIN_TOP_K_CANDIDATE_COUNT: u64 = 5_000;
 /// filtered scan is the faster plan.
 const MAX_INJECTED_TEXT_CANDIDATES: usize = 5_000;
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum QueryEntityRef {
@@ -65,22 +66,26 @@ pub enum QueryEntityRef {
     Tag { id: String },
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RdfTerm {
     Iri {
         value: String,
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "typescript", ts(optional))]
         entity: Option<QueryEntityRef>,
     },
     Literal {
         value: String,
         datatype: String,
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "typescript", ts(optional))]
         language: Option<String>,
     },
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct QueryBudget {
@@ -152,6 +157,7 @@ impl LogicalQueryRequest {
     }
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum QueryResult {
@@ -175,8 +181,9 @@ pub enum QueryResult {
     },
 }
 
-/// An entity row owns its identity independently of the projected fields. A
-/// summary row has no canonical write target. Empty fields remain empty vectors.
+/// An entity row owns its identity independently of the projected fields.
+/// Empty fields remain empty vectors.
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BuiltResultRow {
     pub subject: QueryEntityRef,
@@ -1013,7 +1020,7 @@ impl GraphIndex {
             } => self.execute(QueryRequest {
                 language,
                 source,
-                bindings,
+                bindings: bindings.unwrap_or_default(),
                 budget,
             }),
         }

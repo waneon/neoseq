@@ -12,11 +12,7 @@ import {
   Table2Icon,
   Trash2Icon,
 } from "lucide-react";
-import type {
-  AuthoredQueryRequest,
-  QueryEntityRef,
-  SparqlQueryResult,
-} from "../../generated/core-port";
+import type { AuthoredQueryRequest, QueryEntityRef, QueryResult } from "../../generated/core-port";
 import type { Command, QueryOwnerRef } from "../../core-port/commands";
 import type {
   OutlineOwner,
@@ -1367,7 +1363,7 @@ function unwritten(plan: QueryPlan | null): boolean {
  * The executed descriptor owns column meaning for as long as its answer is
  * visible. A draft may already ask another question while this frame remains.
  */
-function answerDescriptor(result: SparqlQueryResult | null): string {
+function answerDescriptor(result: QueryResult | null): string {
   if (result?.kind === "built") {
     return JSON.stringify([result.kind, result.subject, result.columns]);
   }
@@ -1377,7 +1373,7 @@ function answerDescriptor(result: SparqlQueryResult | null): string {
 }
 
 export function resultColumns(
-  select: Exclude<SparqlQueryResult, { kind: "ask" }>,
+  select: Exclude<QueryResult, { kind: "ask" }>,
   view: QueryView,
   message: ReturnType<typeof useI18n>["message"],
   types?: PropertyTypes,

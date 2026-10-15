@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GraphSession } from "../../src/core-port/session";
-import type { SparqlQueryRequest, SparqlQueryResult } from "../../src/generated/core-port";
+import type { SparqlQueryRequest, QueryResult } from "../../src/generated/core-port";
 import { QueryExecutionStore, queryExecutionSignature } from "../../src/features/query/execution";
 import {
   queryResultsAreOpen,
@@ -20,13 +20,13 @@ const REQUEST_B: SparqlQueryRequest = {
   source: "ASK { ?x ?y ?z }",
   bindings: {},
 };
-const RESULT_TRUE: SparqlQueryResult = {
+const RESULT_TRUE: QueryResult = {
   kind: "ask",
   value: true,
   revision: 1,
   frontier: "one",
 };
-const RESULT_FALSE: SparqlQueryResult = {
+const RESULT_FALSE: QueryResult = {
   kind: "ask",
   value: false,
   revision: 1,
@@ -35,7 +35,7 @@ const RESULT_FALSE: SparqlQueryResult = {
 
 describe("query execution store", () => {
   it("deduplicates an activation and reuses its fresh answer", async () => {
-    const pending = deferred<SparqlQueryResult>();
+    const pending = deferred<QueryResult>();
     const query = vi.fn(() => pending.promise);
     const store = new QueryExecutionStore(mockSession(query));
     const signature = queryExecutionSignature(REQUEST_A);
@@ -58,7 +58,7 @@ describe("query execution store", () => {
   });
 
   it("does not let superseded work replace a cache hit", async () => {
-    const pendingB = deferred<SparqlQueryResult>();
+    const pendingB = deferred<QueryResult>();
     const query = vi.fn((request: SparqlQueryRequest) =>
       request.source === REQUEST_A.source ? Promise.resolve(RESULT_TRUE) : pendingB.promise,
     );
@@ -76,7 +76,7 @@ describe("query execution store", () => {
   });
 
   it("retains the executed question with a stale visible answer", async () => {
-    const pending = deferred<SparqlQueryResult>();
+    const pending = deferred<QueryResult>();
     const query = vi.fn((request: SparqlQueryRequest) =>
       request.source === REQUEST_A.source ? Promise.resolve(RESULT_TRUE) : pending.promise,
     );
@@ -113,8 +113,8 @@ describe("query execution store", () => {
   });
 
   it("owns every in-flight answer until the store is idle", async () => {
-    const first = deferred<SparqlQueryResult>();
-    const second = deferred<SparqlQueryResult>();
+    const first = deferred<QueryResult>();
+    const second = deferred<QueryResult>();
     const query = vi.fn((request: SparqlQueryRequest) =>
       request.source === REQUEST_A.source ? first.promise : second.promise,
     );
@@ -174,9 +174,7 @@ function deferred<T>(): {
   return { promise, resolve };
 }
 
-function mockSession(
-  query: (request: SparqlQueryRequest) => Promise<SparqlQueryResult>,
-): GraphSession {
+function mockSession(query: (request: SparqlQueryRequest) => Promise<QueryResult>): GraphSession {
   return {
     queryFrame: (request: SparqlQueryRequest) =>
       query(request).then((result) => ({

@@ -57,6 +57,7 @@ impl<'de> Deserialize<'de> for PlanLimit {
     }
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanSubject {
@@ -65,6 +66,7 @@ pub enum PlanSubject {
     Tag,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PlanField {
@@ -76,6 +78,7 @@ pub enum PlanField {
     SiblingIndex,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanOperator {
@@ -97,6 +100,7 @@ pub enum PlanOperator {
     IsEmpty,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RelativeDateUnit {
@@ -105,12 +109,14 @@ pub enum RelativeDateUnit {
     Month,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlanRelativeDate {
     pub unit: RelativeDateUnit,
     pub offset: i32,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PlanValue {
@@ -123,6 +129,7 @@ pub enum PlanValue {
     List { values: Vec<String> },
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanMatch {
@@ -131,6 +138,7 @@ pub enum PlanMatch {
     None,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PlanNode {
@@ -139,8 +147,10 @@ pub enum PlanNode {
         field: PlanField,
         op: PlanOperator,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "typescript", ts(optional))]
         value: Option<PlanValue>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "typescript", ts(optional))]
         value2: Option<PlanValue>,
     },
     Group {
@@ -151,6 +161,7 @@ pub enum PlanNode {
     },
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PlanColumnSource {
@@ -163,29 +174,39 @@ pub enum PlanColumnSource {
     SiblingIndex,
 }
 
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlanColumn {
     pub id: String,
     pub source: PlanColumnSource,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
     pub label: Option<String>,
 }
 
 /// The single persisted authoring representation used by the product builder.
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BuiltQueryPlan {
     pub version: u32,
     pub grain: QueryGrain,
     pub subject: PlanSubject,
     #[serde(rename = "where")]
+    // Validation requires the root to be a group.
+    #[cfg_attr(
+        feature = "typescript",
+        ts(type = "Extract<PlanNode, { kind: \"group\" }>")
+    )]
     pub where_clause: PlanNode,
     pub columns: Vec<PlanColumn>,
+    #[cfg_attr(feature = "typescript", ts(type = "number"))]
     pub limit: PlanLimit,
 }
 
 /// A plan lists entities. The stored payload keeps this one-value field so
 /// builds that also read summaries still accept every plan written today; a
 /// stored summary no longer reads and shows as unsupported.
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryGrain {
@@ -194,13 +215,16 @@ pub enum QueryGrain {
 
 /// The authored identity and provenance of a result column. Compiler variables
 /// are deliberately absent: a renderer reads values by the stable column id.
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BuiltResultColumn {
     pub id: String,
     pub source: PlanColumnSource,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
     pub label: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
     pub time_column: Option<String>,
 }
 
@@ -208,21 +232,27 @@ pub struct BuiltResultColumn {
 ///
 /// A built query carries its plan as authority. Raw SPARQL remains an explicit
 /// escape hatch rather than an alternative field that can disagree with it.
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AuthoredQueryRequest {
     Built {
         plan: BuiltQueryPlan,
         today: LocalDate,
+        // A resource limit the host sets; the client does not choose it.
         #[serde(default)]
+        #[cfg_attr(feature = "typescript", ts(skip))]
         budget: QueryBudget,
     },
     RawSparql {
         language: String,
         source: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "typescript", ts(optional))]
+        bindings: Option<BTreeMap<String, RdfTerm>>,
+        // A resource limit the host sets; the client does not choose it.
         #[serde(default)]
-        bindings: BTreeMap<String, RdfTerm>,
-        #[serde(default)]
+        #[cfg_attr(feature = "typescript", ts(skip))]
         budget: QueryBudget,
     },
 }

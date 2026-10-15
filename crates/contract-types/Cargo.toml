@@ -1,0 +1,15 @@
+[package]
+name = "contract-types"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+# Prints TypeScript declarations for the Rust serialization types that cross
+# into the client; scripts/generate-contracts.mjs writes them to the client.
+[dependencies]
+domain = { path = "../domain", features = ["typescript"] }
+query = { path = "../query", features = ["typescript"] }
+sync-protocol = { path = "../sync-protocol", features = ["typescript"] }
+ts-rs.workspace = true

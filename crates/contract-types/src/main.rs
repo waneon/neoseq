@@ -33,6 +33,10 @@ fn main() {
     declarations.visit::<domain::CommandResult>();
     declarations.visit::<domain::GraphChanges>();
     declarations.visit::<sync_protocol::Message>();
+    declarations.visit::<query::AuthoredQueryRequest>();
+    declarations.visit::<query::QueryResult>();
+    // The plan root is typed as its group variant, which hides the node type.
+    declarations.visit::<query::PlanNode>();
     println!(
         "// @generated from Rust serialization types by scripts/generate-contracts.mjs; do not edit."
     );

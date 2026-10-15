@@ -25,7 +25,7 @@ import type {
   ReadRequest,
   ReadResponse,
   SemanticEvent,
-  SparqlQueryResult,
+  QueryResult,
   SubscribeRequest,
   SubscribeResponse,
 } from "../../src/generated/core-port";
@@ -117,7 +117,7 @@ export class WasmTestPort implements SessionPort {
   private state: OpenState | null = null;
   private tick = 0;
 
-  queryResult: SparqlQueryResult | null = null;
+  queryResult: QueryResult | null = null;
   queryFailure: CorePortError | null = null;
   readonly queryRequests: QueryRequest[] = [];
 

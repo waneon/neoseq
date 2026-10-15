@@ -9,7 +9,7 @@
 
 import type { ReactNode } from "react";
 import { CheckIcon, MinusIcon } from "lucide-react";
-import type { QueryEntityRef, RdfTerm, SparqlQueryResult } from "../../generated/core-port";
+import type { QueryEntityRef, RdfTerm, QueryResult } from "../../generated/core-port";
 import type { GraphSnapshot } from "../../core-port/snapshot";
 import type { OrderSemantics } from "../../entities/query-ordering";
 import {
@@ -99,9 +99,7 @@ export function entityRefKey(entity: QueryEntityRef): string {
 }
 
 /** Stable row ids for both renderers. Duplicate SPARQL solutions get a suffix. */
-export function resultViewRows(
-  result: Exclude<SparqlQueryResult, { kind: "ask" }>,
-): ResultViewRow[] {
+export function resultViewRows(result: Exclude<QueryResult, { kind: "ask" }>): ResultViewRow[] {
   const occurrences = new Map<string, number>();
   const rows =
     result.kind === "built"
