@@ -398,9 +398,9 @@ function ShellBody({
   useVisitRecorder(
     visitScope,
     currentPage
-      ? { kind: "page", id: decodeURIComponent(currentPage) }
+      ? { kind: "page", id: decodeSegment(currentPage) }
       : currentTag
-        ? { kind: "tag", id: decodeURIComponent(currentTag) }
+        ? { kind: "tag", id: decodeSegment(currentTag) }
         : null,
   );
   const visits = useRecentVisits(visitScope);
@@ -1526,4 +1526,13 @@ function DocumentNameConflicts() {
       ))}
     </aside>
   );
+}
+
+/** A path segment as typed; a stray "%" names a document that does not exist. */
+function decodeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
 }
