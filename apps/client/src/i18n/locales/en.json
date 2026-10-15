@@ -176,6 +176,7 @@
   "graph.loadError": "This graph could not be opened",
   "graph.loading": "Opening graph…",
   "graph.manageMembers": "Manage members",
+  "graph.missing": "That graph isn’t on this device.",
   "graph.memberAccount": "Username",
   "graph.memberRole": "Role",
   "graph.membersDetail": "Invite editors or viewers. Revoking access stops sync; their local copy remains.",

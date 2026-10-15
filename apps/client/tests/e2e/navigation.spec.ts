@@ -20,3 +20,13 @@ test("a malformed document address shows a missing document, not a crash", async
     await expect(page.getByTestId("tombstone")).toBeVisible();
   }
 });
+
+test("an address for a graph this browser does not hold opens nothing", async ({ page }) => {
+  await page.goto("/");
+  await page.goto("/#/g/g-not-here/journal");
+  await expect(page.getByTestId("new-graph")).toBeVisible();
+  await expect(page.getByText("That graph isn’t on this device.")).toBeVisible();
+  await page.reload();
+  await expect(page.getByTestId("open-graph-g-not-here")).toHaveCount(0);
+  await expect(page.getByText("g-not-here")).toHaveCount(0);
+});

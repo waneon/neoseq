@@ -205,6 +205,21 @@ export function graphConnection(
   };
 }
 
+/** Whether this browser holds the local graph, by its directory entry or its stored data. */
+export async function localGraphExists(id: string): Promise<boolean> {
+  if (readEntries()[entryKey({ repository_id: LOCAL_REPOSITORY_ID, graph_id: id })]) return true;
+  const worker = new CoreWorker();
+  try {
+    return (await worker.listGraphs()).some(
+      (metadata) =>
+        (metadata.locator.repository_id || LOCAL_REPOSITORY_ID) === LOCAL_REPOSITORY_ID &&
+        metadata.locator.graph_id === id,
+    );
+  } finally {
+    worker.terminate();
+  }
+}
+
 export async function listGraphs(repositoryId = LOCAL_REPOSITORY_ID): Promise<GraphSummary[]> {
   const entries = readEntries();
   const worker = new CoreWorker();

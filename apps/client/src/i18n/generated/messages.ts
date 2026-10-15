@@ -210,6 +210,7 @@ export interface MessageArgumentMap {
   "graph.membersDetail": undefined;
   "graph.membersLoadFailed": undefined;
   "graph.membersTitle": undefined;
+  "graph.missing": undefined;
   "graph.nameExample": undefined;
   "graph.newName": undefined;
   "graph.owner": undefined;

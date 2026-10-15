@@ -42,6 +42,7 @@ import type { Command as CoreCommand } from "../../core-port/commands";
 import {
   graphConnection,
   graphName,
+  localGraphExists,
   renameGraph,
   subscribeGraphDirectory,
 } from "../../core-port/directory";
@@ -113,6 +114,7 @@ import { SaveStatus } from "./SaveStatus";
 import { CollaborationStatus } from "./CollaborationStatus";
 import { RemoteMembersDialog } from "../sync/RemoteMembersDialog";
 import { useI18n, type MessageFunction } from "../../i18n";
+import { useLatest } from "../../lib/react";
 import { HistoryProvider, useHistoryActions } from "../history/context";
 import { DocumentChromeSlot } from "./document-chrome";
 import { useRecentVisits, useVisitRecorder } from "./recent";
@@ -157,6 +159,11 @@ export function GraphShell() {
   const location = useLocation();
   const [createdSession, setCreatedSession] = useState<GraphSession | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const notify = useNotify();
+  const { message } = useI18n();
+  const announceMissing = useLatest(() =>
+    notify.show({ tone: "info", key: "graph-missing", title: message("graph.missing") }),
+  );
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
   useEffect(() => {
@@ -176,6 +183,15 @@ export function GraphShell() {
     let cancelled = false;
     let created: GraphSession | undefined;
     void (async () => {
+      // Opening storage creates it, so an address for a graph this browser
+      // does not hold (deleted, mistyped, from another device) goes home.
+      if (repositoryId === LOCAL_REPOSITORY_ID && !(await localGraphExists(graphId))) {
+        if (cancelled) return;
+        announceMissing.current();
+        navigate("/", { replace: true });
+        return;
+      }
+      if (cancelled) return;
       const worker = createCoreWorker();
       if (cancelled) {
         worker.terminate();
@@ -209,7 +225,7 @@ export function GraphShell() {
       setCreatedSession((current) => (current === created ? null : current));
       void created?.close();
     };
-  }, [graphId, navigate, repositoryId]);
+  }, [announceMissing, graphId, navigate, repositoryId]);
 
   useEffect(() => {
     // Settings changes the query string while the reader stays in this place.

@@ -176,6 +176,7 @@
   "graph.loadError": "그래프를 열 수 없습니다",
   "graph.loading": "그래프 여는 중…",
   "graph.manageMembers": "멤버 관리",
+  "graph.missing": "이 기기에 없는 그래프입니다.",
   "graph.memberAccount": "사용자 ID",
   "graph.memberRole": "역할",
   "graph.membersDetail": "편집자나 뷰어를 초대하세요. 접근을 해제하면 동기화가 중단되며 로컬 사본은 남습니다.",
