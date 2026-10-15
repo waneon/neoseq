@@ -959,6 +959,23 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
     [owner, session],
   );
 
+  // A caret that left the writing surface is withdrawn rather than left to
+  // linger on the last block until its announcement expires.
+  useEffect(() => {
+    if (focusedId !== null) return;
+    if (presenceTimer.current !== null) clearTimeout(presenceTimer.current);
+    presenceTimer.current = null;
+    if (presenceDraft.current) session.publishPresence(null);
+    presenceDraft.current = null;
+  }, [focusedId, session]);
+  useEffect(
+    () => () => {
+      // Only the outline whose caret was announced takes it back.
+      if (presenceDraft.current) session.publishPresence(null);
+    },
+    [session],
+  );
+
   /**
    * One entrance to a caret. Pointer-owned entrances start writing; keyboard
    * and programmatic moves retain the modal state. Visual Line is cleared here
@@ -4554,7 +4571,7 @@ function blockRowProps(
     graphId: editor.graphId,
     peerNames: editor.presence
       .filter((peer) => peer.block_id === row.block.id)
-      .map((peer) => peer.principal)
+      .map((peer) => peer.username ?? peer.principal)
       .join(", "),
     controls: slash
       ? "slash-command-menu"

@@ -394,7 +394,10 @@ export class GraphSession {
     this.patch({ status: "closed" });
   }
 
-  publishPresence(presence: Omit<PeerPresence, "session_id" | "principal" | "expires_at">): void {
+  /** Announces where this session's caret is; `null` withdraws it. */
+  publishPresence(
+    presence: Omit<PeerPresence, "session_id" | "principal" | "username" | "expires_at"> | null,
+  ): void {
     void this.syncAgent?.publishPresence(presence);
   }
 

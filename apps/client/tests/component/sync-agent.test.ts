@@ -257,3 +257,56 @@ it("bounds the wait for decoding after a server close", async () => {
   await vi.advanceTimersByTimeAsync(61_000);
   expect(Socket.instances).toHaveLength(2);
 });
+
+it("announces a held caret by name until it is withdrawn", async () => {
+  const { agent, socket } = await start();
+  socket.open();
+  await settle();
+  socket.receive(welcome);
+  await settle();
+  const presences = () =>
+    socket.sent.flatMap((message) => ("Presence" in message ? [message.Presence] : []));
+  const payload = (presence: { payload: number[] }) =>
+    JSON.parse(new TextDecoder().decode(new Uint8Array(presence.payload)));
+
+  await agent.publishPresence({ block_id: "block", anchor: 1, head: 1 });
+  expect(payload(presences()[0])).toMatchObject({ username: "writer", block_id: "block" });
+  // Idle in one place, the caret is announced again before it would expire.
+  await vi.advanceTimersByTimeAsync(9_000);
+  expect(presences().length).toBeGreaterThanOrEqual(3);
+
+  await agent.publishPresence(null);
+  expect(presences().at(-1)!.expires_in_ms).toBe(0);
+  const count = presences().length;
+  await vi.advanceTimersByTimeAsync(9_000);
+  expect(presences()).toHaveLength(count);
+});
+
+it("drops a peer's caret as soon as it is withdrawn", async () => {
+  const { socket, delegate } = await start();
+  socket.open();
+  await settle();
+  socket.receive(welcome);
+  await settle();
+  const presence = (expires: number) => ({
+    Presence: {
+      expires_in_ms: expires,
+      payload: [
+        ...new TextEncoder().encode(
+          JSON.stringify({
+            session_id: "peer",
+            principal: "acct",
+            username: "peer",
+            block_id: "b",
+          }),
+        ),
+      ],
+    },
+  });
+  socket.receive(presence(10_000));
+  await settle();
+  expect(delegate.changed.mock.lastCall![0].presence.size).toBe(1);
+  socket.receive(presence(0));
+  await settle();
+  expect(delegate.changed.mock.lastCall![0].presence.size).toBe(0);
+});

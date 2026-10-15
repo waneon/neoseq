@@ -20,6 +20,8 @@ export type LiveState = "local" | "connecting" | "live" | "offline" | "paused";
 export interface PeerPresence {
   session_id: string;
   principal: string;
+  /** Absent from peers that predate it; the account ID stands in. */
+  username?: string;
   owner?: OutlineOwner;
   block_id?: string;
   anchor?: number;
@@ -57,6 +59,10 @@ interface SyncAgentDelegate extends WelcomeTarget {
 
 const MAX_RECONNECT_MS = 30_000;
 const PRESENCE_TTL_MS = 10_000;
+/** A held caret is announced again well within its TTL, which also reaches peers who joined since. */
+const PRESENCE_REFRESH_MS = 4_000;
+
+type PresenceValue = Omit<PeerPresence, "session_id" | "principal" | "username" | "expires_at">;
 const HEARTBEAT_MS = 10_000;
 const TRANSPORT_TIMEOUT_MS = 60_000;
 const CLOSE_PAUSED = 4002;
@@ -81,6 +87,9 @@ export class SyncAgent {
   private lastHeartbeat = 0;
   private inFlightSince = 0;
   private presence = new Map<string, PeerPresence>();
+  /** This session's own caret, until it leaves the writing surface. */
+  private ownPresence: PresenceValue | null = null;
+  private ownPresenceSentAt = 0;
   private presenceTimer: ReturnType<typeof setInterval> | null = null;
   private current: SyncAgentState = {
     sync: { kind: "pending", count: 0 },
@@ -103,6 +112,9 @@ export class SyncAgent {
     window.addEventListener("neoseq:auth-changed", this.onAuthChanged);
     this.presenceTimer = setInterval(() => {
       this.expirePresence();
+      if (this.ownPresence && Date.now() - this.ownPresenceSentAt >= PRESENCE_REFRESH_MS) {
+        void this.sendPresence();
+      }
       this.maintainConnectivity();
     }, 1_000);
     void this.refreshPending()
@@ -163,22 +175,29 @@ export class SyncAgent {
     return run;
   }
 
-  async publishPresence(
-    value: Omit<PeerPresence, "session_id" | "principal" | "expires_at">,
-  ): Promise<void> {
+  /** Announces this session's caret; `null` withdraws it. */
+  publishPresence(value: PresenceValue | null): Promise<void> {
+    if (value === null && this.ownPresence === null) return Promise.resolve();
+    this.ownPresence = value;
+    return this.sendPresence();
+  }
+
+  private async sendPresence(): Promise<void> {
     const socket = this.socket;
     const auth = readAuthSession(this.connection.repository_id);
     if (!socket || socket.readyState !== WebSocket.OPEN || !this.welcomed || !auth) return;
+    this.ownPresenceSentAt = Date.now();
     const payload = new TextEncoder().encode(
       JSON.stringify({
         session_id: this.transportSessionId,
         principal: auth.principal,
-        ...value,
+        username: auth.username,
+        ...this.ownPresence,
       }),
     );
     const frame = await this.port.encodeSyncMessage({
       Presence: {
-        expires_in_ms: PRESENCE_TTL_MS,
+        expires_in_ms: this.ownPresence ? PRESENCE_TTL_MS : 0,
         payload: [...payload],
       },
     });
@@ -282,6 +301,7 @@ export class SyncAgent {
       this.welcomed = true;
       this.retry = 0;
       this.patch({ live: "live" });
+      if (this.ownPresence) void this.sendPresence();
       await this.updateOutbox();
       return;
     }
@@ -369,10 +389,10 @@ export class SyncAgent {
         "expires_at"
       >;
       if (!decoded.session_id || decoded.session_id === this.transportSessionId) return;
-      this.presence.set(decoded.session_id, {
-        ...decoded,
-        expires_at: Date.now() + presenceTtl(raw.expires_in_ms),
-      });
+      const ttl = presenceTtl(raw.expires_in_ms);
+      // A withdrawn caret leaves at once rather than at its old expiry.
+      if (ttl === 0) this.presence.delete(decoded.session_id);
+      else this.presence.set(decoded.session_id, { ...decoded, expires_at: Date.now() + ttl });
       this.patch({ presence: new Map(this.presence) });
     } catch {
       // Presence is lossy by design; malformed ephemeral payloads are ignored.

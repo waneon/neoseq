@@ -387,7 +387,9 @@ browser never finishes closing them. Canonical imports remain serialized with
 local commands. A based replica that requires history replacement pauses sync
 with a localized recovery explanation while remaining locally editable.
 Cursor and selection presence uses expiring protocol messages and is never
-written to Loro or IndexedDB. Core publications carry actual sequential text
+written to Loro or IndexedDB. A held caret is announced again well within its
+expiry, which also reaches peers who joined later; leaving the writing surface
+withdraws it at once. Core publications carry actual sequential text
 changes in canonical atom coordinates. Active content sessions use those changes
 to rebase local edits and selection; a title change only reprojects a reference.
 
