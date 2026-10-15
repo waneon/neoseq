@@ -5,7 +5,7 @@ import type { Command, EntityRef } from "../../../core-port/commands";
 // decides how the selected tag or slash action mutates the canonical block.
 
 import { useEffect, useRef } from "react";
-import { CheckIcon, FileTextIcon, HashIcon, PlusIcon } from "lucide-react";
+import { CalendarDaysIcon, CheckIcon, FileTextIcon, HashIcon, PlusIcon } from "lucide-react";
 import type { PageDirectoryEntry, TagSnapshot } from "../../../core-port/snapshot";
 import { useI18n } from "../../../i18n";
 import { caretAnchor, type Anchor } from "@/ui/anchored";
@@ -68,6 +68,8 @@ export interface BlockPageOption {
   id: string;
   title: string;
   create: boolean;
+  /** A journal day, whose date title a regular page may also carry. */
+  journal?: boolean;
 }
 
 const COMPLETION_LIMIT = 8;
@@ -199,10 +201,11 @@ export function filterPageOptions(
         : compare(left.page.title, right.page.title),
     );
   }
-  const matches = best.map(({ page }) => ({
+  const matches: BlockPageOption[] = best.map(({ page }) => ({
     id: page.id,
     title: page.title,
     create: false,
+    ...(page.journal_date ? { journal: true } : {}),
   }));
   if (canonicalNeedle && !exact) matches.push({ id: "", title: needle, create: true });
   return matches;
@@ -264,13 +267,21 @@ export function BlockPageMenu({
             if (!disabledReason) onChoose(option);
           }}
         >
-          {option.create ? <PlusIcon aria-hidden /> : <FileTextIcon aria-hidden />}
+          {option.create ? (
+            <PlusIcon aria-hidden />
+          ) : option.journal ? (
+            <CalendarDaysIcon aria-hidden />
+          ) : (
+            <FileTextIcon aria-hidden />
+          )}
           <span className="slash-item-text">
             <strong>{option.title}</strong>
             {disabledReason ? (
               <small>{disabledReason}</small>
+            ) : option.create ? (
+              <small>{message("pageReferences.create")}</small>
             ) : (
-              option.create && <small>{message("pageReferences.create")}</small>
+              option.journal && <small>{message("pageReferences.journal")}</small>
             )}
           </span>
         </button>

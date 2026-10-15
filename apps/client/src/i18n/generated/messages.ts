@@ -295,6 +295,7 @@ export interface MessageArgumentMap {
   "page.untitled": undefined;
   "page.updated": undefined;
   "pageReferences.create": undefined;
+  "pageReferences.journal": undefined;
   "pageReferences.menuLabel": undefined;
   "pages.empty": undefined;
   "pages.find": undefined;

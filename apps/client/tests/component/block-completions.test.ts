@@ -96,4 +96,20 @@ describe("page reference completion", () => {
       ),
     ).toEqual([{ id: "one", title: "Project Plan", create: false }]);
   });
+
+  it("marks a journal day apart from a page with the same title", () => {
+    expect(
+      filterPageOptions(
+        [
+          { id: "page", title: "2026-10-15", journal_date: null, deleted: false },
+          { id: "day", title: "2026-10-15", journal_date: "2026-10-15", deleted: false },
+        ],
+        "2026-10-15",
+        (left, right) => left.localeCompare(right),
+      ),
+    ).toEqual([
+      { id: "page", title: "2026-10-15", create: false },
+      { id: "day", title: "2026-10-15", create: false, journal: true },
+    ]);
+  });
 });
