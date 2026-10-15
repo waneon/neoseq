@@ -196,6 +196,10 @@ the plan grammar: the compiler accepts any operator whose value shape is coheren
 and compares as the type the condition's value carries, matching the typed values
 the graph stores. The builder offers operators by the type the graph stores.
 
+A comparison matches only a subject that has the field's value: "is not",
+"does not contain", and "is unchecked" never match a subject without one. Only
+"has no value" asks for absence.
+
 There is no independent distinct flag or list aggregate in v2. Raw bindings become the query's
 initial solution mapping and are never inserted through string substitution.
 A select result preserves declared variable order and returns unbound, IRI, or

@@ -38,9 +38,18 @@ it("filters by each graph-defined property type", async () => {
   expect(await matching(property("user.estimate"), "equals", { type: "number", value: 3 })).toEqual(
     ["first"],
   );
+  // A negative comparison needs a value to compare: "second" has no estimate.
   expect(
     await matching(property("user.estimate"), "not_equals", { type: "number", value: 3 }),
-  ).toEqual(["second"]);
+  ).toEqual([]);
+  expect(
+    await matching(property("user.estimate"), "not_equals", { type: "number", value: 4 }),
+  ).toEqual(["first"]);
+  expect(
+    await matching(property("user.text"), "not_contains", { type: "text", value: "x" }),
+  ).toEqual(["first"]);
+  expect(await matching(property("user.done"), "is_false")).toEqual([]);
+  expect(await matching(property("user.estimate"), "is_empty")).toEqual(["second"]);
   expect(
     await matching(
       property("user.estimate"),

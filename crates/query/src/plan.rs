@@ -857,13 +857,23 @@ impl<'a> PlanCompiler<'a> {
             if !changed {
                 return Ok((base, false));
             }
-            return Ok((
-                filter(
-                    base,
-                    Expression::Not(Box::new(Expression::Exists(Box::new(branch)))),
-                ),
-                true,
-            ));
+            let mut expression = Expression::Not(Box::new(Expression::Exists(Box::new(branch))));
+            // "Is not" and "does not contain" compare a value, so a subject
+            // without one is not a match; only "has no value" asks for absence.
+            if positive != PlanOperator::IsSet {
+                let (present, _) = self.apply_positive_condition(
+                    empty_pattern(),
+                    field,
+                    PlanOperator::IsSet,
+                    None,
+                    None,
+                )?;
+                expression = Expression::And(
+                    Box::new(Expression::Exists(Box::new(present))),
+                    Box::new(expression),
+                );
+            }
+            return Ok((filter(base, expression), true));
         }
         self.apply_positive_condition(base, field, op, value, value2)
     }

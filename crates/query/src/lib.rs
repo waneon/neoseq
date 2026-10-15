@@ -4000,6 +4000,21 @@ mod tests {
                 .execute_authored(built_request(contains_number))
                 .is_err()
         );
+
+        // "Is not" compares a value; the bare page has none to compare.
+        let not_equals = page_plan(
+            "entity",
+            serde_json::json!([{"id": "subject", "source": {"kind": "subject"}}]),
+            serde_json::json!([{"id": "c", "kind": "condition", "field": {"kind": "property", "key": "user.count"}, "op": "not_equals", "value": {"type": "number", "value": 1}}]),
+        );
+        let QueryResult::Built { rows, .. } =
+            index.execute_authored(built_request(not_equals)).unwrap()
+        else {
+            panic!("expected built result")
+        };
+        assert!(
+            matches!(&rows[..], [row] if matches!(&row.subject, Some(QueryEntityRef::Page { id }) if id == "today"))
+        );
     }
 
     #[test]
