@@ -183,6 +183,8 @@ test.describe("on a phone", () => {
     await page.getByTestId("open-settings").click();
     await expect(page.getByTestId("settings-dialog")).toBeVisible();
     const surface = ".settings-dialog-surface";
+    // A full-screen sheet has no floating edge to ring.
+    await expect(page.locator(surface)).toHaveCSS("box-shadow", "none");
     const title = await inkBox(page, `${surface} [data-slot="dialog-title"]`);
     const close = await inkBox(page, `${surface} [data-slot="dialog-close"] svg`);
     const card = await page.locator(`${surface} .settings-group-links`).first().boundingBox();

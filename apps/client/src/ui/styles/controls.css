@@ -380,6 +380,8 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 .dialog-surface {
   max-width: 440px;
+  background: var(--overlay);
+  box-shadow: var(--e3);
   max-height: calc(var(--visual-viewport-height, 100dvh) - 32px);
   border-radius: var(--r-4);
   padding: 24px;

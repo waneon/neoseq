@@ -741,6 +741,7 @@
     max-height: none;
     border-radius: 0;
     background: var(--canvas);
+    box-shadow: none;
   }
 
   /* One edge for every column: titles, labels and cards start on it, and the

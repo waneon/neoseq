@@ -57,7 +57,7 @@ function DialogContent({
         <DialogPrimitive.Content
           data-slot="dialog-content"
           className={cn(
-            "dialog-surface enter-rise pointer-events-auto relative grid w-full gap-4 bg-[var(--overlay)] shadow-[var(--e3)]",
+            "dialog-surface enter-rise pointer-events-auto relative grid w-full gap-4",
             className,
           )}
           {...props}
