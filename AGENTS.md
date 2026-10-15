@@ -16,3 +16,9 @@
 - Put a regression test in the lowest tier that can express it (Rust > component > browser journey).
 - In journeys, wait with `app.saved()` / `app.settled()`; never add sleeps or longer timeouts. If a journey can only pass by waiting for something invisible, fix the application.
 - A failure is yours until it reproduces on unmodified main; nondeterministic failures on main are reported and quarantined, not patched in passing.
+
+## Releases
+
+- Write GitHub release notes in Keep a Changelog style (Added, Changed, Removed, Fixed, Security), one line per entry.
+- State the concrete user-visible behavior; a Fixed entry names the symptom it removes. Mark incompatible changes with **Breaking:**.
+- End each entry with links to its commits, and cover every commit since the previous tag except the release commit.
