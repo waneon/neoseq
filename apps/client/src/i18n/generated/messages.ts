@@ -122,12 +122,14 @@ export interface MessageArgumentMap {
   "error.invalidRequest": undefined;
   "error.pageNameConflict": undefined;
   "error.queryBudgetExceeded": undefined;
+  "error.readOnly": undefined;
   "error.resyncRequired": undefined;
   "error.rootBlockOutdent": undefined;
   "error.storageBusy": undefined;
   "error.storageCorrupt": undefined;
   "error.storageFull": undefined;
   "error.tagNameConflict": undefined;
+  "error.targetMissing": undefined;
   "error.unsaved": undefined;
   "error.unsupportedArchive": undefined;
   "error.unsupportedContract": undefined;

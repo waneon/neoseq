@@ -514,7 +514,7 @@ export class GraphSession {
     }
     if (this.state.mode === "readonly") {
       const error = new CorePortFailure({
-        code: "invalid_request",
+        code: "read_only",
         message: "this graph is opened read-only in this tab",
         retryable: false,
       });

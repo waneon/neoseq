@@ -41,6 +41,9 @@ export function NotifyProvider({ children }: { children: ReactNode }) {
       show: store.show,
       dismiss: store.dismiss,
       failure: (summary, error, retry) => {
+        // The toast states the reason in the reader's terms; the diagnostic it
+        // stands for is kept where a report can find it.
+        console.warn(summary, error);
         const input = failureToast(summary, error, message);
         if (!input) return null;
         return store.show(retry ? { ...input, action: retry } : input);

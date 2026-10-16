@@ -92,6 +92,8 @@
   "error.invalidArchive": "올바른 Neoseq 그래프 아카이브 파일이 아닙니다.",
   "error.invalidQuery": "쿼리를 해석할 수 없습니다.",
   "error.invalidRequest": "올바르지 않은 변경이라 거부되었습니다.",
+  "error.readOnly": "이 탭에서는 그래프가 읽기 전용입니다.",
+  "error.targetMissing": "편집하던 항목이 더 이상 없습니다. 초안은 보존했습니다.",
   "error.pageNameConflict": "같은 이름의 문서가 이미 있습니다.",
   "error.queryBudgetExceeded": "쿼리 비용이 너무 커서 완료하지 못했습니다.",
   "error.resyncRequired": "이 탭의 데이터가 뒤처져 다시 불러와야 합니다.",

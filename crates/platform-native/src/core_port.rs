@@ -347,16 +347,7 @@ fn map_query_error(error: query::QueryError) -> CorePortError {
 }
 
 fn map_core_error(error: graph_core::CoreError) -> CorePortError {
-    let code = match error {
-        graph_core::CoreError::WrongGraph { .. } => CorePortErrorCode::WrongGraph,
-        graph_core::CoreError::UnsupportedSchema(_) => CorePortErrorCode::UnsupportedSchema,
-        graph_core::CoreError::PageNameConflict { .. } => CorePortErrorCode::PageNameConflict,
-        graph_core::CoreError::TagNameConflict { .. } => CorePortErrorCode::TagNameConflict,
-        graph_core::CoreError::FirstSiblingIndent => CorePortErrorCode::FirstSiblingIndent,
-        graph_core::CoreError::RootBlockOutdent => CorePortErrorCode::RootBlockOutdent,
-        _ => CorePortErrorCode::InvalidRequest,
-    };
-    port_error(code, &error.to_string(), false)
+    port_error(error.port_code(), &error.to_string(), false)
 }
 
 fn map_storage_error(error: SqliteRepositoryError) -> CorePortError {

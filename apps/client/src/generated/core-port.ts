@@ -78,6 +78,8 @@ export interface CloseGraphResponse { closed: boolean; }
 export const CORE_PORT_ERROR_CODES = [
   "unsupported_contract",
   "invalid_request",
+  "read_only",
+  "target_missing",
   "page_name_conflict",
   "tag_name_conflict",
   "first_sibling_indent",

@@ -59,6 +59,8 @@
   "errorCodes": [
     "unsupported_contract",
     "invalid_request",
+    "read_only",
+    "target_missing",
     "page_name_conflict",
     "tag_name_conflict",
     "first_sibling_indent",

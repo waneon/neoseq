@@ -92,6 +92,8 @@
   "error.invalidArchive": "That file is not a valid Neoseq graph archive.",
   "error.invalidQuery": "The query could not be read.",
   "error.invalidRequest": "The change was rejected as invalid.",
+  "error.readOnly": "This graph is read-only in this tab.",
+  "error.targetMissing": "What you edited no longer exists. Your draft is kept.",
   "error.pageNameConflict": "A document with that name already exists.",
   "error.queryBudgetExceeded": "The query was too expensive to finish.",
   "error.resyncRequired": "This tab fell behind and needs to reload.",

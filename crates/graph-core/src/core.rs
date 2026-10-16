@@ -205,6 +205,27 @@ pub enum CoreError {
     MissingDependencies,
 }
 
+impl CoreError {
+    /// The stable code a port reports this error under.
+    pub fn port_code(&self) -> domain::CorePortErrorCode {
+        use domain::CorePortErrorCode as Code;
+        match self {
+            Self::WrongGraph { .. } => Code::WrongGraph,
+            Self::UnsupportedSchema(_) => Code::UnsupportedSchema,
+            Self::PageNameConflict { .. } => Code::PageNameConflict,
+            Self::TagNameConflict { .. } => Code::TagNameConflict,
+            Self::FirstSiblingIndent => Code::FirstSiblingIndent,
+            Self::RootBlockOutdent => Code::RootBlockOutdent,
+            Self::PageNotFound(_)
+            | Self::PageDeleted(_)
+            | Self::TagNotFound(_)
+            | Self::TagDeleted(_)
+            | Self::BlockNotFound(_) => Code::TargetMissing,
+            _ => Code::InvalidRequest,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CoreExecution {
     pub result: CommandResult,

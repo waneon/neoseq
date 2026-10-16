@@ -22,6 +22,8 @@ const DEFAULT_MESSAGE = createLocaleRuntime("en").message;
 const REASON_BY_CODE = {
   unsupported_contract: "error.unsupportedContract",
   invalid_request: "error.invalidRequest",
+  read_only: "error.readOnly",
+  target_missing: "error.targetMissing",
   page_name_conflict: "error.pageNameConflict",
   tag_name_conflict: "error.tagNameConflict",
   first_sibling_indent: "error.firstSiblingIndent",

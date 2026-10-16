@@ -284,6 +284,8 @@ pub struct CloseGraphResponse {
 pub enum CorePortErrorCode {
     UnsupportedContract,
     InvalidRequest,
+    ReadOnly,
+    TargetMissing,
     PageNameConflict,
     TagNameConflict,
     FirstSiblingIndent,

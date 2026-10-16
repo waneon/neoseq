@@ -141,16 +141,7 @@ fn map_query_error(error: query::QueryError) -> CorePortError {
 }
 
 fn map_core_error(error: graph_core::CoreError) -> CorePortError {
-    let code = match &error {
-        graph_core::CoreError::WrongGraph { .. } => CorePortErrorCode::WrongGraph,
-        graph_core::CoreError::UnsupportedSchema(_) => CorePortErrorCode::UnsupportedSchema,
-        graph_core::CoreError::PageNameConflict { .. } => CorePortErrorCode::PageNameConflict,
-        graph_core::CoreError::TagNameConflict { .. } => CorePortErrorCode::TagNameConflict,
-        graph_core::CoreError::FirstSiblingIndent => CorePortErrorCode::FirstSiblingIndent,
-        graph_core::CoreError::RootBlockOutdent => CorePortErrorCode::RootBlockOutdent,
-        _ => CorePortErrorCode::InvalidRequest,
-    };
-    port_error(code, error, false)
+    port_error(error.port_code(), error, false)
 }
 
 fn map_runtime_error(error: graph_core::RuntimeError) -> CorePortError {
@@ -643,6 +634,10 @@ mod tests {
             map_core_error(graph_core::CoreError::PageNotFound(
                 PageId::new("missing").unwrap(),
             )),
+            CorePortErrorCode::TargetMissing,
+        );
+        assert_error_code(
+            map_core_error(graph_core::CoreError::InvalidBatch("empty".to_owned())),
             CorePortErrorCode::InvalidRequest,
         );
         assert_error_code(
