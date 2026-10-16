@@ -96,6 +96,7 @@ function QueryTableViewBody({
   wrap,
   sorts,
   onSort,
+  editable,
   onResize,
   onHide,
   onReorder,
@@ -117,11 +118,16 @@ function QueryTableViewBody({
    * column at the width it was already drawn at. `null` withdraws a column's
    * width. Resolves after the authoritative view reconciles.
    */
-  onResize?: (widths: Record<string, number | null>) => Promise<boolean>;
-  onHide?: (variable: string) => void;
+  onResize: (widths: Record<string, number | null>) => Promise<boolean>;
+  onHide: (variable: string) => void;
   /** The columns in the order the reader just dragged them into. */
-  onReorder?: (order: string[]) => void;
-  onMove?: (variable: string, delta: -1 | 1) => void;
+  onReorder: (order: string[]) => void;
+  onMove: (variable: string, delta: -1 | 1) => void;
+  /**
+   * Whether the saved view can change. A reader keeps every control in its
+   * place; only the ones that would write are disabled.
+   */
+  editable: boolean;
 }) {
   const { message } = useI18n();
   const rankOf = (variable: string) => sorts.findIndex((sort) => sort.variable === variable);
@@ -195,7 +201,7 @@ function QueryTableViewBody({
    * dragged, which is a table jumping to a shape nobody asked for.
    */
   const commitWidths = (widths: Widths) => {
-    if (!onResize || resizeCommitPending.current) return;
+    if (!editable || resizeCommitPending.current) return;
     setDrafted(widths);
     resizeCommitPending.current = true;
     void onResize(widths)
@@ -212,7 +218,7 @@ function QueryTableViewBody({
 
   /** One column, back to having no width of its own. */
   const resetWidth = (variable: string) => {
-    if (!onResize || resizeCommitPending.current) return;
+    if (!editable || resizeCommitPending.current) return;
     resizeCommitPending.current = true;
     void onResize({ [variable]: null }).finally(() => {
       resizeCommitPending.current = false;
@@ -224,7 +230,7 @@ function QueryTableViewBody({
    * handle, so a pointer that outruns the column it is sizing keeps sizing it.
    */
   const startResize = (variable: string, event: React.PointerEvent<HTMLElement>) => {
-    if (!onResize || resizeCommitPending.current || event.button !== 0) return;
+    if (!editable || resizeCommitPending.current || event.button !== 0) return;
     // No text selection under the pointer, and no native drag of the heading the
     // handle sits in — but the handle still takes focus, so the arrow keys can
     // finish what the pointer started.
@@ -277,7 +283,7 @@ function QueryTableViewBody({
     const moved = drag?.variable;
     const before = drag?.seamBefore;
     setDrag(null);
-    if (!onReorder || moved === undefined || before === undefined) return;
+    if (!editable || moved === undefined || before === undefined) return;
     const rest = order.filter((variable) => variable !== moved);
     const found = before === null ? -1 : rest.indexOf(before);
     const at = found < 0 ? rest.length : found;
@@ -335,7 +341,7 @@ function QueryTableViewBody({
                   data-numeric={column.numeric || undefined}
                   data-dragging={drag?.variable === column.variable || undefined}
                   data-seam={drag === null ? undefined : seamOf(column.variable)}
-                  draggable={Boolean(onReorder) && order.length > 1}
+                  draggable={editable && order.length > 1}
                   onDragStart={(event) => {
                     if (resizingFrom.current) {
                       event.preventDefault();
@@ -385,113 +391,103 @@ function QueryTableViewBody({
                         <span className="query-th-rank">{rank + 1}</span>
                       )}
                     </button>
-                    {(onHide || onMove) && (
-                      <DropdownMenu modal={false}>
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            type="button"
-                            className="query-th-menu"
-                            aria-label={message("query.columnActions", {
-                              column: column.label ?? column.variable,
-                            })}
-                            data-testid={`query-col-menu-${column.variable}`}
-                          >
-                            <MoreHorizontalIcon aria-hidden />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start">
-                          {/* A direction chosen here joins the list at the end
+                    <DropdownMenu modal={false}>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className="query-th-menu"
+                          aria-label={message("query.columnActions", {
+                            column: column.label ?? column.variable,
+                          })}
+                          data-testid={`query-col-menu-${column.variable}`}
+                        >
+                          <MoreHorizontalIcon aria-hidden />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start">
+                        {/* A direction chosen here joins the list at the end
                                 if it is not already in it, and changes in place
                                 if it is — the same rule the header press keeps. */}
+                        <DropdownMenuItem
+                          disabled={!canSort}
+                          onSelect={() => onSort(withDirection(sorts, column.variable, false))}
+                        >
+                          <ArrowUpIcon aria-hidden />
+                          {message("query.sortAscending")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={!canSort}
+                          onSelect={() => onSort(withDirection(sorts, column.variable, true))}
+                        >
+                          <ArrowDownIcon aria-hidden />
+                          {message("query.sortDescending")}
+                        </DropdownMenuItem>
+                        {term && (
                           <DropdownMenuItem
-                            disabled={!canSort}
-                            onSelect={() => onSort(withDirection(sorts, column.variable, false))}
+                            onSelect={() =>
+                              onSort(sorts.filter((sort) => sort.variable !== column.variable))
+                            }
                           >
-                            <ArrowUpIcon aria-hidden />
-                            {message("query.sortAscending")}
+                            <ArrowUpDownIcon aria-hidden />
+                            {message("query.stopSorting")}
                           </DropdownMenuItem>
-                          <DropdownMenuItem
-                            disabled={!canSort}
-                            onSelect={() => onSort(withDirection(sorts, column.variable, true))}
-                          >
-                            <ArrowDownIcon aria-hidden />
-                            {message("query.sortDescending")}
-                          </DropdownMenuItem>
-                          {term && (
-                            <DropdownMenuItem
-                              onSelect={() =>
-                                onSort(sorts.filter((sort) => sort.variable !== column.variable))
-                              }
-                            >
-                              <ArrowUpDownIcon aria-hidden />
-                              {message("query.stopSorting")}
-                            </DropdownMenuItem>
-                          )}
-                          {onMove && (
-                            <>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                disabled={index === 0}
-                                onSelect={() => onMove(column.variable, -1)}
-                              >
-                                {message("query.moveColumnLeft")}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                disabled={index === columns.length - 1}
-                                onSelect={() => onMove(column.variable, 1)}
-                              >
-                                {message("query.moveColumnRight")}
-                              </DropdownMenuItem>
-                            </>
-                          )}
-                          {onResize && (
-                            <DropdownMenuItem onSelect={() => resetWidth(column.variable)}>
-                              <ChevronsLeftRightIcon aria-hidden />
-                              {message("query.resetWidth")}
-                            </DropdownMenuItem>
-                          )}
-                          {onHide && (
-                            <>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                disabled={columns.length <= 1}
-                                onSelect={() => onHide(column.variable)}
-                              >
-                                <EyeOffIcon aria-hidden />
-                                {message("query.hideColumn")}
-                              </DropdownMenuItem>
-                            </>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
-                    {onResize && (
-                      // A separator with a value, so the width is reachable
-                      // from the keyboard as well as by dragging.
-                      <div
-                        role="separator"
-                        aria-orientation="vertical"
-                        tabIndex={0}
-                        aria-label={message("query.resizeColumn", {
-                          column: column.label ?? column.variable,
-                        })}
-                        aria-valuenow={Math.round(widthOf(column.variable))}
-                        className="query-resize"
-                        data-resizing={resizing === column.variable || undefined}
-                        onPointerDown={(event) => startResize(column.variable, event)}
-                        onKeyDown={(event) => {
-                          if (resizeCommitPending.current) return;
-                          const step = event.shiftKey ? 32 : 8;
-                          if (event.key === "ArrowLeft") {
-                            event.preventDefault();
-                            nudgeWidth(column.variable, -step);
-                          } else if (event.key === "ArrowRight") {
-                            event.preventDefault();
-                            nudgeWidth(column.variable, step);
-                          }
-                        }}
-                      />
-                    )}
+                        )}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          disabled={!editable || index === 0}
+                          onSelect={() => onMove(column.variable, -1)}
+                        >
+                          {message("query.moveColumnLeft")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={!editable || index === columns.length - 1}
+                          onSelect={() => onMove(column.variable, 1)}
+                        >
+                          {message("query.moveColumnRight")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={!editable}
+                          onSelect={() => resetWidth(column.variable)}
+                        >
+                          <ChevronsLeftRightIcon aria-hidden />
+                          {message("query.resetWidth")}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          disabled={!editable || columns.length <= 1}
+                          onSelect={() => onHide(column.variable)}
+                        >
+                          <EyeOffIcon aria-hidden />
+                          {message("query.hideColumn")}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                    {/* A separator with a value, so the width is reachable from the
+                        keyboard as well as by dragging. */}
+                    <div
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-disabled={!editable || undefined}
+                      tabIndex={editable ? 0 : -1}
+                      aria-label={message("query.resizeColumn", {
+                        column: column.label ?? column.variable,
+                      })}
+                      aria-valuenow={Math.round(widthOf(column.variable))}
+                      className="query-resize"
+                      data-resizing={resizing === column.variable || undefined}
+                      onPointerDown={(event) => startResize(column.variable, event)}
+                      onKeyDown={(event) => {
+                        if (resizeCommitPending.current) return;
+                        const step = event.shiftKey ? 32 : 8;
+                        if (event.key === "ArrowLeft") {
+                          event.preventDefault();
+                          nudgeWidth(column.variable, -step);
+                        } else if (event.key === "ArrowRight") {
+                          event.preventDefault();
+                          nudgeWidth(column.variable, step);
+                        }
+                      }}
+                    />
                   </div>
                 </th>
               );
@@ -519,7 +515,7 @@ function QueryTableViewBody({
                     key={column.variable}
                     aria-colindex={cellIndex + 1}
                     data-numeric={column.numeric || undefined}
-                    data-interactive={binding ? true : undefined}
+                    data-interactive={binding && editor.writable ? true : undefined}
                     data-active={active || undefined}
                     // The seam runs the height of the column, because a column is
                     // what is being placed. Every cell draws its own two pixels

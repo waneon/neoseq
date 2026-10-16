@@ -66,9 +66,11 @@ export function columnChoices(
 
 export function QueryColumnsControl({
   choices,
+  disabled,
   onToggle,
 }: {
   choices: ColumnChoice[];
+  disabled: boolean;
   onToggle: (choice: ColumnChoice, shown: boolean) => void;
 }) {
   const { message } = useI18n();
@@ -104,6 +106,7 @@ export function QueryColumnsControl({
         ref={triggerRef}
         aria-label={message("query.columns")}
         aria-expanded={open}
+        disabled={disabled}
         data-testid="query-columns-trigger"
         onClick={() => (open ? close() : setOpen(true))}
       >

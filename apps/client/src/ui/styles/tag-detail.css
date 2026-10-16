@@ -109,8 +109,12 @@
   height: 13px;
 }
 
+.tag-section-action:disabled {
+  opacity: 0.5;
+}
+
 .tag-defaults-toggle:hover,
-.tag-section-action:hover {
+.tag-section-action:hover:not(:disabled) {
   background: var(--surface-2);
   color: var(--ink);
 }

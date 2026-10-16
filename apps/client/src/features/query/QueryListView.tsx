@@ -103,8 +103,9 @@ function QueryListViewBody({
             anchor: HTMLElement,
           ) => {
             const binding = editor.bindingForDirect(entity, field);
-            if (binding) editor.begin(binding, row, snapshotAnchor(elementAnchor(anchor)));
-            else openBlock();
+            if (binding && editor.writable) {
+              editor.begin(binding, row, snapshotAnchor(elementAnchor(anchor)));
+            } else openBlock();
           };
 
           return (

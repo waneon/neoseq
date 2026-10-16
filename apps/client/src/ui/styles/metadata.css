@@ -874,7 +874,7 @@ html[dir="rtl"] .moment-time-switch[data-selected] .moment-switch-track > span {
   font-size: 24px;
 }
 
-button.tag-mark {
+button.tag-mark:not(:disabled) {
   cursor: pointer;
 }
 
@@ -887,7 +887,7 @@ button.tag-mark {
   font-size: var(--text-sm);
 }
 
-button.tag-mark:hover {
+button.tag-mark:hover:not(:disabled) {
   background: var(--surface-2);
 }
 

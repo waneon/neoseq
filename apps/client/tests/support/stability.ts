@@ -62,3 +62,59 @@ export async function boxesAround(
   await act();
   return { before, after: await measure() };
 }
+
+/**
+ * The box of every visible, on-screen element under `root`, keyed by its place
+ * in the tree, so two pages showing the same content can be compared element by
+ * element.
+ */
+export function layoutOf(page: Page, root: string, ignore: string): Promise<Boxes> {
+  return page.evaluate(
+    async ({ root, ignore }) => {
+      // Boxes at rest, not partway through a transition.
+      await Promise.all(
+        document
+          .getAnimations()
+          .filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity)
+          .map((animation) => animation.finished.catch(() => undefined)),
+      );
+      const result: Record<string, number[]> = {};
+      const visit = (element: Element, path: string) => {
+        const seen = new Map<string, number>();
+        for (const child of element.children) {
+          if (child.matches(ignore)) continue;
+          const label = `${child.tagName.toLowerCase()}.${
+            child.getAttribute("data-testid") ?? child.classList[0] ?? ""
+          }`;
+          const index = seen.get(label) ?? 0;
+          seen.set(label, index + 1);
+          const key = `${path}/${label}[${index}]`;
+          if (!child.checkVisibility({ visibilityProperty: true })) continue;
+          const rect = child.getBoundingClientRect();
+          // Off-screen, as a closed drawer is, nothing is laid out for the reader.
+          if (rect.right <= 0 || rect.left >= innerWidth) continue;
+          if (rect.width > 0 || rect.height > 0) {
+            result[key] = [rect.left, rect.top, rect.width, rect.height].map(
+              (value) => Math.round(value * 2) / 2,
+            );
+          }
+          visit(child, key);
+        }
+      };
+      for (const element of document.querySelectorAll(root)) visit(element, root);
+      return result;
+    },
+    { root, ignore },
+  );
+}
+
+/** Elements one layout has that the other lacks, or places differently. */
+export function layoutDifferences(expected: Boxes, actual: Boxes): string[] {
+  const keys = new Set([...Object.keys(expected), ...Object.keys(actual)]);
+  return [...keys]
+    .filter((key) => expected[key]?.join() !== actual[key]?.join())
+    .map(
+      (key) =>
+        `${key}: ${expected[key]?.join(",") ?? "absent"} -> ${actual[key]?.join(",") ?? "absent"}`,
+    );
+}

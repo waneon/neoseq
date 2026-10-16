@@ -30,6 +30,7 @@ export function TagChips({
     (current) => current,
     (left, right) => left.snapshot === right.snapshot && left.mode === right.mode,
   );
+  const readonly = state.mode === "readonly";
   const notify = useNotify();
   const { message } = useI18n();
   return (
@@ -90,19 +91,18 @@ export function TagChips({
                   {name}
                 </Link>
               )}
-              {state.mode !== "readonly" && (
-                <button
-                  type="button"
-                  className="tag-chip-remove"
-                  aria-label={message("properties.removeTag", { name: label })}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    remove();
-                  }}
-                >
-                  <XIcon aria-hidden />
-                </button>
-              )}
+              <button
+                type="button"
+                className="tag-chip-remove"
+                disabled={readonly}
+                aria-label={message("properties.removeTag", { name: label })}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  remove();
+                }}
+              >
+                <XIcon aria-hidden />
+              </button>
             </span>
           );
         }
@@ -112,24 +112,11 @@ export function TagChips({
             <XIcon className="chip-x" />
           </span>
         );
-        if (state.mode === "readonly") {
-          return (
-            <span
-              className="chip"
-              data-tombstone={missing}
-              key={tagId}
-              data-testid="tag-chip"
-              aria-label={missing ? deleted : undefined}
-            >
-              {glyph}
-              {label}
-            </span>
-          );
-        }
         return (
           <button
             type="button"
             className="chip"
+            disabled={readonly}
             data-tombstone={missing}
             key={tagId}
             data-testid="tag-chip"

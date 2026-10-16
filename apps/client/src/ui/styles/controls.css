@@ -261,9 +261,13 @@ button.chip:focus-visible {
   opacity: 0;
 }
 
-.tag-chip-reference:hover .tag-chip-remove,
+.tag-chip-reference:hover .tag-chip-remove:not(:disabled),
 .tag-chip-remove:focus-visible {
   opacity: 1;
+}
+
+.tag-chip-remove:disabled {
+  cursor: default;
 }
 
 @media (hover: none) {
@@ -277,7 +281,7 @@ button.chip:focus-visible {
   height: 12px;
 }
 
-.tag-chip-remove:hover,
+.tag-chip-remove:hover:not(:disabled),
 .tag-chip-remove:focus-visible {
   color: var(--danger);
 }
@@ -318,12 +322,12 @@ a.chip[data-variant="reference"]:focus-visible {
   color: var(--danger);
 }
 
-button.chip:hover .chip-glyph .hash,
+button.chip:hover:not(:disabled) .chip-glyph .hash,
 button.chip:focus-visible .chip-glyph .hash {
   opacity: 0;
 }
 
-button.chip:hover .chip-glyph .chip-x,
+button.chip:hover:not(:disabled) .chip-glyph .chip-x,
 button.chip:focus-visible .chip-glyph .chip-x {
   opacity: 1;
 }

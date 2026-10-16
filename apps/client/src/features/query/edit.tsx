@@ -165,6 +165,8 @@ export interface QueryResultEditor {
   message: MessageFunction;
   keymap: EditorKeymap;
   vim: VimSession;
+  /** Whether edits can begin; a read-only graph binds the same fields but never edits them. */
+  writable: boolean;
   bindingFor(subject: QueryEntityRef | undefined, column: ResultColumn): QueryEditBinding | null;
   bindingForDirect(
     subject: QueryEntityRef | undefined,
@@ -285,7 +287,7 @@ export function useQueryResultEditor({
 
   const bindingForDirect = useCallback(
     (subject: QueryEntityRef | undefined, field: DirectBlockField): QueryEditBinding | null => {
-      if (!enabled || subject?.kind !== "block") return null;
+      if (subject?.kind !== "block") return null;
       if (field.kind === "content") {
         return { kind: "markdown", block: subject };
       }
@@ -299,7 +301,7 @@ export function useQueryResultEditor({
       }
       return null;
     },
-    [enabled],
+    [],
   );
 
   const bindingFor = useCallback(
@@ -818,6 +820,7 @@ export function useQueryResultEditor({
       message,
       keymap,
       vim,
+      writable: enabled,
       bindingFor,
       bindingForDirect,
       isActive,
@@ -837,6 +840,7 @@ export function useQueryResultEditor({
       cancel,
     }),
     [
+      enabled,
       presentedActive,
       activeBlock,
       message,
@@ -1534,6 +1538,7 @@ function TaskChoiceCell({
           ref={trigger}
           type="button"
           className={cn("query-edit-trigger", className)}
+          disabled={!editor.writable}
           data-query-column={column.variable}
           data-active={active ? true : undefined}
           data-testid={`query-edit-${column.variable}`}
@@ -1760,6 +1765,7 @@ export function EditableCellValue({
     <button
       type="button"
       className={cn("query-edit-trigger", className)}
+      disabled={!editor.writable}
       data-query-column={column.variable}
       data-active={current ? true : undefined}
       data-testid={`query-edit-${column.variable}`}
@@ -1826,6 +1832,7 @@ export function EditableStatusValue({
     <button
       type="button"
       className="query-list-status query-edit-trigger"
+      disabled={!editor.writable}
       data-query-column={column.variable}
       data-active={current ? true : undefined}
       aria-busy={current?.phase === "loading" || undefined}

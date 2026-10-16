@@ -506,7 +506,11 @@ function DefaultQueryRow({
                 ))}
               </div>
               {activeView.kind === "table" && plan && (
-                <QueryColumnsControl choices={choices} onToggle={toggleColumn} />
+                <QueryColumnsControl
+                  choices={choices}
+                  disabled={readonly}
+                  onToggle={toggleColumn}
+                />
               )}
             </div>
           </div>

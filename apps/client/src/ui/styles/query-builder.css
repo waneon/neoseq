@@ -80,7 +80,11 @@
   cursor: pointer;
 }
 
-.qb-combiner-token:hover,
+.qb-combiner-token:disabled {
+  cursor: default;
+}
+
+.qb-combiner-token:hover:not(:disabled),
 .qb-combiner-token[aria-expanded="true"] {
   background: var(--surface-2);
   color: var(--ink);
@@ -120,7 +124,11 @@ button.qb-filter {
   cursor: pointer;
 }
 
-button.qb-filter:hover,
+button.qb-filter:disabled {
+  cursor: default;
+}
+
+button.qb-filter:hover:not(:disabled),
 button.qb-filter[aria-expanded="true"] {
   box-shadow: inset 0 0 0 1px var(--line-strong);
 }
@@ -150,8 +158,8 @@ button.qb-filter:focus-visible {
   opacity: 0;
 }
 
-.qb-filter-row:hover .qb-remove,
-.qb-filter-row:focus-within .qb-remove,
+.qb-filter-row:hover .qb-remove:not(:disabled),
+.qb-filter-row:focus-within .qb-remove:not(:disabled),
 .qb-filter-row .qb-remove:focus-visible {
   opacity: 1;
 }

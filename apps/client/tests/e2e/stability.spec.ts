@@ -1,5 +1,6 @@
-import { test, expect } from "../support/fixtures";
-import { boxesAround } from "../support/stability";
+import { test, expect, FIXED_TIME } from "../support/fixtures";
+import { NeoseqApp } from "../support/app";
+import { boxesAround, layoutDifferences, layoutOf } from "../support/stability";
 
 // Pressing a control changes its own region; nothing beside it moves.
 
@@ -76,4 +77,67 @@ test("adding a sort term keeps the result tools in place", async ({ app, page })
     await expect(query.getByTestId("query-sort-trigger")).toHaveAttribute("data-sorted", "true");
   });
   expect(after).toEqual(before);
+});
+
+// A second tab reads the graph the first one writes. Read-only takes away the
+// ability to commit, never a place on the page: the reader's controls stand
+// where the writer's do, disabled, so nothing the writer sees moves.
+test("a reader tab lays out every surface where the writer's tab does", async ({
+  app,
+  page,
+  context,
+}) => {
+  await app.createGraph("Mirror");
+  await app.startBlock("Journal note");
+  await app.appendBlock("Second line");
+  await app.settings("queries");
+  await app.saved(() => page.getByTestId("add-default-query").click());
+  await page.keyboard.press("Escape");
+  await app.saved(() => page.getByTestId("query-conditions-trigger").first().click());
+  await expect(page.getByTestId("query-builder")).toBeVisible();
+  const journal = page.url();
+
+  await app.createPage("Records");
+  await app.startBlock("Tagged record");
+  await app.block(0).getByTestId("block-bullet").click({ button: "right" });
+  await page.getByTestId("menu-tags").click();
+  const picker = page.getByTestId("tag-picker");
+  await picker.getByTestId("tag-autocomplete").fill("Project");
+  await app.saved(() => picker.getByRole("option", { name: /Create tag/ }).click());
+  await page.keyboard.press("Escape");
+  const records = page.url();
+  const tag = new URL(
+    (await app.block(0).getByTestId("tag-chip").getAttribute("href"))!,
+    page.url(),
+  ).href;
+  const tags = journal.replace(/journal$/, "tags");
+
+  const reader = await context.newPage();
+  await reader.clock.setFixedTime(new Date(FIXED_TIME));
+  const readerApp = new NeoseqApp(reader);
+  // The pill names the reader's state. The bar makes room for it from the
+  // graph's name, which already gives way on a phone, and moves no control.
+  const notice = '[data-testid="toasts"], [data-testid="readonly-pill"], .sr-only';
+  const layout = async (target: typeof page) => ({
+    ...(await layoutOf(target, "body", `${notice}, .shell-topbar`)),
+    ...(await layoutOf(target, ".topbar-start, .topbar-end", `${notice}, .mobile-workspace`)),
+  });
+  for (const size of [
+    { width: 1280, height: 720 },
+    { width: 390, height: 800 },
+  ]) {
+    await page.setViewportSize(size);
+    await reader.setViewportSize(size);
+    for (const url of [journal, records, tags, tag]) {
+      await page.goto(url);
+      await reader.goto(url);
+      await expect(reader.getByTestId("readonly-pill")).toBeVisible();
+      await app.settled();
+      await readerApp.settled();
+      expect(
+        layoutDifferences(await layout(page), await layout(reader)),
+        `${size.width}px ${url}`,
+      ).toEqual([]);
+    }
+  }
 });

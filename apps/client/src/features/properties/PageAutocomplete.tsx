@@ -35,6 +35,7 @@ export function PageAutocomplete({
   placeholder,
   allowCreate = false,
   autoFocus = false,
+  disabled = false,
   inputId,
   kind = "page",
   onPick,
@@ -44,6 +45,7 @@ export function PageAutocomplete({
   placeholder: string;
   allowCreate?: boolean;
   autoFocus?: boolean;
+  disabled?: boolean;
   inputId?: string;
   kind?: "page" | "tag";
   onPick: (entityId: string) => void | Promise<void>;
@@ -150,7 +152,7 @@ export function PageAutocomplete({
           setOpen(true);
         }}
       >
-        <SearchField aria-label={placeholder} isReadOnly={pending}>
+        <SearchField aria-label={placeholder} isReadOnly={pending} isDisabled={disabled}>
           <AriaInput
             render={(props) => <Input {...props} />}
             ref={inputRef}

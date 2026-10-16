@@ -873,6 +873,15 @@
   }
 }
 
+/* A reader keeps the region and loses only the line it would make. */
+.outline-append:disabled {
+  cursor: default;
+}
+
+.outline-append:disabled::before {
+  display: none;
+}
+
 .menu-anchor {
   position: fixed;
   width: 0;

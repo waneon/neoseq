@@ -1033,7 +1033,11 @@ SELECT ?entity ?content ?owner WHERE {
               <SessionSaveStatus />
               <SessionCollaborationStatus />
               {readonlyReason && (
-                <span className="readonly-label" data-testid="readonly-pill">
+                <span
+                  className="readonly-label"
+                  data-testid="readonly-pill"
+                  title={message(READONLY_COPY[readonlyReason].label)}
+                >
                   {message(READONLY_COPY[readonlyReason].label)}
                 </span>
               )}

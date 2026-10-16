@@ -165,125 +165,117 @@ export function TagPicker({
           </div>
         </section>
       )}
-      {!readonly && (
-        <>
-          <div className="tag-picker-search">
-            <SearchIcon aria-hidden />
-            <input
-              role="combobox"
-              aria-label={message("properties.addTag")}
-              aria-autocomplete="list"
-              aria-expanded="true"
-              aria-controls={listId}
-              aria-activedescendant={
-                options[selectedIndex] ? `${listId}-${selectedIndex}` : undefined
-              }
-              aria-busy={pending}
-              readOnly={pending}
-              autoComplete="off"
-              placeholder={message("tags.findTag")}
-              value={query}
-              data-testid="tag-autocomplete"
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setActive(0);
-              }}
-              onKeyDown={(event) => {
-                if (pending || event.nativeEvent.isComposing) return;
-                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                  event.preventDefault();
-                  const direction = event.key === "ArrowDown" ? 1 : -1;
-                  setActive(
-                    (selectedIndex + direction + options.length) % Math.max(1, options.length),
-                  );
-                } else if (event.key === "Enter") {
-                  event.preventDefault();
-                  const option = options[selectedIndex];
-                  if (option) void pick(option);
-                }
-              }}
-            />
-            {query && (
-              <button
-                type="button"
-                className="tag-group-reset"
-                aria-label={message("tags.clearSearch")}
-                disabled={pending}
-                onClick={() => {
-                  setQuery("");
-                  setActive(0);
-                }}
-              >
-                <XIcon aria-hidden />
-              </button>
-            )}
-          </div>
-          <div className="tag-picker-section-label tag-picker-available-label">
-            <span>{message("tags.available")}</span>
-            <span>{options.length}</span>
-          </div>
-          <div
-            className="tag-picker-results"
-            role="listbox"
-            id={listId}
-            aria-label={message("properties.addTag")}
-            ref={listRef}
+      <div className="tag-picker-search">
+        <SearchIcon aria-hidden />
+        <input
+          role="combobox"
+          aria-label={message("properties.addTag")}
+          aria-autocomplete="list"
+          aria-expanded="true"
+          aria-controls={listId}
+          aria-activedescendant={options[selectedIndex] ? `${listId}-${selectedIndex}` : undefined}
+          aria-busy={pending}
+          readOnly={pending}
+          disabled={readonly}
+          autoComplete="off"
+          placeholder={message("tags.findTag")}
+          value={query}
+          data-testid="tag-autocomplete"
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setActive(0);
+          }}
+          onKeyDown={(event) => {
+            if (pending || event.nativeEvent.isComposing) return;
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              const direction = event.key === "ArrowDown" ? 1 : -1;
+              setActive((selectedIndex + direction + options.length) % Math.max(1, options.length));
+            } else if (event.key === "Enter") {
+              event.preventDefault();
+              const option = options[selectedIndex];
+              if (option) void pick(option);
+            }
+          }}
+        />
+        {query && (
+          <button
+            type="button"
+            className="tag-group-reset"
+            aria-label={message("tags.clearSearch")}
+            disabled={pending}
+            onClick={() => {
+              setQuery("");
+              setActive(0);
+            }}
           >
-            {options.length === 0 ? (
-              <p role="status" className="tag-picker-empty">
-                {state.snapshot.tags.length > 0 && !query.trim()
-                  ? message("tags.allApplied")
-                  : message("properties.noTags")}
-              </p>
-            ) : (
-              options.map((option, index) => (
-                <button
-                  type="button"
-                  role="option"
-                  id={`${listId}-${index}`}
-                  key={option.kind === "existing" ? option.tag.id : "__create"}
-                  className="tag-picker-option"
-                  aria-label={
-                    option.kind === "convert"
-                      ? message("entity.convertAndApply", { name: option.name })
-                      : option.kind === "create"
-                        ? message("properties.createTag", { name: option.name })
-                        : option.name
-                  }
-                  aria-selected={false}
-                  aria-disabled={pending}
-                  data-active={index === selectedIndex}
-                  tabIndex={-1}
-                  onPointerMove={() => setActive(index)}
-                  onPointerDown={(event) => event.preventDefault()}
-                  onClick={() => void pick(option)}
-                >
-                  <span className="tag-picker-option-mark">
-                    {option.kind === "existing" ? (
-                      <TagMark tag={option.tag} />
-                    ) : (
-                      <PlusIcon aria-hidden />
-                    )}
-                  </span>
-                  <span className="tag-picker-option-name">
-                    {option.kind === "convert"
-                      ? message("entity.convertAndApply", { name: option.name })
-                      : option.kind === "create"
-                        ? message("properties.createTag", { name: option.name })
-                        : option.name}
-                  </span>
-                  {option.kind === "existing" && tagGroup(option.tag) && (
-                    <span className="tag-picker-option-group">{tagGroup(option.tag)}</span>
-                  )}
-                  {option.kind === "existing" && (
-                    <PlusIcon className="tag-picker-add" aria-hidden />
-                  )}
-                </button>
-              ))
-            )}
-          </div>
-        </>
-      )}
+            <XIcon aria-hidden />
+          </button>
+        )}
+      </div>
+      <div className="tag-picker-section-label tag-picker-available-label">
+        <span>{message("tags.available")}</span>
+        <span>{options.length}</span>
+      </div>
+      <div
+        className="tag-picker-results"
+        role="listbox"
+        id={listId}
+        aria-label={message("properties.addTag")}
+        ref={listRef}
+      >
+        {options.length === 0 ? (
+          <p role="status" className="tag-picker-empty">
+            {state.snapshot.tags.length > 0 && !query.trim()
+              ? message("tags.allApplied")
+              : message("properties.noTags")}
+          </p>
+        ) : (
+          options.map((option, index) => (
+            <button
+              type="button"
+              role="option"
+              id={`${listId}-${index}`}
+              key={option.kind === "existing" ? option.tag.id : "__create"}
+              className="tag-picker-option"
+              aria-label={
+                option.kind === "convert"
+                  ? message("entity.convertAndApply", { name: option.name })
+                  : option.kind === "create"
+                    ? message("properties.createTag", { name: option.name })
+                    : option.name
+              }
+              aria-selected={false}
+              aria-disabled={pending}
+              disabled={readonly}
+              data-active={index === selectedIndex}
+              tabIndex={-1}
+              onPointerMove={() => setActive(index)}
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={() => void pick(option)}
+            >
+              <span className="tag-picker-option-mark">
+                {option.kind === "existing" ? (
+                  <TagMark tag={option.tag} />
+                ) : (
+                  <PlusIcon aria-hidden />
+                )}
+              </span>
+              <span className="tag-picker-option-name">
+                {option.kind === "convert"
+                  ? message("entity.convertAndApply", { name: option.name })
+                  : option.kind === "create"
+                    ? message("properties.createTag", { name: option.name })
+                    : option.name}
+              </span>
+              {option.kind === "existing" && tagGroup(option.tag) && (
+                <span className="tag-picker-option-group">{tagGroup(option.tag)}</span>
+              )}
+              {option.kind === "existing" && <PlusIcon className="tag-picker-add" aria-hidden />}
+            </button>
+          ))
+        )}
+      </div>
     </AnchoredPanel>
   );
 }

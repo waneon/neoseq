@@ -3581,13 +3581,15 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
           )}
         </div>
       )}
-      {rows.length > 0 && !readonly && (
+      {rows.length > 0 && (
         // The region under the last block IS the add-a-block affordance, so no
         // permanent button is needed and the page's dead bottom padding becomes
         // a live target. Hovering it raises the faint bullet of the line it
-        // would make.
+        // would make. A reader keeps the region, so what follows the writing
+        // sits where it does for the writer.
         <button
           className="outline-append"
+          disabled={readonly}
           onClick={() => {
             // The empty space under the writing is the one target in the product
             // that is both "make a block" and "the nearest place with nothing on

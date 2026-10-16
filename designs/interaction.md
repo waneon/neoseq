@@ -173,5 +173,9 @@ action, not decoration. Failure preserves the surrounding shell; read-only state
 explains unavailable actions; rejected commands are never silent and never
 reported twice.
 
+Read-only removes the ability to commit, never a place on the page: a control
+that would write stays where it is, disabled, so a reader's surface lays out
+exactly as a writer's. Only items inside a closed menu may be left out.
+
 Focus, keyboard, touch, announcement, and dismissal requirements follow
 [Accessibility](accessibility.md).

@@ -964,7 +964,11 @@ button.query-disclosure:hover {
   touch-action: none;
 }
 
-.query-resize:hover,
+.query-resize[aria-disabled="true"] {
+  cursor: default;
+}
+
+.query-resize:hover:not([aria-disabled="true"]),
 .query-resize:focus-visible,
 .query-resize[data-resizing="true"] {
   outline: none;

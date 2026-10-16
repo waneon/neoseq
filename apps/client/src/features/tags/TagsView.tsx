@@ -220,20 +220,19 @@ export function TagsView() {
           }
         }}
       >
-        {!readonly && (
-          <DocumentChrome>
-            <Button
-              ref={createRef}
-              variant="ghost"
-              className="chrome-action"
-              data-testid="new-tag"
-              onClick={() => setCreatingIn({ group: activeGroup ?? null })}
-            >
-              <PlusIcon aria-hidden />
-              <span>{message("tags.new")}</span>
-            </Button>
-          </DocumentChrome>
-        )}
+        <DocumentChrome>
+          <Button
+            ref={createRef}
+            variant="ghost"
+            className="chrome-action"
+            disabled={readonly}
+            data-testid="new-tag"
+            onClick={() => setCreatingIn({ group: activeGroup ?? null })}
+          >
+            <PlusIcon aria-hidden />
+            <span>{message("tags.new")}</span>
+          </Button>
+        </DocumentChrome>
         <header className="document-header" data-scroll-title={message("tags.title")}>
           <div className="title-row">
             <h1>{message("tags.title")}</h1>
@@ -291,12 +290,14 @@ export function TagsView() {
         {tags.length === 0 ? (
           <div className="tags-empty-state" data-testid="tags-empty">
             <p>{message("tags.emptyHint")}</p>
-            {!readonly && (
-              <Button variant="secondary" onClick={() => setCreatingIn({ group: null })}>
-                <PlusIcon aria-hidden />
-                {message("tags.createFirst")}
-              </Button>
-            )}
+            <Button
+              variant="secondary"
+              disabled={readonly}
+              onClick={() => setCreatingIn({ group: null })}
+            >
+              <PlusIcon aria-hidden />
+              {message("tags.createFirst")}
+            </Button>
           </div>
         ) : visibleCount === 0 ? (
           <div className="tags-empty-state" data-testid="tags-no-results">
@@ -305,8 +306,9 @@ export function TagsView() {
               <Button variant="secondary" onClick={clearFilters}>
                 {message("tags.clearFilters")}
               </Button>
-              {!readonly && term && (
+              {term && (
                 <Button
+                  disabled={readonly}
                   onClick={() => setCreatingIn({ group: activeGroup ?? null, name: search.trim() })}
                 >
                   <PlusIcon aria-hidden />
@@ -509,61 +511,60 @@ function TagGroupSection({
             </h2>
           )}
           <span className="tag-group-count">{tags.length}</span>
-          {!readonly && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  size="icon"
-                  className="tag-group-actions"
-                  aria-label={message("tags.groupActions", {
-                    name: name ?? message("tags.ungrouped"),
-                  })}
-                  data-testid="tag-group-menu"
-                >
-                  <MoreHorizontalIcon aria-hidden />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={onCreateHere}>
-                  <PlusIcon aria-hidden />
-                  {message("tags.newHere")}
-                </DropdownMenuItem>
-                {name !== null && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      disabled={!reorderable || index <= 0}
-                      data-testid="tag-group-up"
-                      onSelect={() => onPlaceGroup(name, index - 1)}
-                    >
-                      <ChevronUpIcon aria-hidden />
-                      {message("common.moveUp")}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      disabled={!reorderable || last}
-                      data-testid="tag-group-down"
-                      onSelect={() => onPlaceGroup(name, index + 2)}
-                    >
-                      <ChevronDownIcon aria-hidden />
-                      {message("common.moveDown")}
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      data-testid="tag-group-rename"
-                      onSelect={() => requestAnimationFrame(() => setRenaming(true))}
-                    >
-                      <PencilLineIcon aria-hidden />
-                      {message("tags.renameGroup")}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem data-testid="tag-group-ungroup" onSelect={ungroup}>
-                      <Trash2Icon aria-hidden />
-                      {message("tags.ungroupAll")}
-                    </DropdownMenuItem>
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="icon"
+                className="tag-group-actions"
+                disabled={readonly}
+                aria-label={message("tags.groupActions", {
+                  name: name ?? message("tags.ungrouped"),
+                })}
+                data-testid="tag-group-menu"
+              >
+                <MoreHorizontalIcon aria-hidden />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={onCreateHere}>
+                <PlusIcon aria-hidden />
+                {message("tags.newHere")}
+              </DropdownMenuItem>
+              {name !== null && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    disabled={!reorderable || index <= 0}
+                    data-testid="tag-group-up"
+                    onSelect={() => onPlaceGroup(name, index - 1)}
+                  >
+                    <ChevronUpIcon aria-hidden />
+                    {message("common.moveUp")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={!reorderable || last}
+                    data-testid="tag-group-down"
+                    onSelect={() => onPlaceGroup(name, index + 2)}
+                  >
+                    <ChevronDownIcon aria-hidden />
+                    {message("common.moveDown")}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    data-testid="tag-group-rename"
+                    onSelect={() => requestAnimationFrame(() => setRenaming(true))}
+                  >
+                    <PencilLineIcon aria-hidden />
+                    {message("tags.renameGroup")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem data-testid="tag-group-ungroup" onSelect={ungroup}>
+                    <Trash2Icon aria-hidden />
+                    {message("tags.ungroupAll")}
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       )}
       <ul
@@ -715,7 +716,7 @@ function TagRow({
           markRef.current = node;
         }}
       >
-        <TagMark tag={tag} onOpen={readonly ? undefined : (anchor) => setIdentityAt(anchor)} />
+        <TagMark tag={tag} disabled={readonly} onOpen={(anchor) => setIdentityAt(anchor)} />
       </span>
       <div className="tag-row-content">
         <Link
@@ -742,85 +743,84 @@ function TagRow({
         <span aria-hidden>{uses ?? 0}</span>
         <span className="sr-only">{message("tags.usesLabel", { count: uses ?? 0 })}</span>
       </span>
-      {!readonly && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              ref={actionsRef}
-              size="icon"
-              className="tag-row-actions"
-              aria-label={message("tags.actionsNamed", { name: tag.name })}
-              data-testid="tag-row-menu"
-            >
-              <MoreHorizontalIcon aria-hidden />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              data-testid="tag-row-favourite"
-              onSelect={() => {
-                const owner = { kind: "tag", tag_id: tag.id } as const;
-                void session
-                  .execute(
-                    starred
-                      ? { type: "remove_property", owner, key: FAVOURITE_KEY }
-                      : {
-                          type: "set_property",
-                          owner,
-                          key: FAVOURITE_KEY,
-                          value: { type: "checkbox", value: true },
-                        },
-                  )
-                  .catch((cause: unknown) =>
-                    notify.failure(message("failure.customizeTag", { name: tag.name }), cause),
-                  );
-              }}
-            >
-              {starred ? <StarOffIcon aria-hidden /> : <StarIcon aria-hidden />}
-              {message(starred ? "favourites.remove" : "favourites.add")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              data-testid="tag-row-customize"
-              onSelect={() => requestAnimationFrame(() => setIdentityAt(markRef.current))}
-            >
-              <Settings2Icon aria-hidden />
-              {message("tags.customize")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={() => requestAnimationFrame(() => setPicker({ anchor: markRef.current }))}
-            >
-              <PlusIcon aria-hidden />
-              {message("tags.addDefault")}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              disabled={!canMoveUp}
-              data-testid="tag-row-up"
-              onSelect={() => onMove(-1)}
-            >
-              <ChevronUpIcon aria-hidden />
-              {message("common.moveUp")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={!canMoveDown}
-              data-testid="tag-row-down"
-              onSelect={() => onMove(1)}
-            >
-              <ChevronDownIcon aria-hidden />
-              {message("common.moveDown")}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              variant="destructive"
-              data-testid="tag-delete"
-              onSelect={() => setConfirmDelete(true)}
-            >
-              <Trash2Icon aria-hidden />
-              {message("tags.deleteAction")}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            ref={actionsRef}
+            size="icon"
+            className="tag-row-actions"
+            disabled={readonly}
+            aria-label={message("tags.actionsNamed", { name: tag.name })}
+            data-testid="tag-row-menu"
+          >
+            <MoreHorizontalIcon aria-hidden />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            data-testid="tag-row-favourite"
+            onSelect={() => {
+              const owner = { kind: "tag", tag_id: tag.id } as const;
+              void session
+                .execute(
+                  starred
+                    ? { type: "remove_property", owner, key: FAVOURITE_KEY }
+                    : {
+                        type: "set_property",
+                        owner,
+                        key: FAVOURITE_KEY,
+                        value: { type: "checkbox", value: true },
+                      },
+                )
+                .catch((cause: unknown) =>
+                  notify.failure(message("failure.customizeTag", { name: tag.name }), cause),
+                );
+            }}
+          >
+            {starred ? <StarOffIcon aria-hidden /> : <StarIcon aria-hidden />}
+            {message(starred ? "favourites.remove" : "favourites.add")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            data-testid="tag-row-customize"
+            onSelect={() => requestAnimationFrame(() => setIdentityAt(markRef.current))}
+          >
+            <Settings2Icon aria-hidden />
+            {message("tags.customize")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => requestAnimationFrame(() => setPicker({ anchor: markRef.current }))}
+          >
+            <PlusIcon aria-hidden />
+            {message("tags.addDefault")}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            disabled={!canMoveUp}
+            data-testid="tag-row-up"
+            onSelect={() => onMove(-1)}
+          >
+            <ChevronUpIcon aria-hidden />
+            {message("common.moveUp")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={!canMoveDown}
+            data-testid="tag-row-down"
+            onSelect={() => onMove(1)}
+          >
+            <ChevronDownIcon aria-hidden />
+            {message("common.moveDown")}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            variant="destructive"
+            data-testid="tag-delete"
+            onSelect={() => setConfirmDelete(true)}
+          >
+            <Trash2Icon aria-hidden />
+            {message("tags.deleteAction")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
       {identityAt && (
         <TagIdentityPicker
           tag={tag}

@@ -813,7 +813,7 @@ function QueryPanelSurface({
    * A list has nothing to choose between — it draws canonical entities, not a
    * grid — so it has no panel and does not participate in this projection.
    */
-  const choosesColumns = activeView.kind === "table" && canEditDefinition && plan !== null;
+  const choosesColumns = activeView.kind === "table" && binding.kind === "managed" && plan !== null;
   const choices =
     choosesColumns && plan
       ? columnChoices(
@@ -1148,7 +1148,13 @@ function QueryPanelSurface({
             </span>
           )}
           <div className="query-result-tools">
-            {choosesColumns && <QueryColumnsControl choices={choices} onToggle={toggleColumn} />}
+            {choosesColumns && (
+              <QueryColumnsControl
+                choices={choices}
+                disabled={!canEditDefinition}
+                onToggle={toggleColumn}
+              />
+            )}
             {sortOptions.length > 0 && (
               <QuerySortControl
                 options={sortOptions}
@@ -1156,35 +1162,34 @@ function QueryPanelSurface({
                 onChange={setSortEntries}
               />
             )}
-            {canEditCurrentView && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    className="query-tool query-layout-trigger"
-                    aria-label={message("query.displayOf", {
-                      layout: message(
-                        activeView.kind === "table" ? "query.viewTable" : "query.viewList",
-                      ),
-                    })}
-                    data-testid="query-view-trigger"
-                    data-view={activeView.kind}
-                    onPointerDown={() => resultEditor.preserveDraftForPresentationChange()}
-                  >
-                    {activeView.kind === "table" ? (
-                      <Table2Icon aria-hidden />
-                    ) : (
-                      <ListIcon aria-hidden />
-                    )}
-                    <span>
-                      {message(activeView.kind === "table" ? "query.viewTable" : "query.viewList")}
-                    </span>
-                    <ChevronDownIcon className="query-tool-chevron" aria-hidden />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">{layoutItems}</DropdownMenuContent>
-              </DropdownMenu>
-            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  className="query-tool query-layout-trigger"
+                  disabled={!canEditCurrentView}
+                  aria-label={message("query.displayOf", {
+                    layout: message(
+                      activeView.kind === "table" ? "query.viewTable" : "query.viewList",
+                    ),
+                  })}
+                  data-testid="query-view-trigger"
+                  data-view={activeView.kind}
+                  onPointerDown={() => resultEditor.preserveDraftForPresentationChange()}
+                >
+                  {activeView.kind === "table" ? (
+                    <Table2Icon aria-hidden />
+                  ) : (
+                    <ListIcon aria-hidden />
+                  )}
+                  <span>
+                    {message(activeView.kind === "table" ? "query.viewTable" : "query.viewList")}
+                  </span>
+                  <ChevronDownIcon className="query-tool-chevron" aria-hidden />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">{layoutItems}</DropdownMenuContent>
+            </DropdownMenu>
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -1304,10 +1309,11 @@ function QueryPanelSurface({
             wrap={activeView.options.wrap}
             sorts={tableSorts}
             onSort={tableHandlers.sort}
-            onResize={canEditCurrentView ? tableHandlers.resize : undefined}
-            onHide={canEditCurrentView ? tableHandlers.hide : undefined}
-            onMove={canEditCurrentView ? tableHandlers.move : undefined}
-            onReorder={canEditCurrentView ? tableHandlers.reorder : undefined}
+            editable={canEditCurrentView}
+            onResize={tableHandlers.resize}
+            onHide={tableHandlers.hide}
+            onMove={tableHandlers.move}
+            onReorder={tableHandlers.reorder}
           />
         )}
         {!error && select && visibleRows.length > 0 && canonicalBlockView && (

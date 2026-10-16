@@ -228,7 +228,9 @@ function GroupView({
       data-depth={depth}
       data-testid="qb-group"
     >
-      {onRemove && !readonly && <GroupMenu group={group} onChange={onChange} onRemove={onRemove} />}
+      {onRemove && (
+        <GroupMenu group={group} disabled={readonly} onChange={onChange} onRemove={onRemove} />
+      )}
       {depth > 0 && group.children.length === 0 && (
         <p className="qb-empty">{message("query.emptyGroup")}</p>
       )}
@@ -259,45 +261,43 @@ function GroupView({
           )}
         </div>
       ))}
-      {!readonly && (
-        <div className="qb-row">
-          <span className="qb-combiner" />
-          <button
-            ref={addRef}
-            type="button"
-            className="qb-add-filter"
-            disabled={context.full}
-            aria-haspopup="dialog"
-            aria-expanded={context.adding === group.id}
-            data-testid={depth === 0 ? "qb-add-condition" : undefined}
-            onClick={() => context.setAdding(context.adding === group.id ? null : group.id)}
-          >
-            <PlusIcon aria-hidden />
-            {message("query.addFilter")}
-          </button>
-          {context.adding === group.id && (
-            <FilterPicker
-              anchor={() => elementAnchor(addRef.current)}
-              fields={fields}
-              onPick={(field) => {
-                const condition = newCondition(field, context.propertyTypes);
-                onChange(appendNode(group, group.id, condition));
-                context.setAdding(null);
-                context.setEditing({ id: condition.id, fresh: true });
-              }}
-              onGroup={
-                context.deep
-                  ? undefined
-                  : () => {
-                      onChange(appendNode(group, group.id, emptyGroup("any")));
-                      context.setAdding(null);
-                    }
-              }
-              onClose={() => context.setAdding(null)}
-            />
-          )}
-        </div>
-      )}
+      <div className="qb-row">
+        <span className="qb-combiner" />
+        <button
+          ref={addRef}
+          type="button"
+          className="qb-add-filter"
+          disabled={readonly || context.full}
+          aria-haspopup="dialog"
+          aria-expanded={context.adding === group.id}
+          data-testid={depth === 0 ? "qb-add-condition" : undefined}
+          onClick={() => context.setAdding(context.adding === group.id ? null : group.id)}
+        >
+          <PlusIcon aria-hidden />
+          {message("query.addFilter")}
+        </button>
+        {context.adding === group.id && (
+          <FilterPicker
+            anchor={() => elementAnchor(addRef.current)}
+            fields={fields}
+            onPick={(field) => {
+              const condition = newCondition(field, context.propertyTypes);
+              onChange(appendNode(group, group.id, condition));
+              context.setAdding(null);
+              context.setEditing({ id: condition.id, fresh: true });
+            }}
+            onGroup={
+              context.deep
+                ? undefined
+                : () => {
+                    onChange(appendNode(group, group.id, emptyGroup("any")));
+                    context.setAdding(null);
+                  }
+            }
+            onClose={() => context.setAdding(null)}
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -331,7 +331,7 @@ function Combiner({
           : null;
   if (word === null) return <span className="qb-combiner" />;
   // `where` introduces the list; it is not a choice between ways of combining.
-  if (context.readonly || (index === 0 && group.match !== "none")) {
+  if (index === 0 && group.match !== "none") {
     return <span className="qb-combiner">{word}</span>;
   }
   return (
@@ -341,6 +341,7 @@ function Combiner({
           <button
             type="button"
             className="qb-combiner-token"
+            disabled={context.readonly}
             aria-label={message("query.matchLabel")}
             data-testid={depth === 0 ? "qb-match" : undefined}
           >
@@ -379,10 +380,12 @@ function MatchMenu({
 
 function GroupMenu({
   group,
+  disabled,
   onChange,
   onRemove,
 }: {
   group: PlanGroup;
+  disabled: boolean;
   onChange: (group: PlanGroup) => void;
   onRemove: () => void;
 }) {
@@ -394,6 +397,7 @@ function GroupMenu({
           size="icon"
           variant="ghost"
           className="qb-group-menu"
+          disabled={disabled}
           aria-label={message("query.groupActions")}
         >
           <MoreHorizontalIcon aria-hidden />
@@ -476,36 +480,30 @@ function FilterRow({
 
   return (
     <div className="qb-filter-row" data-testid="qb-condition">
-      {readonly ? (
-        <span className="qb-filter" title={text}>
-          {words}
-        </span>
-      ) : (
-        <button
-          ref={trigger}
-          type="button"
-          className="qb-filter"
-          title={text}
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          onClick={() => context.setEditing(open ? null : { id: condition.id, fresh: false })}
-        >
-          {words}
-        </button>
-      )}
-      {!readonly && (
-        <Button
-          size="icon"
-          variant="ghost"
-          className="qb-remove"
-          aria-label={message("query.removeCondition", {
-            field: fieldLabel(condition.field, plan.subject, message),
-          })}
-          onClick={onRemove}
-        >
-          <XIcon aria-hidden />
-        </Button>
-      )}
+      <button
+        ref={trigger}
+        type="button"
+        className="qb-filter"
+        disabled={readonly}
+        title={text}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => context.setEditing(open ? null : { id: condition.id, fresh: false })}
+      >
+        {words}
+      </button>
+      <Button
+        size="icon"
+        variant="ghost"
+        className="qb-remove"
+        disabled={readonly}
+        aria-label={message("query.removeCondition", {
+          field: fieldLabel(condition.field, plan.subject, message),
+        })}
+        onClick={onRemove}
+      >
+        <XIcon aria-hidden />
+      </Button>
       {open && (
         <AnchoredPanel
           anchor={() => elementAnchor(trigger.current)}
@@ -730,12 +728,11 @@ function Operand({
             <span>{page.title || page.id}</span>
           </span>
         )}
-        {!readonly && (
-          <PageAutocomplete
-            placeholder={message("query.pickPage")}
-            onPick={(id) => onChange({ type: "page", value: id })}
-          />
-        )}
+        <PageAutocomplete
+          placeholder={message("query.pickPage")}
+          disabled={readonly}
+          onPick={(id) => onChange({ type: "page", value: id })}
+        />
       </span>
     );
   }
@@ -843,9 +840,11 @@ function ValueListEditor({
         </span>
       ))}
       {members.length >= PLAN_ANY_OF_MAX ? null : type === "page" ? (
-        !readonly && (
-          <PageAutocomplete placeholder={message("query.pickPage")} onPick={(id) => add(id)} />
-        )
+        <PageAutocomplete
+          placeholder={message("query.pickPage")}
+          disabled={readonly}
+          onPick={(id) => add(id)}
+        />
       ) : remaining.length > 0 ? (
         <MenuSelect
           className="qb-value"

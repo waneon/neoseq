@@ -38,10 +38,13 @@ const COLOR_MESSAGE = {
 export function TagMark({
   tag,
   size = "sm",
+  disabled = false,
   onOpen,
 }: {
   tag: TagSnapshot;
   size?: "sm" | "lg";
+  /** A mark that opens its identity, shown but closed to a reader. */
+  disabled?: boolean;
   onOpen?: (anchor: HTMLElement) => void;
 }) {
   const { message } = useI18n();
@@ -67,6 +70,7 @@ export function TagMark({
       {...shared}
       aria-label={message("tags.customizeNamed", { name: tag.name })}
       aria-haspopup="dialog"
+      disabled={disabled}
       title={message("tags.customizeNamed", { name: tag.name })}
       onClick={(event) => onOpen(event.currentTarget)}
     >

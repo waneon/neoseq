@@ -43,21 +43,20 @@ export function TagDefaults({
             </span>
           </button>
         </h2>
-        {onEdit && (
-          <button
-            type="button"
-            className="tag-section-action"
-            data-testid="tag-add-default"
-            aria-haspopup="dialog"
-            onClick={(event) => {
-              setExpanded(true);
-              onEdit(undefined, event.currentTarget);
-            }}
-          >
-            <PlusIcon aria-hidden />
-            {message("tags.addDefault")}
-          </button>
-        )}
+        <button
+          type="button"
+          className="tag-section-action"
+          data-testid="tag-add-default"
+          aria-haspopup="dialog"
+          disabled={!onEdit}
+          onClick={(event) => {
+            setExpanded(true);
+            onEdit?.(undefined, event.currentTarget);
+          }}
+        >
+          <PlusIcon aria-hidden />
+          {message("tags.addDefault")}
+        </button>
       </div>
       <div className="tag-defaults-content" id={contentId} hidden={!expanded}>
         {tag.defaults.length === 0 ? (

@@ -105,9 +105,10 @@ function MissingTombstone({ graphId, pageId }: { graphId: string; pageId: string
       detail={message("page.missingDetail")}
       graphId={graphId}
       actions={
-        !readonly && deleted ? (
+        deleted ? (
           <Button
             data-testid="restore-page"
+            disabled={readonly}
             onClick={() =>
               void session
                 .execute({ type: "restore_page", page_id: pageId })

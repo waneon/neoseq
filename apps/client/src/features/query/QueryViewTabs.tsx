@@ -112,8 +112,8 @@ export function QueryViewTabs({
     onReorder([...rest.slice(0, at), moved, ...rest.slice(at)]);
   };
 
+  // A reader opens the same menu; every action in it writes, so each is disabled.
   const summon = (view: QueryView, at: { x: number; y: number }) => {
-    if (readonly) return;
     if (view.id !== activeView.id) onSelect(view.id);
     setMenuAt({ viewId: view.id, ...at });
   };
@@ -169,7 +169,7 @@ export function QueryViewTabs({
               />
             );
           }
-          const opens = current && !readonly;
+          const opens = current;
           const seam =
             drag === null
               ? undefined
@@ -228,30 +228,29 @@ export function QueryViewTabs({
         })}
       </div>
 
-      {!readonly && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              size="icon"
-              className="query-view-add"
-              aria-label={message("query.newView")}
-              data-testid="query-view-add"
-            >
-              <PlusIcon aria-hidden />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            <DropdownMenuGroup label={message("query.newView")}>
-              <DropdownMenuItem onSelect={() => onAdd("table")}>
-                {message("query.viewTable")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => onAdd("list")}>
-                {message("query.viewList")}
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            size="icon"
+            className="query-view-add"
+            disabled={readonly}
+            aria-label={message("query.newView")}
+            data-testid="query-view-add"
+          >
+            <PlusIcon aria-hidden />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          <DropdownMenuGroup label={message("query.newView")}>
+            <DropdownMenuItem onSelect={() => onAdd("table")}>
+              {message("query.viewTable")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onAdd("list")}>
+              {message("query.viewList")}
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       {/* One menu, two routes into it: it opens where the reader asked — the
           pointer, or the chevron they pressed. */}
@@ -269,6 +268,7 @@ export function QueryViewTabs({
       >
         <DropdownMenuItem
           data-testid="query-view-rename"
+          disabled={readonly}
           onSelect={() => {
             const id = menuView?.id;
             if (id) requestAnimationFrame(() => setRenaming(id));
@@ -277,19 +277,19 @@ export function QueryViewTabs({
           <PencilLineIcon aria-hidden />
           {message("query.renameView")}
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => menuView && onDuplicate(menuView)}>
+        <DropdownMenuItem disabled={readonly} onSelect={() => menuView && onDuplicate(menuView)}>
           <CopyIcon aria-hidden />
           {message("query.duplicateView")}
         </DropdownMenuItem>
         <DropdownMenuItem
-          disabled={!menuView || views[0]?.id === menuView.id}
+          disabled={readonly || !menuView || views[0]?.id === menuView.id}
           onSelect={() => menuView && onMove(menuView, -1)}
         >
           <ChevronLeftIcon aria-hidden />
           {message("query.moveViewLeft")}
         </DropdownMenuItem>
         <DropdownMenuItem
-          disabled={!menuView || views[views.length - 1]?.id === menuView.id}
+          disabled={readonly || !menuView || views[views.length - 1]?.id === menuView.id}
           onSelect={() => menuView && onMove(menuView, 1)}
         >
           <ChevronRightIcon aria-hidden />
@@ -298,7 +298,7 @@ export function QueryViewTabs({
         <DropdownMenuSeparator />
         <DropdownMenuItem
           variant="destructive"
-          disabled={views.length <= 1}
+          disabled={readonly || views.length <= 1}
           data-testid="query-view-delete"
           onSelect={() => menuView && onRemove(menuView)}
         >

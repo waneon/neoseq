@@ -78,9 +78,10 @@ export function TagView() {
         detail={message("tags.missingDetail")}
         graphId={graphId}
         actions={
-          state.mode !== "readonly" && wasDeleted(state.snapshot, tagId) ? (
+          wasDeleted(state.snapshot, tagId) ? (
             <Button
               data-testid="restore-tag"
+              disabled={state.mode === "readonly"}
               onClick={() =>
                 void session
                   .execute({ type: "restore_tag", tag_id: tagId })
@@ -115,18 +116,17 @@ function TagBody({ tag, graphId }: { tag: TagSnapshot; graphId: string }) {
       <article className="page-body tag-body enter-fade-view">
         <DocumentChrome>
           <FavouriteToggle entity={tag} owner={{ kind: "tag", tag_id: tag.id }} />
-          {!readonly && (
-            <Button
-              size="icon"
-              data-testid="tag-customize-trigger"
-              aria-label={message("tags.customizeNamed", { name: tag.name })}
-              title={message("tags.customizeNamed", { name: tag.name })}
-              aria-haspopup="dialog"
-              onClick={(event) => setIdentityAt(event.currentTarget)}
-            >
-              <PaletteIcon aria-hidden />
-            </Button>
-          )}
+          <Button
+            size="icon"
+            disabled={readonly}
+            data-testid="tag-customize-trigger"
+            aria-label={message("tags.customizeNamed", { name: tag.name })}
+            title={message("tags.customizeNamed", { name: tag.name })}
+            aria-haspopup="dialog"
+            onClick={(event) => setIdentityAt(event.currentTarget)}
+          >
+            <PaletteIcon aria-hidden />
+          </Button>
           <TagMenu
             tag={tag}
             graphId={graphId}
@@ -154,7 +154,8 @@ function TagBody({ tag, graphId }: { tag: TagSnapshot; graphId: string }) {
             <TagMark
               tag={tag}
               size="lg"
-              onOpen={readonly ? undefined : (anchor) => setIdentityAt(anchor)}
+              disabled={readonly}
+              onOpen={(anchor) => setIdentityAt(anchor)}
             />
           </span>
           <TagTitle tag={tag} />

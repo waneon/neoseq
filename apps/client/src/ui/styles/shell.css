@@ -427,8 +427,17 @@
     font-size: 15px;
     font-weight: var(--weight-medium);
   }
+  /* The bar has no room to grow, so the read-only pill gives way to the
+     controls beside it rather than pushing them off the screen. */
   .topbar-end {
+    flex: 0 1 auto;
     gap: 0;
+  }
+  .readonly-label {
+    display: block;
+    line-height: 24px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .topbar-end .icon-btn,
   .topbar-end .chrome-action.btn {
