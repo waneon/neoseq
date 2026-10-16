@@ -38,7 +38,7 @@ function TooltipContent({
       offset={offset}
       style={LAYER_STYLE}
       className={cn(
-        "z-[var(--z-popover)] w-fit rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background enter-fade-fast",
+        "z-[var(--z-popover)] inline-flex w-fit items-center gap-2 rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background enter-fade-fast",
         className,
       )}
       {...props}
