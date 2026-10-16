@@ -153,7 +153,7 @@ CorePort.
 
 ## Data and Consistency
 
-- One graph is one Loro document and one independent storage and future sync unit.
+- One graph is one Loro document and one independent storage and sync unit.
 - Pages and tags are two kinds of one document entity with a stable ID and
   one movable block tree. Conversion changes kind without copying content or
   rewriting references; clipboard transfer between documents remains a copy.
@@ -292,7 +292,6 @@ contracts/                 current source contracts
 fixtures/                  current cross-adapter corpus
 architectures/             component architecture documents
 designs/                   focused design architecture documents
-steps/                     future delivery plan
 ```
 
 Dependencies point inward: platform and delivery code depend on the core and
