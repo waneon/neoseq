@@ -26,7 +26,7 @@ import {
 import { createPortal } from "react-dom";
 import { FocusScope, useOverlay, useOverlayPosition, type Placement } from "react-aria";
 import { anchorElement, measureAnchor, type Anchor, type AnchoredOptions } from "./anchored";
-import { OverlayRoot, useOverlayRoot } from "./overlay-root";
+import { OverlayLayer, useOverlayRoot } from "./overlay-root";
 import {
   afterArrivals,
   afterCommit,
@@ -274,7 +274,7 @@ export function AnchoredPanel({
       data-testid={testId}
       onKeyDown={onSurfaceKeyDown}
     >
-      <OverlayRoot node={surface}>{children}</OverlayRoot>
+      <OverlayLayer>{children}</OverlayLayer>
     </div>
   );
   return createPortal(

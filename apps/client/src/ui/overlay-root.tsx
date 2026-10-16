@@ -22,7 +22,7 @@
 // return is that it be a place a `position: fixed` child can still be placed
 // against the window — see designs/foundations.md § Motion.
 
-import { createContext, useCallback, useContext, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
 import { UNSAFE_PortalProvider } from "react-aria";
 
 const OverlayRootContext = createContext<HTMLElement | null>(null);
@@ -37,6 +37,22 @@ export function OverlayRoot({ node, children }: { node: HTMLElement | null; chil
     <OverlayRootContext.Provider value={node}>
       <UNSAFE_PortalProvider getContainer={getContainer}>{children}</UNSAFE_PortalProvider>
     </OverlayRootContext.Provider>
+  );
+}
+
+/**
+ * The place inside a surface for what it summons. The layer is fixed to the
+ * window, so a menu placed against it is neither clipped by the surface's own
+ * scrolling nor measured from its scroll offset, while it stays inside the
+ * surface's focus, pointer and inert boundaries.
+ */
+export function OverlayLayer({ children }: { children: ReactNode }) {
+  const [layer, setLayer] = useState<HTMLElement | null>(null);
+  return (
+    <>
+      <OverlayRoot node={layer}>{children}</OverlayRoot>
+      <div ref={setLayer} className="overlay-layer" />
+    </>
   );
 }
 

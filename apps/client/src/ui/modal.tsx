@@ -24,7 +24,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { FocusScope, useModalOverlay, usePreventScroll } from "react-aria";
-import { OverlayRoot, useOverlayRoot } from "./overlay-root";
+import { OverlayLayer, useOverlayRoot } from "./overlay-root";
 import {
   afterArrivals,
   afterCommit,
@@ -153,7 +153,7 @@ export function ModalLayer({
           tabIndex={-1}
           onKeyDown={onSurfaceKeyDown}
         >
-          <OverlayRoot node={surface}>{children}</OverlayRoot>
+          <OverlayLayer>{children}</OverlayLayer>
         </div>
       </FocusScope>
     </div>,

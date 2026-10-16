@@ -344,6 +344,17 @@ button.chip:focus-visible .chip-glyph .chip-x {
 
 /* Behind a panel that contains focus: a press here dismisses the panel and
    reaches nothing beneath it. */
+/* Where a surface's summoned menus land (ui/overlay-root § OverlayLayer). */
+.overlay-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.overlay-layer > * {
+  pointer-events: auto;
+}
+
 .anchored-panel-underlay {
   position: fixed;
   inset: 0;
