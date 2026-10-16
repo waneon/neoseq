@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Locator, type Page } from "@playwright/test";
-import { test } from "../support/fixtures";
-import type { NeoseqApp } from "../support/app";
+import { test, FIXED_TIME } from "../support/fixtures";
+import { NeoseqApp } from "../support/app";
 
 async function choose(page: Page, trigger: Locator, value: string): Promise<void> {
   await trigger.click();
@@ -122,4 +122,42 @@ test("a saved task query selects exact records, orders them, and edits their sou
   await expect(listRows).toHaveCount(2);
   await expect(query).not.toContainText("Completed task");
   await expect(query).not.toContainText("Plain note");
+});
+
+// Reading is never read-only: a second tab answers in the order the writer
+// saved, and reorders for itself without writing.
+test("a reader tab answers in the saved order and reorders only for itself", async ({
+  app,
+  page,
+  context,
+}) => {
+  await app.createGraph("Ordered reading");
+  await app.startBlock("Banana");
+  await app.appendBlock("Apple");
+  await app.settings("queries");
+  await app.saved(() => page.getByTestId("add-default-query").click());
+  await page.keyboard.press("Escape");
+  const answers = (target: Page) => {
+    const rows = target.getByTestId("journal-queries").locator(".query-list-row");
+    return expect.poll(() =>
+      rows.evaluateAll((nodes) => nodes.map((row) => row.querySelector("textarea")!.value)),
+    );
+  };
+  await page.getByTestId("query-sort-trigger").click();
+  await page.getByTestId("query-sort-add").click();
+  await app.saved(() => page.getByRole("option", { name: "Text", exact: true }).click());
+  await page.keyboard.press("Escape");
+  await answers(page).toEqual(["Apple", "Banana"]);
+
+  const reader = await context.newPage();
+  await reader.clock.setFixedTime(new Date(FIXED_TIME));
+  await reader.goto(page.url());
+  await expect(reader.getByTestId("readonly-pill")).toBeVisible();
+  await answers(reader).toEqual(["Apple", "Banana"]);
+
+  await reader.getByTestId("query-sort-trigger").click();
+  await choose(reader, reader.getByRole("button", { name: /Text direction$/ }), "Descending");
+  await answers(reader).toEqual(["Banana", "Apple"]);
+  await new NeoseqApp(reader).settled();
+  await answers(page).toEqual(["Apple", "Banana"]);
 });

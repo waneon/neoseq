@@ -242,10 +242,11 @@ function QueryPanelSurface({
   );
   const [savingConditions, setSavingConditions] = useState(false);
   const [showSource, setShowSource] = useState(false);
-  // Reading is never read-only. On a read-only graph the order lives here for as
-  // long as the surface is mounted, because there is nowhere to save it.
-  const [localTableSorts, setLocalTableSorts] = useState<QueryViewSort[]>([]);
-  const [localListSorts, setLocalListSorts] = useState<QueryViewFieldSort[]>([]);
+  // Reading is never read-only. On a read-only graph the reader's own order sits
+  // over the saved one for as long as the surface is mounted, because there is
+  // nowhere to save it; until they choose one, the saved order is theirs too.
+  const [readerTableSorts, setReaderTableSorts] = useState<QueryViewSort[] | null>(null);
+  const [readerListSorts, setReaderListSorts] = useState<QueryViewFieldSort[] | null>(null);
   // Nobody has shaped this query yet, so nothing is written for it yet. The flag
   // is what keeps merely *visiting* a seeded surface out of the graph's history.
   const shaped = useRef(document !== undefined);
@@ -274,8 +275,8 @@ function QueryPanelSurface({
   );
   useEffect(() => {
     setShowSource(false);
-    setLocalTableSorts([]);
-    setLocalListSorts([]);
+    setReaderTableSorts(null);
+    setReaderListSorts(null);
   }, [incomingPlanRef, session.graphId, viewExecutionKey]);
   const today = useToday();
   // A built query runs from the plan in hand, so a result follows an edit
@@ -509,12 +510,12 @@ function QueryPanelSurface({
     state.status,
   ]);
   const tableSorts = useMemo(() => {
-    const stored = canEditCurrentView ? (activeView.options.sort ?? []) : localTableSorts;
+    const stored = readerTableSorts ?? activeView.options.sort ?? [];
     const orderableVariables = new Set(
       columns.filter((column) => column.sortable).map((column) => column.variable),
     );
     return stored.filter((sort) => orderableVariables.has(sort.variable));
-  }, [activeView.options.sort, columns, localTableSorts, canEditCurrentView]);
+  }, [activeView.options.sort, columns, readerTableSorts]);
   const listSortFields = useMemo<ListSortField[]>(() => {
     if (result?.kind !== "built" || result.subject !== "block") return [];
     return queryFieldsFor(result.subject, graphPropertyKeys(state.snapshot)).map((field) => ({
@@ -524,10 +525,10 @@ function QueryPanelSurface({
     }));
   }, [propertyTypes, result, state.snapshot]);
   const listSorts = useMemo(() => {
-    const stored = canEditCurrentView ? (activeView.options.list_sort ?? []) : localListSorts;
+    const stored = readerListSorts ?? activeView.options.list_sort ?? [];
     const orderableFields = new Set(listSortFields.map((field) => field.id));
     return stored.filter((sort) => orderableFields.has(sort.field));
-  }, [activeView.options.list_sort, listSortFields, localListSorts, canEditCurrentView]);
+  }, [activeView.options.list_sort, listSortFields, readerListSorts]);
   const activeOrigin = resultEditor.active?.origin.row;
   const activeRowPresent = activeOrigin
     ? resultRows.some((row) => row.key === activeOrigin.key)
@@ -930,7 +931,7 @@ function QueryPanelSurface({
     if (canEditCurrentView) {
       void putCurrentView({ ...activeView, options: { ...activeView.options, sort: next } });
     } else {
-      setLocalTableSorts(next);
+      setReaderTableSorts(next);
     }
   };
 
@@ -938,7 +939,7 @@ function QueryPanelSurface({
     if (canEditCurrentView) {
       void putCurrentView({ ...activeView, options: { ...activeView.options, list_sort: next } });
     } else {
-      setLocalListSorts(next);
+      setReaderListSorts(next);
     }
   };
 
