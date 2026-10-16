@@ -268,16 +268,14 @@ export function settleBuffer(buffer: ContentBuffer): ContentBuffer {
   return createContentBuffer(inlineContent(bufferAtoms(buffer)));
 }
 
+function sameAtom(atom: ContentAtom, other: ContentAtom): boolean {
+  return typeof atom === "string"
+    ? atom === other
+    : typeof other !== "string" && atom.page_id === other.page_id;
+}
+
 export function sameContent(left: readonly ContentAtom[], right: readonly ContentAtom[]): boolean {
-  return (
-    left.length === right.length &&
-    left.every((atom, index) => {
-      const other = right[index];
-      return typeof atom === "string"
-        ? atom === other
-        : typeof other !== "string" && atom.page_id === other.page_id;
-    })
-  );
+  return left.length === right.length && left.every((atom, index) => sameAtom(atom, right[index]));
 }
 
 export function bufferIsClean(buffer: ContentBuffer): boolean {
@@ -321,6 +319,123 @@ function changesFromOrigins(
   }
   emit(length);
   return changes;
+}
+
+/** Beyond this many edits a diff stops looking for kept atoms and replaces the span. */
+const DIFF_EDIT_LIMIT = 500;
+
+/**
+ * The changes that turn `before` into `after`, for a canonical change that
+ * arrived without its own: a shortest edit script (Myers), so atoms both sides
+ * kept keep their identity and a draft's edits land where they were made.
+ */
+export function diffContent(
+  before: readonly ContentAtom[],
+  after: readonly ContentAtom[],
+): ContentRangeChange[] {
+  let start = 0;
+  while (start < before.length && start < after.length && sameAtom(before[start], after[start]))
+    start += 1;
+  let beforeEnd = before.length;
+  let afterEnd = after.length;
+  while (
+    beforeEnd > start &&
+    afterEnd > start &&
+    sameAtom(before[beforeEnd - 1], after[afterEnd - 1])
+  ) {
+    beforeEnd -= 1;
+    afterEnd -= 1;
+  }
+  const origins: Array<number | null> = Array.from({ length: start }, (_, index) => index);
+  const middle = matchMiddle(before, start, beforeEnd, after, start, afterEnd);
+  for (let index = start; index < afterEnd; index += 1) origins.push(middle.get(index) ?? null);
+  for (let index = afterEnd; index < after.length; index += 1)
+    origins.push(beforeEnd + index - afterEnd);
+  return changesFromOrigins(before.length, origins);
+}
+
+/** For each atom of `after[afterStart, afterEnd)` kept from `before`, its index there. */
+function matchMiddle(
+  before: readonly ContentAtom[],
+  beforeStart: number,
+  beforeEnd: number,
+  after: readonly ContentAtom[],
+  afterStart: number,
+  afterEnd: number,
+): Map<number, number> {
+  const n = beforeEnd - beforeStart;
+  const m = afterEnd - afterStart;
+  const same = (x: number, y: number) => sameAtom(before[beforeStart + x], after[afterStart + y]);
+  const limit = Math.min(n + m, DIFF_EDIT_LIMIT);
+  const offset = limit + 1;
+  // `frontier[offset + k]` is the furthest x reached on diagonal k = x - y;
+  // `trace[d]` is the frontier as it stood before the d-th edit.
+  const frontier: Int32Array = new Int32Array(2 * offset + 1);
+  const trace: Int32Array[] = [];
+  const fromAbove = (edits: number, diagonal: number, at: Int32Array) =>
+    diagonal === -edits ||
+    (diagonal !== edits && at[offset + diagonal - 1] < at[offset + diagonal + 1]);
+  let found = -1;
+  for (let edits = 0; edits <= limit && found < 0; edits += 1) {
+    trace.push(frontier.slice());
+    for (let diagonal = -edits; diagonal <= edits; diagonal += 2) {
+      let x = fromAbove(edits, diagonal, frontier)
+        ? frontier[offset + diagonal + 1]
+        : frontier[offset + diagonal - 1] + 1;
+      let y = x - diagonal;
+      while (x < n && y < m && same(x, y)) {
+        x += 1;
+        y += 1;
+      }
+      frontier[offset + diagonal] = x;
+      if (x >= n && y >= m) {
+        found = edits;
+        break;
+      }
+    }
+  }
+  const kept = new Map<number, number>();
+  // Too far apart to be worth matching: the span is replaced whole.
+  if (found < 0) return kept;
+  let x = n;
+  let y = m;
+  for (let edits = found; edits > 0; edits -= 1) {
+    const at = trace[edits];
+    const diagonal = x - y;
+    const previous = fromAbove(edits, diagonal, at) ? diagonal + 1 : diagonal - 1;
+    const previousX = at[offset + previous];
+    const previousY = previousX - previous;
+    while (x > previousX && y > previousY) {
+      x -= 1;
+      y -= 1;
+      kept.set(afterStart + y, beforeStart + x);
+    }
+    x = previousX;
+    y = previousY;
+  }
+  while (x > 0 && y > 0) {
+    x -= 1;
+    y -= 1;
+    kept.set(afterStart + y, beforeStart + x);
+  }
+  return kept;
+}
+
+/**
+ * A draft moved onto new canonical content: through the change's own mapping
+ * when it arrived with one that starts from the draft's source, and through a
+ * diff of the two contents otherwise. Either way the draft survives.
+ */
+export function rebaseOnto(
+  buffer: ContentBuffer,
+  content: readonly InlineContent[],
+  mapping?: readonly ContentRangeChange[],
+): { buffer: ContentBuffer; mapping: ContentRangeChange[] } {
+  const mapped = mapping && rebaseBuffer(buffer, content, mapping);
+  if (mapped) return mapped;
+  const diffed = rebaseBuffer(buffer, content, diffContent(buffer.source, contentAtoms(content)));
+  if (!diffed) throw new Error("a content diff must map its own source");
+  return diffed;
 }
 
 /**

@@ -127,7 +127,7 @@ describe("graph content sessions", () => {
     await session.execute({ type: "delete_blocks", owner, block_ids: [block.id] });
     expect(projectBuffer(target.buffer, []).markdown).toBe("abcLdef");
     await expect(target.submit()).rejects.toMatchObject({
-      detail: { code: "invalid_request", retryable: false },
+      detail: { code: "target_missing", retryable: false },
     });
   });
 
@@ -162,29 +162,40 @@ describe("graph content sessions", () => {
   });
 });
 
-it("recovers a retained draft when a refresh restores its source", async () => {
-  const { session, port, target, block } = await openContent();
-  // A lost event forces a full refresh without position mappings.
+/** A lost event forces a full refresh, which carries no position mappings. */
+function loseEvents(port: Awaited<ReturnType<typeof openContent>>["port"]) {
   const subscribe = port.subscribe.bind(port);
   port.subscribe = async (request) => ({ ...(await subscribe(request)), resync_required: true });
-  target.edit("abcLdef", []);
-  await session.execute({
+}
+
+const insertX = (blockId: string) =>
+  ({
     type: "splice_block_content",
     owner,
-    block_id: block.id,
+    block_id: blockId,
     index: 1,
     delete: 0,
     insert: [{ type: "markdown", value: "X" }],
-  });
-  await expect(target.submit()).rejects.toMatchObject({ detail: { code: "invalid_request" } });
-  await session.execute({
-    type: "splice_block_content",
-    owner,
-    block_id: block.id,
-    index: 1,
-    delete: 1,
-    insert: [],
-  });
+  }) as const;
+
+it("moves a draft onto a refresh that arrives without mappings", async () => {
+  const { session, port, target, block } = await openContent();
+  loseEvents(port);
+  target.edit("abcLdef", []);
+  await session.execute(insertX(block.id));
+  expect(projectBuffer(target.buffer, []).markdown).toBe("aXbcLdef");
   await target.submit();
-  expect(findPage(session.getState().snapshot, owner.id)!.blocks[0].markdown).toBe("abcLdef");
+  expect(findPage(session.getState().snapshot, owner.id)!.blocks[0].markdown).toBe("aXbcLdef");
+});
+
+it("moves a composition onto a refresh that arrives without mappings", async () => {
+  const { session, port, target, block } = await openContent();
+  loseEvents(port);
+  target.edit("abcLdef", []);
+  target.setComposing(true);
+  await session.execute(insertX(block.id));
+  target.setComposing(false);
+  expect(projectBuffer(target.buffer, []).markdown).toBe("aXbcLdef");
+  await target.submit();
+  expect(findPage(session.getState().snapshot, owner.id)!.blocks[0].markdown).toBe("aXbcLdef");
 });

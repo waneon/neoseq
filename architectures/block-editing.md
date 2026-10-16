@@ -35,11 +35,13 @@ source ranges and native selection through the actual ordered edits supplied by
 the core, including remote edits and history. Equal final text does not imply
 equal edit history. Local deletions remove observed source atoms and preserve
 concurrent insertions. Native composition keeps its original input projection;
-canonical mappings accumulate until composition ends. A missing mapping across
-a changed dirty source, or deletion of its target, retains the draft and refuses
-to submit stale positions. When another replica deleted the target, the draft is
-written into a new block where the target stood and the caret follows it.
-Clean sources can be replaced directly.
+canonical mappings accumulate until composition ends. A publication without a
+mapping from the draft's source (a full refresh, a missed event, replaced
+history) is mapped by a shortest edit script between the two contents instead,
+so a draft is never stranded by how a change arrived. Only deletion of its
+target retains the draft and refuses to submit stale positions; when another
+replica deleted the target, the draft is written into a new block where the
+target stood and the caret follows it.
 
 Submission lowers the current pieces inside the graph command queue, after
 preceding canonical publications. Separate text edits remain separate ordered

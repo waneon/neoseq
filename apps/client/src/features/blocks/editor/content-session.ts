@@ -27,13 +27,17 @@ import {
   sameContent,
   settleBuffer,
   restoreBuffer,
-  rebaseBuffer,
+  rebaseOnto,
+  contentAtoms,
   inlineContent,
   type ContentAtom,
   type ContentBuffer,
 } from "./content-buffer";
 
 const EMPTY_BUFFERS: ReadonlyMap<string, ContentBuffer> = new Map();
+
+/** The one draft a save cannot carry: its block is gone and no new one took it. */
+const BLOCK_UNAVAILABLE = "The edited block is no longer available. Your draft has been retained.";
 
 export interface ContentProjectionChange {
   before: readonly ContentAtom[];
@@ -195,11 +199,7 @@ export class ContentSessions {
             else if (position) {
               this.orphans.set(target, position);
               if (!this.pending.has(target)) this.recover(target);
-            } else
-              this.unavailable.set(
-                target,
-                "The edited block is no longer available. Your draft has been retained.",
-              );
+            } else this.unavailable.set(target, BLOCK_UNAVAILABLE);
             continue;
           }
           const update = updates.find(
@@ -216,18 +216,14 @@ export class ContentSessions {
           let mapping: readonly ContentRangeChange[] = [];
           if (update?.mapping.length || !sameContent(buffer.source, canonical.source)) {
             if (this.pending.has(target)) continue;
-            const rebased = update && rebaseBuffer(buffer, update.content, update.mapping);
-            if (rebased) {
-              value = rebased.buffer;
-              mapping = rebased.mapping;
-            } else if (bufferIsClean(buffer)) value = canonical;
-            else {
-              this.unavailable.set(
-                target,
-                "The document changed while this edit was disconnected. Your draft has been retained. Copy it before reloading.",
-              );
-              continue;
-            }
+            // A change published without a mapping from this draft's source (a
+            // full refresh, or one after a missed event) is diffed instead.
+            const rebased =
+              update && sameContent(contentAtoms(update.content), canonical.source)
+                ? rebaseOnto(buffer, update.content, update.mapping)
+                : rebaseOnto(buffer, inlineContent(canonical.source));
+            value = rebased.buffer;
+            mapping = rebased.mapping;
             next.set(id, value);
           }
           // A restored block or a successfully mapped update establishes the
@@ -301,12 +297,7 @@ export class ContentSessions {
         this.set(target, undefined);
         for (const listener of this.recoveredListeners) listener(target, blockId);
       })
-      .catch(() =>
-        this.unavailable.set(
-          target,
-          "The edited block is no longer available. Your draft has been retained.",
-        ),
-      );
+      .catch(() => this.unavailable.set(target, BLOCK_UNAVAILABLE));
   }
 
   setComposing(target: BlockContentSession, composing: boolean): void {
@@ -324,15 +315,7 @@ export class ContentSessions {
     this.compositions.delete(target);
     if (!pending?.content) return;
     const before = target.buffer;
-    const rebased = rebaseBuffer(before, pending.content, pending.mapping);
-    if (!rebased) {
-      this.unavailable.set(
-        target,
-        "The document changed while you were composing text. Your draft has been retained. Copy it before reloading.",
-      );
-      return;
-    }
-    this.unavailable.delete(target);
+    const rebased = rebaseOnto(before, pending.content, pending.mapping);
     target.publish({
       before: bufferAtoms(before),
       after: bufferAtoms(rebased.buffer),
@@ -385,7 +368,7 @@ export class ContentSessions {
         const unavailable = this.unavailable.get(target);
         if (unavailable)
           throw new CorePortFailure({
-            code: "invalid_request",
+            code: "target_missing",
             message: unavailable,
             retryable: false,
           });
@@ -408,11 +391,11 @@ export class ContentSessions {
       const canonical = this.canonical(target.owner, target.blockId);
       if (!newerInput) {
         target.replace(canonical ?? settleBuffer(submitted));
-      } else if (!canonical || !sameContent(target.buffer.source, canonical.source)) {
-        this.unavailable.set(
-          target,
-          "The document changed before your edit finished saving. Your newer input has been retained. Copy it before reloading.",
-        );
+      } else if (!canonical) {
+        this.unavailable.set(target, BLOCK_UNAVAILABLE);
+      } else if (!sameContent(target.buffer.source, canonical.source)) {
+        // The graph merged something into the save; newer input moves onto it.
+        target.replace(rebaseOnto(target.buffer, inlineContent(canonical.source)).buffer);
       }
       return { newerInput };
     } catch (error) {
