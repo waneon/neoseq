@@ -93,7 +93,7 @@ dependencies = [
 
 [[package]]
 name = "domain"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -126,7 +126,7 @@ dependencies = [
 
 [[package]]
 name = "graph-archive"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "domain",
  "serde",
