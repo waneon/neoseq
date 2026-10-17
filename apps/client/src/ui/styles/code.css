@@ -1,5 +1,5 @@
-/* A code block is an inset surface: its language, numbered lines, and wrapped,
-   highlighted text. Reading and editing share every metric, because the editor
+/* A code block is an inset surface: a head naming its language and offering a
+   copy, then numbered lines of wrapped, highlighted text. Reading and editing share every metric, because the editor
    is a transparent textarea laid exactly over the highlighted text. */
 
 :root {
@@ -10,6 +10,7 @@
   /* Space an outline code block keeps from its neighbours. */
   --code-gap: var(--sp-1);
   --code-gutter-gap: var(--sp-3);
+  --code-icon: 14px;
 }
 
 /* Shiki's token roles, realized from the foundation's syntax lightness. */
@@ -40,14 +41,17 @@
   text-rendering: auto;
 }
 
-/* The language names itself at the head of the block; it is a control only
-   where the block is edited as code. */
+/* The head: the language at the start, a control only where the block is
+   edited as code, and the copy action at the end. Both are placed by their
+   visible strokes, so the name starts where the line numbers do and the icon
+   ends where the text column does. */
 .code-header {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   height: var(--code-header-h);
-  padding-inline: var(--code-pad-x) var(--sp-1);
+  padding-inline: calc(var(--code-pad-x) - var(--sp-2))
+    calc(var(--code-pad-x) - (var(--code-header-h) - var(--code-icon)) / 2);
 }
 
 .code-language {
@@ -82,6 +86,35 @@ button.code-language:focus-visible {
 button.code-language svg {
   width: 12px;
   height: 12px;
+}
+
+.code-copy {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--code-header-h);
+  height: var(--code-header-h);
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.code-copy:hover {
+  color: var(--ink);
+}
+
+.code-copy:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-inset);
+}
+
+.code-copy svg {
+  width: var(--code-icon);
+  height: var(--code-icon);
 }
 
 /* Each line is a row beside its number, so a wrapped line keeps its number on
@@ -202,7 +235,7 @@ button.code-language svg {
 }
 
 /* An outline code block spans the writing measure, and its bullet centers on
-   the first line of code. */
+   the head that names it. */
 .outline-code {
   flex: 1 1 100%;
   min-width: 0;
@@ -210,17 +243,11 @@ button.code-language svg {
 }
 
 .block-row:has(> .block-body > .outline-code) {
-  --block-first-line-height: calc(var(--code-lh) + 2 * (var(--code-gap) + var(--code-header-h)));
+  --block-first-line-height: calc(var(--code-header-h) + 2 * var(--code-gap));
 }
 
 .block-row:has(> .block-body > .block-line > .block-markdown > .code-block:first-child) {
-  --block-first-line-height: calc(var(--code-lh) + 2 * var(--code-pad-y));
-}
-
-.block-row:has(
-  > .block-body > .block-line > .block-markdown > .code-block:first-child > .code-header
-) {
-  --block-first-line-height: calc(var(--code-lh) + 2 * var(--code-header-h));
+  --block-first-line-height: var(--code-header-h);
 }
 
 .block-markdown .code-block + *,

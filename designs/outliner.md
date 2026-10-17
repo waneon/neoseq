@@ -75,11 +75,11 @@ comfortable height and limits jumps when trailing sections collapse.
 
 ## Code Blocks
 
-A code block is an inset surface on the writing measure: its language named at
-the head, where it is also a searchable control, then numbered, highlighted
-lines. Long lines wrap and keep their number on their first row. Reading and
-editing look the same; the caret is placed on the glyph pressed, and the bullet
-centers on the first line of code. `/code` asks for the language at once.
+A code block is an inset surface on the writing measure: a head with its
+language at the start, where it is also a searchable control, and a copy action
+at the end, then numbered, highlighted lines. Long lines wrap and keep their
+number on their first row. Reading and editing look the same; the caret is
+placed on the glyph pressed, and the bullet centers on the head. `/code` asks for the language at once.
 Shift+Enter leaves the code for the next block, and the block menu offers the
 language and the Markdown source.
 

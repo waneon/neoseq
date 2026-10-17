@@ -33,6 +33,11 @@ export function useNotify(): Notifier {
   return notifier;
 }
 
+/** The notifier where one is mounted; shared views may also render outside one. */
+export function useOptionalNotify(): Notifier | null {
+  return useContext(NotifyContext);
+}
+
 export function NotifyProvider({ children }: { children: ReactNode }) {
   const { message } = useI18n();
   const store = useMemo(() => new ToastStore(), []);

@@ -36,8 +36,8 @@ the list can be written as typed.
 
 ## Rendering
 
-`CodeView` draws the language, line numbers, and tokens for both editing and
-reading; fenced code inside a Markdown projection uses it as well. Each line is
+`CodeView` draws the language, a copy action for the code without its fences,
+line numbers, and tokens for both editing and reading; fenced code inside a Markdown projection uses it as well. Each line is
 a grid row beside its number, so long lines wrap and keep their number on their
 first row. Shiki's JavaScript engine tokenizes with a CSS-variable theme whose
 roles the foundation realizes per mode, without weight or slant so glyph

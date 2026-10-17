@@ -1,11 +1,16 @@
-// One code block's appearance: its language, line numbers, and highlighted text.
+// One code block's appearance: its language, a copy action, line numbers, and
+// highlighted text.
 //
 // Reading and editing draw the same view. The editor lays a transparent
 // textarea over the text column, so the caret and selection are native while
 // the highlighted copy beneath shows through. Lines wrap; each line is a grid
 // row beside its number, so a wrapped line keeps its number at its first row.
 
-import { Fragment, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { CheckIcon, CopyIcon } from "lucide-react";
+import { useI18n } from "../../i18n";
+import { writeClipboardText } from "../../lib/clipboard";
+import { useOptionalNotify } from "../notify/context";
 import { useCodeTokens, type ThemedToken } from "./highlight";
 import { codeLanguage } from "./languages";
 
@@ -24,19 +29,26 @@ export function CodeView({
   editor?: ReactNode;
   className?: string;
 }) {
+  const { message } = useI18n();
   const tokens = useCodeTokens(code, info);
   const lines: ThemedToken[][] =
     tokens ?? code.split("\n").map((content) => [{ content, offset: 0 }]);
   const word = info.split(/\s+/u, 1)[0];
   const named = codeLanguage(word)?.label ?? word;
-  const header = language ?? (named ? <span className="code-language">{named}</span> : null);
+  // The head always names the language, so the bullet beside it has a label.
+  const name = language ?? (
+    <span className="code-language">{named || message("code.plainText")}</span>
+  );
   return (
     <div
       className={className ? `code-block ${className}` : "code-block"}
       data-testid="code-block"
       data-highlighted={tokens ? true : undefined}
     >
-      {header && <div className="code-header">{header}</div>}
+      <div className="code-header">
+        {name}
+        <CopyCode code={code} />
+      </div>
       <pre
         className="code-surface"
         style={
@@ -69,5 +81,36 @@ export function CodeView({
         {editor}
       </pre>
     </div>
+  );
+}
+
+function CopyCode({ code }: { code: string }) {
+  const { message } = useI18n();
+  const notify = useOptionalNotify();
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  const label = message(copied ? "code.copied" : "code.copy");
+  return (
+    <button
+      type="button"
+      className="code-copy"
+      aria-label={label}
+      title={label}
+      data-testid="code-copy"
+      // The caret stays in a block being edited: copying is not an edit.
+      onPointerDown={(event) => event.preventDefault()}
+      onClick={() =>
+        void writeClipboardText(code).then(
+          () => setCopied(true),
+          (error: unknown) => notify?.failure(message("failure.copyCode"), error),
+        )
+      }
+    >
+      {copied ? <CheckIcon aria-hidden /> : <CopyIcon aria-hidden />}
+    </button>
   );
 }

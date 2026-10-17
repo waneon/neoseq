@@ -29,6 +29,8 @@ export interface MessageArgumentMap {
   "accent.violet": undefined;
   "app.title": undefined;
   "code.changeLanguage": undefined;
+  "code.copied": undefined;
+  "code.copy": undefined;
   "code.editAsCode": undefined;
   "code.editAsMarkdown": undefined;
   "code.language": undefined;
@@ -138,6 +140,7 @@ export interface MessageArgumentMap {
   "failure.addBlock": undefined;
   "failure.addTag": undefined;
   "failure.copyBlocks": undefined;
+  "failure.copyCode": undefined;
   "failure.copyGraphId": undefined;
   "failure.copyPageId": undefined;
   "failure.createEntity": { readonly "name": string | number };
