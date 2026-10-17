@@ -13,48 +13,37 @@
    beside it and the strike through a settled line, so nothing here is
    colour-only (designs/foundations.md § Semantic Color).
 
-   The tone travels as a custom property rather than as `color` directly, so a
-   surface that has its own opinion about glyph ink — the picker's metadata
-   marks — can honour it with one `var()` fallback instead of a specificity
-   fight. */
-[data-status-glyph="todo"] {
-  --glyph-tone: var(--status-todo);
+   A tone is the value's meaning, so it outranks any surface's icon ink: menus,
+   pickers, and slash rows all paint their icons, and a glyph among them keeps
+   its tone without each one remembering to exempt it. A key's own mark
+   (`data-plain`) names the property rather than a value, so it declines the
+   tone and takes the ink around it, as does a value outside the palette. */
+[data-status-glyph="todo"]:not([data-plain]) {
+  color: var(--status-todo) !important;
 }
 
-[data-status-glyph="doing"] {
-  --glyph-tone: var(--status-doing);
+[data-status-glyph="doing"]:not([data-plain]) {
+  color: var(--status-doing) !important;
 }
 
-[data-status-glyph="done"] {
-  --glyph-tone: var(--status-done);
+[data-status-glyph="done"]:not([data-plain]) {
+  color: var(--status-done) !important;
 }
 
-[data-status-glyph="cancelled"] {
-  --glyph-tone: var(--status-cancelled);
+[data-status-glyph="cancelled"]:not([data-plain]) {
+  color: var(--status-cancelled) !important;
 }
 
-[data-priority-glyph="low"] {
-  --glyph-tone: var(--priority-low);
+[data-priority-glyph="low"]:not([data-plain]) {
+  color: var(--priority-low) !important;
 }
 
-[data-priority-glyph="medium"] {
-  --glyph-tone: var(--priority-medium);
+[data-priority-glyph="medium"]:not([data-plain]) {
+  color: var(--priority-medium) !important;
 }
 
-[data-priority-glyph="high"] {
-  --glyph-tone: var(--priority-high);
-}
-
-/* A key's own mark is not one of its values — it names the property — so it
-   declines the tone and takes the ink around it. */
-[data-status-glyph][data-plain],
-[data-priority-glyph][data-plain] {
-  --glyph-tone: initial;
-}
-
-[data-status-glyph],
-[data-priority-glyph] {
-  color: var(--glyph-tone, currentColor);
+[data-priority-glyph="high"]:not([data-plain]) {
+  color: var(--priority-high) !important;
 }
 
 /* The mark cut out of a settled task's filled disc. It cannot be `currentColor`,

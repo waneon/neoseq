@@ -78,3 +78,22 @@ test("completing one recurrence advances both dates exactly and preserves the ta
   await expect(deadline).toContainText("22:45");
   await expect(recurring.getByTestId("task-chip-repeat")).toContainText("Every 2 weeks");
 });
+
+test("a status keeps its tone in the menu that chooses it", async ({ app, page }) => {
+  await app.createGraph("Task tones");
+  await app.startBlock("Water the plants");
+  await app.block(0).getByTestId("block-bullet").click({ button: "right" });
+  await page.getByTestId("menu-properties").click();
+  const picker = page.getByTestId("property-picker");
+  await picker.getByRole("option", { name: "Status", exact: true }).click();
+  await app.saved(() => picker.getByRole("option", { name: "Doing", exact: true }).click());
+
+  const color = (glyph: Locator) => glyph.evaluate((element) => getComputedStyle(element).color);
+  const toggle = app.block(0).getByTestId("task-status-toggle");
+  const tone = await color(toggle.locator("[data-status-glyph]"));
+  await toggle.click();
+  const row = page.getByRole("menuitemradio", { name: "Doing", exact: true });
+  expect(await color(row.locator("[data-status-glyph]"))).toBe(tone);
+  await row.hover();
+  expect(await color(row.locator("[data-status-glyph]"))).toBe(tone);
+});

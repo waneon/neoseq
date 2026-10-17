@@ -183,7 +183,7 @@
 .property-picker-option svg[data-priority-glyph] {
   width: 16px;
   height: 16px;
-  color: var(--glyph-tone, var(--ink-2));
+  color: var(--ink-2);
 }
 
 .property-picker-option .property-picker-chevron {
