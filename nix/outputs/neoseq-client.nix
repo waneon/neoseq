@@ -66,7 +66,12 @@ stdenv.mkDerivation {
     inherit version src pnpm;
     pname = "${pname}-${pnpmInputsDigest}";
     fetcherVersion = 4;
-    hash = "sha256-L02NQ0nsH9z158ZOmijumPcXKVQRUBzvnkyiv73IBn0=";
+    # pnpm leaves an empty `links` directory on macOS only, which would make
+    # the store's hash differ between the platforms that build it.
+    preFixup = ''
+      rm -rf "$storePath/v11/links"
+    '';
+    hash = "sha256-XTKOiomsv56Nwj/bliUjDuT5r7pFN1DiXNVFuCzAJwg=";
   };
 
   nativeBuildInputs = [
