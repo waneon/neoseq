@@ -6,6 +6,7 @@ import {
   MenuItem,
   MenuSection,
   MenuTrigger,
+  OverlayTriggerStateContext,
   Popover,
   Pressable,
   Separator,
@@ -15,6 +16,7 @@ import {
   type Placement,
 } from "react-aria-components";
 import { CheckIcon } from "lucide-react";
+import { useInteractOutside } from "react-aria";
 
 import { cn } from "@/lib/utils";
 import { LAYER_STYLE } from "@/ui/overlay-root";
@@ -94,8 +96,12 @@ function MenuSurface({
   onClosed?: () => void;
   children: React.ReactNode;
 }) {
+  const surface = React.useRef<HTMLElement>(null);
+  const state = React.useContext(OverlayTriggerStateContext);
+  const dismiss = () => (onOpenChange ? onOpenChange(false) : state?.close());
   return (
     <Popover
+      ref={surface}
       className={cn("menu-surface enter-fade-fast", className)}
       style={LAYER_STYLE}
       placement={placement}
@@ -106,6 +112,7 @@ function MenuSurface({
       onOpenChange={onOpenChange}
     >
       {onClosed && <ClosedHook onClosed={onClosed} />}
+      {!modal && <OutsideDismiss surface={surface} onDismiss={dismiss} />}
       <Menu
         ref={menuRef}
         autoFocus={autoFocus ? "first" : undefined}
@@ -118,6 +125,23 @@ function MenuSurface({
       </Menu>
     </Popover>
   );
+}
+
+/**
+ * React Aria dismisses a non-modal popover only when focus moves elsewhere, so
+ * a press on empty page would leave it open. The press still lands. A press on
+ * the trigger counts as outside too: the trigger only opens on press, as with a
+ * modal menu.
+ */
+function OutsideDismiss({
+  surface,
+  onDismiss,
+}: {
+  surface: React.RefObject<HTMLElement | null>;
+  onDismiss: () => void;
+}) {
+  useInteractOutside({ ref: surface, onInteractOutside: onDismiss });
+  return null;
 }
 
 /** Runs once the menu is gone and anything its action opened has taken focus. */
