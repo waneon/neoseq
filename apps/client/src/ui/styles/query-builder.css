@@ -365,7 +365,7 @@ button.qb-filter:focus-visible {
   padding: var(--sp-1) var(--sp-2);
   border-radius: var(--r-2);
   background: var(--surface-2);
-  box-shadow: var(--e1-chip);
+  box-shadow: var(--e1);
   color: var(--ink-2);
   font-size: var(--text-xs);
   line-height: var(--lh-xs);

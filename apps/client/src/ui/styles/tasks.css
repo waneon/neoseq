@@ -174,7 +174,7 @@
   border: 0;
   border-radius: var(--r-full);
   background: transparent;
-  box-shadow: var(--e1-chip);
+  box-shadow: var(--e1);
   color: var(--ink-2);
   font: inherit;
   font-size: var(--text-sm);
@@ -189,7 +189,7 @@
 
 .task-chip:hover {
   background: var(--surface-2);
-  box-shadow: var(--e1-chip);
+  box-shadow: var(--e1);
   color: var(--ink);
 }
 

@@ -51,17 +51,17 @@
   --scrim: oklch(0.2 0.01 270 / 0.24);
   --scrim-blur: 0px;
 
+  /* `--line` rules inside an object; `--line-strong` is the edge that closes one. */
   --line: color-mix(in oklab, var(--ink) 10%, transparent);
-  --line-strong: color-mix(in oklab, var(--ink) 18%, transparent);
+  --line-strong: color-mix(in oklab, var(--ink) 24%, transparent);
   --thread: color-mix(in oklab, var(--ink) 9%, transparent);
   --thread-active: color-mix(in oklab, var(--ink) 26%, transparent);
   --collapsed-halo: color-mix(in oklab, var(--ink) 11%, transparent);
   --rail-edge: color-mix(in oklab, var(--ink) 7%, transparent);
 
   --shadow-hue: 270;
-  --e1: inset 0 0 0 1px var(--line);
-  --e1-chip: inset 0 0 0 1px var(--line-strong);
-  --e1-raised: inset 0 0 0 1px var(--line), 0 1px 1px oklch(0.2 0.01 270 / 0.04);
+  --e1: inset 0 0 0 1px var(--line-strong);
+  --e1-raised: inset 0 0 0 1px var(--line-strong), 0 1px 1px oklch(0.2 0.01 270 / 0.04);
   --e2:
     0 0 0 1px var(--line), 0 2px 4px -2px oklch(0.2 0.01 270 / 0.08),
     0 10px 24px -8px oklch(0.2 0.01 270 / 0.14);
@@ -261,13 +261,13 @@
     --scrim: oklch(0.08 0.005 270 / 0.56);
 
     --line: color-mix(in oklab, var(--ink) 12%, transparent);
-    --line-strong: color-mix(in oklab, var(--ink) 21%, transparent);
+    --line-strong: color-mix(in oklab, var(--ink) 28%, transparent);
     --thread: color-mix(in oklab, var(--ink) 11%, transparent);
     --thread-active: color-mix(in oklab, var(--ink) 30%, transparent);
     --collapsed-halo: color-mix(in oklab, var(--ink) 14%, transparent);
     --rail-edge: color-mix(in oklab, var(--ink) 6%, transparent);
 
-    --e1-raised: inset 0 0 0 1px var(--line);
+    --e1-raised: inset 0 0 0 1px var(--line-strong);
     --e2:
       0 0 0 1px var(--line), 0 2px 4px -2px oklch(0 0 0 / 0.4), 0 12px 28px -8px oklch(0 0 0 / 0.55);
     --e3:
@@ -319,13 +319,13 @@
   --scrim: oklch(0.08 0.005 270 / 0.56);
 
   --line: color-mix(in oklab, var(--ink) 12%, transparent);
-  --line-strong: color-mix(in oklab, var(--ink) 21%, transparent);
+  --line-strong: color-mix(in oklab, var(--ink) 28%, transparent);
   --thread: color-mix(in oklab, var(--ink) 11%, transparent);
   --thread-active: color-mix(in oklab, var(--ink) 30%, transparent);
   --collapsed-halo: color-mix(in oklab, var(--ink) 14%, transparent);
   --rail-edge: color-mix(in oklab, var(--ink) 6%, transparent);
 
-  --e1-raised: inset 0 0 0 1px var(--line);
+  --e1-raised: inset 0 0 0 1px var(--line-strong);
   --e2:
     0 0 0 1px var(--line), 0 2px 4px -2px oklch(0 0 0 / 0.4), 0 12px 28px -8px oklch(0 0 0 / 0.55);
   --e3:

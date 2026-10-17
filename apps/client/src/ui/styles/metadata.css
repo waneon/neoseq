@@ -1084,7 +1084,7 @@ button.tag-mark:focus-visible {
   background: transparent;
   /* The chip ring, at the chip's own weight — the page strip and the strip under
      a block are one language, so they cannot wear two different rings. */
-  box-shadow: var(--e1-chip);
+  box-shadow: var(--e1);
   color: var(--ink-2);
   font: inherit;
   font-size: var(--text-sm);
@@ -1099,7 +1099,7 @@ button.tag-mark:focus-visible {
 
 .prop-strip-chip:hover {
   background: var(--surface-2);
-  box-shadow: var(--e1-chip);
+  box-shadow: var(--e1);
   color: var(--ink);
 }
 
