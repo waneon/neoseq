@@ -11,7 +11,11 @@
 let
   pname = "neoseq-dashboard";
   version = (builtins.fromJSON (builtins.readFile ../../apps/dashboard/package.json)).version;
-  pnpmLockDigest = builtins.hashFile "sha256" ../../pnpm-lock.yaml;
+  # Everything that decides what pnpm fetches: the lock and the workspace
+  # settings (patches, supported architectures).
+  pnpmInputsDigest = builtins.hashString "sha256" (
+    builtins.readFile ../../pnpm-lock.yaml + builtins.readFile ../../pnpm-workspace.yaml
+  );
   applicationFiles = lib.fileset.unions [
     ../../assets/brand
     ../../assets/fonts
@@ -38,9 +42,9 @@ stdenv.mkDerivation {
 
   pnpmDeps = fetchPnpmDeps {
     inherit version src pnpm;
-    pname = "${pname}-${pnpmLockDigest}";
+    pname = "${pname}-${pnpmInputsDigest}";
     fetcherVersion = 4;
-    hash = "sha256-wWvVfRznGNnJlAnFihbDP+bCHJJquwahHCGjRxxqhRo=";
+    hash = "sha256-X27k1r6gicj/j/6ZtjY9Xa4DHBtFZ+JmPEe36bJ+/Go=";
   };
 
   nativeBuildInputs = [

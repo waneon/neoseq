@@ -2,3 +2,9 @@ packages:
   - apps/*
 patchedDependencies:
   react-aria@3.53.1: patches/react-aria-3.53.1.patch
+# Native optional packages for every platform the repository builds on, so the
+# Nix-fetched store (and its hash) is the same on macOS and Linux.
+supportedArchitectures:
+  os: [current, darwin, linux]
+  cpu: [current, arm64, x64]
+  libc: [current, glibc]
