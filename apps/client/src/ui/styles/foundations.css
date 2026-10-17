@@ -119,12 +119,13 @@
   --text-title: 38px;
   --lh-title: 46px;
 
-  --head-1: 24px;
-  --head-1-lh: 32px;
-  --head-2: 20px;
-  --head-2-lh: 28px;
-  --head-3: 17px;
-  --head-3-lh: 26px;
+  /* Markdown headings follow GitHub's 2 / 1.5 / 1.25 em steps over body text. */
+  --head-1: 32px;
+  --head-1-lh: 40px;
+  --head-2: 24px;
+  --head-2-lh: 32px;
+  --head-3: 20px;
+  --head-3-lh: 28px;
 
   --weight-normal: 400;
   --weight-medium: 500;
@@ -507,6 +508,10 @@ h2 {
   :root {
     --text-title: 30px;
     --lh-title: 38px;
+    --head-1: 26px;
+    --head-1-lh: 34px;
+    --head-2: 22px;
+    --head-2-lh: 30px;
     --title-row-h: 38px;
     --gutter: var(--sp-4);
     --indent: 24px;

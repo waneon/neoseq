@@ -91,6 +91,18 @@
   --block-first-line-height: var(--head-3-lh);
 }
 
+.block-row:has(
+  > .block-body
+    > .block-markdown
+    > .markdown-heading:is([data-level="5"], [data-level="6"]):first-child,
+  > .block-body
+    > .block-line
+    > .block-markdown
+    > .markdown-heading:is([data-level="5"], [data-level="6"]):first-child
+) {
+  --block-first-line-height: var(--lh-sm);
+}
+
 /* The three layers are the own branch, one passing live column, and depth guides.
    All share the bullet axis; the left gutter remains a structural selection target. */
 .outline-row {
@@ -528,13 +540,25 @@
   letter-spacing: var(--track-lg);
 }
 
-.block-markdown .markdown-heading[data-level="4"] {
+.block-markdown .markdown-heading[data-level="4"],
+.block-markdown .markdown-heading[data-level="5"] {
   color: var(--ink);
 }
 
-.block-markdown > .markdown-heading[data-level="1"],
-.block-markdown > .markdown-heading[data-level="2"] {
-  padding-bottom: 0;
+.block-markdown .markdown-heading[data-level="5"],
+.block-markdown .markdown-heading[data-level="6"] {
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+/* The rule spans the block's text column, never the bullet gutter. */
+.block-markdown .markdown-heading:is([data-level="1"], [data-level="2"]) {
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.block-markdown > .markdown-heading:is([data-level="1"], [data-level="2"]) + * {
+  margin-top: var(--sp-3);
 }
 
 .block-markdown strong {

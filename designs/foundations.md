@@ -76,8 +76,9 @@ source-like values, never ordinary labels or prose. Numbers in controls, cells,
 badges, and times use stable figures so changing values do not move adjacent
 layout.
 
-Markdown headings fit between page title and body text. They do not draw full-row
-rules inside an outline, where a rule would imply a page boundary. Group labels
+Markdown headings follow GitHub's scale between page title and body text. Levels
+one and two carry a quiet rule across the text column, never the bullet gutter,
+so it reads as a section break rather than a row boundary. Group labels
 and table column labels are separate roles because they describe different kinds
 of structure.
 
