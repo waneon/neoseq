@@ -1594,6 +1594,7 @@ button.query-list-status[data-active="true"] {
   line-height: 16px;
 }
 
+.query-fact .query-due,
 .query-fact .query-due[data-due] {
   height: 16px;
   padding-inline: var(--sp-1);

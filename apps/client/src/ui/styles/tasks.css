@@ -298,46 +298,47 @@
    behaviour. No glyph either: in a column the heading already says which moment
    this is, and a calendar icon repeated down forty rows is wallpaper.
 
-   Untinted it is text. A settled row has no urgency left to report (designs/metadata.md § Tasks), and
-   a pill with no tone would be an empty ring round a date for no reason. */
+   Shape and tone are separate, as on the chip: every moment is the pill, and
+   only a moment with urgency left to report (designs/metadata.md § Tasks) is
+   tinted. A settled row keeps the neutral ring. */
 .query-due {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-1);
-  max-width: 100%;
-}
-
-.query-due[data-due] {
   height: var(--target);
+  max-width: 100%;
   padding: 0 var(--sp-2);
   border-radius: var(--r-full);
+  box-shadow: var(--e1);
 }
 
 /* The table aligns written values, not the padding of the objects around them.
-   Its tone is therefore a paint layer extending into the cell gutter: the date
+   Its pill is therefore a paint layer extending into the cell gutter: the date
    keeps the same x-axis as plain text while the moment remains a scannable pill. */
-.query-table .query-due {
-  height: 20px;
-  padding: 0;
-}
-
+.query-table .query-due,
 .query-table .query-due[data-due] {
   position: relative;
   isolation: isolate;
+  height: 20px;
+  padding: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
 }
 
-.query-table .query-due[data-due]::before {
+.query-table .query-due::before {
   content: "";
   position: absolute;
   z-index: -1;
   inset: 0 -6px;
   border-radius: var(--r-full);
+  box-shadow: var(--e1);
+  pointer-events: none;
+}
+
+.query-table .query-due[data-due]::before {
   background: color-mix(in oklab, var(--tone) 12%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--tone) 44%, transparent);
-  pointer-events: none;
 }
 
 .query-due-date {
