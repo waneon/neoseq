@@ -59,8 +59,10 @@ export interface ResultColumn {
   label: string;
   /** What the plan asked for. Absent for a hand-written query. */
   source?: PlanColumnSource;
-  /** The result descriptor names the companion; renderers never invent one. */
+  /** The result descriptor names the companions; renderers never invent one. */
   timeColumn?: string;
+  /** A moment's task status, which settles it whether or not a column shows it. */
+  statusColumn?: string;
   /** The value's semantic order, kept separate from the words rendered below. */
   ordering: OrderSemantics;
   sortable: boolean;
@@ -80,15 +82,14 @@ export interface CellContext {
   onOpen?: (entity: QueryEntityRef) => void;
   /**
    * How far off a moment is — the step it falls in and the tone the reader chose
-   * for that step — or `undefined` where the row has no urgency left to report.
-   * The surface resolves it rather than the cell, because whether a row is
-   * settled is a fact about the row and the thresholds are a preference; the
-   * cell hands over the moment it is drawing, day and time both.
+   * for that step — or `null` where its task is settled. The surface resolves it
+   * rather than the cell, because the thresholds are a preference; the cell
+   * hands over the moment it is drawing and its task's status.
    */
   momentDue?: (
     date: string,
     time: string | undefined,
-    row: ResultRow,
+    status: string | undefined,
   ) => TaskMomentDuePresentation | null;
 }
 
@@ -373,11 +374,15 @@ function DueValue({
   // refine the day and it does not get drawn as if it did.
   const time =
     companion?.kind === "literal" && isTimeOfDay(companion.value) ? companion.value : undefined;
+  const status = column.statusColumn ? row?.[column.statusColumn]?.[0] : undefined;
   const value = presentTaskMoment({
     key: taskKey,
     date,
     time,
-    due: row ? (context.momentDue?.(date, time, row) ?? null) : null,
+    due: row
+      ? (context.momentDue?.(date, time, status?.kind === "literal" ? status.value : undefined) ??
+        null)
+      : null,
     repeating: false,
     message: context.message,
     formatDate: context.formatDate,

@@ -1050,18 +1050,23 @@ impl GraphIndex {
             .columns
             .iter()
             .map(|column| {
-                let time_column = plan::moment_time_key(column).map(|_| {
-                    let mut id = format!("{}:time", column.id);
-                    while !ids.insert(id.clone()) {
-                        id.push(':');
-                    }
-                    id
-                });
+                let mut companion = |suffix: &str| {
+                    plan::moment_time_key(column).map(|_| {
+                        let mut id = format!("{}:{suffix}", column.id);
+                        while !ids.insert(id.clone()) {
+                            id.push(':');
+                        }
+                        id
+                    })
+                };
+                let time_column = companion("time");
+                let status_column = companion("status");
                 BuiltResultColumn {
                     id: column.id.clone(),
                     source: column.source.clone(),
                     label: column.label.clone(),
                     time_column,
+                    status_column,
                 }
             })
             .collect::<Vec<_>>();
@@ -1098,6 +1103,19 @@ impl GraphIndex {
                         self.project_field(
                             &iri,
                             &PlanColumnSource::Property { key: key.into() },
+                            plan.subject,
+                            &mut remaining,
+                        )?,
+                    );
+                }
+                if let Some(id) = &descriptor.status_column {
+                    values.insert(
+                        id.clone(),
+                        self.project_field(
+                            &iri,
+                            &PlanColumnSource::Property {
+                                key: "builtin.task-status".into(),
+                            },
                             plan.subject,
                             &mut remaining,
                         )?,
@@ -4096,6 +4114,7 @@ mod tests {
                 "builtin.task-deadline-time",
                 PropertyValue::String("09:30".into()),
             ),
+            single("builtin.task-status", PropertyValue::String("done".into())),
         ]);
         let index = GraphIndex::new(&snapshot).unwrap();
         let QueryResult::Built { rows, columns, .. } = index
@@ -4112,6 +4131,13 @@ mod tests {
         assert_ne!(time_column, &columns[1].id);
         assert!(
             matches!(&rows[0].values[time_column][0], RdfTerm::Literal {value, ..} if value == "09:30")
+        );
+        // A moment carries its task's status, so a settled one reads as settled
+        // whether or not the view shows a status column.
+        let status_column = columns[0].status_column.as_ref().unwrap();
+        assert_ne!(status_column, time_column);
+        assert!(
+            matches!(&rows[0].values[status_column][0], RdfTerm::Literal {value, ..} if value == "done")
         );
     }
 

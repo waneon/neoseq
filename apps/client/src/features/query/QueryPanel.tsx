@@ -38,7 +38,7 @@ import {
 import { Button } from "@/ui/shadcn/button";
 import { useLocalClock, useToday } from "../time/use-local-clock";
 import { newQueryDocument } from "../../entities/query-document";
-import { isSettledStatus, isTaskDateKey, TASK_STATUS_KEY } from "../../entities/tasks";
+import { isSettledStatus, isTaskDateKey } from "../../entities/tasks";
 import { taskMomentDue } from "../tasks/moment-presentation";
 import { canonicalEntityName, nextAvailableEntityName } from "../../entities/names";
 import { QUERY_LANGUAGE } from "../../entities/query-compile";
@@ -75,13 +75,7 @@ import { QueryGenericListView, QueryListView } from "./QueryListView";
 import { QuerySortControl, type SortControlEntry } from "./QuerySortControl";
 import { QueryTableView } from "./QueryTableView";
 import { QueryViewTabs } from "./QueryViewTabs";
-import {
-  resultViewRows,
-  type CellContext,
-  type ResultColumn,
-  type ResultRow,
-  type ResultViewRow,
-} from "./cells";
+import { resultViewRows, type CellContext, type ResultColumn, type ResultViewRow } from "./cells";
 import { QueryEditPortals, useQueryResultEditor } from "./edit";
 import { useQueryAnswer } from "./execution";
 import { answerLabel, columnLabel, fieldLabel } from "./labels";
@@ -416,10 +410,6 @@ function QueryPanelSurface({
     () => (select ? resultColumns(select, activeView, message, propertyTypes) : []),
     [select, activeView, message, propertyTypes],
   );
-  /** Where a row states its own task status, which is what settles a moment. */
-  const statusVariable = columns.find(
-    (column) => column.source?.kind === "property" && column.source.key === TASK_STATUS_KEY,
-  )?.variable;
 
   /**
    * How far off a moment is, for every renderer that draws one. The thresholds
@@ -437,17 +427,16 @@ function QueryPanelSurface({
     ),
   );
   const momentDue = useCallback(
-    (date: string, time: string | undefined, row: ResultRow) => {
-      const status = statusVariable ? row[statusVariable]?.[0] : undefined;
+    (date: string, time: string | undefined, status: string | undefined) => {
       return taskMomentDue({
         date,
         time,
-        settled: status?.kind === "literal" && isSettledStatus(status.value),
+        settled: status !== undefined && isSettledStatus(status),
         ...taskClock,
         tiers: dueTiers,
       });
     },
-    [statusVariable, dueTiers, taskClock],
+    [dueTiers, taskClock],
   );
 
   // Both derived once, not once per render: a canonical revision re-renders every
@@ -1384,6 +1373,7 @@ export function resultColumns(
         label: columnLabel(column, select.subject, message),
         source: column.source,
         timeColumn: column.time_column,
+        statusColumn: column.status_column,
         ordering,
         sortable: true,
         numeric: ordering.kind === "number",

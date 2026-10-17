@@ -226,6 +226,10 @@ pub struct BuiltResultColumn {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub time_column: Option<String>,
+    /// A moment's task status, which decides whether it still has urgency.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub status_column: Option<String>,
 }
 
 /// The authored query crossing CorePort.

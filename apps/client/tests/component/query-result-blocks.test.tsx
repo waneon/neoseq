@@ -40,6 +40,95 @@ function commandBridge(): CommandBridge {
   };
 }
 
+/** A table whose one row is scheduled with a time, its task in `status`. */
+async function scheduledTable(status?: string) {
+  const harness = await withResult();
+  const query = storedQuery(harness)!;
+  const plan = decodePlan(
+    activeDefinition(query).plan!.payload,
+    activeDefinition(query).plan!.version,
+  )!;
+  const nextPlan = {
+    ...plan,
+    columns: [
+      ...plan.columns,
+      {
+        id: "scheduled",
+        source: { kind: "property" as const, key: "builtin.task-scheduled" },
+      },
+    ],
+  };
+  harness.port.queryResult = {
+    kind: "built",
+    subject: "block",
+    columns: [
+      { id: "text", source: { kind: "content" } },
+      { id: "page", source: { kind: "page" } },
+      {
+        id: "scheduled",
+        source: { kind: "property", key: "builtin.task-scheduled" },
+        time_column: "clock",
+        status_column: "state",
+      },
+    ],
+    rows: [
+      {
+        subject: {
+          kind: "block",
+          owner: { kind: "page", id: "home" },
+          id: harness.resultBlockId,
+        },
+        values: {
+          text: [
+            {
+              kind: "literal",
+              value: "Ship the builder",
+              datatype: "http://www.w3.org/2001/XMLSchema#string",
+            },
+          ],
+          scheduled: [
+            {
+              kind: "literal",
+              value: "2026-08-21",
+              datatype: "http://www.w3.org/2001/XMLSchema#date",
+            },
+          ],
+          ["clock"]: [
+            {
+              kind: "literal",
+              value: "21:30",
+              datatype: "http://www.w3.org/2001/XMLSchema#string",
+            },
+          ],
+          state: status
+            ? [
+                {
+                  kind: "literal",
+                  value: status,
+                  datatype: "http://www.w3.org/2001/XMLSchema#string",
+                },
+              ]
+            : [],
+        },
+      },
+    ],
+    revision: 6,
+    frontier: "fixture-6",
+  };
+  await harness.session.execute({
+    type: "set_query_plan",
+    owner: {
+      kind: "block",
+      owner: { kind: "page", id: "home" },
+      id: harness.queryBlockId,
+    },
+    view_id: "all",
+    plan: { version: QUERY_PLAN_VERSION, payload: JSON.stringify(nextPlan) },
+  });
+
+  return screen.findByTestId("query-table");
+}
+
 describe("query result blocks", () => {
   it("waits for a pending result save before document undo", async () => {
     const harness = await withResult("Ship it");
@@ -289,81 +378,7 @@ describe("query result blocks", () => {
   });
 
   it("draws a moment in a table cell as one object: the day, its time, its tone", async () => {
-    const harness = await withResult();
-    const query = storedQuery(harness)!;
-    const plan = decodePlan(
-      activeDefinition(query).plan!.payload,
-      activeDefinition(query).plan!.version,
-    )!;
-    const nextPlan = {
-      ...plan,
-      columns: [
-        ...plan.columns,
-        {
-          id: "scheduled",
-          source: { kind: "property" as const, key: "builtin.task-scheduled" },
-        },
-      ],
-    };
-    harness.port.queryResult = {
-      kind: "built",
-      subject: "block",
-      columns: [
-        { id: "text", source: { kind: "content" } },
-        { id: "page", source: { kind: "page" } },
-        {
-          id: "scheduled",
-          source: { kind: "property", key: "builtin.task-scheduled" },
-          time_column: "clock",
-        },
-      ],
-      rows: [
-        {
-          subject: {
-            kind: "block",
-            owner: { kind: "page", id: "home" },
-            id: harness.resultBlockId,
-          },
-          values: {
-            text: [
-              {
-                kind: "literal",
-                value: "Ship the builder",
-                datatype: "http://www.w3.org/2001/XMLSchema#string",
-              },
-            ],
-            scheduled: [
-              {
-                kind: "literal",
-                value: "2026-08-21",
-                datatype: "http://www.w3.org/2001/XMLSchema#date",
-              },
-            ],
-            ["clock"]: [
-              {
-                kind: "literal",
-                value: "21:30",
-                datatype: "http://www.w3.org/2001/XMLSchema#string",
-              },
-            ],
-          },
-        },
-      ],
-      revision: 6,
-      frontier: "fixture-6",
-    };
-    await harness.session.execute({
-      type: "set_query_plan",
-      owner: {
-        kind: "block",
-        owner: { kind: "page", id: "home" },
-        id: harness.queryBlockId,
-      },
-      view_id: "all",
-      plan: { version: QUERY_PLAN_VERSION, payload: JSON.stringify(nextPlan) },
-    });
-
-    const table = await screen.findByTestId("query-table");
+    const table = await scheduledTable();
     // The day and the time of day are one fact, drawn as the pill the strip
     // under a block draws. The relative label explains the distance in words.
     const moment = await waitFor(() => within(table).getByTestId("query-edit-scheduled"));
@@ -380,6 +395,16 @@ describe("query result blocks", () => {
         .queryAllByRole("columnheader")
         .map((cell) => cell.textContent),
     ).toEqual(["Text", "Page", "Scheduled"]);
+  });
+
+  // A moment's status rides with it, so a settled task loses its urgency whether
+  // or not the view shows a status column.
+  it("drops the urgency of a settled task's moment without a status column", async () => {
+    const table = await scheduledTable("done");
+    const moment = await waitFor(() => within(table).getByTestId("query-edit-scheduled"));
+    const pill = moment.querySelector(".query-due")!;
+    expect(pill).not.toHaveAttribute("data-due");
+    expect(pill.querySelector(".task-moment-relative")).toBeNull();
   });
 
   it("uses only the canonical task field in a block list", async () => {

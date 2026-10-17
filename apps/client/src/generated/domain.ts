@@ -19,7 +19,11 @@ content: Array<InlineContent>,
  */
 markdown: string, page_references: Array<PageReferenceSpan>, properties: PropertyBag, tags: Array<TagId>, children: Array<BlockSnapshot>, };
 export type BuiltQueryPlan = { version: number, grain: QueryGrain, subject: PlanSubject, where: Extract<PlanNode, { kind: "group" }>, columns: Array<PlanColumn>, limit: number, };
-export type BuiltResultColumn = { id: string, source: PlanColumnSource, label?: string, time_column?: string, };
+export type BuiltResultColumn = { id: string, source: PlanColumnSource, label?: string, time_column?: string, 
+/**
+ * A moment's task status, which decides whether it still has urgency.
+ */
+status_column?: string, };
 export type BuiltResultRow = { subject: QueryEntityRef, values: { [key in string]: Array<RdfTerm> }, };
 export type Cardinality = "single" | "set";
 export type Command = { "type": "set_entity_kind", id: PageId, kind: EntityKind, } | { "type": "ensure_page", page_id: PageId, title: string, } | { "type": "ensure_journal", date: LocalDate, } | { "type": "rename_page", page_id: PageId, title: string, } | { "type": "delete_page", page_id: PageId, } | { "type": "restore_page", page_id: PageId, } | { "type": "ensure_tag", tag_id: TagId, name: string, } | { "type": "rename_tag", tag_id: TagId, name: string, } | { "type": "delete_tag", tag_id: TagId, } | { "type": "restore_tag", tag_id: TagId, } | { "type": "insert_block", owner: OutlineOwner, parent: BlockId | null, index: number, markdown: string, } | { "type": "split_block", owner: OutlineOwner, block_id: BlockId, index: number, placement: SplitPlacement, } | { "type": "merge_block_backward", owner: OutlineOwner, block_id: BlockId, 
