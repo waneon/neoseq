@@ -1268,7 +1268,9 @@ function QueryPanelSurface({
             {result.value ? message("query.askTrue") : message("query.askFalse")}
           </p>
         )}
-        {!error && !loading && select && visibleRows.length === 0 && (
+        {/* A refresh keeps the answer on screen, empty or not, so the page
+            below does not jump while it runs. */}
+        {!error && select && visibleRows.length === 0 && (
           <div className="query-empty" data-testid="query-empty">
             <SearchIcon aria-hidden />
             <p>{message("query.emptyHint")}</p>
