@@ -11,6 +11,26 @@ async function bottomOf(locator: Locator): Promise<number> {
   return box.y + box.height;
 }
 
+/** Whether what a finger lands on across the sheet is the sheet, not something over it. */
+async function expectOnTop(sheet: Locator): Promise<void> {
+  await expect
+    .poll(() =>
+      sheet.evaluate((node) => {
+        const box = node.getBoundingClientRect();
+        return [0.2, 0.5, 0.8].every((x) =>
+          [0.2, 0.5, 0.8].every((y) => {
+            const hit = document.elementFromPoint(
+              box.left + box.width * x,
+              box.top + box.height * y,
+            );
+            return hit !== null && node.contains(hit);
+          }),
+        );
+      }),
+    )
+    .toBe(true);
+}
+
 /** Holds a finger on `target` until `until` shows, as a long press does. */
 async function longPress(page: Page, target: Locator, until: Locator): Promise<void> {
   const box = (await target.boundingBox())!;
@@ -47,6 +67,7 @@ test("block actions open as a sheet on the visible bottom edge and leave the key
   // to the bottom of the screen rather than staying where the toolbar was.
   await expect.poll(() => keyboardOpen(page)).toBe(false);
   await expect.poll(() => bottomOf(sheet)).toBeCloseTo(height, 0);
+  await expectOnTop(sheet);
   const box = (await sheet.boundingBox())!;
   expect(box.x).toBe(0);
   expect(box.width).toBe(page.viewportSize()!.width);
@@ -76,6 +97,7 @@ test("a picker sheet waits for a tap to type and then rises with the keyboard", 
   const search = picker.getByRole("combobox").or(picker.getByRole("searchbox")).first();
   await expect(search).not.toBeFocused();
   expect(await keyboardOpen(page)).toBe(false);
+  await expectOnTop(picker);
   const height = page.viewportSize()!.height;
   await expect.poll(() => bottomOf(picker)).toBeCloseTo(height, 0);
 
@@ -102,6 +124,27 @@ test("adding a child from a row's menu starts writing in it", async ({ app, page
   await expect(app.editors.nth(1)).toBeFocused();
   await expect.poll(() => keyboardOpen(page)).toBe(true);
   await expect(page.getByTestId("mobile-editor-toolbar")).toBeVisible();
+});
+
+test("a sheet holding a closed select is dimmed by nothing but the page behind it", async ({
+  app,
+  page,
+}) => {
+  await app.createGraph("Touch moment");
+  await app.startBlock("Due soon");
+  await page.keyboard.press("Escape");
+  await app.block(0).getByTestId("mobile-block-handle").tap();
+  await page.getByTestId("menu-properties").tap();
+  const picker = page.getByTestId("property-picker");
+  await picker.getByRole("option", { name: "Deadline", exact: true }).tap();
+  // The moment editor holds a repeat-unit select that stays closed.
+  await expect(picker.getByTestId("moment-picker")).toBeVisible();
+  await expectOnTop(picker);
+  await expect(page.locator(".sheet-scrim")).toHaveCount(1);
+
+  await page.touchscreen.tap(page.viewportSize()!.width / 2, 24);
+  await expect(picker).toHaveCount(0);
+  await expect(page.locator(".sheet-scrim")).toHaveCount(0);
 });
 
 test("deleting from a row's menu does not start writing in the row above", async ({

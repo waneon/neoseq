@@ -23,6 +23,7 @@
 // against the window — see designs/foundations.md § Motion.
 
 import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { UNSAFE_PortalProvider } from "react-aria";
 
 const OverlayRootContext = createContext<HTMLElement | null>(null);
@@ -69,3 +70,16 @@ export function useOverlayRoot(): HTMLElement {
  * it in the product's layer order instead.
  */
 export const LAYER_STYLE = { zIndex: undefined };
+
+/**
+ * The dimmed page behind a menu's sheet (controls.css § .sheet). Rendered from
+ * inside the menu, so it lives exactly as long; portaled beside it, so the
+ * sheet's rising transform does not carry it. React Aria's own underlay takes
+ * the press that dismisses the menu.
+ */
+export function SheetScrim() {
+  return createPortal(
+    <div className="sheet-scrim" data-layer="menu" aria-hidden />,
+    useOverlayRoot(),
+  );
+}

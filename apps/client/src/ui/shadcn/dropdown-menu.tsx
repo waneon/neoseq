@@ -20,7 +20,7 @@ import { useInteractOutside } from "react-aria";
 
 import { cn } from "@/lib/utils";
 import { usePhone, useTouch } from "@/ui/input-modality";
-import { LAYER_STYLE } from "@/ui/overlay-root";
+import { LAYER_STYLE, SheetScrim } from "@/ui/overlay-root";
 import { afterArrivals, menuOwnerRef, restoreOverlayFocus } from "@/ui/overlay-focus";
 
 // A non-modal menu leaves the page live: a press outside both dismisses it and
@@ -105,31 +105,38 @@ function MenuSurface({
   const nonModal = !modal && !sheet;
   // A highlighted first row is a keyboard's place; under a finger it reads as chosen.
   const touch = useTouch();
+  // What an open menu sets off outside itself is rendered here, from the open
+  // state, never as the popover's content: React Aria may render that content
+  // unseen to build a collection, and a portal or a listener would escape it.
+  const open = isOpen ?? state?.isOpen ?? false;
   return (
-    <Popover
-      ref={surface}
-      className={cn("menu-surface", sheet ? "sheet" : "enter-fade-fast", className)}
-      style={LAYER_STYLE}
-      placement={placement}
-      offset={offset}
-      isNonModal={nonModal}
-      triggerRef={triggerRef}
-      isOpen={isOpen}
-      onOpenChange={onOpenChange}
-    >
-      {onClosed && <ClosedHook onClosed={onClosed} />}
-      {nonModal && <OutsideDismiss surface={surface} onDismiss={dismiss} />}
-      <Menu
-        ref={menuRef}
-        autoFocus={autoFocus ? (touch ? true : "first") : undefined}
-        className="menu-list"
-        aria-label={label}
-        data-testid={testId}
-        onClose={onClose}
+    <>
+      {open && sheet && <SheetScrim />}
+      {open && onClosed && <ClosedHook onClosed={onClosed} />}
+      {open && nonModal && <OutsideDismiss surface={surface} onDismiss={dismiss} />}
+      <Popover
+        ref={surface}
+        className={cn("menu-surface", sheet ? "sheet" : "enter-fade-fast", className)}
+        style={LAYER_STYLE}
+        placement={placement}
+        offset={offset}
+        isNonModal={nonModal}
+        triggerRef={triggerRef}
+        isOpen={isOpen}
+        onOpenChange={onOpenChange}
       >
-        {children}
-      </Menu>
-    </Popover>
+        <Menu
+          ref={menuRef}
+          autoFocus={autoFocus ? (touch ? true : "first") : undefined}
+          className="menu-list"
+          aria-label={label}
+          data-testid={testId}
+          onClose={onClose}
+        >
+          {children}
+        </Menu>
+      </Popover>
+    </>
   );
 }
 

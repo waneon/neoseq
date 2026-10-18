@@ -25,10 +25,19 @@
 // the popup changed.
 
 import { CheckIcon, ChevronDownIcon } from "lucide-react";
-import { Button, ListBox, ListBoxItem, Popover, Select, SelectValue } from "react-aria-components";
+import { useContext } from "react";
+import {
+  Button,
+  ListBox,
+  ListBoxItem,
+  Popover,
+  Select,
+  SelectStateContext,
+  SelectValue,
+} from "react-aria-components";
 import { cn } from "@/lib/utils";
 import { usePhone } from "@/ui/input-modality";
-import { LAYER_STYLE } from "@/ui/overlay-root";
+import { LAYER_STYLE, SheetScrim } from "@/ui/overlay-root";
 
 export interface MenuSelectOption {
   value: string;
@@ -72,6 +81,7 @@ export function MenuSelect({
         <SelectValue className="menu-select-value" />
         <ChevronDownIcon aria-hidden />
       </Button>
+      {sheet && <OpenSheetScrim />}
       <Popover
         className={cn("menu-surface menu-select-menu", sheet ? "sheet" : "enter-fade-fast")}
         style={LAYER_STYLE}
@@ -98,4 +108,13 @@ export function MenuSelect({
       </Popover>
     </Select>
   );
+}
+
+/**
+ * The scrim behind an open select's sheet, read from the select's own state.
+ * As the popover's content it would also render while React Aria builds the
+ * options unseen, and its portal would dim the page for a closed select.
+ */
+function OpenSheetScrim() {
+  return useContext(SelectStateContext)?.isOpen ? <SheetScrim /> : null;
 }

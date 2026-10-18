@@ -539,6 +539,21 @@ button.chip:focus-visible .chip-glyph .chip-x {
   padding-bottom: max(var(--sp-2), env(safe-area-inset-bottom));
 }
 
+/* Behind a sheet the page dims, and blurs a little, as behind a dialog. A menu
+   sheet's scrim only paints: React Aria's underlay takes the dismissing press. */
+.sheet-scrim {
+  background: var(--scrim);
+  backdrop-filter: blur(var(--scrim-blur));
+  animation: ns-fade-in var(--dur-overlay) var(--ease-out) both;
+}
+
+.sheet-scrim[data-layer="menu"] {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-menu) - 1);
+  pointer-events: none;
+}
+
 .menu-surface.sheet {
   padding: var(--sp-2) max(var(--sp-2), env(safe-area-inset-right))
     max(var(--sp-2), env(safe-area-inset-bottom)) max(var(--sp-2), env(safe-area-inset-left));

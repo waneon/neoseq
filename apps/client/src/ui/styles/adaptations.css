@@ -99,6 +99,23 @@ html[dir="rtl"] .query-resize[data-resizing="true"] {
   animation: none;
 }
 
+/* A sheet is the exception: it has no anchor, and rising from the screen's edge
+   is what says where it came from. The finger that summoned it has already
+   lifted, so no press is aimed at it while it moves. Transform only, so its
+   text never passes through a translucent state. */
+@keyframes ns-sheet-rise {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+.sheet {
+  animation: ns-sheet-rise var(--dur-sheet) var(--ease-entrance) backwards;
+}
+
 /* The opacity-free arrival — see `ns-drop-in`. */
 .enter-drop {
   animation: ns-drop-in var(--dur-overlay) var(--ease-entrance) backwards;

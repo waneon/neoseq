@@ -49,7 +49,7 @@
   --custom-tone-l: 0.54;
 
   --scrim: oklch(0.2 0.01 270 / 0.24);
-  --scrim-blur: 0px;
+  --scrim-blur: 3px;
 
   /* `--line` rules inside an object; `--line-strong` is the edge that closes one. */
   --line: color-mix(in oklab, var(--ink) 10%, transparent);
@@ -175,6 +175,7 @@
   --dur-view: 120ms;
   --dur-overlay: 150ms;
   --dur-disclose: 180ms;
+  --dur-sheet: 220ms;
 
   --dur-size: 240ms;
   --ease-out: cubic-bezier(0.32, 0.72, 0, 1);

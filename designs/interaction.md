@@ -147,7 +147,9 @@ On phones, ordinary dialogs and confirmations rise from the bottom as bounded
 sheets; search and settings use the full visible viewport. Menus, pickers, and
 choice panels are sheets on the visible viewport's bottom edge rather than
 popovers beside their trigger, so the keyboard opening or closing carries them
-with it; a press beside a sheet only dismisses it. A completion list stays
+with it. A sheet rises from the screen's edge, the one floating surface that
+moves as it arrives, since it has no anchor to say where it came from; the page
+behind dims and blurs as behind a dialog, and a press there only dismisses. A completion list stays
 beside the caret it completes. All share keyboard and safe-area geometry. Pinch
 zoom remains a browser action and does not trigger application reflow.
 

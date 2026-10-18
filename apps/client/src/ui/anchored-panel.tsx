@@ -291,15 +291,17 @@ export function AnchoredPanel({
     </div>
   );
   return createPortal(
-    trapFocus ? (
-      <>
-        {/* Nothing behind a contained panel takes a press meant to dismiss it. */}
-        <div className="anchored-panel-underlay" aria-hidden />
-        <FocusScope contain>{panel}</FocusScope>
-      </>
-    ) : (
-      panel
-    ),
+    <>
+      {/* Nothing behind a contained panel or a sheet takes a press meant to
+          dismiss it; behind a sheet the page also dims. */}
+      {(trapFocus || sheet) && (
+        <div
+          className={sheet ? "anchored-panel-underlay sheet-scrim" : "anchored-panel-underlay"}
+          aria-hidden
+        />
+      )}
+      {trapFocus ? <FocusScope contain>{panel}</FocusScope> : panel}
+    </>,
     root,
   );
 }
