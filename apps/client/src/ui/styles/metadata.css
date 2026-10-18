@@ -986,7 +986,7 @@ button.tag-mark:focus-visible {
    tabs and grow their rows to touch size. */
 :root[data-phone] .property-picker-option,
 :root[data-phone] .property-picker-members > div {
-  min-height: var(--sp-7);
+  min-height: var(--hit);
 }
 
 :root[data-phone] .moment-mobile-tabs {
@@ -998,7 +998,7 @@ button.tag-mark:focus-visible {
 }
 
 :root[data-phone] .moment-mobile-tabs button {
-  min-height: var(--sp-7);
+  min-height: var(--sp-6);
   padding: 0 var(--sp-2);
   border: 0;
   border-radius: calc(var(--r-2) - 2px);
@@ -1020,23 +1020,35 @@ button.tag-mark:focus-visible {
   box-shadow: var(--focus-inset);
 }
 
-:root[data-phone] .moment-picker-columns {
-  display: block;
-  min-height: 262px;
+/* The actions sit on the picker's bottom edge; clipping there would cut the
+   touch reach of Done and Cancel (controls.css). The body scrolls by its own
+   min-height, not by this clip. */
+:root[data-touch] .moment-picker {
+  overflow: visible;
 }
 
-:root[data-phone] .moment-picker[data-active-pane="date"] .moment-rules-pane,
-:root[data-phone] .moment-picker[data-active-pane="rules"] .moment-date-pane {
-  display: none;
+/* The two panes share one cell, so the picker is as tall as the taller of
+   them and switching tabs never resizes the sheet. The hidden pane keeps its
+   size but leaves the screen, focus, and the accessibility tree. */
+:root[data-phone] .moment-picker-columns {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 :root[data-phone] .moment-date-pane,
 :root[data-phone] .moment-rules-pane {
-  height: 100%;
+  grid-area: 1 / 1;
 }
 
+/* The rules keep their own height at the top of the shared cell; the spare
+   room the calendar asks for falls below them, not between them. */
 :root[data-phone] .moment-rules-pane {
-  min-height: 262px;
+  grid-template-rows: auto auto;
+  align-content: start;
+}
+
+:root[data-phone] .moment-picker[data-active-pane="date"] .moment-rules-pane,
+:root[data-phone] .moment-picker[data-active-pane="rules"] .moment-date-pane {
+  visibility: hidden;
 }
 
 /* At rest, a non-empty bag is a strip of chips. An empty bag renders nothing. */

@@ -648,27 +648,8 @@ button.chip:focus-visible .chip-glyph .chip-x {
   color: var(--accent);
 }
 
-@media (hover: none) {
-  .btn,
-  .menu-select {
-    min-height: 40px;
-  }
-}
-
-@media (max-width: 840px) {
-  .btn,
-  .menu-select {
-    min-height: 44px;
-  }
-
-  .dialog-close {
-    width: 44px;
-    height: 44px;
-  }
-}
-
 :root[data-touch] .menu-row {
-  min-height: 44px;
+  min-height: var(--hit);
 }
 
 @media (max-width: 600px) {
@@ -681,7 +662,7 @@ button.chip:focus-visible .chip-glyph .chip-x {
     max-width: 100%;
     max-height: calc(var(--visual-viewport-height, 100dvh) - 16px);
     border-radius: 20px 20px 0 0;
-    padding: 24px 20px max(24px, env(safe-area-inset-bottom));
+    padding: var(--sp-4) var(--sp-4) max(var(--sp-4), env(safe-area-inset-bottom));
   }
 }
 
@@ -701,13 +682,19 @@ button.chip:focus-visible .chip-glyph .chip-x {
   resize: none;
 }
 
-/* On touch a small control keeps its drawn size and gains a 44px reach. The
+/* On touch a small control keeps its drawn size and reaches --hit. The
    reach is invisible and centred, so nothing around the control moves
    (designs/foundations.md § Stable Geometry); a control already wider than a
-   fingertip only grows to 44px tall. */
+   fingertip only grows to --hit tall. */
 :root[data-touch]
   :is(
+    .btn,
+    .menu-select,
     .icon-btn,
+    .query-tool,
+    button.query-disclosure,
+    .query-question,
+    .query-view-tab,
     .task-status-toggle,
     .task-priority-toggle,
     .task-chip,
@@ -716,25 +703,16 @@ button.chip:focus-visible .chip-glyph .chip-x {
     .query-cell-open
   ) {
   position: relative;
-}
 
-:root[data-touch]
-  :is(
-    .icon-btn,
-    .task-status-toggle,
-    .task-priority-toggle,
-    .task-chip,
-    .prop-strip-chip,
-    .query-th-menu,
-    .query-cell-open
-  )::after {
-  content: "";
-  position: absolute;
-  inset: min(0px, calc((100% - 44px) / 2));
+  &::after {
+    content: "";
+    position: absolute;
+    inset: min(0px, calc((100% - var(--hit)) / 2));
+  }
 }
 
 /* Inside a scrolling table the reach stays within the cell's own padding, or
    the last column's would widen what the table scrolls. */
-:root[data-touch] :is(.query-th-menu, .query-cell-open)::after {
+:root[data-touch] .query-table :is(.query-th-menu, .query-cell-open)::after {
   inset-inline: -6px;
 }

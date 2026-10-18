@@ -110,9 +110,11 @@ device's copy from server deletion, which only an owner sees.
 - Width decides layout; input decides interaction. A coarse pointer gets touch
   routes, touch targets, and the touch keyboard policy at any width, so a phone
   held sideways or a tablet keeps them.
-- Touch targets reach 44px without changing their drawn size; hover-revealed
-  controls gain a touch route, and hover states apply only where a pointer can
-  hover.
+- Touch draws controls at the size a mouse sees and gives them a 44px reach
+  invisibly; only a list row, which is itself the target, is drawn at 44px.
+  Spacing does not grow.
+  Hover-revealed controls gain a touch route, and hover states apply only where
+  a pointer can hover.
 - A long press on the block handle reaches the block menu.
 - Overlays stay within the visible viewport.
 

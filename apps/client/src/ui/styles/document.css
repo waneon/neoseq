@@ -271,12 +271,6 @@
   .page-body {
     padding-top: var(--sp-3);
   }
-
-  .journal-nav .icon-btn,
-  .journal-today.btn {
-    min-width: 44px;
-    height: 44px;
-  }
 }
 
 /* On a phone the date leads; its distance and the day controls follow. */

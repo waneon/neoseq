@@ -441,15 +441,6 @@ button.query-disclosure:hover {
   }
 }
 
-@media (pointer: coarse) {
-  .query-block .query-tool,
-  .query-disclosure,
-  .query-question,
-  .query-view-tab {
-    min-height: 36px;
-  }
-}
-
 .query-sort-panel {
   z-index: var(--z-menu);
   display: grid;

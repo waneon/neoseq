@@ -151,6 +151,11 @@
   --row-h: 30px;
   --control-h: 32px;
   --control-compact-h: 26px;
+  /* The least a finger is given. On touch a control keeps the size it is
+     drawn at here and reaches --hit invisibly (controls.css § touch reach), as
+     Material and iOS controls do; a list row, which is itself the target, is
+     drawn at --hit. Nothing else grows. */
+  --hit: 44px;
   --nav-row-h: 30px;
 
   --indent: 28px;
@@ -500,7 +505,6 @@ h2 {
 
 @media (max-width: 840px) {
   :root {
-    --control-h: 44px;
     --gutter: 24px;
   }
 }

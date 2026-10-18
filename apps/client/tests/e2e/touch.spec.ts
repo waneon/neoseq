@@ -2,8 +2,9 @@
 // (support/keyboard): the keyboard follows text focus, and every surface has to
 // follow the keyboard.
 
-import { expect, type Locator, type Page } from "@playwright/test";
-import { test } from "../support/fixtures";
+import { expect, type Browser, type Locator, type Page } from "@playwright/test";
+import { FIXED_TIME, test } from "../support/fixtures";
+import { NeoseqApp } from "../support/app";
 import { KEYBOARD_HEIGHT, keyboardOpen, simulateSoftKeyboard } from "../support/keyboard";
 
 async function bottomOf(locator: Locator): Promise<number> {
@@ -39,6 +40,59 @@ async function longPress(page: Page, target: Locator, until: Locator): Promise<v
   await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
   await expect(until).toBeVisible();
   await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+}
+
+/** Every visible control's height, keyed by its place in the document. */
+function heights(page: Page): Promise<Record<string, number>> {
+  return page.evaluate(() => {
+    const heights: Record<string, number> = {};
+    const keyOf = (element: Element): string => {
+      const parts: string[] = [];
+      for (let node: Element | null = element; node && node !== document.body;) {
+        const parent: Element | null = node.parentElement;
+        const id = node.getAttribute("data-testid");
+        const name = node.tagName.toLowerCase() + (id ? `[${id}]` : `.${node.classList[0] ?? ""}`);
+        // Counted among siblings of the same name, so an element only one
+        // modality has (the touch handle) does not shift the others' keys.
+        const current: Element = node;
+        const index = parent
+          ? [...parent.children]
+              .filter(
+                (sibling) =>
+                  sibling.tagName === current.tagName &&
+                  sibling.getAttribute("data-testid") === current.getAttribute("data-testid") &&
+                  sibling.classList[0] === current.classList[0],
+              )
+              .indexOf(current)
+          : 0;
+        parts.unshift(`${name}:${index}`);
+        node = parent;
+      }
+      return parts.join(">");
+    };
+    const controls =
+      "button, a[href], [role=button], [role=tab], [role=option], [role=menuitem], [role=menuitemradio], [role=checkbox], [role=switch], [role=combobox]";
+    for (const element of document.body.querySelectorAll(controls)) {
+      const box = element.getBoundingClientRect();
+      if (box.height > 0 && getComputedStyle(element).visibility !== "hidden") {
+        heights[keyOf(element)] = Math.round(box.height);
+      }
+    }
+    return heights;
+  });
+}
+
+/** The same graph on a mouse at the touch phone's size. */
+async function mouseTwin(browser: Browser, baseURL: string, page: Page): Promise<Page> {
+  const context = await browser.newContext({
+    baseURL,
+    viewport: page.viewportSize()!,
+    hasTouch: false,
+    isMobile: false,
+  });
+  const twin = await context.newPage();
+  await twin.clock.setFixedTime(new Date(FIXED_TIME));
+  return twin;
 }
 
 test.beforeEach(async ({ page }) => {
@@ -145,6 +199,82 @@ test("a sheet holding a closed select is dimmed by nothing but the page behind i
   await page.touchscreen.tap(page.viewportSize()!.width / 2, 24);
   await expect(picker).toHaveCount(0);
   await expect(page.locator(".sheet-scrim")).toHaveCount(0);
+});
+
+test("touch draws every control at the mouse's size; only list rows grow", async ({
+  app,
+  page,
+  browser,
+  baseURL,
+}) => {
+  const twin = await mouseTwin(browser, baseURL!, page);
+  const build = async (graph: NeoseqApp, view: Page) => {
+    await graph.createGraph("Touch twins");
+    await graph.startBlock("Ship it");
+    await graph.appendBlock("");
+    const editor = graph.editors.last();
+    await editor.click();
+    await editor.pressSequentially("/quer");
+    await graph.saved(() =>
+      view
+        .getByTestId("slash-menu")
+        .getByRole("option", { name: /^Query/ })
+        .click(),
+    );
+    await view.getByTestId("query-conditions-trigger").click();
+    await graph.settled();
+  };
+  await build(app, page);
+  await build(new NeoseqApp(twin), twin);
+  const [touch, mouse] = await Promise.all([heights(page), heights(twin)]);
+  // Rows a finger presses whole, and the outline's touch gutter, are touch's
+  // own; inputs are at least 16px on touch. Nothing else may grow.
+  const own =
+    /outline-row|outline-touch|outline-bullet|outline-toggle|row-grip|block-|textarea|input|menu-row|mobile-editor-toolbar/;
+  const grown = Object.entries(touch).filter(
+    ([key, height]) =>
+      !own.test(key.slice(key.lastIndexOf(">") + 1)) && key in mouse && height > mouse[key] + 1,
+  );
+  expect(
+    grown.map(
+      ([key, height]) => `${key.split(">").slice(-2).join(">")}: ${mouse[key]} -> ${height}`,
+    ),
+  ).toEqual([]);
+  await twin.context().close();
+});
+
+test("touch controls are drawn compact and reached at full size", async ({ app, page }) => {
+  await app.createGraph("Touch density");
+  await app.startBlock("Due soon");
+  await page.keyboard.press("Escape");
+  await app.block(0).getByTestId("mobile-block-handle").tap();
+  const rows = page.getByRole("menu", { name: "Block actions" }).getByRole("menuitem");
+  // A list row is itself the target, so it is drawn at the target's height.
+  for (const height of await rows.evaluateAll((items) =>
+    items.map((item) => item.getBoundingClientRect().height),
+  )) {
+    expect(height).toBeGreaterThanOrEqual(44);
+    expect(height).toBeLessThanOrEqual(45);
+  }
+  await page.getByTestId("menu-properties").tap();
+  const picker = page.getByTestId("property-picker");
+  await picker.getByRole("option", { name: "Deadline", exact: true }).tap();
+  await expect(picker.getByTestId("moment-picker")).toBeVisible();
+
+  // A control keeps the size it is drawn at with a mouse and still reaches 44px.
+  const done = picker.getByRole("button", { name: "Done", exact: true });
+  const reach = await done.evaluate((node) => {
+    const box = node.getBoundingClientRect();
+    const x = box.left + box.width / 2;
+    const middle = box.top + box.height / 2;
+    const lands = (y: number) => node.contains(document.elementFromPoint(x, y));
+    return { height: box.height, edges: lands(middle - 21) && lands(middle + 21) };
+  });
+  expect(reach.height).toBeLessThanOrEqual(32);
+  expect(reach.edges).toBe(true);
+  expect((await picker.getByTestId("moment-tab-date").boundingBox())!.height).toBeLessThanOrEqual(
+    32,
+  );
 });
 
 test("deleting from a row's menu does not start writing in the row above", async ({

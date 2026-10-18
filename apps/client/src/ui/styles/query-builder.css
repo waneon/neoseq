@@ -421,11 +421,6 @@ button.qb-filter:focus-visible {
 }
 
 @media (pointer: coarse), (hover: none) {
-  .qb-add-btn.btn,
-  .qb-remove.icon-btn {
-    min-height: 40px;
-  }
-
   .qb-filter-row .qb-remove {
     opacity: 1;
   }

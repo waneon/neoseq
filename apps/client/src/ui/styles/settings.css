@@ -804,8 +804,8 @@
   }
 
   .settings-nav {
-    gap: 24px;
-    padding: 24px var(--settings-edge) max(28px, env(safe-area-inset-bottom, 0px));
+    gap: var(--sp-4);
+    padding: var(--sp-4) var(--settings-edge) max(var(--sp-4), env(safe-area-inset-bottom, 0px));
     border: 0;
     background: var(--canvas);
   }
@@ -815,7 +815,7 @@
   }
 
   .settings-group h3 {
-    margin: 0 0 10px;
+    margin: 0 0 var(--sp-2);
     padding: 0;
     color: var(--ink-2);
     font-size: 13px;
@@ -833,10 +833,10 @@
   }
 
   .settings-tab {
-    gap: 12px;
+    gap: var(--sp-3);
     width: 100%;
-    min-height: 68px;
-    padding: 12px;
+    min-height: 56px;
+    padding: var(--sp-2) var(--sp-3);
     border-radius: 0;
     color: var(--ink);
     white-space: normal;
@@ -847,9 +847,9 @@
   }
 
   .settings-tab-icon {
-    width: 36px;
-    height: 36px;
-    border-radius: 11px;
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
     background: var(--surface-2);
     color: var(--ink-2);
   }
@@ -894,11 +894,11 @@
   }
 
   .settings-pane {
-    padding: 26px var(--settings-edge) max(32px, env(safe-area-inset-bottom, 0px));
+    padding: var(--sp-4) var(--settings-edge) max(var(--sp-5), env(safe-area-inset-bottom, 0px));
   }
 
   .settings-page-header {
-    margin-bottom: 28px;
+    margin-bottom: var(--sp-4);
   }
 
   .settings-page-header h2 {

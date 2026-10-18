@@ -928,7 +928,7 @@
 :root[data-touch] .outline-section {
   --indent: 20px;
   --slot: 40px;
-  --touch-row-inset: 4px;
+  --touch-row-inset: 2px;
 }
 
 :root[data-touch] .outline-row {

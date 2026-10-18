@@ -217,7 +217,7 @@
   .tag-defaults-toggle,
   .tag-section-action,
   .tag-default-row {
-    min-height: 44px;
+    min-height: var(--hit);
   }
 
   .tag-title-mark .tag-mark {

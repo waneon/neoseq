@@ -385,11 +385,9 @@
   }
   .drawer-close {
     display: inline-flex;
-    width: 44px;
-    height: 44px;
   }
   .rail-switcher {
-    height: 44px;
+    height: var(--hit);
     font-size: var(--text-md);
   }
   .rail-switcher-mark {
@@ -397,7 +395,7 @@
   }
   .rail-action,
   .shell-nav-item {
-    min-height: 44px;
+    min-height: var(--hit);
     gap: var(--sp-3);
     padding-inline: var(--sp-3);
     font-size: 15px;
@@ -439,10 +437,8 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .topbar-end .icon-btn,
   .topbar-end .chrome-action.btn {
-    min-width: 44px;
-    height: 44px;
+    min-width: var(--icon-btn);
   }
   .chrome-action.btn > span {
     display: none;
@@ -463,7 +459,7 @@
     justify-content: center;
     gap: 2px;
     min-width: 0;
-    min-height: 52px;
+    min-height: 48px;
     padding: 4px;
     border: 0;
     border-radius: var(--r-3);
@@ -561,7 +557,7 @@
   }
   .rail-action,
   .shell-nav-item {
-    min-height: 44px;
+    min-height: var(--hit);
   }
 }
 

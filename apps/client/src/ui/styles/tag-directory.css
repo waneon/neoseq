@@ -351,7 +351,7 @@
 
 @media (max-width: 600px), (pointer: coarse) {
   .tags-filters button {
-    min-height: 40px;
+    min-height: var(--control-h);
   }
 
   .tag-row-actions,

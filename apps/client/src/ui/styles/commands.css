@@ -184,7 +184,7 @@
   }
 
   .cmdk-input-row {
-    min-height: 60px;
+    min-height: 52px;
     padding: env(safe-area-inset-top) var(--sp-2) 0 var(--sp-4);
   }
 
@@ -196,12 +196,10 @@
 @media (max-width: 600px), (hover: none) {
   .cmdk-close {
     display: inline-flex;
-    min-width: 44px;
-    min-height: 44px;
   }
 
   .cmdk-row {
-    min-height: 48px;
+    min-height: var(--hit);
   }
 
   .cmdk-row > .kbd {
