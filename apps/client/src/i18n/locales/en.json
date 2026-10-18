@@ -260,6 +260,7 @@
   "outline.writingHint": "Type / for commands, or [[ to link a page.",
   "outline.addFirstBlock": "Start writing…",
   "outline.blockActions": "Block actions",
+  "outline.longPressForActions": "Long press for block actions",
   "outline.blockText": "Block text",
   "outline.blocks": "Blocks",
   "outline.clearSelection": "Clear the selection",

@@ -26,10 +26,13 @@ import {
 import { createPortal } from "react-dom";
 import { FocusScope, useOverlay, useOverlayPosition, type Placement } from "react-aria";
 import { anchorElement, measureAnchor, type Anchor, type AnchoredOptions } from "./anchored";
+import { usePhone } from "./input-modality";
 import { OverlayLayer, useOverlayRoot } from "./overlay-root";
+import { viewportSettling } from "./visual-viewport";
 import {
   afterArrivals,
   afterCommit,
+  arrivalFocus,
   firstTabbable,
   restoreOverlayFocus,
   vetoable,
@@ -99,6 +102,9 @@ export function AnchoredPanel({
   const [surface, setSurface] = useState<HTMLDivElement | null>(null);
   const lastValid = useRef<DOMRectReadOnly | null>(null);
   const liveElement = anchorElement(resolveAnchor(anchor));
+  // A combobox list stays beside the caret it completes; any other panel is a
+  // sheet on a phone (controls.css § .sheet).
+  const sheet = usePhone() && !preserveAnchorFocus;
   const latest = useRef({ anchor, onClose, onEscapeKeyDown, onFocusOutside, returnFocus });
   latest.current = { anchor, onClose, onEscapeKeyDown, onFocusOutside, returnFocus };
 
@@ -206,7 +212,7 @@ export function AnchoredPanel({
     afterCommit(() => {
       if (!surface.isConnected || surface.contains(document.activeElement)) return;
       const target = initialFocus?.() ?? firstTabbable(surface) ?? surface;
-      target.focus({ preventScroll: true });
+      arrivalFocus(target, surface).focus({ preventScroll: true });
     });
     // Arrival only: later renders must not move focus.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
@@ -238,12 +244,16 @@ export function AnchoredPanel({
   }, [liveElement]);
 
   // The panel follows its anchor through scrolling and through its own resizes.
+  // A sheet has no anchor to follow.
   useEffect(() => {
+    if (sheet) return;
     if (dismissOnExternalScroll) {
       const dismiss = (event: Event) => {
         const target = event.target;
         if (target instanceof Node && surface?.contains(target)) return;
         if (target instanceof Node && liveElement?.contains(target)) return;
+        // The keyboard opening or closing scrolls the page; the reader did not.
+        if (viewportSettling()) return updatePosition();
         latest.current.onClose();
       };
       window.addEventListener("scroll", dismiss, true);
@@ -251,7 +261,7 @@ export function AnchoredPanel({
     }
     window.addEventListener("scroll", updatePosition, true);
     return () => window.removeEventListener("scroll", updatePosition, true);
-  }, [dismissOnExternalScroll, liveElement, surface, updatePosition]);
+  }, [dismissOnExternalScroll, liveElement, sheet, surface, updatePosition]);
   useLayoutEffect(() => {
     updatePosition();
   }, [revision, updatePosition]);
@@ -259,13 +269,16 @@ export function AnchoredPanel({
   // React Aria lifts its overlays to one fixed z-index; the panel's own class
   // places it in the product's layer order instead.
   const { zIndex: _zIndex, ...position } = positionProps.style ?? {};
-  const style: CSSProperties = { ...position, ...panelStyle(options, rect) };
+  // A sheet's place is its class's (controls.css § .sheet), not an anchor's.
+  const style: CSSProperties = sheet
+    ? { pointerEvents: "auto" }
+    : { ...position, ...panelStyle(options, rect) };
   const panel = (
     <div
       {...overlayProps}
       ref={rememberSurface}
       id={id}
-      className={className}
+      className={sheet ? `${className} sheet` : className}
       role={role}
       aria-label={label}
       aria-modal={trapFocus || undefined}

@@ -267,6 +267,7 @@ export interface MessageArgumentMap {
   "outline.engineMissingId": undefined;
   "outline.expand": undefined;
   "outline.indent": undefined;
+  "outline.longPressForActions": undefined;
   "outline.mobileActions": undefined;
   "outline.mobileToolbar": undefined;
   "outline.moveDown": undefined;

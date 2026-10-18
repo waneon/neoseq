@@ -1389,16 +1389,14 @@ button.query-disclosure:hover {
   padding-block: 0;
 }
 
-/* The outline trades bullets for touch handles on narrow screens; a result row
+/* The outline trades bullets for touch handles on touch screens; a result row
    has no handle, so it keeps its bullet and the default slot. */
-@media (max-width: 840px) {
-  .query-list {
-    --slot: 20px;
-  }
+:root[data-touch] .query-list {
+  --slot: 20px;
+}
 
-  .query-list-row .outline-bullet {
-    display: inline-flex;
-  }
+:root[data-touch] .query-list-row .outline-bullet {
+  display: inline-flex;
 }
 
 .query-list-row .outline-bullet {
@@ -1599,4 +1597,11 @@ button.query-list-status[data-active="true"] {
   height: 16px;
   padding-inline: var(--sp-1);
   box-shadow: none;
+}
+
+/* A phone cannot share its width between more than two or three columns, so an
+   unsized table asks for each column's natural width (QueryTableView
+   § naturalWidth) and scrolls sideways instead of clipping every cell. */
+:root[data-phone] .query-table:not([data-sized]) col {
+  width: var(--query-natural);
 }

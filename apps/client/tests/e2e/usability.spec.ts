@@ -248,6 +248,7 @@ test("desktop sidebar controls preserve the current document and remembered pref
 test("creation and navigation have usable keyboard and pointer dismissal routes", async ({
   app,
   page,
+  isMobile,
 }) => {
   await page.goto("/");
   const trigger = page.getByTestId("new-graph");
@@ -284,7 +285,8 @@ test("creation and navigation have usable keyboard and pointer dismissal routes"
   await calendar.click();
   const dialog = page.getByRole("dialog", { name: "Jump to date" });
   const date = dialog.getByLabel("Jump to date", { exact: true });
-  await expect(date).toBeFocused();
+  // On touch the calendar is the control; typing a date waits for a tap.
+  await expect(isMobile ? dialog : date).toBeFocused();
   await date.fill("2026-09-08");
   await date.press("Escape");
   await expect(calendar).toBeFocused();

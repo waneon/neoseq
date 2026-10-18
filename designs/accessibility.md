@@ -46,8 +46,8 @@ controls.
 
 Every capability has a keyboard route and a pointer route; touch routes are
 explicit wherever hover or context click would otherwise be required. Repeated
-small controls meet the product hit-target floor, and targets grow on compact
-touch layouts even when their visible marks do not.
+small controls meet the product hit-target floor, and targets grow on touch
+screens even when their visible marks do not.
 
 IME composition is checked before command handling so text input does not lose a
 keystroke. Escape may bypass composition only to perform its established

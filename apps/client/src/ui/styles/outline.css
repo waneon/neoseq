@@ -923,139 +923,142 @@
   display: none;
 }
 
-@media (max-width: 840px) {
-  /* Rows keep a reading rhythm a little looser than wrapped lines; the 44px
-     touch handle overhangs its row rather than spacing the outline out. */
-  .outline-section {
-    --indent: 20px;
-    --slot: 40px;
-    --touch-row-inset: 4px;
-  }
+/* Touch rows keep a reading rhythm a little looser than wrapped lines; the 44px
+   touch handle overhangs its row rather than spacing the outline out. */
+:root[data-touch] .outline-section {
+  --indent: 20px;
+  --slot: 40px;
+  --touch-row-inset: 4px;
+}
 
-  .outline-row {
-    --row-inset: var(--touch-row-inset);
-  }
+:root[data-touch] .outline-row {
+  --row-inset: var(--touch-row-inset);
+}
 
-  .outline-toggle,
-  .outline-bullet {
-    display: none;
-  }
+:root[data-touch] .outline-toggle,
+:root[data-touch] .outline-bullet {
+  display: none;
+}
 
-  /* One handle owns the gutter on touch screens. A fold and a menu target
-     cannot both fit beside a line without overlapping each other or its text. */
+/* One handle owns the gutter on touch screens. A fold and a menu target
+   cannot both fit beside a line without overlapping each other or its text. */
+:root[data-touch] .outline-touch-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  margin: -2px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  touch-action: pan-y;
+  /* A long press opens the block menu, not the platform's text callout. */
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+:root[data-touch] .outline-touch-handle:active {
+  background: var(--surface-2);
+}
+
+:root[data-touch] .outline-touch-handle:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-inset);
+}
+
+:root[data-touch] .outline-touch-handle > span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+:root[data-touch] .outline-touch-handle svg {
+  width: 16px;
+  height: 16px;
+  transition: transform var(--dur-disclose) var(--ease-out);
+}
+
+:root[data-touch] .outline-row[data-collapsed="true"] .outline-touch-handle svg {
+  transform: rotate(-90deg);
+}
+
+:root[data-touch]
+  .outline-row:is([data-focused="true"], :root[data-touch] [data-ancestor="true"])
   .outline-touch-handle {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex: none;
-    width: 44px;
-    height: 44px;
-    margin: -2px;
-    padding: 0;
-    border: 0;
-    border-radius: var(--r-2);
-    background: transparent;
-    color: var(--ink-3);
-    cursor: pointer;
-    touch-action: pan-y;
-  }
+  color: var(--thread-lit);
+}
 
-  .outline-touch-handle:active {
-    background: var(--surface-2);
-  }
+:root[data-touch] .outline-placeholder,
+:root[data-touch] .outline-append {
+  padding-top: var(--touch-row-inset);
+}
 
-  .outline-touch-handle:focus-visible {
-    outline: none;
-    box-shadow: var(--focus-inset);
-  }
+:root[data-touch] .outline-append::before {
+  top: calc(var(--touch-row-inset) + var(--lh-md) / 2 - 1.5px);
+}
 
-  .outline-touch-handle > span {
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: currentColor;
-  }
+:root[data-touch] .mobile-editor-toolbar {
+  position: fixed;
+  z-index: calc(var(--z-scrim) - 1);
+  inset-inline: 0;
+  bottom: var(--visual-viewport-bottom, 0px);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  padding: 6px max(12px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom))
+    max(12px, env(safe-area-inset-left));
+  border-top: 1px solid var(--line);
+  background: var(--canvas);
+}
 
-  .outline-touch-handle svg {
-    width: 16px;
-    height: 16px;
-    transition: transform var(--dur-disclose) var(--ease-out);
-  }
+:root[data-touch] .mobile-editor-toolbar button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 4px;
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 11px;
+  line-height: 15px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
 
-  .outline-row[data-collapsed="true"] .outline-touch-handle svg {
-    transform: rotate(-90deg);
-  }
+:root[data-touch] .mobile-editor-toolbar button svg {
+  width: 19px;
+  height: 19px;
+}
 
-  .outline-row:is([data-focused="true"], [data-ancestor="true"]) .outline-touch-handle {
-    color: var(--thread-lit);
-  }
+:root[data-touch] .mobile-editor-toolbar button:active {
+  background: var(--surface-2);
+}
 
-  .outline-placeholder,
-  .outline-append {
-    padding-top: var(--touch-row-inset);
-  }
+:root[data-touch] .mobile-editor-toolbar button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-inset);
+}
 
-  .outline-append::before {
-    top: calc(var(--touch-row-inset) + var(--lh-md) / 2 - 1.5px);
-  }
+:root[data-touch] .mobile-editor-toolbar button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
 
-  .mobile-editor-toolbar {
-    position: fixed;
-    z-index: calc(var(--z-scrim) - 1);
-    inset-inline: 0;
-    bottom: var(--visual-viewport-bottom, 0px);
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 4px;
-    padding: 6px max(12px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom))
-      max(12px, env(safe-area-inset-left));
-    border-top: 1px solid var(--line);
-    background: var(--canvas);
-  }
-
-  .mobile-editor-toolbar button {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 3px;
-    min-width: 0;
-    min-height: 44px;
-    padding: 4px;
-    border: 0;
-    border-radius: var(--r-2);
-    background: transparent;
-    color: var(--ink-2);
-    font: inherit;
-    font-size: 11px;
-    line-height: 15px;
-    cursor: pointer;
-    touch-action: manipulation;
-  }
-
-  .mobile-editor-toolbar button svg {
-    width: 19px;
-    height: 19px;
-  }
-
-  .mobile-editor-toolbar button:active {
-    background: var(--surface-2);
-  }
-
-  .mobile-editor-toolbar button:focus-visible {
-    outline: none;
-    box-shadow: var(--focus-inset);
-  }
-
-  .mobile-editor-toolbar button:disabled {
-    opacity: 0.35;
-    cursor: default;
-  }
-
-  .mobile-editor-toolbar .mobile-editor-done {
-    background: var(--accent-tint);
-    color: var(--accent);
-  }
+:root[data-touch] .mobile-editor-toolbar .mobile-editor-done {
+  background: var(--accent-tint);
+  color: var(--accent);
 }
 
 /* A query block's own line is its caption; empty, it says so. */

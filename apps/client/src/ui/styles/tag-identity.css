@@ -560,21 +560,3 @@
     height: 44px;
   }
 }
-
-@media (max-width: 600px) {
-  .tag-identity-editor {
-    position: fixed !important;
-    inset: auto 0 0 !important;
-    min-width: 0 !important;
-    width: 100% !important;
-    max-width: none !important;
-    max-height: 86dvh !important;
-    border-radius: var(--r-4) var(--r-4) 0 0;
-    padding-bottom: env(safe-area-inset-bottom);
-  }
-
-  .tag-membership-picker {
-    max-height: 76dvh !important;
-    padding-bottom: max(var(--sp-2), env(safe-area-inset-bottom));
-  }
-}

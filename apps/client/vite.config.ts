@@ -35,6 +35,50 @@ function shellServiceWorker(): Plugin {
   };
 }
 
+// A touch screen keeps `:hover` on whatever was tapped until the next tap
+// lands elsewhere, so a control stays lit after use. The stylesheets state
+// hovers plainly; the build confines each one to screens that can hover.
+function hoverWhereHoverable() {
+  const HOVERABLE = "(hover: hover)";
+  return {
+    postcssPlugin: "neoseq-hover-where-hoverable",
+    Rule(
+      rule: {
+        selector: string;
+        selectors: string[];
+        parent?: { type: string; name?: string; params?: string };
+        clone(overrides: { selectors: string[] }): unknown;
+        after(node: unknown): void;
+        replaceWith(node: unknown): void;
+      },
+      {
+        AtRule,
+      }: {
+        AtRule: new (props: { name: string; params: string }) => { append(node: unknown): void };
+      },
+    ) {
+      if (!rule.selector.includes(":hover")) return;
+      const parent = rule.parent;
+      if (
+        parent?.type === "atrule" &&
+        (parent.name === "keyframes" || parent.params === HOVERABLE)
+      ) {
+        return;
+      }
+      const hovering = rule.selectors.filter((selector) => selector.includes(":hover"));
+      const resting = rule.selectors.filter((selector) => !selector.includes(":hover"));
+      const media = new AtRule({ name: "media", params: HOVERABLE });
+      media.append(rule.clone({ selectors: hovering }));
+      if (resting.length === 0) {
+        rule.replaceWith(media);
+        return;
+      }
+      rule.selectors = resting;
+      rule.after(media);
+    },
+  };
+}
+
 function testRoutes(mode: string): Plugin {
   const virtualId = "virtual:neoseq-test-routes";
   const resolvedId = `\0${virtualId}`;
@@ -85,6 +129,7 @@ function workerFactory(mode: string): Plugin {
 
 export default defineConfig(({ mode }) => ({
   plugins: [testRoutes(mode), workerFactory(mode), react(), tailwindcss(), shellServiceWorker()],
+  css: { postcss: { plugins: [hoverWhereHoverable()] } },
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),

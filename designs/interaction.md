@@ -22,6 +22,9 @@ applicable—open or selected state. Those states use the shared foundation role
   shown in the command layer; and
 - borderless typing surfaces use the caret as their focus appearance.
 
+Hover states apply only where a pointer can hover; a touch screen would keep
+the last tapped control lit.
+
 Transforms do not simulate a press. A control does not move away from the pointer
 that is activating it.
 
@@ -141,9 +144,18 @@ effect, places initial focus on the safe action, and stays open while completion
 is unresolved or has failed.
 
 On phones, ordinary dialogs and confirmations rise from the bottom as bounded
-sheets; search and settings use the full visible viewport. All share keyboard
-and safe-area geometry. Pinch zoom remains a browser action and does not trigger
-application reflow.
+sheets; search and settings use the full visible viewport. Menus, pickers, and
+choice panels are sheets on the visible viewport's bottom edge rather than
+popovers beside their trigger, so the keyboard opening or closing carries them
+with it; a press beside a sheet only dismisses it. A completion list stays
+beside the caret it completes. All share keyboard and safe-area geometry. Pinch
+zoom remains a browser action and does not trigger application reflow.
+
+On touch the software keyboard rises only for typing. A surface that offers
+choices arrives on itself and its search field waits for a tap; a dialog whose
+purpose is typing focuses its field. Closing a surface never returns focus to a
+text field. Fields are at least body size on touch, so the browser never zooms
+into them.
 
 ## Stable Geometry
 

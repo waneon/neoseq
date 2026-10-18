@@ -33,6 +33,7 @@ graph.
 | Local-first operation       | Offline editing and full browser reload                                             | `offline.spec.ts`                                      |
 | Discovery and derived views | References, typed task properties, and executable query results                     | `references.spec.ts`, `tasks.spec.ts`, `query.spec.ts` |
 | Usability                   | Keyboard access, representative accessibility, mobile reachability, and preferences | `usability.spec.ts`                                    |
+| Touch                       | Sheets, keyboard policy, long press, and touch fields with a simulated keyboard     | `touch.spec.ts`                                        |
 | Remote operation            | Real account/repository interactions and multi-profile convergence                  | `remote.spec.ts`, `collaboration.spec.ts`              |
 | Browser adapter             | Shared CorePort corpus, IndexedDB restart, and remote outbox                        | `contracts/storage.spec.ts`                            |
 | Recovery                    | Injected save failures and durable retry                                            | `contracts/recovery.spec.ts`                           |
@@ -43,7 +44,8 @@ protocol evidence cannot substitute for a working user flow.
 
 Chromium is the browser gate. Product journeys run on the desktop configuration;
 the usability suite also runs on a phone viewport, in dark mode, and with reduced
-motion. Remote scenarios and browser contracts have their own projects and
+motion. The touch suite runs only on the phone, with a stand-in software keyboard
+that shortens the visible viewport while a text field holds focus. Remote scenarios and browser contracts have their own projects and
 fixtures.
 
 Accessibility and viewport checks use representative populated surfaces. They

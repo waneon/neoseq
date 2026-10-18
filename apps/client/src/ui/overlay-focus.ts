@@ -1,3 +1,5 @@
+import { isTouch } from "./input-modality";
+
 const keyboardInput = new WeakMap<Document, boolean>();
 
 /** Escape dismisses a layer without changing the input context that opened it. */
@@ -37,10 +39,47 @@ export function afterArrivals(task: () => void): void {
   setTimeout(task, 0);
 }
 
+/** A field that raises a phone's software keyboard when it takes focus. */
+export function isTextEntry(element: Element | null): boolean {
+  return (
+    element instanceof HTMLElement &&
+    (element.matches(
+      "textarea, input:not([type=checkbox], [type=radio], [type=range], [type=button], [type=submit], [type=color])",
+    ) ||
+      element.isContentEditable)
+  );
+}
+
+/**
+ * Sent, bubbling, to a text field whose caret a closing surface does not give
+ * back on touch, so the field's editor ends the edit rather than wait for it.
+ */
+export const CARET_RELEASED = "neoseq:caret-released";
+
+/**
+ * Where a surface puts focus as it opens. On touch a text field raises a
+ * keyboard over half the screen, so a surface that offers choices arrives on
+ * itself and its search field waits for a tap; `typing` is for a surface whose
+ * purpose is the text.
+ */
+export function arrivalFocus(
+  target: HTMLElement,
+  surface: HTMLElement,
+  typing = false,
+): HTMLElement {
+  return !typing && isTouch() && isTextEntry(target) ? surface : target;
+}
+
 /** Restore native focus and its appearance together, leaving text-entry cues to the browser. */
 export function focusOverlayOwner(owner: HTMLElement | null): void {
   if (!owner?.isConnected) return;
-  const textEntry = owner.matches("input, textarea") || owner.isContentEditable;
+  const textEntry = isTextEntry(owner);
+  // On touch the keyboard would rise again, unasked, for an edit the reader
+  // left when they opened the surface.
+  if (textEntry && isTouch()) {
+    owner.dispatchEvent(new Event(CARET_RELEASED, { bubbles: true }));
+    return;
+  }
   const options: FocusOptions & { focusVisible?: boolean } = {
     preventScroll: true,
     focusVisible: textEntry ? undefined : keyboardInput.get(owner.ownerDocument),

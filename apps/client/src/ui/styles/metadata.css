@@ -982,83 +982,61 @@ button.tag-mark:focus-visible {
   color: var(--accent);
 }
 
-@media (max-width: 600px) {
-  /* The panel's anchored coordinates are inline. On a compact viewport the
-     property editor becomes a sheet on the viewport's bottom edge instead. */
-  .property-picker,
-  .tag-picker {
-    position: fixed !important;
-    inset: auto 0 0 !important;
-    width: 100% !important;
-    min-width: 0 !important;
-    max-width: none !important;
-  }
+/* As a sheet (controls.css § .sheet) the editors trade columns for
+   tabs and grow their rows to touch size. */
+:root[data-phone] .property-picker-option,
+:root[data-phone] .property-picker-members > div {
+  min-height: var(--sp-7);
+}
 
-  .property-picker,
-  .tag-picker {
-    max-height: 70dvh;
-    padding-bottom: max(var(--sp-3), env(safe-area-inset-bottom));
-    border-radius: var(--r-4) var(--r-4) 0 0;
-  }
+:root[data-phone] .moment-mobile-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 3px;
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+}
 
-  .property-picker {
-    max-height: 80dvh !important;
-  }
+:root[data-phone] .moment-mobile-tabs button {
+  min-height: var(--sp-7);
+  padding: 0 var(--sp-2);
+  border: 0;
+  border-radius: calc(var(--r-2) - 2px);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
 
-  .property-picker-option,
-  .property-picker-members > div {
-    min-height: var(--sp-7);
-  }
+:root[data-phone] .moment-mobile-tabs button[aria-selected="true"] {
+  background: var(--raised);
+  box-shadow: var(--e1);
+  color: var(--ink);
+}
 
-  .moment-mobile-tabs {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    padding: 3px;
-    border-radius: var(--r-2);
-    background: var(--surface-2);
-  }
+:root[data-phone] .moment-mobile-tabs button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-inset);
+}
 
-  .moment-mobile-tabs button {
-    min-height: var(--sp-7);
-    padding: 0 var(--sp-2);
-    border: 0;
-    border-radius: calc(var(--r-2) - 2px);
-    background: transparent;
-    color: var(--ink-2);
-    font: inherit;
-    font-size: var(--text-xs);
-    cursor: pointer;
-  }
+:root[data-phone] .moment-picker-columns {
+  display: block;
+  min-height: 262px;
+}
 
-  .moment-mobile-tabs button[aria-selected="true"] {
-    background: var(--raised);
-    box-shadow: var(--e1);
-    color: var(--ink);
-  }
+:root[data-phone] .moment-picker[data-active-pane="date"] .moment-rules-pane,
+:root[data-phone] .moment-picker[data-active-pane="rules"] .moment-date-pane {
+  display: none;
+}
 
-  .moment-mobile-tabs button:focus-visible {
-    outline: none;
-    box-shadow: var(--focus-inset);
-  }
+:root[data-phone] .moment-date-pane,
+:root[data-phone] .moment-rules-pane {
+  height: 100%;
+}
 
-  .moment-picker-columns {
-    display: block;
-    min-height: 262px;
-  }
-
-  .moment-picker[data-active-pane="date"] .moment-rules-pane,
-  .moment-picker[data-active-pane="rules"] .moment-date-pane {
-    display: none;
-  }
-
-  .moment-date-pane,
-  .moment-rules-pane {
-    height: 100%;
-  }
-
-  .moment-rules-pane {
-    min-height: 262px;
-  }
+:root[data-phone] .moment-rules-pane {
+  min-height: 262px;
 }
 
 /* At rest, a non-empty bag is a strip of chips. An empty bag renders nothing. */

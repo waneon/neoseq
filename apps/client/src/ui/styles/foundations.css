@@ -517,3 +517,12 @@ h2 {
     --indent: 24px;
   }
 }
+
+/* iOS zooms the page into any field set below 16px as the field takes focus,
+   and a zoomed page freezes the keyboard-aware layout (ui/visual-viewport). On
+   touch every field is at least body size. The few set larger name themselves
+   here, since `1em` is the parent's size, not the field's own. */
+:root[data-touch]
+  :is(input, textarea, select, [contenteditable="true"]):not(.page-title, .tag-mark-field) {
+  font-size: max(16px, 1em);
+}

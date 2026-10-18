@@ -66,6 +66,7 @@ import {
 import { useNotify } from "../notify/context";
 import { useSession, useSessionSelector } from "../shell/session-context";
 import { useHistoryActions } from "../history/context";
+import { usePhone } from "@/ui/input-modality";
 import { useI18n } from "../../i18n";
 import { useDueTiers } from "../settings/preferences";
 import { useLatest, useStableCallback } from "../../lib/react";
@@ -182,7 +183,8 @@ function QueryPanelSurface({
   );
   const notify = useNotify();
   const history = useHistoryActions();
-  const { message, formatJournalDate, formatTimeOfDay, compare } = useI18n();
+  const { message, formatJournalDate, formatCompactDate, formatTimeOfDay, compare } = useI18n();
+  const phone = usePhone();
   const dueTiers = useDueTiers();
   const readonly = state.mode === "readonly";
   /** The question itself and the collection around its current view. */
@@ -446,7 +448,8 @@ function QueryPanelSurface({
     () => ({
       snapshot: state.snapshot,
       message,
-      formatDate: formatJournalDate,
+      // A phone's columns have room for the day, not the sentence.
+      formatDate: phone ? formatCompactDate : formatJournalDate,
       formatTime: formatTimeOfDay,
       compare,
       momentDue,
@@ -454,7 +457,17 @@ function QueryPanelSurface({
         history.open(entity);
       },
     }),
-    [state.snapshot, message, formatJournalDate, formatTimeOfDay, compare, momentDue, history],
+    [
+      state.snapshot,
+      message,
+      phone,
+      formatCompactDate,
+      formatJournalDate,
+      formatTimeOfDay,
+      compare,
+      momentDue,
+      history,
+    ],
   );
 
   const resultRows = useMemo(() => (select ? resultViewRows(select) : []), [select]);

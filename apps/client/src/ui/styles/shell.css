@@ -497,12 +497,6 @@
     width: 22px;
     height: 22px;
   }
-  .shell-main:has(.mobile-editor-toolbar) .mobile-navigation {
-    display: none;
-  }
-  .shell-main:has(.mobile-editor-toolbar) .shell-content {
-    padding-bottom: calc(60px + env(safe-area-inset-bottom));
-  }
   .shell-scrim {
     position: fixed;
     inset: 0;
@@ -512,6 +506,26 @@
     background: var(--scrim);
     animation: ns-fade-in var(--dur-overlay) var(--ease-out) both;
   }
+}
+
+/* On touch the shell is the visible viewport. iOS pans the page under its
+   keyboard to reveal a field rather than resizing it; following the pan keeps
+   the top bar on screen and the bottom edge on the keyboard. Fixed rather than
+   transformed, so the fixed surfaces inside still place against the window. */
+:root[data-touch] .shell {
+  position: fixed;
+  inset-inline: 0;
+  top: var(--visual-viewport-top, 0px);
+  height: var(--visual-viewport-height, 100dvh);
+}
+
+/* The touch editing toolbar (outline.css) takes the navigation's place and
+   reserves its own room, at any width a touch screen has. */
+.shell-main:has(.mobile-editor-toolbar) .mobile-navigation {
+  display: none;
+}
+.shell-main:has(.mobile-editor-toolbar) .shell-content {
+  padding-bottom: calc(60px + env(safe-area-inset-bottom));
 }
 
 @media (max-width: 600px) {

@@ -68,6 +68,8 @@ interface LocaleContextValue extends LocaleRuntime {
   readonly journalDateFormat: JournalDateFormat;
   /** A journal day in the chosen format; `iso` returns the stored value verbatim. */
   formatJournalDate(date: string): string;
+  /** The chosen format at its shortest, for a phone's chips and table cells. */
+  formatCompactDate(date: string): string;
 }
 
 function isLocalePreference(value: unknown): value is LocalePreference {
@@ -110,6 +112,28 @@ export function resolveLocale(
  * `Intl` options per journal date format, or `null` for ISO — the one choice that
  * is not a locale rendering at all but the stored value shown unchanged.
  */
+/**
+ * The chosen format with the long words cut and this year's number dropped:
+ * on a phone a chip or a cell has room for the day, not for a sentence.
+ */
+export function compactDateOptions(
+  format: JournalDateFormat,
+  date: string,
+): Intl.DateTimeFormatOptions | null {
+  const year = date.startsWith(`${new Date().getFullYear()}-`) ? {} : { year: "numeric" as const };
+  switch (format) {
+    case "full":
+      return { ...year, weekday: "short", month: "short", day: "numeric" };
+    case "long":
+    case "medium":
+      return { ...year, month: "short", day: "numeric" };
+    case "short":
+      return { ...year, month: "numeric", day: "numeric" };
+    case "iso":
+      return null;
+  }
+}
+
 export function journalDateOptions(format: JournalDateFormat): Intl.DateTimeFormatOptions | null {
   switch (format) {
     case "full":
@@ -249,6 +273,8 @@ const LocaleContext = createContext<LocaleContextValue>({
   setPreference: () => {},
   journalDateFormat: "full",
   formatJournalDate: (date) => defaultRuntime.formatLocalDate(date),
+  formatCompactDate: (date) =>
+    defaultRuntime.formatLocalDate(date, compactDateOptions("full", date) ?? undefined),
 });
 
 function applyDocumentLocale(runtime: LocaleRuntime): void {
@@ -313,6 +339,13 @@ export function LocaleProvider({
     },
     [journalDateFormat, runtime],
   );
+  const formatCompactDate = useCallback(
+    (date: string) => {
+      const options = compactDateOptions(journalDateFormat, date);
+      return options ? runtime.formatLocalDate(date, options) : date;
+    },
+    [journalDateFormat, runtime],
+  );
 
   const value = useMemo<LocaleContextValue>(
     () => ({
@@ -321,8 +354,9 @@ export function LocaleProvider({
       setPreference,
       journalDateFormat,
       formatJournalDate,
+      formatCompactDate,
     }),
-    [formatJournalDate, journalDateFormat, preference, runtime, setPreference],
+    [formatCompactDate, formatJournalDate, journalDateFormat, preference, runtime, setPreference],
   );
 
   // React Aria's own controls read the same locale for direction, collation

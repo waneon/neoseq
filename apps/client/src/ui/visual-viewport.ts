@@ -1,8 +1,25 @@
+/** How long the page keeps moving after the visible viewport resizes. */
+const SETTLE_MS = 500;
+let resizedAt = -Infinity;
+
+/**
+ * Whether the visible viewport resized just now. The keyboard opening or
+ * closing scrolls the page on its own, and a surface that closes on scroll must
+ * not read that as the reader moving on.
+ */
+export function viewportSettling(): boolean {
+  return performance.now() - resizedAt < SETTLE_MS;
+}
+
 /** Shared viewport geometry for the shell and portalled touch surfaces. */
 export function trackVisualViewport(window: Window): () => void {
   const viewport = window.visualViewport;
   if (!viewport) return () => {};
   const style = window.document.documentElement.style;
+  const resized = () => {
+    resizedAt = performance.now();
+    update();
+  };
   const update = () => {
     // Pinch zoom belongs to the reader; it must not reflow the application.
     if (viewport.scale !== 1) return;
@@ -17,13 +34,13 @@ export function trackVisualViewport(window: Window): () => void {
     );
   };
   update();
-  viewport.addEventListener("resize", update);
+  viewport.addEventListener("resize", resized);
   viewport.addEventListener("scroll", update);
-  window.addEventListener("resize", update);
+  window.addEventListener("resize", resized);
   return () => {
-    viewport.removeEventListener("resize", update);
+    viewport.removeEventListener("resize", resized);
     viewport.removeEventListener("scroll", update);
-    window.removeEventListener("resize", update);
+    window.removeEventListener("resize", resized);
     for (const name of ["height", "top", "bottom"]) {
       style.removeProperty(`--visual-viewport-${name}`);
     }

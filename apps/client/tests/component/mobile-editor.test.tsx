@@ -22,17 +22,17 @@ async function mountMobileOutline() {
   return { ...harness, page: () => findPage(harness.session.getState().snapshot, "home")! };
 }
 
-function compactLayout() {
+function touchInput() {
   const matchMedia = window.matchMedia.bind(window);
   return vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
     ...matchMedia(query),
-    matches: query === "(max-width: 840px)",
+    matches: query === "(pointer: coarse)",
   }));
 }
 
 describe("mobile outline writing", () => {
   it("keeps the native caret through structural taps and saves the last edit on Done", async () => {
-    const media = compactLayout();
+    const media = touchInput();
     try {
       const harness = await mountMobileOutline();
       const user = userEvent.setup();
@@ -66,7 +66,7 @@ describe("mobile outline writing", () => {
   });
 
   it("offers block actions by tap and a separate visible fold for parent rows", async () => {
-    const media = compactLayout();
+    const media = touchInput();
     try {
       const harness = await mountMobileOutline();
       await harness.settle(() => {

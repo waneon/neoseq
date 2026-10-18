@@ -47,13 +47,21 @@ committing; keyboard movement follows the same ordering rules.
 Touch swipes retain native scrolling and text selection; structural range and
 bullet dragging belong to mouse or pen gestures.
 
-Compact outlines use one touch target in the gutter: a visible fold control for
-parents and a block-actions mark for leaves. The target overhangs its row, so rows keep a
-reading rhythm only slightly looser than wrapped lines. While writing, an accessory above
-the keyboard provides Outdent, Indent, Block actions, and Done. Structural actions
-preserve the native caret; Done saves the draft and returns to reading and global
-navigation. These controls use the same outline actions and editing session as
-keyboard input. Narrower indentation preserves room for nested writing.
+Touch outlines use one touch target in the gutter: a tap folds a parent and opens
+a leaf's block actions, and a long press opens the block actions on any row. The
+target overhangs its row, so rows keep a reading rhythm only slightly looser than
+wrapped lines. While writing, an accessory above the keyboard provides Outdent,
+Indent, Block actions, and Done. Structural actions preserve the native caret;
+Done saves the draft and returns to reading and global navigation. These controls
+use the same outline actions and editing session as keyboard input. Narrower
+indentation preserves room for nested writing.
+
+On touch an edit lasts as long as its caret. Opening a menu or picker puts the
+keyboard away, and closing it ends the edit instead of raising the keyboard
+again; only a tap on text, or an action that creates a line to write in, raises
+it. A tap below the writing while editing puts the keyboard away rather than
+adding a line. The row being written stays mounted while it scrolls out of view,
+so scrolling never drops its caret.
 
 ## Beginning and Continuing
 

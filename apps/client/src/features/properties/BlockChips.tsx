@@ -35,6 +35,7 @@ import {
   timeKeyFor,
   type TaskDateKey,
 } from "../../entities/tasks";
+import { usePhone } from "@/ui/input-modality";
 import { useI18n } from "../../i18n";
 import { useSessionSelector } from "../shell/session-context";
 import { useDueTiers } from "../settings/preferences";
@@ -56,7 +57,9 @@ export function BlockChips({
 }) {
   // Chips name pages, so only a change to the graph's headers repaints them.
   const snapshot = useSessionSelector((state) => state.snapshot, sameHeaders);
-  const { message, formatJournalDate, formatTimeOfDay } = useI18n();
+  const { message, formatJournalDate, formatCompactDate, formatTimeOfDay } = useI18n();
+  // A chip on a phone names the day, so it fits beside the line it belongs to.
+  const formatMomentDate = usePhone() ? formatCompactDate : formatJournalDate;
   const tiers = useDueTiers();
   const status = stringValue(block.properties, TASK_STATUS_KEY);
   const scheduled = dateValue(block.properties, TASK_SCHEDULED_KEY);
@@ -118,7 +121,7 @@ export function BlockChips({
       due: taskMomentDue({ date, time, settled, today, now, tiers }),
       repeating: repeat !== null,
       message,
-      formatDate: formatJournalDate,
+      formatDate: formatMomentDate,
       formatTime: formatTimeOfDay,
     });
     return (

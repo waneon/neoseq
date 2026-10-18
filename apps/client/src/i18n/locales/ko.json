@@ -260,6 +260,7 @@
   "outline.writingHint": "/ 로 명령을 열고, [[ 로 페이지를 연결하세요.",
   "outline.addFirstBlock": "여기서 기록을 시작하세요…",
   "outline.blockActions": "블록 작업",
+  "outline.longPressForActions": "길게 눌러 블록 작업 열기",
   "outline.blockText": "블록 텍스트",
   "outline.blocks": "블록",
   "outline.clearSelection": "선택 해제",

@@ -30,7 +30,8 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
+import { mergeProps, useLongPress, usePress } from "react-aria";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
@@ -146,7 +147,12 @@ import { hasMarkdownSyntax } from "../markdown/profile";
 import { BlockBody, BlockRowFrame } from "../blocks/BlockPresentation";
 import { BlockTextArea } from "../blocks/editor/BlockTextArea";
 import { useTextAreaSize } from "@/ui/textarea-size";
-import { restoreOverlayFocus } from "@/ui/overlay-focus";
+import {
+  CARET_RELEASED,
+  focusOverlayOwner,
+  isTextEntry,
+  restoreOverlayFocus,
+} from "@/ui/overlay-focus";
 import {
   caretForVerticalEntry,
   normalCaretAfterEdit,
@@ -213,7 +219,8 @@ import { buildSlashItems, filterSlashItems, type SlashItem } from "../blocks/edi
 import { createQueryCommand } from "../query/commands";
 import { preparePageCompletion } from "../blocks/editor/completion-edit";
 import { MobileEditorToolbar } from "./MobileEditorToolbar";
-import { useCompactLayout } from "@/ui/use-compact-layout";
+import { isTouch, useTouch } from "@/ui/input-modality";
+import { holdKeyboard } from "@/ui/keyboard-bridge";
 
 const EMPTY_PROJECTION: InlineContentProjection = { markdown: "", pageReferences: [] };
 const FLUSH_DEBOUNCE_MS = 400;
@@ -337,6 +344,8 @@ interface EditorContext {
   ): void;
   /** Drops the caret when focus genuinely left this row. See `releaseFocus`. */
   releaseFocus(id: string): void;
+  /** Ends this row's edit now: on touch a caret a menu took does not come back. */
+  endEdit(id: string): void;
   publishSelection(blockId: string, textarea: HTMLTextAreaElement): void;
   takeTreeFocus(): void;
   /** Drops the caret and selects exactly this block (⌘A past the text). */
@@ -1084,22 +1093,33 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
    * it — that is how the caret is still there on return — so the same test that
    * asks "is focus still in this row?" answers this too.
    */
+  const endEdit = useCallback(
+    (id: string) => {
+      if (focusedRef.current !== id) return;
+      dispatchDraft({ type: "clear-auto-closers", ids: [id] });
+      setFocusedId(null);
+      revealNavigationTarget(null);
+    },
+    [dispatchDraft, revealNavigationTarget],
+  );
+
   const releaseFocus = useCallback(
     (id: string) => {
       requestAnimationFrame(() => {
         if (focusedRef.current !== id) return;
         const active = document.activeElement;
         if (active instanceof Element) {
-          if (active.closest(`[data-block-id="${cssEscape(id)}"]`)) return;
+          // On touch an edit is its keyboard: a control elsewhere in the row
+          // took the caret away, and nothing will hand it back.
+          const inRow = active.closest(`[data-block-id="${cssEscape(id)}"]`);
+          if (inRow && !(isTouch() && !isTextEntry(active))) return;
           if (active.closest(`[data-block-toolbar-for="${cssEscape(id)}"]`)) return;
           if (active.closest(FLOATING_OVERLAY_SELECTOR)) return;
         }
-        dispatchDraft({ type: "clear-auto-closers", ids: [id] });
-        setFocusedId(null);
-        revealNavigationTarget(null);
+        endEdit(id);
       });
     },
-    [dispatchDraft, revealNavigationTarget],
+    [endEdit],
   );
 
   /**
@@ -2417,6 +2437,7 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
     openLanguage: setLanguageFor,
     activateBlock,
     releaseFocus,
+    endEdit,
     publishSelection,
     takeTreeFocus,
     selectOnly: (row) => {
@@ -3037,7 +3058,8 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
           },
           message("failure.deleteBlock"),
         ).then(() => {
-          activateBlock(previous, undefined, "programmatic");
+          // On touch, entering the row above would raise the keyboard unasked.
+          if (!isTouch()) activateBlock(previous, undefined, "programmatic");
         });
       },
       // One user gesture crosses the core boundary as one command. The core
@@ -3170,6 +3192,9 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
   // Rows are placed only once the outline knows where it sits in the scroller:
   // placed at a guessed margin, they would read as above the reader and every
   // measurement would pull the scroll position.
+  const focusedIndexRef = useRef(-1);
+  focusedIndexRef.current =
+    focusedId === null ? -1 : rows.findIndex((row) => row.block.id === focusedId);
   const virtualizer = useVirtualizer({
     enabled: scrollElement === null || scrollMargin !== null,
     count: rows.length,
@@ -3185,6 +3210,14 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
     // real browsers.
     initialRect: { width: 800, height: 600 },
     getItemKey: (index) => rows[index].block.id,
+    // The row being edited stays mounted while it scrolls away: unmounting its
+    // textarea would drop the caret, and on a phone the keyboard with it.
+    rangeExtractor: (range) => {
+      const indexes = defaultRangeExtractor(range);
+      const editing = focusedIndexRef.current;
+      if (editing < 0 || editing >= range.count || indexes.includes(editing)) return indexes;
+      return [...indexes, editing].sort((left, right) => left - right);
+    },
   });
 
   const revealHistoryTarget = useCallback((request: HistoryRevealRequest) => {
@@ -3361,9 +3394,36 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
   // outermost first. Each rendered row derives its own count from this, so nothing
   // walks the whole list. See designs/outliner.md § Structural Thread.
   const ancestors = ancestorPath(rows, focusedId);
-  const compactLayout = useCompactLayout();
+  const touch = useTouch();
+  const appendEndsEdit = useRef(false);
   const editingRow =
-    compactLayout && !readonly ? rows.find((row) => row.block.id === focusedId) : undefined;
+    touch && !readonly ? rows.find((row) => row.block.id === focusedId) : undefined;
+
+  // On touch an edit lasts as long as its caret. A surface that will not give
+  // the caret back says so, and focus arriving on another control in the row —
+  // the status mark a menu returns to — has taken it as well.
+  useEffect(() => {
+    const section = sectionRef.current;
+    if (!section || !touch) return;
+    const rowOf = (target: EventTarget | null) =>
+      target instanceof Element
+        ? target.closest<HTMLElement>("[data-block-id]")?.dataset.blockId
+        : undefined;
+    const released = (event: Event) => {
+      const id = rowOf(event.target);
+      if (id) releaseFocus(id);
+    };
+    const arrived = (event: FocusEvent) => {
+      const id = rowOf(event.target);
+      if (id && !isTextEntry(event.target as Element)) releaseFocus(id);
+    };
+    section.addEventListener(CARET_RELEASED, released);
+    section.addEventListener("focusin", arrived);
+    return () => {
+      section.removeEventListener(CARET_RELEASED, released);
+      section.removeEventListener("focusin", arrived);
+    };
+  }, [releaseFocus, touch]);
 
   /** The bare keys a selection answers to. They only reach here while the tree
    * itself holds focus, which is exactly when no text field can lose them. */
@@ -3444,7 +3504,9 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
               `[data-block-id="${cssEscape(blockId)}"] textarea`,
             )
           : null;
-      if (anchor instanceof HTMLTextAreaElement) {
+      if (anchor instanceof HTMLTextAreaElement && isTouch()) {
+        focusOverlayOwner(anchor);
+      } else if (anchor instanceof HTMLTextAreaElement) {
         keepingPageStill(anchor, () => {
           anchor.focus({ preventScroll: true });
           if (selection) anchor.setSelectionRange(selection.start, selection.end);
@@ -3458,9 +3520,7 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
   const closeTagPicker = () => {
     const anchor = tagRequest?.anchor?.owner;
     setTagRequest(null);
-    requestAnimationFrame(() => {
-      if (anchor?.isConnected) anchor.focus({ preventScroll: true });
-    });
+    requestAnimationFrame(() => focusOverlayOwner(anchor ?? null));
   };
 
   return (
@@ -3496,6 +3556,7 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
               editor.dismissTransient();
               return;
             }
+            if (touch) holdKeyboard();
             editor.insertRootBlock(0, "pointer");
           }}
           disabled={readonly}
@@ -3558,7 +3619,7 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
                 <MemoBlockRow
                   row={row}
                   actions={editorRef}
-                  compactLayout={compactLayout}
+                  touch={touch}
                   retainSource={pressedSourceId === row.block.id}
                   {...blockRowProps(editor, row)}
                   content={contentSessionsFor(session).target(owner, row.block.id)}
@@ -3590,7 +3651,18 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
         <button
           className="outline-append"
           disabled={readonly}
+          onPointerDown={() => {
+            appendEndsEdit.current = touch && focusedId !== null;
+          }}
           onClick={() => {
+            // On touch, empty space under an edit is where a thumb goes to put
+            // the keyboard away, not a request for another block.
+            if (appendEndsEdit.current) {
+              appendEndsEdit.current = false;
+              const active = document.activeElement;
+              if (active instanceof HTMLElement) active.blur();
+              return;
+            }
             // The empty space under the writing is the one target in the product
             // that is both "make a block" and "the nearest place with nothing on
             // it", and the second reading has to win: dismissing a menu by
@@ -3601,6 +3673,7 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
               editor.dismissTransient();
               return;
             }
+            if (touch) holdKeyboard();
             editor.insertRootBlock(outline.blocks.length, "pointer");
           }}
           aria-label={message("outline.addBlock")}
@@ -3687,6 +3760,9 @@ function OutlinerView({ owner: ownerProp, blocks, scrollElement }: OutlinerProps
           }}
           onMenu={(trigger) => {
             if (composing.current) return;
+            // The menu is a choice, not typing: the keyboard goes down now, and
+            // the menu returns focus here rather than raising it again.
+            trigger.focus({ preventScroll: true });
             const textarea = viewportRef.current?.querySelector<HTMLTextAreaElement>(
               `#row-${CSS.escape(editingRow.block.id)} textarea`,
             );
@@ -4682,7 +4758,8 @@ type BlockRowActions = Pick<
 >;
 
 interface BlockRowProps {
-  compactLayout: boolean;
+  /** A coarse pointer: the touch handle replaces the fold and bullet. */
+  touch: boolean;
   content: BlockContentSession;
   directory: readonly PageDirectoryEntry[];
   projection?: InlineContentProjection;
@@ -4722,7 +4799,7 @@ function blockRowProps(
   | "directory"
   | "projection"
   | "retainSource"
-  | "compactLayout"
+  | "touch"
 > {
   const focused = editor.focusedId === row.block.id;
   const slash = editor.slashRequest?.blockId === row.block.id;
@@ -4767,7 +4844,7 @@ function blockRowProps(
 }
 
 function BlockRow({
-  compactLayout,
+  touch,
   row,
   actions,
   lit,
@@ -4813,6 +4890,10 @@ function BlockRow({
     if (!isFocused) return;
     const textarea = textareaRef.current;
     if (!textarea || document.activeElement === textarea) return;
+    // On touch the caret never goes back to a field the reader left for a menu
+    // or picker (overlay-focus § focusOverlayOwner), so a row remounted under
+    // one — moved by the menu's own action — must not take it either.
+    if (isTouch() && document.activeElement?.closest(FLOATING_OVERLAY_SELECTOR)) return;
     // `preventScroll`, like every other focus call in this file. A block carrying
     // a long body or a query result is routinely taller than the window, and the
     // browser's own "reveal the focused element" — followed here by a
@@ -4991,7 +5072,7 @@ function BlockRow({
       }
       gutter={
         <>
-          {!compactLayout && (
+          {!touch && (
             <>
               <button
                 className="outline-toggle"
@@ -5026,32 +5107,18 @@ function BlockRow({
               />
             </>
           )}
-          {compactLayout && (
-            <button
-              className="outline-touch-handle"
-              data-testid="mobile-block-handle"
-              tabIndex={-1}
-              aria-label={
-                row.hasChildren
-                  ? message(row.collapsed ? "outline.expand" : "outline.collapse")
-                  : message("outline.blockActions")
-              }
-              aria-expanded={row.hasChildren ? !row.collapsed : undefined}
-              aria-haspopup={row.hasChildren ? undefined : "menu"}
+          {touch && (
+            <TouchHandle
+              row={row}
               disabled={pending}
-              onClick={(event) => {
-                if (row.hasChildren) {
-                  actions.current.toggleCollapse(row.block.id);
-                } else {
-                  actions.current.openMenu(row.block.id, {
-                    geometry: { kind: "element", element: event.currentTarget },
-                    owner: textareaRef.current,
-                  });
-                }
-              }}
-            >
-              {row.hasChildren ? <ChevronDownIcon aria-hidden /> : <span aria-hidden />}
-            </button>
+              onToggle={() => actions.current.toggleCollapse(row.block.id)}
+              onMenu={(element) =>
+                actions.current.openMenu(row.block.id, {
+                  geometry: { kind: "element", element },
+                  owner: textareaRef.current,
+                })
+              }
+            />
           )}
         </>
       }
@@ -5151,6 +5218,56 @@ function BlockRow({
 const MemoBlockRow = memo(BlockRow);
 
 /** The one contextual menu owned by an outline, positioned at its active row. */
+/**
+ * The gutter's one touch target. A tap folds a parent and opens a leaf's menu;
+ * a long press opens the menu on any row, so a parent's menu needs no editing
+ * session and iOS, which never reports a long press as a context menu, has one.
+ */
+function TouchHandle({
+  row,
+  disabled,
+  onToggle,
+  onMenu,
+}: {
+  row: OutlineRow;
+  disabled: boolean;
+  onToggle: () => void;
+  onMenu: (element: HTMLElement) => void;
+}) {
+  const { message } = useI18n();
+  const { pressProps } = usePress({
+    isDisabled: disabled,
+    onPress: (event) => {
+      if (row.hasChildren) onToggle();
+      else onMenu(event.target as HTMLElement);
+    },
+  });
+  const { longPressProps } = useLongPress({
+    isDisabled: disabled,
+    accessibilityDescription: message("outline.longPressForActions"),
+    onLongPress: (event) => onMenu(event.target as HTMLElement),
+  });
+  return (
+    <button
+      {...mergeProps(pressProps, longPressProps)}
+      type="button"
+      className="outline-touch-handle"
+      data-testid="mobile-block-handle"
+      tabIndex={-1}
+      aria-label={
+        row.hasChildren
+          ? message(row.collapsed ? "outline.expand" : "outline.collapse")
+          : message("outline.blockActions")
+      }
+      aria-expanded={row.hasChildren ? !row.collapsed : undefined}
+      aria-haspopup={row.hasChildren ? undefined : "menu"}
+      disabled={disabled}
+    >
+      {row.hasChildren ? <ChevronDownIcon aria-hidden /> : <span aria-hidden />}
+    </button>
+  );
+}
+
 function BlockMenu({
   row,
   rows,
@@ -5165,7 +5282,10 @@ function BlockMenu({
   const { message } = useI18n();
   const selected = editor.covered.has(row.block.id);
   const selectionCount = editor.selectionCount;
-  const rect = measureAnchor(editor.menuAnchor);
+  const geometry = editor.menuAnchor?.geometry;
+  // A control keeps its live box: the toolbar it sits in drops with the
+  // keyboard as the menu takes focus. A point stays where it was pressed.
+  const rect = geometry?.kind === "element" ? null : measureAnchor(editor.menuAnchor);
   const focusOwner = editor.menuAnchor?.owner;
   const textarea = () =>
     focusOwner instanceof HTMLTextAreaElement
@@ -5174,7 +5294,9 @@ function BlockMenu({
 
   return (
     <PointMenu
-      at={{ x: rect?.left ?? 0, y: rect?.top ?? 0 }}
+      at={
+        geometry?.kind === "element" ? geometry.element : { x: rect?.left ?? 0, y: rect?.top ?? 0 }
+      }
       label={message("outline.blockActions")}
       owner={textarea}
       onClose={() => editor.openMenu(null)}
@@ -5184,6 +5306,16 @@ function BlockMenu({
           return;
         }
         if (editor.focusedId !== null && editor.focusedId !== row.block.id) return;
+        // On touch the edit the menu interrupted is over (overlay-focus §
+        // focusOverlayOwner), unless an action handed focus on: to another
+        // field, or to a picker, which ends the edit itself when it closes.
+        if (isTouch()) {
+          const active = document.activeElement;
+          if (!isTextEntry(active) && !active?.closest(FLOATING_OVERLAY_SELECTOR)) {
+            editor.endEdit(row.block.id);
+          }
+          return;
+        }
         restoreOverlayFocus(null, textarea());
       }}
     >
@@ -5278,7 +5410,13 @@ function BlockMenu({
             </>
           )}
           <DropdownMenuSeparator />
-          <DropdownMenuItem disabled={editor.readonly} onSelect={() => editor.menu.addChild(row)}>
+          <DropdownMenuItem
+            disabled={editor.readonly}
+            onSelect={() => {
+              if (isTouch()) holdKeyboard();
+              editor.menu.addChild(row);
+            }}
+          >
             <CornerDownRightIcon aria-hidden />
             {message("outline.addChild")}
           </DropdownMenuItem>

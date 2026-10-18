@@ -27,6 +27,7 @@
 import { CheckIcon, ChevronDownIcon } from "lucide-react";
 import { Button, ListBox, ListBoxItem, Popover, Select, SelectValue } from "react-aria-components";
 import { cn } from "@/lib/utils";
+import { usePhone } from "@/ui/input-modality";
 import { LAYER_STYLE } from "@/ui/overlay-root";
 
 export interface MenuSelectOption {
@@ -56,6 +57,7 @@ export function MenuSelect({
   testId?: string;
 }) {
   const selected = options.find((option) => option.value === value);
+  const sheet = usePhone();
   return (
     <Select
       aria-label={label}
@@ -71,7 +73,7 @@ export function MenuSelect({
         <ChevronDownIcon aria-hidden />
       </Button>
       <Popover
-        className="menu-surface menu-select-menu enter-fade-fast"
+        className={cn("menu-surface menu-select-menu", sheet ? "sheet" : "enter-fade-fast")}
         style={LAYER_STYLE}
         placement="bottom start"
         offset={6}

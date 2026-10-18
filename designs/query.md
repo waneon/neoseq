@@ -117,7 +117,9 @@ incompatible active editor until the edit closes; its visible values keep their
 original meaning throughout. An active row remains available if its edit makes
 it stop matching, and leaves after the editor closes.
 
-Tables initially share available width. Once the reader resizes a column, all
+Tables initially share available width. On a phone each column instead keeps a
+natural width for what it holds, and the table scrolls sideways; dates use the
+journal format at its shortest. Once the reader resizes a column, all
 visible columns adopt the geometry already on screen before the drag continues,
 so the first movement causes no jump. Saved view data owns its query fields,
 layout, sort, column order, visibility, and explicit widths.

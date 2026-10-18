@@ -20,6 +20,7 @@ import { Button } from "@/ui/shadcn/button";
 import { Input } from "@/ui/shadcn/input";
 import { DateCalendar } from "@/ui/DateCalendar";
 import { MenuSelect } from "@/ui/menu-select";
+import { useTouch } from "@/ui/input-modality";
 
 interface TaskMomentPickerProps {
   date: string;
@@ -56,6 +57,7 @@ export function TaskMomentPicker({
   onCancel,
 }: TaskMomentPickerProps) {
   const { message, formatJournalDate, formatTimeOfDay, temporal } = useI18n();
+  const touch = useTouch();
   const today = todayLocalDate();
   const [date, setDate] = useState(initialDate);
   const [focusedDate, setFocusedDate] = useState(() => parseDate(initialDate));
@@ -187,7 +189,8 @@ export function TaskMomentPicker({
                 <SearchIcon aria-hidden />
                 <Input
                   className="!ps-10"
-                  autoFocus
+                  // The calendar is the touch control; typing waits for a tap.
+                  autoFocus={!touch}
                   role="combobox"
                   aria-autocomplete="list"
                   aria-expanded={Boolean(parsed)}

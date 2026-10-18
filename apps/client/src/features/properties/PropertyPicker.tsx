@@ -57,6 +57,7 @@ import {
 } from "../../entities/tasks";
 import type { Anchor } from "@/ui/anchored";
 import { AnchoredPanel } from "@/ui/anchored-panel";
+import { isTouch, useTouch } from "@/ui/input-modality";
 import { Button } from "@/ui/shadcn/button";
 import { Input } from "@/ui/shadcn/input";
 import {
@@ -141,6 +142,7 @@ export function PropertyPicker({
   );
   const notify = useNotify();
   const { message, compare } = useI18n();
+  const touch = useTouch();
   const readonly = state.mode === "readonly";
   const initial = initialKey?.trim() || null;
   const [stage, setStage] = useState<PickerStage>(() => initialStage(initial, target.bag));
@@ -193,8 +195,10 @@ export function PropertyPicker({
   }, [anchor, initial, target.bag]);
 
   useEffect(() => {
+    // On touch, a list of choices waits for a tap rather than raising the
+    // keyboard over itself; only a field that is typed into takes focus.
     if (stage.kind === "property") {
-      searchRef.current?.focus({ preventScroll: true });
+      if (!isTouch()) searchRef.current?.focus({ preventScroll: true });
       return;
     }
     if (stage.kind === "type") {
@@ -202,6 +206,10 @@ export function PropertyPicker({
       return;
     }
     if (panelRef.current?.contains(document.activeElement)) return;
+    if (isTouch()) {
+      panelRef.current?.focus({ preventScroll: true });
+      return;
+    }
     // Choice-only value editors have no autofocus input. The new stage owns
     // focus immediately; closing menus preserve that explicit transfer.
     panelRef.current
@@ -617,7 +625,7 @@ export function PropertyPicker({
                 <AriaInput
                   render={(props) => <Input {...props} className="h-9 ps-8" />}
                   ref={searchRef}
-                  autoFocus
+                  autoFocus={!touch}
                   placeholder={message("properties.searchPlaceholder")}
                 />
               </SearchField>
@@ -982,12 +990,13 @@ function ValueInput({
   onPageCreated: () => void;
 }) {
   const { message } = useI18n();
+  const touch = useTouch();
   const label = message("properties.value", { key: propertyDisplayName(entryKey, message) });
   if (type === "page") {
     if (readonly) return <Input aria-label={label} value={String(value.value)} readOnly />;
     return (
       <PageAutocomplete
-        autoFocus
+        autoFocus={!touch}
         placeholder={message("properties.pickPage")}
         allowCreate
         onPick={(id) => onCommit({ type: "page", value: id })}
@@ -1130,6 +1139,7 @@ function DateValueInput({
   onCommit: (value: PropertyValue) => void;
 }) {
   const { message, temporal, formatJournalDate } = useI18n();
+  const touch = useTouch();
   const [text, setText] = useState("");
   const today = todayLocalDate();
   const parsedResult = text.trim()
@@ -1160,7 +1170,7 @@ function DateValueInput({
         <SearchField aria-label={message("properties.dateText")} isReadOnly={readonly}>
           <AriaInput
             render={(props) => <Input {...props} />}
-            autoFocus
+            autoFocus={!touch}
             placeholder={message("properties.datePlaceholder")}
           />
         </SearchField>

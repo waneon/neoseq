@@ -112,6 +112,38 @@ test("native clipboard paste is one history step and a split merges without losi
   await app.expectOutline(["One", "Nested", "Three"]);
 });
 
+test("the row being written keeps its caret while it scrolls out of view", async ({
+  app,
+  page,
+  context,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await app.createGraph("Scrolled caret");
+  await app.startBlock("");
+  await page.evaluate(() =>
+    navigator.clipboard.writeText(
+      Array.from({ length: 120 }, (_, i) => `- Line ${String(i).padStart(3, "0")}`).join("\n"),
+    ),
+  );
+  await app.saved(() => app.editors.first().press("ControlOrMeta+v"));
+  const scroller = page.locator(".page-scroll");
+  await scroller.evaluate((node) => (node.scrollTop = 0));
+  await app.settled();
+  const first = app.rows.first().getByRole("textbox", { name: "Block text", exact: true });
+  await expect(first).toHaveValue("Line 000");
+  await first.click();
+  await first.press("End");
+  for (let step = 0; step < 8; step += 1) {
+    await scroller.hover({ position: { x: 20, y: 160 } });
+    await page.mouse.wheel(0, 900);
+  }
+  await expect(first).not.toBeInViewport();
+  // The caret was never dropped, so typing still writes where it was left.
+  await expect(first).toBeFocused();
+  await app.saved(() => page.keyboard.type(" kept"));
+  await expect(first).toHaveValue("Line 000 kept");
+});
+
 test("a long pasted outline exposes editable rows beyond the initial viewport", async ({
   app,
   page,
@@ -129,7 +161,9 @@ test("a long pasted outline exposes editable rows beyond the initial viewport", 
     for (let step = 0; step < 12; step += 1) {
       const before = await edge.inputValue();
       if (before === text) {
-        await edge.scrollIntoViewIfNeeded();
+        // The row holding the caret stays mounted wherever it is, so the edge
+        // can be found before the window reaches it; bring it in natively.
+        await edge.evaluate((node) => node.scrollIntoView({ block: "nearest" }));
         await expect(edge).toBeInViewport();
         return;
       }

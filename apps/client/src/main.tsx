@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./app/App";
 import { applyInitialDocumentLocale } from "./i18n";
+import { trackInputModality } from "./ui/input-modality";
 import { trackOverlayFocusInput } from "./ui/overlay-focus";
 import { trackVisualViewport } from "./ui/visual-viewport";
 import faviconUrl from "../../../assets/brand/symbol.svg?url&no-inline";
@@ -13,10 +14,12 @@ document.querySelector<HTMLLinkElement>('link[rel="icon"]')!.href = faviconUrl;
 applyInitialDocumentLocale();
 const stopTrackingFocus = trackOverlayFocusInput(document);
 const stopTrackingViewport = trackVisualViewport(window);
+const stopTrackingModality = trackInputModality(window);
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     stopTrackingFocus();
     stopTrackingViewport();
+    stopTrackingModality();
   });
 }
 

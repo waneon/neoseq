@@ -19,6 +19,7 @@ import { CheckIcon } from "lucide-react";
 import { useInteractOutside } from "react-aria";
 
 import { cn } from "@/lib/utils";
+import { usePhone, useTouch } from "@/ui/input-modality";
 import { LAYER_STYLE } from "@/ui/overlay-root";
 import { afterArrivals, menuOwnerRef, restoreOverlayFocus } from "@/ui/overlay-focus";
 
@@ -99,23 +100,28 @@ function MenuSurface({
   const surface = React.useRef<HTMLElement>(null);
   const state = React.useContext(OverlayTriggerStateContext);
   const dismiss = () => (onOpenChange ? onOpenChange(false) : state?.close());
+  // A sheet covers the page's lower half, so a press beside it only dismisses.
+  const sheet = usePhone();
+  const nonModal = !modal && !sheet;
+  // A highlighted first row is a keyboard's place; under a finger it reads as chosen.
+  const touch = useTouch();
   return (
     <Popover
       ref={surface}
-      className={cn("menu-surface enter-fade-fast", className)}
+      className={cn("menu-surface", sheet ? "sheet" : "enter-fade-fast", className)}
       style={LAYER_STYLE}
       placement={placement}
       offset={offset}
-      isNonModal={!modal}
+      isNonModal={nonModal}
       triggerRef={triggerRef}
       isOpen={isOpen}
       onOpenChange={onOpenChange}
     >
       {onClosed && <ClosedHook onClosed={onClosed} />}
-      {!modal && <OutsideDismiss surface={surface} onDismiss={dismiss} />}
+      {nonModal && <OutsideDismiss surface={surface} onDismiss={dismiss} />}
       <Menu
         ref={menuRef}
-        autoFocus={autoFocus ? "first" : undefined}
+        autoFocus={autoFocus ? (touch ? true : "first") : undefined}
         className="menu-list"
         aria-label={label}
         data-testid={testId}
@@ -205,7 +211,8 @@ function PointMenu({
   onClosed = () => restoreOverlayFocus(null, owner()),
   children,
 }: {
-  at: { x: number; y: number } | null;
+  /** A point, or a control whose live box follows layout changes such as the keyboard closing. */
+  at: { x: number; y: number } | HTMLElement | null;
   label: string;
   /** Where focus belongs once the menu is gone, and the owner of any dialog it opens. */
   owner: () => HTMLElement | null;
@@ -214,20 +221,23 @@ function PointMenu({
   children: React.ReactNode;
 }) {
   const anchor = React.useRef<HTMLSpanElement>(null);
+  const element = at instanceof HTMLElement ? at : null;
+  const point = at instanceof HTMLElement ? null : at;
+  const control = React.useMemo(() => ({ current: element }), [element]);
   return (
     <>
       <span
         ref={anchor}
         className="menu-anchor"
         aria-hidden
-        style={{ left: at?.x ?? 0, top: at?.y ?? 0 }}
+        style={{ left: point?.x ?? 0, top: point?.y ?? 0 }}
       />
       <MenuSurface
         placement="bottom start"
         offset={6}
         label={label}
         modal={false}
-        triggerRef={anchor}
+        triggerRef={element ? control : anchor}
         isOpen={at !== null}
         onOpenChange={(open) => {
           if (!open) onClose();
@@ -392,7 +402,7 @@ function DropdownMenuSeparator() {
  * § .kbd); this element contributes position only.
  */
 function DropdownMenuShortcut({ className, ...props }: React.ComponentProps<"span">) {
-  return <span className={cn("ml-auto flex items-center pl-4", className)} {...props} />;
+  return <span className={cn("menu-shortcut", className)} {...props} />;
 }
 
 export {

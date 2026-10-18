@@ -57,13 +57,13 @@ export default defineConfig({
     {
       name: "desktop",
       testDir: "./tests/e2e",
-      testIgnore: /(?:collaboration|remote)\.spec\.ts/,
+      testIgnore: /(?:collaboration|remote|touch)\.spec\.ts/,
       use: { ...devices["Desktop Chrome"] },
     },
     {
       name: "mobile",
       testDir: "./tests/e2e",
-      testMatch: "usability.spec.ts",
+      testMatch: /(?:usability|touch)\.spec\.ts/,
       use: { ...devices["Pixel 7"] },
     },
     {

@@ -21,6 +21,8 @@ import type { MarkdownActivationMethod } from "../blocks/editor/activation";
 import type { PageReferenceSpan } from "../../core-port/snapshot";
 import { graphPath } from "../graphs/routing";
 import { LOCAL_REPOSITORY_ID } from "../repositories/directory";
+import { isTouch } from "@/ui/input-modality";
+import { isTextEntry } from "@/ui/overlay-focus";
 
 export type MarkdownVariant = "block" | "compact";
 export type { MarkdownActivationMethod } from "../blocks/editor/activation";
@@ -220,10 +222,20 @@ function BlockMarkdownView({
   const pageReferencePrefix = `${PAGE_REFERENCE_HREF}${encodeURIComponent(useId())}:`;
   const pressOrigin = useRef<{ x: number; y: number } | null>(null);
   const pointerFocus = useRef(false);
+  const pressClearsSelection = useRef(false);
 
   const beginPress = (event: PointerEvent<HTMLElement>) => {
     pointerFocus.current = true;
     pressOrigin.current = { x: event.clientX, y: event.clientY };
+    // A tap that dismisses a text selection has collapsed it by the time its
+    // click arrives, so the selection is read as the press begins.
+    pressClearsSelection.current = !(window.getSelection()?.isCollapsed ?? true);
+    // Moving from one block's editor to this one: on touch, focus passing
+    // through the projection would put the keyboard away only to raise it
+    // again. It stays in the field until the click hands it on.
+    if (event.pointerType === "touch" && isTouch() && isTextEntry(document.activeElement)) {
+      event.preventDefault();
+    }
   };
 
   const endPress = () => {
@@ -238,7 +250,18 @@ function BlockMarkdownView({
   const activate = (event: MouseEvent<HTMLElement>) => {
     if (!onActivate || event.defaultPrevented || event.button !== 0) return;
     const target = event.target;
-    if (target instanceof Element && target.closest("a, button, input")) return;
+    // A blocked link and an inert image still look like content to press; a
+    // press on them is not a request to edit around them.
+    if (
+      target instanceof Element &&
+      target.closest("a, button, input, .markdown-image-alt, .markdown-link-blocked")
+    ) {
+      return;
+    }
+    if (pressClearsSelection.current) {
+      pressClearsSelection.current = false;
+      return;
+    }
     // A press that travelled was a drag, and in this outline a drag over quiet
     // writing surface already means something: a text selection, or the block
     // range selection that crossing a row starts. Either way it is not a

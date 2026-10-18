@@ -13,8 +13,8 @@ scrolls; the frame does not. On wide screens the rail is a collapsible column.
 On narrow screens a bottom bar offers Journal, Search, New page, and Library;
 Library opens the rail as a focus-contained drawer (full screen on phones).
 Closed navigation cannot receive focus. While a block is being written on a
-phone, structural actions and Done replace the bottom bar. Shell and overlays
-share the visible viewport so the software keyboard never covers the
+touch screen, structural actions and Done replace the bottom bar. Shell and
+overlays share the visible viewport so the software keyboard never covers the
 interaction.
 
 ## Rail
@@ -107,8 +107,13 @@ device's copy from server deletion, which only an owner sees.
 
 - The drawer has a close action, Escape dismissal, focus containment, and focus
   return; the document is inert while it is open.
-- Touch targets grow to 44px; hover-revealed controls gain a touch route.
-- Long-press reaches the same actions as a context menu.
+- Width decides layout; input decides interaction. A coarse pointer gets touch
+  routes, touch targets, and the touch keyboard policy at any width, so a phone
+  held sideways or a tablet keeps them.
+- Touch targets reach 44px without changing their drawn size; hover-revealed
+  controls gain a touch route, and hover states apply only where a pointer can
+  hover.
+- A long press on the block handle reaches the block menu.
 - Overlays stay within the visible viewport.
 
 Shared control and overlay behavior follows [Interaction](interaction.md);

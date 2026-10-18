@@ -521,6 +521,41 @@ button.chip:focus-visible .chip-glyph .chip-x {
   outline: none;
 }
 
+/* A summoned surface on a phone, which has no room to place a popover beside
+   its trigger. It rides the visible viewport's bottom edge — the keyboard's top
+   while one is up — so the keyboard opening or closing moves the sheet with it,
+   where an anchor's coordinates would go stale; it stops short of the top so
+   the page it belongs to still shows. `!important` because it replaces the
+   anchored position React Aria writes inline. */
+.sheet {
+  position: fixed !important;
+  inset: auto 0 var(--visual-viewport-bottom, 0px) !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  max-height: calc(var(--visual-viewport-height, 100dvh) - 48px) !important;
+  border-radius: var(--r-4) var(--r-4) 0 0;
+  box-shadow: var(--e3);
+  padding-bottom: max(var(--sp-2), env(safe-area-inset-bottom));
+}
+
+.menu-surface.sheet {
+  padding: var(--sp-2) max(var(--sp-2), env(safe-area-inset-right))
+    max(var(--sp-2), env(safe-area-inset-bottom)) max(var(--sp-2), env(safe-area-inset-left));
+}
+
+.menu-shortcut {
+  display: flex;
+  align-items: center;
+  margin-inline-start: auto;
+  padding-inline-start: var(--sp-4);
+}
+
+/* A touch screen has no keys to name. */
+:root[data-touch] .menu-shortcut {
+  display: none;
+}
+
 .menu-select-menu {
   min-width: max(12rem, var(--trigger-width));
 }
@@ -615,10 +650,10 @@ button.chip:focus-visible .chip-glyph .chip-x {
     width: 44px;
     height: 44px;
   }
+}
 
-  .menu-row {
-    min-height: 44px;
-  }
+:root[data-touch] .menu-row {
+  min-height: 44px;
 }
 
 @media (max-width: 600px) {
@@ -633,4 +668,58 @@ button.chip:focus-visible .chip-glyph .chip-x {
     border-radius: 20px 20px 0 0;
     padding: 24px 20px max(24px, env(safe-area-inset-bottom));
   }
+}
+
+/* The stand-in that holds a phone's keyboard up while a new editor mounts
+   (ui/keyboard-bridge). 16px, or iOS would zoom to it. */
+.keyboard-bridge {
+  position: fixed;
+  top: var(--visual-viewport-top, 0px);
+  left: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  font-size: 16px;
+  pointer-events: none;
+  resize: none;
+}
+
+/* On touch a small control keeps its drawn size and gains a 44px reach. The
+   reach is invisible and centred, so nothing around the control moves
+   (designs/foundations.md § Stable Geometry); a control already wider than a
+   fingertip only grows to 44px tall. */
+:root[data-touch]
+  :is(
+    .icon-btn,
+    .task-status-toggle,
+    .task-priority-toggle,
+    .task-chip,
+    .prop-strip-chip,
+    .query-th-menu,
+    .query-cell-open
+  ) {
+  position: relative;
+}
+
+:root[data-touch]
+  :is(
+    .icon-btn,
+    .task-status-toggle,
+    .task-priority-toggle,
+    .task-chip,
+    .prop-strip-chip,
+    .query-th-menu,
+    .query-cell-open
+  )::after {
+  content: "";
+  position: absolute;
+  inset: min(0px, calc((100% - 44px) / 2));
+}
+
+/* Inside a scrolling table the reach stays within the cell's own padding, or
+   the last column's would widen what the table scrolls. */
+:root[data-touch] :is(.query-th-menu, .query-cell-open)::after {
+  inset-inline: -6px;
 }

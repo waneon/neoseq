@@ -41,6 +41,13 @@
   text-rendering: auto;
 }
 
+/* On touch the editor is at least 16px (foundations.css), so the highlighted
+   copy beneath it grows with it and the two still lay out identically. */
+:root[data-touch] .code-block {
+  --code-lh: 24px;
+  font-size: 16px;
+}
+
 /* The head: the language at the start, a control only where the block is
    edited as code, and the copy action at the end. Both are placed by their
    visible strokes, so the name starts where the line numbers do and the icon

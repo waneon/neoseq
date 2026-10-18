@@ -47,7 +47,7 @@
 // The saved view supplies ordered columns and rows directly to the native table.
 // The resize gesture starts from the browser's measured widths.
 
-import { useLayoutEffect, useRef, useState, memo } from "react";
+import { useLayoutEffect, useRef, useState, memo, type CSSProperties } from "react";
 import {
   ArrowDownIcon,
   ArrowUpRightIcon,
@@ -71,6 +71,21 @@ import { type CellContext, type ResultColumn, type ResultViewRow } from "./cells
 import { EditableCellValue, type QueryResultEditor } from "./edit";
 import { QueryTableCellFrame } from "./QueryTableCell";
 import { useProgressiveRows } from "./progressive-rows";
+import { isTaskDateKey } from "../../entities/tasks";
+
+/**
+ * The width a column asks for when a phone cannot share the block between the
+ * columns. Text gets the most and a page its title; a moment enough for its
+ * compact date; anything else a word or two. A new query's text and page fit a
+ * phone side by side; past that the table scrolls.
+ */
+function naturalWidth(column: ResultColumn): string {
+  const source = column.source;
+  if (source?.kind === "content" || source?.kind === "subject") return "11.5rem";
+  if (source?.kind === "page") return "9rem";
+  if (source?.kind === "property" && isTaskDateKey(source.key)) return "10rem";
+  return "7.5rem";
+}
 
 const MIN_WIDTH = 72;
 const DEFAULT_WIDTH = 180;
@@ -314,7 +329,11 @@ function QueryTableViewBody({
             // that hands the layout over declares the widths it measures.
             <col
               key={column.variable}
-              style={{ width: sized ? widthOf(column.variable) : undefined }}
+              style={
+                sized
+                  ? { width: widthOf(column.variable) }
+                  : ({ "--query-natural": naturalWidth(column) } as CSSProperties)
+              }
             />
           ))}
           {/* Only once the reader owns the widths: it takes whatever they did not,
