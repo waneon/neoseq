@@ -190,12 +190,16 @@ test("long lines wrap beside their number and keep the caret on its glyph", asyn
     const lh = parseFloat(getComputedStyle(element).lineHeight);
     return {
       overflow: element.scrollWidth - element.clientWidth,
+      // The editor wraps where the copy does only while it is exactly as wide.
+      editorWidth: element.querySelector("textarea")!.getBoundingClientRect().width,
+      lineWidth: first.getBoundingClientRect().width,
       rows: first.getBoundingClientRect().height / lh,
       numberTop: numbers[1].getBoundingClientRect().top,
       secondTop: second.getBoundingClientRect().top,
     };
   });
   expect(geometry.overflow).toBe(0);
+  expect(geometry.editorWidth).toBe(geometry.lineWidth);
   expect(geometry.rows).toBeGreaterThan(1);
   expect(geometry.numberTop).toBe(geometry.secondTop);
 
