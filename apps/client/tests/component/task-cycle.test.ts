@@ -60,3 +60,11 @@ it("marks a one-off task done", () => {
     value: { type: "string", value: "done" },
   });
 });
+
+it("takes a backlog task up as a to-do", () => {
+  expect(cycleTaskCommand(owner, task("backlog"))).toMatchObject({
+    type: "set_property",
+    key: TASK_STATUS_KEY,
+    value: { type: "string", value: "todo" },
+  });
+});

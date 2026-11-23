@@ -107,10 +107,10 @@ export function TaskStatusMenu({
     });
   };
 
-  // A value the core holds that is not one of the suggested four is still a
-  // value: it stays listed with its own (dashed) glyph. The *absence* of one is
+  // A value the core holds that is not one of the suggested ones is still a
+  // value: it stays listed with its own (dotted) glyph. The *absence* of one is
   // not — a query result's status column is empty on any row that has no status,
-  // and listing "" would offer a blank row above the four real answers.
+  // and listing "" would offer a blank row above the real answers.
   const options =
     !status || TASK_STATUSES.includes(status) ? TASK_STATUSES : [status, ...TASK_STATUSES];
 

@@ -505,7 +505,7 @@ describe("query result blocks", () => {
       within(menu)
         .getAllByRole("menuitemradio")
         .map((row) => row.textContent),
-    ).toEqual(["To-do", "Doing", "Done", "Cancelled"]);
+    ).toEqual(["Backlog", "To-do", "Doing", "Done", "Cancelled"]);
     expect(within(menu).getByRole("menuitem", { name: "Remove status" })).toBeInTheDocument();
     await user.click(within(menu).getByRole("menuitemradio", { name: "Done" }));
 

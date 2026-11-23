@@ -894,6 +894,7 @@ export interface MessageArgumentMap {
   "task.scheduledTime": undefined;
   "task.section": undefined;
   "task.status": undefined;
+  "task.status.backlog": undefined;
   "task.status.cancelled": undefined;
   "task.status.doing": undefined;
   "task.status.done": undefined;

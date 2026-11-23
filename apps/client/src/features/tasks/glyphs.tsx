@@ -1,7 +1,7 @@
 // Status and priority carried by shape first, then by colour.
 //
-// Each state is a distinct mark inside the same 20px circle language — empty,
-// half-filled, checked, crossed — and priority is a count of filled bars, so the
+// Each state is a distinct mark inside the same 20px circle language — dashed,
+// empty, half-filled, checked, crossed — and priority is a count of filled bars, so the
 // set survives monochrome, greyscale printing and any form of colour blindness.
 // Every glyph also sits beside (or inside the accessible name of) a text label.
 //
@@ -41,6 +41,14 @@ export function TaskStatusGlyph({
   ...props
 }: { status: string } & SVGProps<SVGSVGElement>) {
   switch (status) {
+    case "backlog":
+      // The ring of an unstarted task, broken: the work is named but not yet
+      // taken up.
+      return (
+        <svg {...BASE} {...props} data-status-glyph="backlog">
+          <circle cx="10" cy="10" r="7" strokeDasharray="2.4 2.8" />
+        </svg>
+      );
     case "todo":
       return (
         <svg {...BASE} {...props} data-status-glyph="todo">
@@ -71,11 +79,12 @@ export function TaskStatusGlyph({
         </svg>
       );
     default:
-      // A stored value outside the suggested set is still a status: a dashed
-      // ring says "set, but not one of the named shapes".
+      // A stored value outside the suggested set is still a status: a ring
+      // around a dot says "set, but not one of the named shapes".
       return (
         <svg {...BASE} {...props} data-status-glyph="other">
-          <circle cx="10" cy="10" r="7" strokeDasharray="2.4 2.8" />
+          <circle cx="10" cy="10" r="7" />
+          <circle cx="10" cy="10" r="2" fill="currentColor" stroke="none" />
         </svg>
       );
   }

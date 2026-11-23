@@ -6,8 +6,8 @@
    the property picker on its own key. */
 
 /* ── The state palette on a glyph ──
-   Status and priority are closed sets, so each step may name a tone: an empty
-   ring in the glyph ink for `todo`, amber for the one being worked, green for
+   Status and priority are closed sets, so each step may name a tone: a quiet
+   dashed ring for `backlog`, an empty ring in the glyph ink for `todo`, amber for the one being worked, green for
    `done`, the danger tone for `cancelled` — and the same three steps for
    priority. The shape still carries the state on its own, and so does the label
    beside it and the strike through a settled line, so nothing here is
@@ -18,6 +18,10 @@
    its tone without each one remembering to exempt it. A key's own mark
    (`data-plain`) names the property rather than a value, so it declines the
    tone and takes the ink around it, as does a value outside the palette. */
+[data-status-glyph="backlog"]:not([data-plain]) {
+  color: var(--status-backlog) !important;
+}
+
 [data-status-glyph="todo"]:not([data-plain]) {
   color: var(--status-todo) !important;
 }

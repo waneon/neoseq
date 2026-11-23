@@ -823,6 +823,7 @@
   "task.scheduledTime": "Scheduled time",
   "task.section": "Task",
   "task.status": "Status",
+  "task.status.backlog": "Backlog",
   "task.status.cancelled": "Cancelled",
   "task.status.doing": "Doing",
   "task.status.done": "Done",

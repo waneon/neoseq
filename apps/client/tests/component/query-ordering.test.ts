@@ -202,7 +202,7 @@ describe("query column ordering", () => {
       }),
     ).toEqual({
       kind: "ranked",
-      values: ["todo", "doing", "done", "cancelled"],
+      values: ["backlog", "todo", "doing", "done", "cancelled"],
       missing: "last",
     });
     expect(orderSemanticsForColumn({ source: { kind: "sibling_index" } })).toEqual({

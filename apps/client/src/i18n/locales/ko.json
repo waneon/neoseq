@@ -823,6 +823,7 @@
   "task.scheduledTime": "예정 시각",
   "task.section": "작업",
   "task.status": "상태",
+  "task.status.backlog": "백로그",
   "task.status.cancelled": "취소됨",
   "task.status.doing": "진행 중",
   "task.status.done": "완료",

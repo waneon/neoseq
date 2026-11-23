@@ -597,7 +597,7 @@ const PAGE_KINDS: &[&str] = &["regular", "journal"];
 const TAG_COLORS: &[&str] = &[
     "red", "orange", "green", "teal", "blue", "iris", "violet", "rose",
 ];
-const TASK_STATUSES: &[&str] = &["todo", "doing", "done", "cancelled"];
+const TASK_STATUSES: &[&str] = &["backlog", "todo", "doing", "done", "cancelled"];
 const TASK_PRIORITIES: &[&str] = &["low", "medium", "high"];
 
 pub const REGISTRY: &[(&str, PropertySpec)] = &[

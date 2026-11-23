@@ -43,7 +43,9 @@
       "copy": "portable"
     },
     "builtin.task-status": {
-      "shape": { "single": { "string": { "suggested": ["todo", "doing", "done", "cancelled"] } } },
+      "shape": {
+        "single": { "string": { "suggested": ["backlog", "todo", "doing", "done", "cancelled"] } }
+      },
       "ordering": { "kind": "choice_order" },
       "placements": { "page": "user", "block": "user", "tag_default": "user" },
       "copy": "portable"

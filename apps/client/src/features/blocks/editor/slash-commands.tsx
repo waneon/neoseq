@@ -65,6 +65,7 @@ export interface SlashItem {
 }
 
 const STATUS_ALIASES: Record<string, readonly string[]> = {
+  backlog: ["backlog", "later", "someday", "task", "백로그", "나중에"],
   todo: ["todo", "to do", "task", "할일", "할 일"],
   doing: ["doing", "in progress", "task", "진행", "진행 중"],
   done: ["done", "complete", "task", "완료"],
@@ -85,7 +86,11 @@ export function buildSlashItems(message: MessageFunction): SlashItem[] {
       group: "status",
       label: message(
         `task.status.${status}` as
-          "task.status.todo" | "task.status.doing" | "task.status.done" | "task.status.cancelled",
+          | "task.status.backlog"
+          | "task.status.todo"
+          | "task.status.doing"
+          | "task.status.done"
+          | "task.status.cancelled",
       ),
       aliases: STATUS_ALIASES[status] ?? [status],
       glyph: <TaskStatusGlyph status={status} />,

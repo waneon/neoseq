@@ -80,6 +80,7 @@
 
   --tone: var(--ink-2);
 
+  --status-backlog: var(--ink-3);
   --status-todo: currentColor;
   --status-doing: var(--attention);
   --status-done: var(--ok);

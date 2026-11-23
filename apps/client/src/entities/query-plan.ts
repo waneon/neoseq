@@ -43,6 +43,7 @@ export type {
 } from "../generated/core-port";
 import { FAVOURITE_ORDER_KEY } from "./favourites";
 import { isGenericProperty, REGISTRY, stringChoicesOf, valueTypeOf } from "./properties";
+import { startingChoice } from "./tasks";
 
 export const PLAN_SUBJECTS: PlanSubject[] = ["block", "page", "tag"];
 
@@ -357,8 +358,8 @@ export function defaultValueForField(field: PlanField, types?: PropertyTypes): P
     case "tag":
       return { type: "tag", value: "" };
     default: {
-      const choices = field.kind === "property" ? stringChoicesOf(field.key) : [];
-      return { type: "text", value: choices[0] ?? "" };
+      if (field.kind !== "property") return { type: "text", value: "" };
+      return { type: "text", value: startingChoice(field.key, stringChoicesOf(field.key)) ?? "" };
     }
   }
 }

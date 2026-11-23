@@ -65,7 +65,7 @@ const PRIORITY_OFFER_ORDER: readonly string[] = ["high", "medium", "low"];
  * the right order to *store* and the wrong order to *read*: `low` arrived at the
  * top of the priority list, one row further from the pointer than the answer
  * almost every reader is reaching for. Status keeps the registry's progression
- * (todo → doing → done → cancelled) because that is the order the work moves in.
+ * (backlog → todo → doing → done → cancelled) because that is the order the work moves in.
  * A stored value outside the suggested set keeps its place at the end.
  */
 export function offeredChoices(key: string, choices: readonly string[]): string[] {
@@ -75,6 +75,16 @@ export function offeredChoices(key: string, choices: readonly string[]): string[
     return index < 0 ? PRIORITY_OFFER_ORDER.length : index;
   };
   return [...choices].sort((left, right) => rank(left) - rank(right));
+}
+
+/**
+ * The value a new condition on a choice property starts from. A status starts
+ * on `todo`: open work is what a task query almost always asks for, and the
+ * backlog that precedes it in the progression is what such a query leaves out.
+ */
+export function startingChoice(key: string, choices: readonly string[]): string | undefined {
+  if (key === TASK_STATUS_KEY && choices.includes("todo")) return "todo";
+  return choices[0];
 }
 
 /** Done and cancelled are settled: their text reads as struck through. */

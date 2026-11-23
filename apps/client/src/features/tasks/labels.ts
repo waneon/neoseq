@@ -9,7 +9,11 @@ export function statusLabel(status: string, message: MessageFunction): string {
   if (!TASK_STATUSES.includes(status)) return status;
   return message(
     `task.status.${status}` as
-      "task.status.todo" | "task.status.doing" | "task.status.done" | "task.status.cancelled",
+      | "task.status.backlog"
+      | "task.status.todo"
+      | "task.status.doing"
+      | "task.status.done"
+      | "task.status.cancelled",
   );
 }
 

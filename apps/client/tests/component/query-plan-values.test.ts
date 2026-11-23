@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { valueForOperator, type PlanField } from "../../src/entities/query-plan";
+import {
+  defaultValueForField,
+  valueForOperator,
+  type PlanField,
+} from "../../src/entities/query-plan";
 
 const status: PlanField = { kind: "property", key: "builtin.task-status" };
 const tag: PlanField = { kind: "tag" };
@@ -27,5 +31,9 @@ describe("a condition's value across operators", () => {
       type: "tag",
       value: "",
     });
+  });
+
+  it("starts a status condition on open work, not on the backlog before it", () => {
+    expect(defaultValueForField(status)).toEqual({ type: "text", value: "todo" });
   });
 });

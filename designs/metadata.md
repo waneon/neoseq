@@ -122,7 +122,8 @@ Choice menus preserve stored values outside the current suggested set and make
 removal explicit; merely opening an editor never rewrites data. Completing one
 occurrence of a recurring task advances its moments by the stored cadence and
 keeps the task active rather than presenting the whole task as finished.
-`Mod+Enter` while writing cycles `todo` → `doing` → `done` → no status. It retains
+`Mod+Enter` while writing cycles `todo` → `doing` → `done` → no status; `backlog`
+is chosen from a menu or `/backlog` and steps into the cycle at `todo`. It retains
 other task facts and does not split the block or finish editing the result.
 
 ## Moments
