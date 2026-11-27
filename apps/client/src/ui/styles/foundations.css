@@ -363,7 +363,7 @@ body {
   line-height: var(--lh-md);
   font-weight: var(--weight-normal);
   font-optical-sizing: auto;
-  font-feature-settings: "lnum", "locl", "cv11";
+  font-feature-settings: "lnum", "locl";
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
