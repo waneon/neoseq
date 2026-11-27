@@ -36,8 +36,12 @@ const TONE_ICON: Record<ToastTone, typeof InfoIcon> = {
 export function Toaster({ store }: { store: ToastStore }) {
   const { message } = useI18n();
   const toasts = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
-  const [hovered, setHovered] = useState(false);
-  const [focused, setFocused] = useState(false);
+  // Which toast the pointer is on and which one holds the focus, rather than
+  // whether either is somewhere in the region: a toast removed from under the
+  // pointer or the focus reports neither a mouse leave nor a blur, and a hold
+  // that waited for those events would freeze every later toast.
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
   const [backgrounded, setBackgrounded] = useState(
     () => typeof document !== "undefined" && document.visibilityState === "hidden",
   );
@@ -51,7 +55,8 @@ export function Toaster({ store }: { store: ToastStore }) {
   }, []);
 
   const dismiss = useCallback((id: string) => store.dismiss(id), [store]);
-  const paused = hovered || focused || backgrounded;
+  const held = toasts.some((toast) => toast.id === hoveredId || toast.id === focusedId);
+  const paused = held || backgrounded;
 
   return createPortal(
     <div
@@ -63,16 +68,6 @@ export function Toaster({ store }: { store: ToastStore }) {
       role="region"
       aria-label={message("notify.notifications")}
       data-testid="toasts"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onFocus={() => setFocused(true)}
-      onBlur={(event) => {
-        // Moving between the action and the dismiss button inside one toast is
-        // not leaving; only a focus that lands outside restarts the timers.
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-          setFocused(false);
-        }
-      }}
     >
       {toasts.map((toast) => (
         <ToastRow
@@ -80,6 +75,8 @@ export function Toaster({ store }: { store: ToastStore }) {
           toast={toast}
           paused={paused}
           onDismiss={dismiss}
+          onHover={setHoveredId}
+          onFocus={setFocusedId}
           occurrenceLabel={message("notify.occurrences", { count: toast.count })}
           dismissLabel={message("notify.dismiss", { title: toast.title })}
         />
@@ -93,12 +90,16 @@ function ToastRow({
   toast,
   paused,
   onDismiss,
+  onHover,
+  onFocus,
   occurrenceLabel,
   dismissLabel,
 }: {
   toast: Toast;
   paused: boolean;
   onDismiss: (id: string) => void;
+  onHover: (id: string | null) => void;
+  onFocus: (id: string | null) => void;
   occurrenceLabel: string;
   dismissLabel: string;
 }) {
@@ -143,6 +144,16 @@ function ToastRow({
       // gap. `aria-atomic` keeps the reason attached to the thing that failed.
       role={toast.tone === "danger" ? "alert" : "status"}
       aria-atomic="true"
+      onMouseEnter={() => onHover(id)}
+      onMouseLeave={() => onHover(null)}
+      onFocus={() => onFocus(id)}
+      onBlur={(event) => {
+        // Moving between the action and the dismiss button inside one toast is
+        // not leaving; only a focus that lands outside it lets go.
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          onFocus(null);
+        }
+      }}
       onKeyDown={(event) => {
         if (event.key !== "Escape") return;
         event.stopPropagation();

@@ -156,7 +156,7 @@ describe("toast surface", () => {
 
     act(() => {
       vi.advanceTimersByTime(1000);
-      fireEvent.mouseEnter(screen.getByTestId("toasts"));
+      fireEvent.mouseEnter(toast);
     });
     expect(toast).toHaveAttribute("data-paused", "true");
     act(() => {
@@ -166,12 +166,41 @@ describe("toast surface", () => {
     expect(screen.getByTestId("toast")).toBeInTheDocument();
 
     act(() => {
-      fireEvent.mouseLeave(screen.getByTestId("toasts"));
+      fireEvent.mouseLeave(toast);
     });
     expect(screen.getByTestId("toast")).toHaveAttribute("data-paused", "false");
     act(() => {
       // Only the three seconds it had left, not another four.
       vi.advanceTimersByTime(3100);
+    });
+    expect(screen.queryByTestId("toast")).not.toBeInTheDocument();
+  });
+
+  it("stops holding once the toast under the pointer and the focus is gone", () => {
+    vi.useFakeTimers();
+    const notify = mountNotifier();
+    act(() => {
+      notify.show({ tone: "info", title: "Closed by hand" });
+    });
+    // A removed element reports neither a mouse leave nor a blur, so a hold
+    // that waited for them would outlive the toast that earned it.
+    const dismiss = screen.getByTestId("toast-dismiss");
+    act(() => {
+      fireEvent.mouseEnter(screen.getByTestId("toast"));
+      dismiss.focus();
+    });
+    expect(screen.getByTestId("toast")).toHaveAttribute("data-paused", "true");
+    act(() => {
+      fireEvent.click(dismiss);
+    });
+    expect(screen.queryByTestId("toast")).not.toBeInTheDocument();
+
+    act(() => {
+      notify.show({ tone: "info", title: "Raised afterwards", duration: 4000 });
+    });
+    expect(screen.getByTestId("toast")).toHaveAttribute("data-paused", "false");
+    act(() => {
+      vi.advanceTimersByTime(4100);
     });
     expect(screen.queryByTestId("toast")).not.toBeInTheDocument();
   });
